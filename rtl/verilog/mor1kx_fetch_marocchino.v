@@ -98,6 +98,8 @@ module mor1kx_fetch_marocchino
   // to DECODE
   output reg [OPTION_OPERAND_WIDTH-1:0] pc_decode_o,
   output reg     [`OR1K_INSN_WIDTH-1:0] dcod_insn_o,
+  output reg                            dcod_op_branch_o,
+  output reg                            dcod_delay_slot_o,
   output reg                            dcod_insn_valid_o,
   // exceptions
   output reg                            dcod_except_ibus_err_o,
@@ -223,7 +225,7 @@ module mor1kx_fetch_marocchino
   // or till IBUS answer and restart fetching after SPR transaction.
   reg [OPTION_OPERAND_WIDTH-1:0] s1o_virt_addr;
 
-  // valid instruction on stage #2 outputs
+  // valid instruction is on stage #2 outputs
   wire s3t_insn;
 
 
@@ -554,13 +556,44 @@ module mor1kx_fetch_marocchino
   assign s3t_insn = (s2o_ic_ack_instant | s2o_ibus_ack_instant |
                      s2o_ic_ack_stored  | s2o_ibus_ack_stored) & ~flush_by_mispredict;
 
+
   // select insn
   wire [OPTION_OPERAND_WIDTH-1:0] s3t_insn_mux =
-    ~s3t_insn            ? {`OR1K_OPCODE_NOP,26'd0} :
+    ~s3t_insn     ? {`OR1K_OPCODE_NOP,26'd0} :
     s2o_ic_ack_instant   ? s2o_ic_dat_instant :
     s2o_ibus_ack_instant ? s2o_ibus_dat_instant :
     s2o_ic_ack_stored    ? s2o_ic_dat_stored :
                            s2o_ibus_dat_stored;
+
+
+  // detection of delay slot to correct processing delay slot exceptions
+  // 1st we detect jump/branch instruction
+  wire s3t_jb = s3t_insn &
+                ((s3t_insn_mux[`OR1K_OPCODE_SELECT] < `OR1K_OPCODE_NOP) |   // l.j  | l.jal  | l.bnf | l.bf
+                 (s3t_insn_mux[`OR1K_OPCODE_SELECT] == `OR1K_OPCODE_JR) |   // l.jr
+                 (s3t_insn_mux[`OR1K_OPCODE_SELECT] == `OR1K_OPCODE_JALR)); // l.jalr
+
+  // 2nd: delay slot detection is free from mispredict flush
+  wire s3t_ds = s2o_ic_ack_instant | s2o_ibus_ack_instant |
+                s2o_ic_ack_stored  | s2o_ibus_ack_stored  |
+                s2o_ibus_err | s2o_itlb_miss | s2o_ipagefault;
+
+  // to DECODE: delay slot flag
+  always @(posedge clk `OR_ASYNC_RST) begin
+    if (rst) begin
+      dcod_op_branch_o  <= 1'b0;
+      dcod_delay_slot_o <= 1'b0;
+    end
+    else if (flush_by_ctrl) begin
+      dcod_op_branch_o  <= 1'b0;
+      dcod_delay_slot_o <= 1'b0;
+    end
+    else if (padv_s3) begin
+      dcod_op_branch_o  <= s3t_jb;
+      dcod_delay_slot_o <= dcod_op_branch_o & s3t_ds;
+    end
+  end // @ clock
+
 
   // to DECODE: instruction word
   always @(posedge clk `OR_ASYNC_RST) begin

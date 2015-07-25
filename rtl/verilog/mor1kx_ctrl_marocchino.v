@@ -31,18 +31,20 @@ module mor1kx_ctrl_marocchino
   parameter FEATURE_TRAP = "ENABLED",
   parameter FEATURE_RANGE = "ENABLED",
 
-  parameter FEATURE_DATACACHE = "NONE",
   parameter OPTION_DCACHE_BLOCK_WIDTH = 5,
   parameter OPTION_DCACHE_SET_WIDTH = 9,
   parameter OPTION_DCACHE_WAYS = 2,
-  parameter FEATURE_DMMU = "NONE",
+
   parameter OPTION_DMMU_SET_WIDTH = 6,
   parameter OPTION_DMMU_WAYS = 1,
+
   parameter OPTION_ICACHE_BLOCK_WIDTH = 5,
   parameter OPTION_ICACHE_SET_WIDTH = 9,
   parameter OPTION_ICACHE_WAYS = 2,
+
   parameter OPTION_IMMU_SET_WIDTH = 6,
   parameter OPTION_IMMU_WAYS = 1,
+
   parameter FEATURE_TIMER = "ENABLED",
   parameter FEATURE_DEBUGUNIT = "NONE",
   parameter FEATURE_PERFCOUNTERS = "NONE",
@@ -55,7 +57,6 @@ module mor1kx_ctrl_marocchino
   parameter OPTION_PIC_TRIGGER = "LEVEL",
   parameter OPTION_PIC_NMI_WIDTH = 0,
 
-  parameter FEATURE_DSX ="NONE",
   parameter FEATURE_FASTCONTEXTS = "NONE",
   parameter OPTION_RF_NUM_SHADOW_GPR = 0,
   parameter FEATURE_OVERFLOW = "NONE",
@@ -510,7 +511,7 @@ endgenerate // FPU related: FPCSR and exceptions
       spr_sr[`OR1K_SPR_SR_IME] <= 1'b0; // I-MMU is off
       spr_sr[`OR1K_SPR_SR_OVE] <= 1'b0; // enable overflow excep.
       // depending on feature configuration
-      spr_sr[`OR1K_SPR_SR_DSX] <= wb_delay_slot_i & (FEATURE_DSX != "NONE");
+      spr_sr[`OR1K_SPR_SR_DSX] <= wb_delay_slot_i;
     end
     else if ((spr_we & spr_access[`OR1K_SPR_SYS_BASE] &
              ((spr_sr[`OR1K_SPR_SR_SM] & spr_we_en) | du_access)) &
@@ -520,15 +521,15 @@ endgenerate // FPU related: FPCSR and exceptions
       spr_sr[`OR1K_SPR_SR_F  ] <= spr_write_dat[`OR1K_SPR_SR_F  ];
       spr_sr[`OR1K_SPR_SR_TEE] <= spr_write_dat[`OR1K_SPR_SR_TEE] & (FEATURE_TIMER != "NONE");
       spr_sr[`OR1K_SPR_SR_IEE] <= spr_write_dat[`OR1K_SPR_SR_IEE] & (FEATURE_PIC != "NONE");
-      spr_sr[`OR1K_SPR_SR_DCE] <= spr_write_dat[`OR1K_SPR_SR_DCE] & (FEATURE_DATACACHE != "NONE");
+      spr_sr[`OR1K_SPR_SR_DCE] <= spr_write_dat[`OR1K_SPR_SR_DCE];
       spr_sr[`OR1K_SPR_SR_ICE] <= spr_write_dat[`OR1K_SPR_SR_ICE];
-      spr_sr[`OR1K_SPR_SR_DME] <= spr_write_dat[`OR1K_SPR_SR_DME] & (FEATURE_DMMU != "NONE");
+      spr_sr[`OR1K_SPR_SR_DME] <= spr_write_dat[`OR1K_SPR_SR_DME];
       spr_sr[`OR1K_SPR_SR_IME] <= spr_write_dat[`OR1K_SPR_SR_IME];
       spr_sr[`OR1K_SPR_SR_CE ] <= spr_write_dat[`OR1K_SPR_SR_CE ] & (FEATURE_FASTCONTEXTS != "NONE");
       spr_sr[`OR1K_SPR_SR_CY ] <= spr_write_dat[`OR1K_SPR_SR_CY ] & (FEATURE_CARRY_FLAG != "NONE");
       spr_sr[`OR1K_SPR_SR_OV ] <= spr_write_dat[`OR1K_SPR_SR_OV ] & (FEATURE_OVERFLOW != "NONE");
       spr_sr[`OR1K_SPR_SR_OVE] <= spr_write_dat[`OR1K_SPR_SR_OVE] & (FEATURE_OVERFLOW != "NONE");
-      spr_sr[`OR1K_SPR_SR_DSX] <= spr_write_dat[`OR1K_SPR_SR_DSX] & (FEATURE_DSX != "NONE");
+      spr_sr[`OR1K_SPR_SR_DSX] <= spr_write_dat[`OR1K_SPR_SR_DSX];
       spr_sr[`OR1K_SPR_SR_EPH] <= spr_write_dat[`OR1K_SPR_SR_EPH];
     end
     else if (wb_new_result_o) begin
@@ -665,15 +666,15 @@ endgenerate // FPU related: FPCSR and exceptions
     .FEATURE_PIC                     (FEATURE_PIC),
     .FEATURE_TIMER                   (FEATURE_TIMER),
     .OPTION_PIC_TRIGGER              (OPTION_PIC_TRIGGER),
-    .FEATURE_DSX                     (FEATURE_DSX),
+    .FEATURE_DSX                     ("ENABLED"), // mor1kx_cfgrs instance: marocchino
     .FEATURE_FASTCONTEXTS            (FEATURE_FASTCONTEXTS),
     .OPTION_RF_NUM_SHADOW_GPR        (OPTION_RF_NUM_SHADOW_GPR),
     .FEATURE_OVERFLOW                (FEATURE_OVERFLOW),
-    .FEATURE_DATACACHE               (FEATURE_DATACACHE),
+    .FEATURE_DATACACHE               ("ENABLED"), // mor1kx_cfgrs instance: marocchino
     .OPTION_DCACHE_BLOCK_WIDTH       (OPTION_DCACHE_BLOCK_WIDTH),
     .OPTION_DCACHE_SET_WIDTH         (OPTION_DCACHE_SET_WIDTH),
     .OPTION_DCACHE_WAYS              (OPTION_DCACHE_WAYS),
-    .FEATURE_DMMU                    (FEATURE_DMMU),
+    .FEATURE_DMMU                    ("ENABLED"), // mor1kx_cfgrs instance: marocchino
     .OPTION_DMMU_SET_WIDTH           (OPTION_DMMU_SET_WIDTH),
     .OPTION_DMMU_WAYS                (OPTION_DMMU_WAYS),
     .FEATURE_INSTRUCTIONCACHE        ("ENABLED"), // mor1kx_cfgrs instance: marocchino
@@ -855,9 +856,9 @@ endgenerate
       // system registers
       `OR1K_SPR_SYS_BASE:  spr_access[`OR1K_SPR_SYS_BASE]  <= 1'b1;
       // modules registers
-      `OR1K_SPR_DMMU_BASE: spr_access[`OR1K_SPR_DMMU_BASE] <= (FEATURE_DMMU != "NONE");
+      `OR1K_SPR_DMMU_BASE: spr_access[`OR1K_SPR_DMMU_BASE] <= 1'b1;
       `OR1K_SPR_IMMU_BASE: spr_access[`OR1K_SPR_IMMU_BASE] <= 1'b1;
-      `OR1K_SPR_DC_BASE:   spr_access[`OR1K_SPR_DC_BASE]   <= (FEATURE_DATACACHE != "NONE");
+      `OR1K_SPR_DC_BASE:   spr_access[`OR1K_SPR_DC_BASE]   <= 1'b1;
       `OR1K_SPR_IC_BASE:   spr_access[`OR1K_SPR_IC_BASE]   <= 1'b1;
       `OR1K_SPR_MAC_BASE:  spr_access[`OR1K_SPR_MAC_BASE]  <= (FEATURE_MAC != "NONE");
       `OR1K_SPR_DU_BASE:   spr_access[`OR1K_SPR_DU_BASE]   <= (FEATURE_DEBUGUNIT != "NONE");
@@ -1011,21 +1012,16 @@ endgenerate
   assign ctrl_mtspr_ack_o = mXspr_ack;
 
 // Controls to generate ACKs from units that are external to this module
-generate
-if (FEATURE_DMMU != "NONE") begin : dmmu_ctrl
+
+  // DMMU
   assign spr_access_ack[`OR1K_SPR_DMMU_BASE] = spr_bus_ack_dmmu_i &
                                                spr_access[`OR1K_SPR_DMMU_BASE];
   assign spr_internal_read_dat[`OR1K_SPR_DMMU_BASE] =
     spr_bus_dat_dmmu_i &
     {OPTION_OPERAND_WIDTH{spr_access[`OR1K_SPR_DMMU_BASE]}};
-end
-else begin
-  assign spr_access_ack[`OR1K_SPR_DMMU_BASE] = 1'b0;
-  assign spr_internal_read_dat[`OR1K_SPR_DMMU_BASE] = 0;
-end
-endgenerate
 
 
+  // IMMU
   assign spr_access_ack[`OR1K_SPR_IMMU_BASE] = spr_bus_ack_immu_i &
                                                spr_access[`OR1K_SPR_IMMU_BASE];
   assign spr_internal_read_dat[`OR1K_SPR_IMMU_BASE] =
@@ -1033,20 +1029,14 @@ endgenerate
     {OPTION_OPERAND_WIDTH{spr_access[`OR1K_SPR_IMMU_BASE]}};
 
 
-generate
-if (FEATURE_DATACACHE != "NONE") begin : datacache_ctrl
+  // DCACHE
   assign spr_access_ack[`OR1K_SPR_DC_BASE] = spr_bus_ack_dc_i &
                                              spr_access[`OR1K_SPR_DC_BASE];
   assign spr_internal_read_dat[`OR1K_SPR_DC_BASE] =
     spr_bus_dat_dc_i & {OPTION_OPERAND_WIDTH{spr_access[`OR1K_SPR_DC_BASE]}};
-end
-else begin
-  assign spr_access_ack[`OR1K_SPR_DC_BASE] = 1'b0;
-  assign spr_internal_read_dat[`OR1K_SPR_DC_BASE] = 0;
-end
-endgenerate
 
 
+  // ICACHE
   assign spr_access_ack[`OR1K_SPR_IC_BASE] = spr_bus_ack_ic_i &
                                              spr_access[`OR1K_SPR_IC_BASE];
   assign spr_internal_read_dat[`OR1K_SPR_IC_BASE] =

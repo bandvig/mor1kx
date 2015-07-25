@@ -21,7 +21,6 @@
 module mor1kx_lsu_marocchino
 #(
   // data cache
-  parameter FEATURE_DATACACHE         = "NONE",
   parameter OPTION_OPERAND_WIDTH      = 32,
   parameter OPTION_DCACHE_BLOCK_WIDTH = 5,
   parameter OPTION_DCACHE_SET_WIDTH   = 9,
@@ -29,15 +28,12 @@ module mor1kx_lsu_marocchino
   parameter OPTION_DCACHE_LIMIT_WIDTH = 32,
   parameter OPTION_DCACHE_SNOOP       = "NONE",
   // mmu cache
-  parameter FEATURE_DMMU               = "NONE",
   parameter FEATURE_DMMU_HW_TLB_RELOAD = "NONE",
   parameter OPTION_DMMU_SET_WIDTH      = 6,
   parameter OPTION_DMMU_WAYS           = 1,
   // store buffer
   parameter FEATURE_STORE_BUFFER            = "ENABLED",
-  parameter OPTION_STORE_BUFFER_DEPTH_WIDTH = 8,
-  // atomic support
-  parameter FEATURE_ATOMIC = "ENABLED"
+  parameter OPTION_STORE_BUFFER_DEPTH_WIDTH = 8
 )
 (
   input                             clk,
@@ -606,9 +602,9 @@ module mor1kx_lsu_marocchino
                        (snoop_en_i & (~((snoop_adr_i == dbus_adr_o) & dbus_ack_i)));
 
 
-generate
-if (FEATURE_ATOMIC!="NONE") begin : atomic_gen
-  // Atomic operations logic
+  //-------------------------//
+  // Atomic operations logic //
+  //-------------------------//
 
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
@@ -651,19 +647,6 @@ if (FEATURE_ATOMIC!="NONE") begin : atomic_gen
 
   assign atomic_flag_set_o   = atomic_flag_set;
   assign atomic_flag_clear_o = atomic_flag_clear;
-
-end
-else begin
-  assign atomic_flag_set_o   = 1'b0;
-  assign atomic_flag_clear_o = 1'b0;
-  assign swa_success         = 1'b0;
-  always @(posedge clk) begin
-     atomic_addr    <= 0;
-     atomic_reserve <= 1'b0;
-  end
-end
-endgenerate
-
 
 
   //--------------------//
@@ -775,8 +758,11 @@ endgenerate
   assign dc_refill_allowed = (~(cmd_op_lsu_store | (state == WRITE))) &
                              (~dc_snoop_hit) & (~snoop_valid);
 
+  //-------------------//
+  // Instance of cache //
+  //-------------------//
+
 generate
-if (FEATURE_DATACACHE!="NONE") begin : dcache_gen
   if (OPTION_DCACHE_LIMIT_WIDTH == OPTION_OPERAND_WIDTH) begin
     assign dc_access = cmd_op_lsu_store |
                        (dc_enabled & (~(dmmu_cache_inhibit & dmmu_enable_i)));
@@ -794,6 +780,7 @@ if (FEATURE_DATACACHE!="NONE") begin : dcache_gen
       $finish();
     end
   end
+endgenerate
 
   assign dc_bsel = dbus_bsel;
 
@@ -846,22 +833,11 @@ if (FEATURE_DATACACHE!="NONE") begin : dcache_gen
     .spr_bus_stb_i              (spr_bus_stb_i),
     .spr_bus_dat_i              (spr_bus_dat_i[OPTION_OPERAND_WIDTH-1:0])
   );
-end
-else begin
-   assign dc_access = 0;
-   assign dc_refill = 0;
-   assign dc_refill_done = 0;
-   assign dc_refill_req = 0;
-   assign dc_err = 0;
-   assign dc_ack = 0;
-   assign dc_bsel = 0;
-   assign dc_we = 0;
-   assign dc_snoop_hit = 0;
-end
-endgenerate
 
-generate
-if (FEATURE_DMMU!="NONE") begin : dmmu_gen
+  //------------------//
+  // Instance of DMMU //
+  //------------------//
+
   wire  [OPTION_OPERAND_WIDTH-1:0] virt_addr;
   wire                             dmmu_enable;
 
@@ -908,15 +884,5 @@ if (FEATURE_DMMU!="NONE") begin : dmmu_gen
     .spr_bus_stb_i                    (spr_bus_stb_i),
     .spr_bus_dat_i                    (spr_bus_dat_i[OPTION_OPERAND_WIDTH-1:0])
   );
-end
-else begin
-   assign dmmu_cache_inhibit = 0;
-   assign tlb_miss = 0;
-   assign dmmu_pagefault = 0;
-   assign tlb_reload_busy = 0;
-   assign tlb_reload_req = 0;
-   assign tlb_reload_pagefault = 0;
-end
-endgenerate
 
 endmodule // mor1kx_lsu_marocchino

@@ -18,25 +18,21 @@ module mor1kx_cpu_marocchino
 #(
   parameter OPTION_OPERAND_WIDTH = 32,
   // data cache
-  parameter FEATURE_DATACACHE         = "NONE",
   parameter OPTION_DCACHE_BLOCK_WIDTH = 5,
   parameter OPTION_DCACHE_SET_WIDTH   = 9,
   parameter OPTION_DCACHE_WAYS        = 2,
   parameter OPTION_DCACHE_LIMIT_WIDTH = 32,
   parameter OPTION_DCACHE_SNOOP       = "NONE",
   // data mmu
-  parameter FEATURE_DMMU               = "NONE",
   parameter FEATURE_DMMU_HW_TLB_RELOAD = "NONE",
   parameter OPTION_DMMU_SET_WIDTH      = 6,
   parameter OPTION_DMMU_WAYS           = 1,
   // instruction cache
-  parameter FEATURE_INSTRUCTIONCACHE   = "NONE",
   parameter OPTION_ICACHE_BLOCK_WIDTH  = 5,
   parameter OPTION_ICACHE_SET_WIDTH    = 9,
   parameter OPTION_ICACHE_WAYS         = 2,
   parameter OPTION_ICACHE_LIMIT_WIDTH  = 32,
   // instruction mmu
-  parameter FEATURE_IMMU               = "NONE",
   parameter FEATURE_IMMU_HW_TLB_RELOAD = "NONE",
   parameter OPTION_IMMU_SET_WIDTH      = 6,
   parameter OPTION_IMMU_WAYS           = 1,
@@ -53,7 +49,6 @@ module mor1kx_cpu_marocchino
   parameter OPTION_PIC_TRIGGER   = "LEVEL",
   parameter OPTION_PIC_NMI_WIDTH = 0,
 
-  parameter FEATURE_DSX        = "NONE",
   parameter FEATURE_OVERFLOW   = "NONE",
   parameter FEATURE_CARRY_FLAG = "ENABLED",
 
@@ -66,11 +61,8 @@ module mor1kx_cpu_marocchino
                               `OR1K_RESET_VECTOR,8'd0},
 
   parameter FEATURE_EXT   = "NONE",
-  parameter FEATURE_MSYNC = "ENABLED",
   parameter FEATURE_PSYNC = "NONE",
   parameter FEATURE_CSYNC = "NONE",
-
-  parameter FEATURE_ATOMIC = "ENABLED",
 
   parameter FEATURE_FPU    = "NONE", // ENABLED|NONE: pipeline marocchino
 
@@ -216,7 +208,12 @@ module mor1kx_cpu_marocchino
   wire                 exec_bubble;
 
 
+  wire                 dcod_op_branch;
   wire                 exec_op_branch;
+
+
+  wire                 dcod_delay_slot;
+  wire                 exec_delay_slot;
   wire                 wb_delay_slot;
 
 
@@ -441,6 +438,8 @@ module mor1kx_cpu_marocchino
     //   To DECODE
     .pc_decode_o                      (pc_decode), // FETCH
     .dcod_insn_o                      (dcod_insn), // FETCH
+    .dcod_op_branch_o                 (dcod_op_branch), // FETCH
+    .dcod_delay_slot_o                (dcod_delay_slot), // FETCH
     .dcod_insn_valid_o                (dcod_insn_valid), // FETCH
 
     //   Exceptions
@@ -461,8 +460,6 @@ module mor1kx_cpu_marocchino
     .FEATURE_TRAP(FEATURE_TRAP),
     .FEATURE_RANGE(FEATURE_RANGE),
     .FEATURE_EXT(FEATURE_EXT),
-    .FEATURE_ATOMIC(FEATURE_ATOMIC),
-    .FEATURE_MSYNC(FEATURE_MSYNC),
     .FEATURE_PSYNC(FEATURE_PSYNC),
     .FEATURE_CSYNC(FEATURE_CSYNC),
     .FEATURE_FPU(FEATURE_FPU) // pipeline cappuccino: decode instance
@@ -477,6 +474,8 @@ module mor1kx_cpu_marocchino
     .pipeline_flush_i                 (pipeline_flush), // DECODE & DECODE->EXE
     // INSN
     .dcod_insn_i                      (dcod_insn), // DECODE & DECODE->EXE
+    .dcod_op_branch_i                 (dcod_op_branch), // DECODE & DECODE->EXE
+    .dcod_delay_slot_i                (dcod_delay_slot), // DECODE & DECODE->EXE
     .dcod_insn_valid_i                (dcod_insn_valid), // DECODE & DECODE->EXE
     // PC
     .pc_decode_i                      (pc_decode), // DECODE & DECODE->EXE
@@ -497,6 +496,7 @@ module mor1kx_cpu_marocchino
     .exec_op_setflag_o                (exec_op_setflag), // DECODE & DECODE->EXE
     .exec_op_brcond_o                 (exec_op_brcond), // DECODE & DECODE->EXE
     .exec_op_branch_o                 (exec_op_branch), // DECODE & DECODE->EXE
+    .exec_delay_slot_o                (exec_delay_slot), // DECODE & DECODE->EXE
     .exec_op_jal_o                    (exec_op_jal), // DECODE & DECODE->EXE
     .exec_jal_result_o                (exec_jal_result), // DECODE & DECODE->EXE
     .dcod_rfb_i                       (dcod_rfb), // DECODE & DECODE->EXE
@@ -678,20 +678,17 @@ module mor1kx_cpu_marocchino
 
   mor1kx_lsu_marocchino
   #(
-    .FEATURE_DATACACHE(FEATURE_DATACACHE),
     .OPTION_OPERAND_WIDTH(OPTION_OPERAND_WIDTH),
     .OPTION_DCACHE_BLOCK_WIDTH(OPTION_DCACHE_BLOCK_WIDTH),
     .OPTION_DCACHE_SET_WIDTH(OPTION_DCACHE_SET_WIDTH),
     .OPTION_DCACHE_WAYS(OPTION_DCACHE_WAYS),
     .OPTION_DCACHE_LIMIT_WIDTH(OPTION_DCACHE_LIMIT_WIDTH),
     .OPTION_DCACHE_SNOOP(OPTION_DCACHE_SNOOP),
-    .FEATURE_DMMU(FEATURE_DMMU),
     .FEATURE_DMMU_HW_TLB_RELOAD(FEATURE_DMMU_HW_TLB_RELOAD),
     .OPTION_DMMU_SET_WIDTH(OPTION_DMMU_SET_WIDTH),
     .OPTION_DMMU_WAYS(OPTION_DMMU_WAYS),
     .FEATURE_STORE_BUFFER(FEATURE_STORE_BUFFER),
-    .OPTION_STORE_BUFFER_DEPTH_WIDTH(OPTION_STORE_BUFFER_DEPTH_WIDTH),
-    .FEATURE_ATOMIC(FEATURE_ATOMIC)
+    .OPTION_STORE_BUFFER_DEPTH_WIDTH(OPTION_STORE_BUFFER_DEPTH_WIDTH)
   )
   u_lsu
   (
@@ -792,7 +789,7 @@ module mor1kx_cpu_marocchino
     .pc_exec_i                    (pc_exec), // WB_MUX
 
     // Insn in delay slot indicator (exception processing)
-    .exec_op_branch_i             (exec_op_branch), // WB_MUX
+    .exec_delay_slot_i            (exec_delay_slot), // WB_MUX
 
     // set/clear flags
     .lsu_atomic_flag_set_i        (lsu_atomic_flag_set), // WB_MUX
@@ -951,11 +948,9 @@ module mor1kx_cpu_marocchino
     .FEATURE_TIMER(FEATURE_TIMER),
     .OPTION_PIC_TRIGGER(OPTION_PIC_TRIGGER),
     .OPTION_PIC_NMI_WIDTH(OPTION_PIC_NMI_WIDTH),
-    .FEATURE_DATACACHE(FEATURE_DATACACHE),
     .OPTION_DCACHE_BLOCK_WIDTH(OPTION_DCACHE_BLOCK_WIDTH),
     .OPTION_DCACHE_SET_WIDTH(OPTION_DCACHE_SET_WIDTH),
     .OPTION_DCACHE_WAYS(OPTION_DCACHE_WAYS),
-    .FEATURE_DMMU(FEATURE_DMMU),
     .OPTION_DMMU_SET_WIDTH(OPTION_DMMU_SET_WIDTH),
     .OPTION_DMMU_WAYS(OPTION_DMMU_WAYS),
     .OPTION_ICACHE_BLOCK_WIDTH(OPTION_ICACHE_BLOCK_WIDTH),
@@ -971,7 +966,6 @@ module mor1kx_cpu_marocchino
     .FEATURE_SYSCALL(FEATURE_SYSCALL),
     .FEATURE_TRAP(FEATURE_TRAP),
     .FEATURE_RANGE(FEATURE_RANGE),
-    .FEATURE_DSX(FEATURE_DSX),
     .FEATURE_FASTCONTEXTS(FEATURE_FASTCONTEXTS),
     .OPTION_RF_NUM_SHADOW_GPR(OPTION_RF_NUM_SHADOW_GPR),
     .FEATURE_OVERFLOW(FEATURE_OVERFLOW),
