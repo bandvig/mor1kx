@@ -687,8 +687,10 @@ module mor1kx_fetch_marocchino
 
   // IBUS FSM status is stop
   // !!! should follows appropriate FSM condition,
-  //     but without taking into account exceotions
-  assign ibus_fsm_free = (state == IDLE) & (~imem_req_r | (imem_req_r & ic_try & ic_ack));
+  //     but without taking into account exceptions
+  assign ibus_fsm_free = ((state == IDLE) & (~imem_req_r | ic_rdy)) |
+     // MAROCCHINO_TODO: ((state == IC_REFILL) & ic_refill_done) |
+                         ibus_rdy;
 
   // refill support
   assign next_ibus_adr = (OPTION_ICACHE_BLOCK_WIDTH == 5) ?
