@@ -831,21 +831,16 @@ endgenerate
     .spr_bus_addr_i             (spr_bus_addr_i[15:0]),
     .spr_bus_we_i               (spr_bus_we_i),
     .spr_bus_stb_i              (spr_bus_stb_i),
-    .spr_bus_dat_i              (spr_bus_dat_i[OPTION_OPERAND_WIDTH-1:0])
+    .spr_bus_dat_i              (spr_bus_dat_i)
   );
 
   //------------------//
   // Instance of DMMU //
   //------------------//
 
-  wire  [OPTION_OPERAND_WIDTH-1:0] virt_addr;
-  wire                             dmmu_enable;
-
-  assign virt_addr = dc_adr;
+  wire dmmu_enable = dmmu_enable_i & (~pipeline_flush_i); // used for HW TLB reload only
 
   assign tlb_reload_pagefault_clear = ~cmd_op_lsu_x; // use pipeline_flush_i?
-
-  assign dmmu_enable = dmmu_enable_i & (~pipeline_flush_i);
 
   mor1kx_dmmu
   #(
@@ -856,33 +851,37 @@ endgenerate
   )
   u_dmmu
   (
-    // Outputs
+    // clocks and resets
+    .clk                              (clk),
+    .rst                              (rst),
+    // configuration and commands
+    .op_store_i                       (cmd_op_lsu_store),
+    .op_load_i                        (cmd_op_lsu_load),
+    .supervisor_mode_i                (supervisor_mode_i),
+    // Input: virtual address
+    .virt_addr_i                      (dc_adr),
+    .virt_addr_match_i                (cmd_lsu_adr),
+    // Output: physical address and flags
     .phys_addr_o                      (dmmu_phys_addr),
     .cache_inhibit_o                  (dmmu_cache_inhibit),
     .tlb_miss_o                       (tlb_miss),
     .pagefault_o                      (dmmu_pagefault),
+    // HW TLB reload
+    .enable_i                         (dmmu_enable),
+    .tlb_reload_ack_i                 (tlb_reload_ack),
+    .tlb_reload_data_i                (tlb_reload_data),
+    .tlb_reload_pagefault_clear_i     (tlb_reload_pagefault_clear),
     .tlb_reload_req_o                 (tlb_reload_req),
     .tlb_reload_busy_o                (tlb_reload_busy),
     .tlb_reload_addr_o                (tlb_reload_addr),
     .tlb_reload_pagefault_o           (tlb_reload_pagefault),
-    .spr_bus_dat_o                    (spr_bus_dat_dmmu_o),
-    .spr_bus_ack_o                    (spr_bus_ack_dmmu_o),
-    // Inputs
-    .clk                              (clk),
-    .rst                              (rst),
-    .enable_i                         (dmmu_enable),
-    .virt_addr_i                      (virt_addr),
-    .virt_addr_match_i                (cmd_lsu_adr),
-    .op_store_i                       (cmd_op_lsu_store),
-    .op_load_i                        (cmd_op_lsu_load),
-    .supervisor_mode_i                (supervisor_mode_i),
-    .tlb_reload_ack_i                 (tlb_reload_ack),
-    .tlb_reload_data_i                (tlb_reload_data),
-    .tlb_reload_pagefault_clear_i     (tlb_reload_pagefault_clear),
+    // SPR bus
     .spr_bus_addr_i                   (spr_bus_addr_i[15:0]),
     .spr_bus_we_i                     (spr_bus_we_i),
     .spr_bus_stb_i                    (spr_bus_stb_i),
-    .spr_bus_dat_i                    (spr_bus_dat_i[OPTION_OPERAND_WIDTH-1:0])
+    .spr_bus_dat_i                    (spr_bus_dat_i),
+    .spr_bus_dat_o                    (spr_bus_dat_dmmu_o),
+    .spr_bus_ack_o                    (spr_bus_ack_dmmu_o)
   );
 
 endmodule // mor1kx_lsu_marocchino
