@@ -513,11 +513,11 @@ module mor1kx_decode_marocchino
 
   wire branch_to_reg = dcod_op_jr & (~(exec_rf_wb_o & (dcod_rfb_adr_o == exec_rfd_adr_o)));
 
-  assign dcod_branch_o = (branch_to_imm | branch_to_reg) & (~pipeline_flush_i);
-
   assign dcod_branch_target_o = branch_to_imm ? branch_to_imm_target : dcod_rfb_i;
 
-  wire dcod_except_ibus_align = dcod_branch_o & (|dcod_branch_target_o[1:0]);
+  // exception on wrong branch target
+  assign dcod_branch_o          = branch_to_imm | branch_to_reg;
+  wire   dcod_except_ibus_align = dcod_branch_o & (|dcod_branch_target_o[1:0]);
 
 
   wire [OPTION_OPERAND_WIDTH-1:0] dcod_mispredict_target =

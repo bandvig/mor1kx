@@ -619,6 +619,8 @@ endgenerate // FPU related: FPCSR and exceptions
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
       last_branch_target_pc <= {OPTION_OPERAND_WIDTH{1'b0}};
+    else if (pipeline_flush_o)
+      last_branch_target_pc <= last_branch_target_pc; // keep state on pipeline flush
     else if (padv_wb_o & branch_mispredict_i)
       last_branch_target_pc <= exec_mispredict_target_i;
     else if (padv_decode_o & dcod_branch_i)
