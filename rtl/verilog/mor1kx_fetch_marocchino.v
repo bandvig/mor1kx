@@ -189,6 +189,7 @@ module mor1kx_fetch_marocchino
   reg                         imem_ibus_ack_stored;
   reg  [`OR1K_INSN_WIDTH-1:0] imem_ibus_dat_stored;
 
+
   /* Wires & registers are used across FETCH pipe stages */
 
   // Flush processing
@@ -215,6 +216,8 @@ module mor1kx_fetch_marocchino
 
   // valid instruction is on stage #2 outputs
   wire s3t_insn;
+  // jump/branch instruction is on stage #2 outputs
+  wire s3t_jb;
 
 
   // Advance stage #1
@@ -226,9 +229,9 @@ module mor1kx_fetch_marocchino
   wire fetch_excepts = immu_an_except | except_ibus_err;
 
 
-  /***********************/
-  /* Stage #1: PC update */
-  /***********************/
+  /************************************************/
+  /* Stage #1: PC update and IMMU / ICACHE access */
+  /************************************************/
 
 
   // jumb/branch in decode and delay slot is fetched (at Stage #2 output)
@@ -326,11 +329,6 @@ module mor1kx_fetch_marocchino
   end // @ clock
 
 
-  /*****************************************/
-  /* Stage #2: IMMU / ICACHE / IBUS access */
-  /*****************************************/
-
-
   // Force switching ICACHE/IMMU off in case of IMMU-generated exceptions
   wire immu_rst_excepts = (immu_an_except & flush_by_ctrl);
 
@@ -367,6 +365,7 @@ module mor1kx_fetch_marocchino
   // or IMMU-generated exceptions is cleaned
   assign ic_enabled = ~immu_rst_excepts & ~assert_spr_bus_req & ic_enabled_r;
 
+
   // ICACHE/IMMU match address store register
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
@@ -378,6 +377,12 @@ module mor1kx_fetch_marocchino
   // Select physical address depending on IMMU enabled/disabled
   wire [OPTION_OPERAND_WIDTH-1:0] s2t_phys_addr_mux =
     immu_enabled_r ? immu_phys_addr : s1o_virt_addr;
+
+
+  /****************************************/
+  /* Stage #2: ICACHE check / IBUS access */
+  /****************************************/
+
 
   //----------------------------------------//
   // IBUS/ICACHE <-> FETCH's pipe interface //
@@ -423,6 +428,39 @@ module mor1kx_fetch_marocchino
     end
   end // @ clock
 
+
+  // delay slot fetching & stored flags
+  reg  ds_fetching_r, ds_stored_r;
+  // delay slot combined flag
+  wire s2t_ds = ((imem_rdy | fetch_excepts) & (s3t_jb | ds_fetching_r)) | ds_stored_r;
+  // Store delay slot flag
+  always @(posedge clk `OR_ASYNC_RST) begin
+    if (rst) begin
+      ds_fetching_r <= 1'b0;
+      ds_stored_r   <= 1'b0;
+    end
+    else if (flush_by_ctrl) begin
+      ds_fetching_r <= 1'b0;
+      ds_stored_r   <= 1'b0;
+    end
+    // advance stage #2 outputs
+    else if (padv_fetch_i) begin
+      if (s2t_ds) begin
+        ds_fetching_r <= 1'b0;
+        ds_stored_r   <= 1'b0;
+      end
+      else if (~imem_rdy & s3t_jb & ~ds_fetching_r & ~ds_stored_r) begin
+        ds_fetching_r <= 1'b1;
+        ds_stored_r   <= 1'b0;
+      end
+    end
+    // no advance stage #2 outputs
+    else if (imem_rdy & (s3t_jb | ds_fetching_r) & ~ds_stored_r) begin
+      ds_fetching_r <= 1'b0;
+      ds_stored_r   <= 1'b1;
+    end
+  end // @ clock
+
   //-------------------------//
   // Stage #2 output latches //
   //-------------------------//
@@ -439,26 +477,37 @@ module mor1kx_fetch_marocchino
   // to s3: instruction valid flags
   reg s2o_ic_ack_instant, s2o_ibus_ack_instant;
   reg s2o_ic_ack_stored,  s2o_ibus_ack_stored;
+  // to s3: delay slot flag
+  reg s2o_ds;
   //   To minimize number of multiplexors we
   // latche all instuction sources and their validity flags.
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst) begin
+      // instruction valid flags
       s2o_ic_ack_instant   <= 1'b0;
       s2o_ibus_ack_instant <= 1'b0;
       s2o_ic_ack_stored    <= 1'b0;
       s2o_ibus_ack_stored  <= 1'b0;
+      // delay slot flag
+      s2o_ds               <= 1'b0;
     end
     else if (flush_by_ctrl) begin
+      // instruction valid flags
       s2o_ic_ack_instant   <= 1'b0;
       s2o_ibus_ack_instant <= 1'b0;
       s2o_ic_ack_stored    <= 1'b0;
       s2o_ibus_ack_stored  <= 1'b0;
+      // delay slot flag
+      s2o_ds               <= 1'b0;
     end
     else if (padv_fetch_i) begin
+      // instruction valid flags
       s2o_ic_ack_instant   <= s2t_ic_ack_instant;
       s2o_ibus_ack_instant <= s2t_ibus_ack_instant;
       s2o_ic_ack_stored    <= s2t_ic_ack_stored;
       s2o_ibus_ack_stored  <= s2t_ibus_ack_stored;
+      // delay slot flag
+      s2o_ds               <= s2t_ds;
     end
   end // @ clock
 
@@ -547,7 +596,7 @@ module mor1kx_fetch_marocchino
 
   // select insn
   wire [OPTION_OPERAND_WIDTH-1:0] s3t_insn_mux =
-    ~s3t_insn     ? {`OR1K_OPCODE_NOP,26'd0} :
+    ~s3t_insn            ? {`OR1K_OPCODE_NOP,26'd0} :
     s2o_ic_ack_instant   ? s2o_ic_dat_instant :
     s2o_ibus_ack_instant ? s2o_ibus_dat_instant :
     s2o_ic_ack_stored    ? s2o_ic_dat_stored :
@@ -556,15 +605,11 @@ module mor1kx_fetch_marocchino
 
   // detection of delay slot to correct processing delay slot exceptions
   // 1st we detect jump/branch instruction
-  wire s3t_jb = s3t_insn &
-                ((s3t_insn_mux[`OR1K_OPCODE_SELECT] < `OR1K_OPCODE_NOP) |   // l.j  | l.jal  | l.bnf | l.bf
-                 (s3t_insn_mux[`OR1K_OPCODE_SELECT] == `OR1K_OPCODE_JR) |   // l.jr
-                 (s3t_insn_mux[`OR1K_OPCODE_SELECT] == `OR1K_OPCODE_JALR)); // l.jalr
+  assign s3t_jb = s3t_insn &
+                  ((s3t_insn_mux[`OR1K_OPCODE_SELECT] < `OR1K_OPCODE_NOP) |   // l.j  | l.jal  | l.bnf | l.bf
+                   (s3t_insn_mux[`OR1K_OPCODE_SELECT] == `OR1K_OPCODE_JR) |   // l.jr
+                   (s3t_insn_mux[`OR1K_OPCODE_SELECT] == `OR1K_OPCODE_JALR)); // l.jalr
 
-  // 2nd: delay slot detection is free from mispredict flush
-  wire s3t_ds = s2o_ic_ack_instant | s2o_ibus_ack_instant |
-                s2o_ic_ack_stored  | s2o_ibus_ack_stored  |
-                s2o_ibus_err | s2o_itlb_miss | s2o_ipagefault;
 
   // to DECODE: delay slot flag
   always @(posedge clk `OR_ASYNC_RST) begin
@@ -578,7 +623,7 @@ module mor1kx_fetch_marocchino
     end
     else if (padv_s3) begin
       dcod_op_branch_o  <= s3t_jb;
-      dcod_delay_slot_o <= dcod_op_branch_o & s3t_ds;
+      dcod_delay_slot_o <= s2o_ds;
     end
   end // @ clock
 
