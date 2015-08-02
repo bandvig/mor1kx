@@ -224,7 +224,7 @@ module mor1kx_fetch_marocchino
 
 
   // Advance stage #1
-  wire padv_s1 = padv_fetch_i & ibus_fsm_free & ~fetch_excepts & ~flush_by_ctrl;
+  wire padv_s1 = padv_fetch_i & ibus_fsm_free;
   // Advance output latches
   wire padv_s3 = padv_decode_i & ~dcod_bubble_i;
 
@@ -232,7 +232,7 @@ module mor1kx_fetch_marocchino
   wire fetch_excepts = immu_an_except | except_ibus_err;
 
   // flag to indicate that ICACHE/IBUS is fetching next insn
-  assign imem_fetching_next_insn = s1o_virt_addr[2] ^ s2o_pc[2]; // (s1o_virt_addr[2:0] != s2o_pc[2:0]);
+  assign imem_fetching_next_insn = s1o_virt_addr[2] ^ s2o_pc[2];
 
 
   /************************************************/
@@ -248,10 +248,10 @@ module mor1kx_fetch_marocchino
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
       take_ds_r <= 1'b0;
-    else if (padv_s1 | flush_by_ctrl)
+    else if ((padv_s1 & ~fetch_excepts) | flush_by_ctrl)
       take_ds_r <= 1'b0;
-    else if (s3t_jb & ~imem_fetching_next_insn & ~take_ds_r)
-      take_ds_r <= 1'b1;
+    else if (~take_ds_r)
+      take_ds_r <= (s3t_jb & ~imem_fetching_next_insn);
   end // @ clock
   // combined flag to take delay slot with next padv-s1
   wire take_ds = (s3t_jb & ~imem_fetching_next_insn) | take_ds_r;
@@ -264,10 +264,10 @@ module mor1kx_fetch_marocchino
       fetching_ds_r <= 1'b0;
     else if (flush_by_ctrl)
       fetching_ds_r <= 1'b0;
-    else if (padv_s1)
+    else if (padv_s1 & ~fetch_excepts)
       fetching_ds_r <= take_ds;
-    else if (s3t_jb & imem_fetching_next_insn & ~fetching_ds_r)
-      fetching_ds_r <= 1'b1;
+    else if (~fetching_ds_r)
+      fetching_ds_r <= (s3t_jb & imem_fetching_next_insn);
   end // @ clock
   // combined fetching delay slot flag
   wire fetching_ds = (s3t_jb & imem_fetching_next_insn) | fetching_ds_r;
@@ -286,15 +286,10 @@ module mor1kx_fetch_marocchino
       branch_stored        <= 1'b0;
       branch_target_stored <= OPTION_RESET_PC;
     end
-    // (a) don't store but take branch directly from DECODE
-    // (b) don't store / clear if pipeline flush
-    else if (padv_s1 | branch_taken_r | flush_by_ctrl) begin
+    else if ((padv_s1 & ~fetch_excepts) | flush_by_ctrl | branch_taken_r) begin
       branch_stored        <= 1'b0;
       branch_target_stored <= branch_target_stored;
     end
-    //   Store branch if IBUS-machine is busy
-    //   But don't store if DECODE bubble (padv-s1 is 0 for the case)
-    // (i.e. dcod-branch-target-i isn't computed)
     else if (take_branch & ~dcod_bubble_i & ~branch_stored) begin
       branch_stored        <= 1'b1;
       branch_target_stored <= dcod_branch_target_i;
@@ -308,7 +303,7 @@ module mor1kx_fetch_marocchino
     else if (padv_decode_i | flush_by_ctrl)
       branch_taken_r <= 1'b0;
     // take branch
-    else if (padv_s1 & take_branch & ~branch_taken_r)
+    else if (padv_s1 & ~fetch_excepts & take_branch & ~branch_taken_r)
       branch_taken_r <= 1'b1;
   end // @ clock
   // ---
@@ -326,7 +321,7 @@ module mor1kx_fetch_marocchino
     else if (padv_decode_i | flush_by_ctrl)
       mispredict_taken_r <= 1'b0;
     // take mispredict
-    else if (padv_s1 & branch_mispredict_i & ~mispredict_taken_r)
+    else if (padv_s1 & ~fetch_excepts & branch_mispredict_i & ~mispredict_taken_r)
       mispredict_taken_r <= 1'b1;
   end // @ clock
   // store mispredict flag and target if stage #1 is stalled
@@ -339,14 +334,10 @@ module mor1kx_fetch_marocchino
       mispredict_stored        <= 1'b0;
       mispredict_target_stored <= OPTION_RESET_PC;
     end
-    // (a) don't store but take mispredict directly from EXECUTE
-    // (b) don't store if mispredict has been already taken
-    // (c) don't store / clear if pipeline flush
-    else if (padv_s1 | mispredict_taken_r | flush_by_ctrl) begin
+    else if ((padv_s1 & ~fetch_excepts) | flush_by_ctrl | mispredict_taken_r) begin
       mispredict_stored        <= 1'b0;
       mispredict_target_stored <= mispredict_target_stored;
     end
-    // store mispredict if IBUS-machine is busy
     else if (branch_mispredict_i & ~mispredict_stored) begin
       mispredict_stored        <= 1'b1;
       mispredict_target_stored <= exec_mispredict_target_i;
@@ -363,9 +354,9 @@ module mor1kx_fetch_marocchino
   wire [OPTION_OPERAND_WIDTH-1:0] s1t_pc_mux =
     // Debug (MAROCCHINO_TODO)
     du_restart_i                                 ? du_restart_pc_i :
-    // on stall or during SPR access (because no padv-*)
-    ~padv_s1                                     ? s1o_virt_addr :
-    // padv-s1
+    // on exceptions, pipeline flush or SPR access (because no padv-*)
+    (~padv_s1 | fetch_excepts | flush_by_ctrl)   ? s1o_virt_addr :
+    // padv-s1 and neither exceptions nor pipeline flush
     (ctrl_branch_exception_i                     ? ctrl_branch_except_pc_i :
      take_ds                                     ? s1t_pc_next :
      (branch_mispredict_i & ~mispredict_taken_r) ? exec_mispredict_target_i :
@@ -379,7 +370,7 @@ module mor1kx_fetch_marocchino
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
       fetch_exception_taken_o <= 1'b0;
-    else if (padv_s1)
+    else if (padv_s1 & ~fetch_excepts & ~flush_by_ctrl)
       fetch_exception_taken_o <= ctrl_branch_exception_i;
     else
       fetch_exception_taken_o <= 1'b0;
@@ -401,7 +392,7 @@ module mor1kx_fetch_marocchino
       immu_enabled_r <= 1'b0;
       immu_svmode_r  <= immu_svmode_r;
     end
-    else if (padv_s1) begin
+    else if (padv_s1 & ~fetch_excepts & ~flush_by_ctrl) begin
       immu_enabled_r <= immu_enable_i;
       immu_svmode_r  <= supervisor_mode_i;
     end
@@ -415,7 +406,7 @@ module mor1kx_fetch_marocchino
       ic_enabled_r <= 1'b0;
     else if (immu_rst_excepts | assert_spr_bus_req) // ICAHCE -> idle
       ic_enabled_r <= 1'b0;
-    else if (padv_s1)
+    else if (padv_s1 & ~fetch_excepts & ~flush_by_ctrl)
       ic_enabled_r <= ic_enable_i;
   end // @ clock
   //   Force ICACHE go to idle state if either SPR access is requested
@@ -427,7 +418,7 @@ module mor1kx_fetch_marocchino
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
       s1o_virt_addr <= OPTION_RESET_PC - 4; // will be restored on 1st advance
-    else if (padv_s1)
+    else if (padv_s1 & ~fetch_excepts & ~flush_by_ctrl)
       s1o_virt_addr <= s1t_pc_mux;
   end // @ clock
 
@@ -451,9 +442,11 @@ module mor1kx_fetch_marocchino
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
       imem_req_r <= 1'b0;
-    else if (padv_s1)
+    else if (fetch_excepts)
+      imem_req_r <= 1'b0;
+    else if (padv_s1 & ~flush_by_ctrl)
       imem_req_r <= 1'b1;
-    else if (imem_rdy | fetch_excepts)
+    else if (imem_rdy)
       imem_req_r <= 1'b0;
   end // @ clock
 
