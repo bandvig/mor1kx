@@ -480,35 +480,23 @@ module mor1kx_fetch_marocchino
 
 
   // delay slot fetching & stored flags
-  reg  ds_fetching_r, ds_stored_r;
+  reg ds_ack_stored;
   // delay slot combined flag
-  wire s2t_ds_ack = ((imem_rdy | fetch_excepts) & (s3t_jb | ds_fetching_r)) | ds_stored_r;
-  // Store delay slot flag
+  wire s2t_ds_ack = ((imem_rdy | fetch_excepts) & fetching_ds) | ds_ack_stored;
+  // ---
   always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst) begin
-      ds_fetching_r <= 1'b0;
-      ds_stored_r   <= 1'b0;
-    end
-    else if (flush_by_ctrl) begin
-      ds_fetching_r <= 1'b0;
-      ds_stored_r   <= 1'b0;
-    end
+    if (rst)
+      ds_ack_stored <= 1'b0;
+    else if (flush_by_ctrl)
+      ds_ack_stored <= 1'b0;
     // advance stage #2 outputs
     else if (padv_fetch_i) begin
-      if (s2t_ds_ack) begin
-        ds_fetching_r <= 1'b0;
-        ds_stored_r   <= 1'b0;
-      end
-      else if (~imem_rdy & s3t_jb & ~ds_fetching_r & ~ds_stored_r) begin
-        ds_fetching_r <= 1'b1;
-        ds_stored_r   <= 1'b0;
-      end
+      if (s2t_ds_ack)
+        ds_ack_stored <= 1'b0;
     end
     // no advance stage #2 outputs
-    else if (imem_rdy & (s3t_jb | ds_fetching_r) & ~ds_stored_r) begin
-      ds_fetching_r <= 1'b0;
-      ds_stored_r   <= 1'b1;
-    end
+    else if (imem_rdy & fetching_ds & ~ds_ack_stored)
+      ds_ack_stored <= 1'b1;
   end // @ clock
 
   //-------------------------//
