@@ -273,44 +273,6 @@ module mor1kx_fetch_marocchino
   wire fetching_ds = (s3t_jb & imem_fetching_next_insn) | fetching_ds_r;
 
 
-  // jumb/branch in decode and delay slot is fetched (at Stage #2 output)
-  wire take_branch = dcod_take_branch_i & ~take_ds;
-  // store branch flag and target if stage #1 is stalled
-  reg                            branch_stored;
-  reg [OPTION_OPERAND_WIDTH-1:0] branch_target_stored;
-  // flag that mispredict has been taken
-  reg                            branch_taken_r;
-  // ---
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst) begin
-      branch_stored        <= 1'b0;
-      branch_target_stored <= OPTION_RESET_PC;
-    end
-    else if ((padv_s1 & ~fetch_excepts) | flush_by_ctrl | branch_taken_r) begin
-      branch_stored        <= 1'b0;
-      branch_target_stored <= branch_target_stored;
-    end
-    else if (take_branch & ~dcod_bubble_i & ~branch_stored) begin
-      branch_stored        <= 1'b1;
-      branch_target_stored <= dcod_branch_target_i;
-    end
-  end // @ clock
-  // ---
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      branch_taken_r <= 1'b0;
-    // branch moves out from DECODE
-    else if (padv_decode_i | flush_by_ctrl)
-      branch_taken_r <= 1'b0;
-    // take branch
-    else if (padv_s1 & ~fetch_excepts & take_branch & ~branch_taken_r)
-      branch_taken_r <= 1'b1;
-  end // @ clock
-  // ---
-  // flush some registers if branch processing
-  assign flush_by_branch = ((take_branch & ~branch_taken_r) | branch_stored) & ~fetching_ds;
-
-
   // flag that mispredict has been taken
   reg mispredict_taken_r;
   // ---
@@ -347,6 +309,42 @@ module mor1kx_fetch_marocchino
   assign flush_by_mispredict = (branch_mispredict_i & ~mispredict_taken_r) | mispredict_stored;
 
 
+  // store branch flag and target if stage #1 is stalled
+  reg                            branch_stored;
+  reg [OPTION_OPERAND_WIDTH-1:0] branch_target_stored;
+  // flag that mispredict has been taken
+  reg                            branch_taken_r;
+  // ---
+  always @(posedge clk `OR_ASYNC_RST) begin
+    if (rst) begin
+      branch_stored        <= 1'b0;
+      branch_target_stored <= OPTION_RESET_PC;
+    end
+    else if ((padv_s1 & ~fetch_excepts & ~take_ds) | flush_by_ctrl | branch_taken_r) begin
+      branch_stored        <= 1'b0;
+      branch_target_stored <= branch_target_stored;
+    end
+    else if (dcod_take_branch_i & ~dcod_bubble_i & ~branch_stored) begin
+      branch_stored        <= 1'b1;
+      branch_target_stored <= dcod_branch_target_i;
+    end
+  end // @ clock
+  // ---
+  always @(posedge clk `OR_ASYNC_RST) begin
+    if (rst)
+      branch_taken_r <= 1'b0;
+    // branch moves out from DECODE
+    else if (padv_decode_i | flush_by_ctrl)
+      branch_taken_r <= 1'b0;
+    // take branch
+    else if (padv_s1 & ~fetch_excepts & ~take_ds & dcod_take_branch_i & ~branch_taken_r)
+      branch_taken_r <= 1'b1;
+  end // @ clock
+  // ---
+  // flush some registers if branch processing
+  assign flush_by_branch = ((dcod_take_branch_i & ~branch_taken_r) | branch_stored) & ~take_ds & ~fetching_ds;
+
+
   // regular value of next PC
   wire [OPTION_OPERAND_WIDTH-1:0] s1t_pc_next = s1o_virt_addr + 4;
 
@@ -361,7 +359,7 @@ module mor1kx_fetch_marocchino
      take_ds                                     ? s1t_pc_next :
      (branch_mispredict_i & ~mispredict_taken_r) ? exec_mispredict_target_i :
      mispredict_stored                           ? mispredict_target_stored :
-     (take_branch & ~branch_taken_r)             ? dcod_branch_target_i :
+     (dcod_take_branch_i & ~branch_taken_r)      ? dcod_branch_target_i :
      branch_stored                               ? branch_target_stored :
                                                    s1t_pc_next);
 
