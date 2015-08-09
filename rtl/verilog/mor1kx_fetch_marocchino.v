@@ -93,8 +93,6 @@ module mor1kx_fetch_marocchino
   output     [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfa_adr_o,
   output     [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfb_adr_o,
   output                                fetch_rf_adr_valid_o,
-  // to CTRL
-  output                                fetch_valid_o,
   // to DECODE
   output reg [OPTION_OPERAND_WIDTH-1:0] pc_decode_o,
   output reg     [`OR1K_INSN_WIDTH-1:0] dcod_insn_o,
@@ -305,7 +303,7 @@ module mor1kx_fetch_marocchino
       mispredict_taken_r <= 1'b1;
   end // @ clock
   // flush some registers if mispredict branch processing
-  assign flush_by_mispredict = ((branch_mispredict_i & ~mispredict_taken_r) | mispredict_stored) & ~fetching_ds; //  & ~take_ds
+  assign flush_by_mispredict = ((branch_mispredict_i & ~mispredict_taken_r) | mispredict_stored) & ~fetching_ds;
 
 
   // store branch flag and target if stage #1 is busy
@@ -594,23 +592,6 @@ module mor1kx_fetch_marocchino
     else if (padv_fetch_i & ((~flush_by_branch & ~flush_by_mispredict) | fetch_excepts))
       s2o_pc <= s1o_virt_addr;
   end // @ clock
-
-  // to CTRL: valid flag (new insn is available)
-  wire s2t_insn = s2t_ic_ack_instant | s2t_ibus_ack_instant |
-                  s2t_ic_ack_stored  | s2t_ibus_ack_stored;
-  // stage #2 valid flag
-  reg s2o_valid;
-  // ----
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      s2o_valid <= 1'b0;
-    else if (flush_by_ctrl)
-      s2o_valid <= 1'b0;
-    else if (padv_fetch_i)
-      s2o_valid <= s2t_insn | fetch_excepts;
-  end // @ clock
-  // output valid flag
-  assign fetch_valid_o = s2o_valid;
 
 
   /*****************************************/

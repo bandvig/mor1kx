@@ -358,7 +358,6 @@ module mor1kx_cpu_marocchino
   wire                            fetch_rf_adr_valid; // fetch->rf
   wire [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfa_adr;      // fetch->rf
   wire [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfb_adr;      // fetch->rf
-  wire                            fetch_valid;
 
 
   mor1kx_fetch_marocchino
@@ -431,9 +430,6 @@ module mor1kx_cpu_marocchino
     .fetch_rfa_adr_o                  (fetch_rfa_adr), // FETCH (not latched, to RF)
     .fetch_rfb_adr_o                  (fetch_rfb_adr), // FETCH (not latched, to RF)
     .fetch_rf_adr_valid_o             (fetch_rf_adr_valid), // FETCH (bus-access-done & padv-fetch)
-
-    //   To CTRL
-    .fetch_valid_o                    (fetch_valid), // FETCH
 
     //   To DECODE
     .pc_decode_o                      (pc_decode), // FETCH
@@ -1037,7 +1033,6 @@ module mor1kx_cpu_marocchino
     .except_trap_i                    (wb_except_trap), // CTRL
     .except_align_i                   (wb_except_align), // CTRL
     .wb_excepts_en_i                  (wb_excepts_en), // CTRL
-    .fetch_valid_i                    (fetch_valid), // CTRL
     .exec_valid_i                     (exec_valid), // CTRL
     .fetch_exception_taken_i          (fetch_ecxeption_taken), // CTRL
     .dcod_bubble_i                    (dcod_bubble), // CTRL

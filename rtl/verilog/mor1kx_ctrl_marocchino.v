@@ -121,7 +121,6 @@ module mor1kx_ctrl_marocchino
   input                             wb_excepts_en_i,
 
   // Inputs from two units that can stall proceedings
-  input                             fetch_valid_i,
   input                             exec_valid_i,
 
   input                             fetch_exception_taken_i,
@@ -403,12 +402,12 @@ module mor1kx_ctrl_marocchino
   //------------------------//
 
   assign padv_fetch_o =
-    // MAROCCHINO_TODO: (~du_cpu_stall) & ((~stepping) | (stepping & pstep[0] & (~fetch_valid_i))) &  // from DU
+    // MAROCCHINO_TODO: ~du_cpu_stall & ~stepping &  // from DU
     exec_valid_i & (~dcod_bubble_i);
 
   assign padv_decode_o =
-    // MAROCCHINO_TODO: (~du_cpu_stall) & ((~stepping) | (stepping & pstep[1])) &  // from DU
-    (fetch_valid_i | dcod_bubble_i) & exec_valid_i;
+    // MAROCCHINO_TODO: ~du_cpu_stall & (~stepping | (stepping & pstep[1])) &  // from DU
+    exec_valid_i;
 
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
@@ -1200,7 +1199,7 @@ if (FEATURE_DEBUGUNIT != "NONE") begin : du
       pstep <= 6'h0;
     else if (du_restart_from_stall & stepping)
       pstep <= 6'h1;
-    else if ((pstep[0] & fetch_valid_i) |
+    else if (pstep[0] |
              /* decode is always single cycle */
              (pstep[1] & padv_decode_o) |
              pstep[4])
