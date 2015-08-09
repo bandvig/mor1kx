@@ -273,30 +273,18 @@ module mor1kx_fetch_marocchino
   wire fetching_ds = (s3t_jb & imem_fetching_next_insn) | fetching_ds_r;
 
 
-  // flag that mispredict has been taken
-  reg mispredict_taken_r;
-  // ---
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      mispredict_taken_r <= 1'b0;
-    // mispedict moves out from EXECUTE
-    else if (padv_decode_i | flush_by_ctrl)
-      mispredict_taken_r <= 1'b0;
-    // take mispredict
-    else if (padv_s1 & ~fetch_excepts & branch_mispredict_i & ~mispredict_taken_r)
-      mispredict_taken_r <= 1'b1;
-  end // @ clock
-  // store mispredict flag and target if stage #1 is stalled
-  // (similar to branch case)
+  // store mispredict flag and target if stage #1 is busy
   reg                            mispredict_stored;
   reg [OPTION_OPERAND_WIDTH-1:0] mispredict_target_stored;
+  // flag that mispredict has been taken
+  reg mispredict_taken_r;
   // ---
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst) begin
       mispredict_stored        <= 1'b0;
       mispredict_target_stored <= OPTION_RESET_PC;
     end
-    else if ((padv_s1 & ~fetch_excepts) | flush_by_ctrl | mispredict_taken_r) begin
+    else if ((padv_s1 & ~fetch_excepts & ~take_ds) | flush_by_ctrl | mispredict_taken_r) begin
       mispredict_stored        <= 1'b0;
       mispredict_target_stored <= mispredict_target_stored;
     end
@@ -305,11 +293,22 @@ module mor1kx_fetch_marocchino
       mispredict_target_stored <= exec_mispredict_target_i;
     end
   end // @ clock
+  // ---
+  always @(posedge clk `OR_ASYNC_RST) begin
+    if (rst)
+      mispredict_taken_r <= 1'b0;
+    // mispedict moves out from EXECUTE
+    else if (padv_decode_i | flush_by_ctrl)
+      mispredict_taken_r <= 1'b0;
+    // take mispredict
+    else if (padv_s1 & ~fetch_excepts & ~take_ds & branch_mispredict_i & ~mispredict_taken_r)
+      mispredict_taken_r <= 1'b1;
+  end // @ clock
   // flush some registers if mispredict branch processing
-  assign flush_by_mispredict = (branch_mispredict_i & ~mispredict_taken_r) | mispredict_stored;
+  assign flush_by_mispredict = ((branch_mispredict_i & ~mispredict_taken_r) | mispredict_stored) & ~fetching_ds; //  & ~take_ds
 
 
-  // store branch flag and target if stage #1 is stalled
+  // store branch flag and target if stage #1 is busy
   reg                            branch_stored;
   reg [OPTION_OPERAND_WIDTH-1:0] branch_target_stored;
   // flag that mispredict has been taken
@@ -342,7 +341,7 @@ module mor1kx_fetch_marocchino
   end // @ clock
   // ---
   // flush some registers if branch processing
-  assign flush_by_branch = ((dcod_take_branch_i & ~branch_taken_r) | branch_stored) & ~take_ds & ~fetching_ds;
+  assign flush_by_branch = ((dcod_take_branch_i & ~branch_taken_r) | branch_stored) & ~fetching_ds; //  & ~take_ds
 
 
   // regular value of next PC
@@ -590,7 +589,9 @@ module mor1kx_fetch_marocchino
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
       s2o_pc <= OPTION_RESET_PC;
-    else if (padv_fetch_i)
+    else if (flush_by_ctrl)
+      s2o_pc <= s2o_pc;
+    else if (padv_fetch_i & ((~flush_by_branch & ~flush_by_mispredict) | fetch_excepts))
       s2o_pc <= s1o_virt_addr;
   end // @ clock
 
@@ -618,14 +619,15 @@ module mor1kx_fetch_marocchino
 
 
   // exceptions on stage #2 output
-  wire s3t_itlb_miss  = s2o_itlb_miss  & ~flush_by_mispredict;
-  wire s3t_ipagefault = s2o_ipagefault & ~flush_by_mispredict;
+  // delay slot must not be flushed by mispredict
+  wire s3t_itlb_miss  = s2o_itlb_miss  & (~flush_by_mispredict | s2o_ds);
+  wire s3t_ipagefault = s2o_ipagefault & (~flush_by_mispredict | s2o_ds);
 
   wire s3t_excepts = s2o_ibus_err | s3t_itlb_miss | s3t_ipagefault;
 
   // valid instruction
   wire s3t_insn = (s2o_ic_ack_instant | s2o_ibus_ack_instant |
-                   s2o_ic_ack_stored  | s2o_ibus_ack_stored) & ~flush_by_mispredict;
+                   s2o_ic_ack_stored  | s2o_ibus_ack_stored) & (~flush_by_mispredict | s2o_ds);
 
 
   // select insn
@@ -638,11 +640,19 @@ module mor1kx_fetch_marocchino
 
 
   // detection of delay slot to correct processing delay slot exceptions
+  // separate multiplexor for jump/branch word
+  wire [OPTION_OPERAND_WIDTH-1:0] s3t_jb_mux =
+    s2o_ic_ack_instant   ? s2o_ic_dat_instant :
+    s2o_ibus_ack_instant ? s2o_ibus_dat_instant :
+    s2o_ic_ack_stored    ? s2o_ic_dat_stored :
+    s2o_ibus_ack_stored  ? s2o_ibus_dat_stored :
+                          {`OR1K_OPCODE_NOP,26'd0};
   // 1st we detect jump/branch instruction
-  assign s3t_jb = s3t_insn &
-                  ((s3t_insn_mux[`OR1K_OPCODE_SELECT] < `OR1K_OPCODE_NOP) |   // l.j  | l.jal  | l.bnf | l.bf
-                   (s3t_insn_mux[`OR1K_OPCODE_SELECT] == `OR1K_OPCODE_JR) |   // l.jr
-                   (s3t_insn_mux[`OR1K_OPCODE_SELECT] == `OR1K_OPCODE_JALR)); // l.jalr
+  // but we block jump/branch fetched from mispredicted address
+  assign s3t_jb = ~((branch_mispredict_i & ~mispredict_taken_r) | mispredict_stored) &
+                  ((s3t_jb_mux[`OR1K_OPCODE_SELECT] < `OR1K_OPCODE_NOP) |   // l.j  | l.jal  | l.bnf | l.bf
+                   (s3t_jb_mux[`OR1K_OPCODE_SELECT] == `OR1K_OPCODE_JR) |   // l.jr
+                   (s3t_jb_mux[`OR1K_OPCODE_SELECT] == `OR1K_OPCODE_JALR)); // l.jalr
 
 
   // to DECODE: delay slot flag
@@ -673,13 +683,12 @@ module mor1kx_fetch_marocchino
   end // @ clock
 
   // to DECODE: actual program counter
-  // condition for advancing PC
-  wire s3t_padv_pc = padv_s3 & ~flush_by_ctrl & (~flush_by_mispredict | s3t_excepts);
-  // ----
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
       pc_decode_o <= OPTION_RESET_PC;
-    else if (s3t_padv_pc)
+    else if (flush_by_ctrl)
+      pc_decode_o <= pc_decode_o;
+    else if (padv_s3 & (~flush_by_mispredict | s3t_excepts | s2o_ds))
       pc_decode_o <= s2o_pc;
   end // @ clock
 
