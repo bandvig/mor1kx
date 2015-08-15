@@ -223,8 +223,6 @@ module mor1kx_fetch_marocchino
 
   // Advance stage #1
   wire padv_s1 = padv_fetch_i & ibus_fsm_free;
-  // Advance output latches
-  wire padv_s3 = padv_decode_i & ~dcod_bubble_i;
 
   // combined MMU's and IBUS's exceptions
   wire fetch_excepts = immu_an_except | except_ibus_err;
@@ -646,7 +644,7 @@ module mor1kx_fetch_marocchino
       dcod_op_branch_o  <= 1'b0;
       dcod_delay_slot_o <= 1'b0;
     end
-    else if (padv_s3) begin
+    else if (padv_fetch_i) begin
       dcod_op_branch_o  <= s3t_jb;
       dcod_delay_slot_o <= s2o_ds;
     end
@@ -659,7 +657,7 @@ module mor1kx_fetch_marocchino
       dcod_insn_o <= {`OR1K_OPCODE_NOP,26'd0};
     else if (flush_by_ctrl)
       dcod_insn_o <= {`OR1K_OPCODE_NOP,26'd0};
-    else if (padv_s3)
+    else if (padv_fetch_i)
       dcod_insn_o <= s3t_insn_mux;
   end // @ clock
 
@@ -669,7 +667,7 @@ module mor1kx_fetch_marocchino
       pc_decode_o <= OPTION_RESET_PC;
     else if (flush_by_ctrl)
       pc_decode_o <= pc_decode_o;
-    else if (padv_s3 & (~flush_by_mispredict | s3t_excepts | s2o_ds))
+    else if (padv_fetch_i & (~flush_by_mispredict | s3t_excepts | s2o_ds))
       pc_decode_o <= s2o_pc;
   end // @ clock
 
@@ -679,7 +677,7 @@ module mor1kx_fetch_marocchino
       dcod_insn_valid_o <= 1'b0;
     else if (flush_by_ctrl)
       dcod_insn_valid_o <= 1'b0;
-    else if (padv_s3)
+    else if (padv_fetch_i)
       dcod_insn_valid_o <= s3t_insn | s3t_excepts;
   end // @ clock
 
@@ -695,7 +693,7 @@ module mor1kx_fetch_marocchino
       dcod_except_itlb_miss_o  <= 1'b0;
       dcod_except_ipagefault_o <= 1'b0;
     end
-    else if (padv_s3) begin
+    else if (padv_fetch_i) begin
       dcod_except_ibus_err_o   <= s2o_ibus_err;
       dcod_except_itlb_miss_o  <= s3t_itlb_miss;
       dcod_except_ipagefault_o <= s3t_ipagefault;
@@ -705,7 +703,7 @@ module mor1kx_fetch_marocchino
   // to RF
   assign fetch_rfa_adr_o      = s3t_insn_mux[`OR1K_RA_SELECT];
   assign fetch_rfb_adr_o      = s3t_insn_mux[`OR1K_RB_SELECT];
-  assign fetch_rf_adr_valid_o = padv_s3 & s3t_insn & ~flush_by_ctrl;
+  assign fetch_rf_adr_valid_o = padv_fetch_i & s3t_insn & ~flush_by_ctrl;
 
 
   /********** End of FETCH pipe. Start other logics. **********/

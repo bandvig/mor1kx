@@ -86,9 +86,9 @@ module mor1kx_ctrl_marocchino
 
   input [OPTION_OPERAND_WIDTH-1:0]  pc_wb_i,
 
-  input [OPTION_OPERAND_WIDTH-1:0]  alu_nl_result_i,
   input                             exec_op_mfspr_i,
   input                             exec_op_mtspr_i,
+  input                      [15:0] exec_mXspr_addr_i,
   input                             wb_op_rfe_i,
 
   // Indicate if branch will be taken based on instruction currently in
@@ -827,7 +827,7 @@ endgenerate
   // ...
   always @(posedge clk `OR_ASYNC_RST) begin
     if (take_op_mXspr) begin
-      cmd_op_mXspr_addr <= alu_nl_result_i[15:0];
+      cmd_op_mXspr_addr <= exec_mXspr_addr_i;
       cmd_op_mXspr_data <= exec_rfb_i;
     end
   end // @clock

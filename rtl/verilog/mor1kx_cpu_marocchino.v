@@ -171,6 +171,9 @@ module mor1kx_cpu_marocchino
   wire ctrl_carry;
 
 
+  wire [15:0] exec_mXspr_addr;
+
+
   wire [OPTION_OPERAND_WIDTH-1:0] alu_nl_result;
   wire [OPTION_OPERAND_WIDTH-1:0] lsu_result;
   wire [OPTION_OPERAND_WIDTH-1:0] mfspr_dat;
@@ -250,7 +253,7 @@ module mor1kx_cpu_marocchino
   wire                            exec_op_msync;
   wire                            msync_done;
 
-  wire                            exec_op_alu;
+  wire                            exec_op_cmov;
   wire  [`OR1K_ALU_OPC_WIDTH-1:0] exec_opc_alu;
   wire  [`OR1K_ALU_OPC_WIDTH-1:0] exec_opc_alu_secondary;
 
@@ -273,6 +276,8 @@ module mor1kx_cpu_marocchino
   wire                            exec_op_shift;
 
   wire    [`OR1K_FPUOP_WIDTH-1:0] exec_op_fpu;
+
+  wire                            exec_insn_1clk;
 
 
   wire [OPTION_OPERAND_WIDTH-1:0] store_buffer_epcr;
@@ -510,7 +515,7 @@ module mor1kx_cpu_marocchino
     // Sync operations
     .exec_op_msync_o                  (exec_op_msync), // DECODE & DECODE->EXE
     // ALU/FPU related
-    .exec_op_alu_o                    (exec_op_alu), // DECODE & DECODE->EXE
+    .exec_op_cmov_o                    (exec_op_cmov), // DECODE & DECODE->EXE
     .exec_op_add_o                    (exec_op_add), // DECODE & DECODE->EXE
     .exec_adder_do_sub_o              (exec_adder_do_sub), // DECODE & DECODE->EXE
     .exec_adder_do_carry_o            (exec_adder_do_carry), // DECODE & DECODE->EXE
@@ -528,6 +533,8 @@ module mor1kx_cpu_marocchino
     // MTSPR / MFSPR
     .exec_op_mfspr_o                  (exec_op_mfspr), // DECODE & DECODE->EXE
     .exec_op_mtspr_o                  (exec_op_mtspr), // DECODE & DECODE->EXE
+    // 1-clock instruction flag to force EXECUTE valid
+    .exec_insn_1clk_o                 (exec_insn_1clk), // DECODE & DECODE->EXE
     // Hazards resolving
     .dcod_bubble_o                    (dcod_bubble), // DECODE & DECODE->EXE (not latched, to CTRL)
     .exec_bubble_o                    (exec_bubble), // DECODE & DECODE->EXE
@@ -599,7 +606,6 @@ module mor1kx_cpu_marocchino
     .immediate_sel_i                  (exec_immediate_sel), // EXE
 
     // opcode for alu
-    .op_alu_i                         (exec_op_alu), // EXE
     .opc_alu_i                        (exec_opc_alu), // EXE
     .opc_alu_secondary_i              (exec_opc_alu_secondary), // EXE
 
@@ -618,15 +624,19 @@ module mor1kx_cpu_marocchino
     .op_div_signed_i                  (exec_op_div_signed), // EXE
     .op_div_unsigned_i                (exec_op_div_unsigned), // EXE
 
-    // shift, ffl1, movhi
+    // shift, ffl1, movhi, cmov
     .op_shift_i                       (exec_op_shift), // EXE
     .op_ffl1_i                        (exec_op_ffl1), // EXE
     .op_movhi_i                       (exec_op_movhi), // EXE
+    .op_cmov_i                        (exec_op_cmov), // EXE
 
     // EXE  result forming
     .op_jal_i                         (exec_op_jal), // EXE
     .exec_jal_result_i                (exec_jal_result), // EXE
     .alu_nl_result_o                  (alu_nl_result), // EXE  (not latched, for debug only)
+
+    // Address for SPR access
+    .exec_mXspr_addr_o                (exec_mXspr_addr), // EXE  not latched
 
     // FPU related
     .op_fpu_i                         (exec_op_fpu), // EXE
@@ -668,6 +678,7 @@ module mor1kx_cpu_marocchino
     .lsu_excepts_i                    (lsu_excepts), // EXE
 
     // EXEC ready flag
+    .exec_insn_1clk_i                 (exec_insn_1clk), // EXE
     .exec_valid_o                     (exec_valid) // EXE
   );
 
@@ -1010,9 +1021,9 @@ module mor1kx_cpu_marocchino
     .wb_overflow_set_i                (wb_overflow_set), // CTRL
     .wb_overflow_clear_i              (wb_overflow_clear), // CTRL
     .pc_wb_i                          (pc_wb), // CTRL
-    .alu_nl_result_i                  (alu_nl_result), // CTRL
     .exec_op_mfspr_i                  (exec_op_mfspr), // CTRL
     .exec_op_mtspr_i                  (exec_op_mtspr), // CTRL
+    .exec_mXspr_addr_i                (exec_mXspr_addr), // CTRL
     .wb_op_rfe_i                      (wb_op_rfe), // CTRL
     .dcod_branch_i                    (dcod_branch), // CTRL
     .dcod_branch_target_i             (dcod_branch_target), // CTRL

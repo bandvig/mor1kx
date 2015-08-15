@@ -45,7 +45,6 @@ module mor1kx_execute_marocchino
   input                             immediate_sel_i,
 
   // opcode for alu
-  input                             op_alu_i,
   input [`OR1K_ALU_OPC_WIDTH-1:0]   opc_alu_i,
   input [`OR1K_ALU_OPC_WIDTH-1:0]   opc_alu_secondary_i,
 
@@ -64,15 +63,19 @@ module mor1kx_execute_marocchino
   input               op_div_signed_i,
   input               op_div_unsigned_i,
 
-  // shift, ffl1, movhi
+  // shift, ffl1, movhi, cmov
   input               op_shift_i,
   input               op_ffl1_i,
   input               op_movhi_i,
+  input               op_cmov_i,
 
   // ALU result forming
   input                                 op_jal_i,
   input      [OPTION_OPERAND_WIDTH-1:0] exec_jal_result_i,
   output     [OPTION_OPERAND_WIDTH-1:0] alu_nl_result_o, // nl: not latched
+
+  // Address for SPR access
+  output                         [15:0] exec_mXspr_addr_o, // not latched
 
   // FPU related
   input      [`OR1K_FPUOP_WIDTH-1:0]   op_fpu_i,
@@ -114,6 +117,7 @@ module mor1kx_execute_marocchino
   input       lsu_excepts_i,
 
   // ready flags
+  input  exec_insn_1clk_i,
   output exec_valid_o
 );
 
@@ -414,7 +418,6 @@ module mor1kx_execute_marocchino
   //-----------------
   // Conditional move
   //-----------------
-  wire op_cmov = op_alu_i & (opc_alu_i == `OR1K_ALU_OPC_CMOV);
   wire [EXEDW-1:0] cmov_result;
   assign cmov_result = flag_i ? a : b;
 
@@ -435,13 +438,6 @@ module mor1kx_execute_marocchino
       `OR1K_ALU_OPC_XOR: logic_lut = 4'b0110;
       default:           logic_lut = 4'd0;
     endcase
-
-    if (~op_alu_i)
-      logic_lut = 4'd0;
-
-    // Threat mfspr/mtspr as 'OR'
-    if (op_mfspr_i | op_mtspr_i)
-      logic_lut = 4'b1110;
   end
 
   // Extract the result, bit-for-bit, from the look-up-table
@@ -455,18 +451,25 @@ module mor1kx_execute_marocchino
 
 
 
+  //-----------------------
+  // Address for SPR access
+  //-----------------------
+  assign exec_mXspr_addr_o = a[15:0] | b[15:0];
+
+
+
   //---------------
   // Results muxing
   //---------------
-  assign alu_nl_result_o = op_logic        ? logic_result :
-                           op_cmov         ? cmov_result :
-                           op_movhi_i      ? immediate_i :
-                           fpu_arith_valid ? fpu_result :
+  assign alu_nl_result_o = fpu_arith_valid ? fpu_result :
                            op_shift_i      ? shift_result :
                            op_mul_i        ? mul_result :
                            op_div_i        ? div_result :
                            op_ffl1_i       ? ffl1_result :
                            op_jal_i        ? exec_jal_result_i :  // for GPR[9]
+                           op_cmov_i       ? cmov_result :
+                           op_movhi_i      ? immediate_i :
+                           op_logic        ? logic_result :
                                              adder_result;
 
 
@@ -500,18 +503,16 @@ module mor1kx_execute_marocchino
   // Stall logic //
   //-------------//
 
-  // ALU wait result
-  wire alu_stall =
-    (op_div_i & (~div_valid)) |
-    (op_mul_i & (~mul_valid)) |
-    (fpu_op_is_arith & (~fpu_arith_valid)) |
-    (fpu_op_is_cmp & (~fpu_cmp_valid)) |
-    ((op_lsu_load_i | op_lsu_store_i) & (~lsu_valid_i) & (~lsu_excepts_i)) |
-    (op_msync_i & (~msync_done_i)) |
-    (op_mfspr_i & (~ctrl_mfspr_ack_i)) |
-    (op_mtspr_i & (~ctrl_mtspr_ack_i));
-
-  // Execute stage can be stalled from ctrl stage and by ALU
-  assign exec_valid_o = ~alu_stall;
+  // ALU ready flag
+  assign exec_valid_o =
+    exec_insn_1clk_i |
+    (op_div_i & div_valid) |
+    (op_mul_i & mul_valid) |
+    (fpu_op_is_arith & fpu_arith_valid) |
+    (fpu_op_is_cmp & fpu_cmp_valid) |
+    ((op_lsu_load_i | op_lsu_store_i) & (lsu_valid_i | lsu_excepts_i)) |
+    (op_msync_i & msync_done_i) |
+    (op_mfspr_i & ctrl_mfspr_ack_i) |
+    (op_mtspr_i & ctrl_mtspr_ack_i);
 
 endmodule // mor1kx_execute_marocchino

@@ -48,7 +48,7 @@ module mor1kx_decode_marocchino
   input                                 pipeline_flush_i,
 
   // INSN
-  input [`OR1K_INSN_WIDTH-1:0]          dcod_insn_i,
+  input          [`OR1K_INSN_WIDTH-1:0] dcod_insn_i,
   input                                 dcod_op_branch_i,
   input                                 dcod_delay_slot_i,
   input                                 dcod_insn_valid_i,
@@ -62,15 +62,15 @@ module mor1kx_decode_marocchino
   output reg                            exec_immediate_sel_o,
 
   // GPR addresses
-  output [OPTION_RF_ADDR_WIDTH-1:0]     dcod_rfa_adr_o, // to RF
-  output [OPTION_RF_ADDR_WIDTH-1:0]     dcod_rfb_adr_o, // to RF
+  output     [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfa_adr_o, // to RF
+  output     [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfb_adr_o, // to RF
   output reg [OPTION_RF_ADDR_WIDTH-1:0] exec_rfd_adr_o,
   output reg                            exec_rf_wb_o,
 
   // flag & branches
   output                                dcod_op_bf_o, // to BRANCH PREDICTION
   output                                dcod_op_bnf_o, // to BRANCH PREDICTION
-  output [9:0]                          dcod_immjbr_upper_o, // to BRANCH PREDICTION : Upper 10 bits of immediate for jumps and branches
+  output                          [9:0] dcod_immjbr_upper_o, // to BRANCH PREDICTION : Upper 10 bits of immediate for jumps and branches
   output                                dcod_take_branch_o, // to FETCH
   output reg                            exec_op_setflag_o,
   output reg                            exec_op_brcond_o,
@@ -91,14 +91,13 @@ module mor1kx_decode_marocchino
   output reg                            exec_op_lsu_load_o,
   output reg                            exec_op_lsu_store_o,
   output reg                            exec_op_lsu_atomic_o,
-  output reg [1:0]                      exec_lsu_length_o,
+  output reg                      [1:0] exec_lsu_length_o,
   output reg                            exec_lsu_zext_o,
 
   // Sync operations
   output reg                            exec_op_msync_o,
 
   // ALU/FPU related
-  output reg                            exec_op_alu_o,
   output reg                            exec_op_add_o,
   output reg                            exec_adder_do_sub_o,
   output reg                            exec_adder_do_carry_o,
@@ -109,15 +108,19 @@ module mor1kx_decode_marocchino
   output reg                            exec_op_shift_o,
   output reg                            exec_op_ffl1_o,
   output reg                            exec_op_movhi_o,
-  output [`OR1K_FPUOP_WIDTH-1:0]        exec_op_fpu_o,
+  output reg                            exec_op_cmov_o,
+  output        [`OR1K_FPUOP_WIDTH-1:0] exec_op_fpu_o,
 
   // ALU related opc
-  output reg [`OR1K_ALU_OPC_WIDTH-1:0]  exec_opc_alu_o,
-  output reg [`OR1K_ALU_OPC_WIDTH-1:0]  exec_opc_alu_secondary_o,
+  output reg  [`OR1K_ALU_OPC_WIDTH-1:0] exec_opc_alu_o,
+  output reg  [`OR1K_ALU_OPC_WIDTH-1:0] exec_opc_alu_secondary_o,
 
   // MTSPR / MFSPR
   output reg                            exec_op_mfspr_o,
   output reg                            exec_op_mtspr_o,
+
+  // 1-clock instruction flag to force EXECUTE valid
+  output reg                            exec_insn_1clk_o,
 
   // Hazards resolving
   output                                dcod_bubble_o, // to CTRL
@@ -144,8 +147,6 @@ module mor1kx_decode_marocchino
   output reg                            exec_op_rfe_o
 );
 
-  wire [`OR1K_ALU_OPC_WIDTH-1:0]     opc_alu;
-
   wire [OPTION_OPERAND_WIDTH-1:0]    imm_sext;
   wire                               imm_sext_sel;
   wire [OPTION_OPERAND_WIDTH-1:0]    imm_zext;
@@ -158,7 +159,10 @@ module mor1kx_decode_marocchino
   wire dcod_op_jb_imm; // l.j  | l.jal  | l.bnf | l.bf : jumps or contitional branches to immediate
 
   // Insn opcode
-  wire [`OR1K_OPCODE_WIDTH-1:0] opc_insn = dcod_insn_i[`OR1K_OPCODE_SELECT];
+  wire [`OR1K_OPCODE_WIDTH-1:0]  opc_insn = dcod_insn_i[`OR1K_OPCODE_SELECT];
+  wire [`OR1K_ALU_OPC_WIDTH-1:0] opc_alu  = dcod_insn_i[`OR1K_ALU_OPC_SELECT];
+
+  wire dcod_op_alu = (opc_insn == `OR1K_OPCODE_ALU);
 
   // load opcodes are 6'b10_0000 to 6'b10_0110, 0 to 6, so check for 7 and up
   wire dcod_op_lsu_load = ((dcod_insn_i[31:30] == 2'b10) &
@@ -204,57 +208,52 @@ module mor1kx_decode_marocchino
 
   // Detect when setflag instruction
   wire dcod_op_setflag = (opc_insn == `OR1K_OPCODE_SF) |
-                           (opc_insn == `OR1K_OPCODE_SFIMM);
-
-  wire dcod_op_alu = (opc_insn == `OR1K_OPCODE_ALU) |
-                       (opc_insn == `OR1K_OPCODE_ORI) |
-                       (opc_insn == `OR1K_OPCODE_ANDI) |
-                       (opc_insn == `OR1K_OPCODE_XORI);
+                         (opc_insn == `OR1K_OPCODE_SFIMM);
 
 
-  // adder
-  wire dcod_op_add = ((opc_insn == `OR1K_OPCODE_ALU) &
-                         ((opc_alu == `OR1K_ALU_OPC_ADDC) |
-                          (opc_alu == `OR1K_ALU_OPC_ADD) |
-                          (opc_alu == `OR1K_ALU_OPC_SUB))) |
-                        (opc_insn == `OR1K_OPCODE_ADDIC) |
-                        (opc_insn == `OR1K_OPCODE_ADDI);
+  // --- adder ---
+  wire dcod_op_add = (dcod_op_alu &
+                      ((opc_alu == `OR1K_ALU_OPC_ADDC) |
+                       (opc_alu == `OR1K_ALU_OPC_ADD) |
+                       (opc_alu == `OR1K_ALU_OPC_SUB))) |
+                     (opc_insn == `OR1K_OPCODE_ADDIC) |
+                     (opc_insn == `OR1K_OPCODE_ADDI);
   // Adder control logic
   // Subtract when comparing to check if equal
-  wire dcod_adder_do_sub = ((opc_insn == `OR1K_OPCODE_ALU) &
-                              (opc_alu == `OR1K_ALU_OPC_SUB)) |
-                             dcod_op_setflag;
+  wire dcod_adder_do_sub = (dcod_op_alu & (opc_alu == `OR1K_ALU_OPC_SUB)) |
+                           dcod_op_setflag;
   // Generate carry-in select
-  wire dcod_adder_do_carry = ((opc_insn == `OR1K_OPCODE_ALU) &
-                                (opc_alu == `OR1K_ALU_OPC_ADDC)) |
-                               (opc_insn == `OR1K_OPCODE_ADDIC);
+  wire dcod_adder_do_carry = (dcod_op_alu & (opc_alu == `OR1K_ALU_OPC_ADDC)) |
+                             (opc_insn == `OR1K_OPCODE_ADDIC);
 
 
-  wire dcod_op_mul_signed = ((opc_insn == `OR1K_OPCODE_ALU) &
-                               (opc_alu == `OR1K_ALU_OPC_MUL)) |
-                              (opc_insn == `OR1K_OPCODE_MULI);
+  // --- multiplier ---
+  wire dcod_op_mul_signed = (dcod_op_alu & (opc_alu == `OR1K_ALU_OPC_MUL)) |
+                            (opc_insn == `OR1K_OPCODE_MULI);
 
-  wire dcod_op_mul_unsigned = (opc_insn == `OR1K_OPCODE_ALU) &
-                                (opc_alu == `OR1K_ALU_OPC_MULU);
+  wire dcod_op_mul_unsigned = dcod_op_alu & (opc_alu == `OR1K_ALU_OPC_MULU);
 
   wire dcod_op_mul = dcod_op_mul_signed | dcod_op_mul_unsigned;
 
-  wire dcod_op_div_signed = (opc_insn == `OR1K_OPCODE_ALU) &
-                              (opc_alu == `OR1K_ALU_OPC_DIV);
 
-  wire dcod_op_div_unsigned = (opc_insn == `OR1K_OPCODE_ALU) &
-                                (opc_alu == `OR1K_ALU_OPC_DIVU);
+  // --- divider ---
+  wire dcod_op_div_signed = dcod_op_alu & (opc_alu == `OR1K_ALU_OPC_DIV);
+
+  wire dcod_op_div_unsigned = dcod_op_alu & (opc_alu == `OR1K_ALU_OPC_DIVU);
 
   wire dcod_op_div = dcod_op_div_signed | dcod_op_div_unsigned;
 
-  wire dcod_op_shift = ((opc_insn == `OR1K_OPCODE_ALU) &
-                          (opc_alu == `OR1K_ALU_OPC_SHRT)) |
-                         (opc_insn == `OR1K_OPCODE_SHRTI);
 
-  wire dcod_op_ffl1 = (opc_insn == `OR1K_OPCODE_ALU) &
-                        (opc_alu == `OR1K_ALU_OPC_FFL1);
+  // --- shifter / ffl1 / movhi / cmov ---
+  wire dcod_op_shift = (dcod_op_alu & (opc_alu  == `OR1K_ALU_OPC_SHRT)) |
+                       (opc_insn == `OR1K_OPCODE_SHRTI);
+
+  wire dcod_op_ffl1  = dcod_op_alu & (opc_alu  == `OR1K_ALU_OPC_FFL1);
 
   wire dcod_op_movhi = (opc_insn == `OR1K_OPCODE_MOVHI);
+
+  wire dcod_op_cmov  = (dcod_op_alu & (opc_alu == `OR1K_ALU_OPC_CMOV));
+
 
   // Which instructions cause writeback?
   wire dcod_rf_wb =
@@ -289,34 +288,33 @@ module mor1kx_decode_marocchino
   assign imm_sext_sel = ((opc_insn[5:4] == 2'b10) &
                           ~(opc_insn == `OR1K_OPCODE_ORI) &
                           ~(opc_insn == `OR1K_OPCODE_ANDI)) |
-                         (opc_insn == `OR1K_OPCODE_SWA) |
-                         (opc_insn == `OR1K_OPCODE_LWA) |
-                         (opc_insn == `OR1K_OPCODE_SW) |
-                         (opc_insn == `OR1K_OPCODE_SH) |
-                         (opc_insn == `OR1K_OPCODE_SB);
+                        (opc_insn == `OR1K_OPCODE_SWA) |
+                        (opc_insn == `OR1K_OPCODE_LWA) |
+                        (opc_insn == `OR1K_OPCODE_SW) |
+                        (opc_insn == `OR1K_OPCODE_SH) |
+                        (opc_insn == `OR1K_OPCODE_SB);
 
   assign imm_zext = {{16{1'b0}}, dcod_imm16[15:0]};
   assign imm_zext_sel = ((opc_insn[5:4] == 2'b10) &
                           ((opc_insn == `OR1K_OPCODE_ORI) |
                            (opc_insn == `OR1K_OPCODE_ANDI))) |
-                         (opc_insn == `OR1K_OPCODE_MTSPR);
+                        (opc_insn == `OR1K_OPCODE_MTSPR);
 
   assign imm_high = {dcod_imm16, 16'd0};
   assign imm_high_sel = dcod_op_movhi;
 
   wire [OPTION_OPERAND_WIDTH-1:0] dcod_immediate = imm_sext_sel ? imm_sext :
-                                                     imm_zext_sel ? imm_zext :
-                                                                    imm_high;
+                                                   imm_zext_sel ? imm_zext :
+                                                                  imm_high;
 
   wire dcod_immediate_sel = imm_sext_sel | imm_zext_sel | imm_high_sel;
 
   // ALU opcode
-  wire [`OR1K_ALU_OPC_WIDTH-1:0] dcod_opc_alu;
-  assign opc_alu = dcod_insn_i[`OR1K_ALU_OPC_SELECT];
-  assign dcod_opc_alu = (opc_insn == `OR1K_OPCODE_ORI)  ? `OR1K_ALU_OPC_OR :
-                          (opc_insn == `OR1K_OPCODE_ANDI) ? `OR1K_ALU_OPC_AND :
-                          (opc_insn == `OR1K_OPCODE_XORI) ? `OR1K_ALU_OPC_XOR :
-                                                            opc_alu;
+  wire [`OR1K_ALU_OPC_WIDTH-1:0] dcod_opc_alu =
+    (opc_insn == `OR1K_OPCODE_ORI)  ? `OR1K_ALU_OPC_OR  :
+    (opc_insn == `OR1K_OPCODE_ANDI) ? `OR1K_ALU_OPC_AND :
+    (opc_insn == `OR1K_OPCODE_XORI) ? `OR1K_ALU_OPC_XOR :
+      ({`OR1K_ALU_OPC_WIDTH{dcod_op_alu}} & opc_alu);
 
   wire [`OR1K_ALU_OPC_WIDTH-1:0] dcod_opc_alu_secondary;
   assign dcod_opc_alu_secondary = dcod_op_setflag ?
@@ -338,55 +336,56 @@ module mor1kx_decode_marocchino
 
   // Illegal instruction decode
   reg illegal_insn_r;
+  // Instruction executed during 1 clock
+  reg insn_one_clock_r;
+  // ---
   always @* begin
     case (opc_insn)
       `OR1K_OPCODE_J,
       `OR1K_OPCODE_JAL,
+      `OR1K_OPCODE_JR,
+      `OR1K_OPCODE_JALR,
       `OR1K_OPCODE_BNF,
       `OR1K_OPCODE_BF,
       `OR1K_OPCODE_MOVHI,
       `OR1K_OPCODE_RFE,
-      `OR1K_OPCODE_JR,
-      `OR1K_OPCODE_JALR,
+      `OR1K_OPCODE_ADDI,
+      `OR1K_OPCODE_ADDIC,
+      `OR1K_OPCODE_ANDI,
+      `OR1K_OPCODE_ORI,
+      `OR1K_OPCODE_XORI,
+      `OR1K_OPCODE_SF,
+      `OR1K_OPCODE_SFIMM,
+      `OR1K_OPCODE_NOP:
+         begin
+          illegal_insn_r   = 1'b0;
+          insn_one_clock_r = 1'b1;
+         end
+
+      `OR1K_OPCODE_MFSPR,
+      `OR1K_OPCODE_MTSPR,
       `OR1K_OPCODE_LWZ,
       `OR1K_OPCODE_LWS,
       `OR1K_OPCODE_LBZ,
       `OR1K_OPCODE_LBS,
       `OR1K_OPCODE_LHZ,
       `OR1K_OPCODE_LHS,
-      `OR1K_OPCODE_ADDI,
-      `OR1K_OPCODE_ANDI,
-      `OR1K_OPCODE_ORI,
-      `OR1K_OPCODE_XORI,
-      `OR1K_OPCODE_MFSPR,
-       /*
-        `OR1K_OPCODE_SLLI,
-        `OR1K_OPCODE_SRLI,
-        `OR1K_OPCODE_SRAI,
-        `OR1K_OPCODE_RORI,
-        */
-      `OR1K_OPCODE_SFIMM,
-      `OR1K_OPCODE_MTSPR,
       `OR1K_OPCODE_SW,
       `OR1K_OPCODE_SB,
       `OR1K_OPCODE_SH,
-       /*
-        `OR1K_OPCODE_SFEQ,
-        `OR1K_OPCODE_SFNE,
-        `OR1K_OPCODE_SFGTU,
-        `OR1K_OPCODE_SFGEU,
-        `OR1K_OPCODE_SFLTU,
-        `OR1K_OPCODE_SFLEU,
-        `OR1K_OPCODE_SFGTS,
-        `OR1K_OPCODE_SFGES,
-        `OR1K_OPCODE_SFLTS,
-        `OR1K_OPCODE_SFLES,
-        */
-      `OR1K_OPCODE_SF,
-      `OR1K_OPCODE_NOP:    illegal_insn_r = 1'b0;
-
       `OR1K_OPCODE_SWA,
-      `OR1K_OPCODE_LWA:    illegal_insn_r = 1'b0;
+      `OR1K_OPCODE_LWA:
+         begin
+          illegal_insn_r   = 1'b0;
+          insn_one_clock_r = 1'b0;
+         end
+
+      `OR1K_OPCODE_LD,
+      `OR1K_OPCODE_SD:
+         begin
+          illegal_insn_r   = !(OPTION_OPERAND_WIDTH==64);
+          insn_one_clock_r = !(OPTION_OPERAND_WIDTH==64); // pass illegal insruction exception through EXECUTE
+         end
 
       `OR1K_OPCODE_CUST1,
       `OR1K_OPCODE_CUST2,
@@ -395,80 +394,117 @@ module mor1kx_decode_marocchino
       `OR1K_OPCODE_CUST5,
       `OR1K_OPCODE_CUST6,
       `OR1K_OPCODE_CUST7,
-      `OR1K_OPCODE_CUST8:  illegal_insn_r = 1'b1;
+      `OR1K_OPCODE_CUST8:
+         begin
+          illegal_insn_r   = 1'b1;
+          insn_one_clock_r = 1'b1; // pass illegal insruction exception through EXECUTE
+         end
 
-      `OR1K_OPCODE_FPU:    illegal_insn_r = (FEATURE_FPU == "NONE");
+      `OR1K_OPCODE_FPU:
+         begin
+          illegal_insn_r   = (FEATURE_FPU == "NONE");
+          insn_one_clock_r = (FEATURE_FPU == "NONE"); // pass illegal insruction exception through EXECUTE
+         end
 
-      `OR1K_OPCODE_LD,
-      `OR1K_OPCODE_SD:     illegal_insn_r = !(OPTION_OPERAND_WIDTH==64);
-
-      `OR1K_OPCODE_ADDIC:  illegal_insn_r = 1'b0;
-
-      //`OR1K_OPCODE_MACRC, // Same as movhi - check!
+      //`OR1K_OPCODE_MACRC, // Same to l.movhi - check!
       `OR1K_OPCODE_MACI,
-      `OR1K_OPCODE_MAC:    illegal_insn_r = 1'b1;
+      `OR1K_OPCODE_MAC:
+         begin
+          illegal_insn_r   = 1'b1;
+          insn_one_clock_r = 1'b1; // pass illegal insruction exception through EXECUTE
+         end
 
-      `OR1K_OPCODE_MULI:   illegal_insn_r = 1'b0;
+      `OR1K_OPCODE_MULI:
+         begin
+          illegal_insn_r   = 1'b1;
+          insn_one_clock_r = 1'b0;
+         end
 
       `OR1K_OPCODE_SHRTI:
-        case(dcod_insn_i[`OR1K_ALU_OPC_SECONDARY_SELECT])
-          `OR1K_ALU_OPC_SECONDARY_SHRT_SLL,
-          `OR1K_ALU_OPC_SECONDARY_SHRT_SRL,
-          `OR1K_ALU_OPC_SECONDARY_SHRT_SRA,
-          `OR1K_ALU_OPC_SECONDARY_SHRT_ROR: illegal_insn_r = 1'b0;
-          default:                          illegal_insn_r = 1'b1;
-        endcase // case (dcod_insn_i[`OR1K_ALU_OPC_SECONDARY_SELECT])
+         begin
+          case(dcod_insn_i[`OR1K_ALU_OPC_SECONDARY_SELECT])
+            `OR1K_ALU_OPC_SECONDARY_SHRT_SLL,
+            `OR1K_ALU_OPC_SECONDARY_SHRT_SRL,
+            `OR1K_ALU_OPC_SECONDARY_SHRT_SRA,
+            `OR1K_ALU_OPC_SECONDARY_SHRT_ROR: illegal_insn_r = 1'b0;
+            default:                          illegal_insn_r = 1'b1;
+          endcase
+          insn_one_clock_r = 1'b1;
+         end
 
       `OR1K_OPCODE_ALU:
         case(dcod_insn_i[`OR1K_ALU_OPC_SELECT])
           `OR1K_ALU_OPC_ADD,
+          `OR1K_ALU_OPC_ADDC,
           `OR1K_ALU_OPC_SUB,
           `OR1K_ALU_OPC_OR,
           `OR1K_ALU_OPC_XOR,
           `OR1K_ALU_OPC_AND,
           `OR1K_ALU_OPC_CMOV,
-          `OR1K_ALU_OPC_FFL1,
+          `OR1K_ALU_OPC_FFL1:
+            begin
+              illegal_insn_r   = 1'b0;
+              insn_one_clock_r = 1'b1;
+            end
           `OR1K_ALU_OPC_DIV,
           `OR1K_ALU_OPC_DIVU,
-          `OR1K_ALU_OPC_ADDC,
           `OR1K_ALU_OPC_MUL,
           `OR1K_ALU_OPC_MULU:
-              illegal_insn_r = 1'b0;
+            begin
+              illegal_insn_r   = 1'b0;
+              insn_one_clock_r = 1'b0;
+            end
           `OR1K_ALU_OPC_EXTBH,
           `OR1K_ALU_OPC_EXTW:
-              illegal_insn_r = (FEATURE_EXT=="NONE");
+            begin
+              illegal_insn_r   = (FEATURE_EXT=="NONE");
+              insn_one_clock_r = 1'b1;
+            end
           `OR1K_ALU_OPC_SHRT:
-            case(dcod_insn_i[`OR1K_ALU_OPC_SECONDARY_SELECT])
-              `OR1K_ALU_OPC_SECONDARY_SHRT_SLL,
-              `OR1K_ALU_OPC_SECONDARY_SHRT_SRL,
-              `OR1K_ALU_OPC_SECONDARY_SHRT_SRA,
-              `OR1K_ALU_OPC_SECONDARY_SHRT_ROR:
-                  illegal_insn_r = 1'b0;
-              default:
-                  illegal_insn_r = 1'b1;
-            endcase // case (dcod_insn_i[`OR1K_ALU_OPC_SECONDARY_SELECT])
+            begin
+              case(dcod_insn_i[`OR1K_ALU_OPC_SECONDARY_SELECT])
+                `OR1K_ALU_OPC_SECONDARY_SHRT_SLL,
+                `OR1K_ALU_OPC_SECONDARY_SHRT_SRL,
+                `OR1K_ALU_OPC_SECONDARY_SHRT_SRA,
+                `OR1K_ALU_OPC_SECONDARY_SHRT_ROR: illegal_insn_r = 1'b0;
+                default:                          illegal_insn_r = 1'b1;
+              endcase // case (dcod_insn_i[`OR1K_ALU_OPC_SECONDARY_SELECT])
+              insn_one_clock_r = 1'b1;
+            end
           default:
-              illegal_insn_r = 1'b1;
-        endcase // case (dcod_insn_i[`OR1K_ALU_OPC_SELECT])
+            begin
+              illegal_insn_r   = 1'b1;
+              insn_one_clock_r = 1'b1; // pass illegal insruction exception through EXECUTE
+            end
+        endcase // alu_opc
 
       `OR1K_OPCODE_SYSTRAPSYNC: begin
         if (((dcod_insn_i[`OR1K_SYSTRAPSYNC_OPC_SELECT] == `OR1K_SYSTRAPSYNC_OPC_SYSCALL) &
              (FEATURE_SYSCALL=="ENABLED")) |
             ((dcod_insn_i[`OR1K_SYSTRAPSYNC_OPC_SELECT] == `OR1K_SYSTRAPSYNC_OPC_TRAP) &
              (FEATURE_TRAP=="ENABLED")) |
-            (dcod_insn_i[`OR1K_SYSTRAPSYNC_OPC_SELECT] == `OR1K_SYSTRAPSYNC_OPC_MSYNC) |
             ((dcod_insn_i[`OR1K_SYSTRAPSYNC_OPC_SELECT] == `OR1K_SYSTRAPSYNC_OPC_PSYNC) &
              (FEATURE_PSYNC!="NONE")) |
             ((dcod_insn_i[`OR1K_SYSTRAPSYNC_OPC_SELECT] == `OR1K_SYSTRAPSYNC_OPC_CSYNC) &
-             (FEATURE_CSYNC!="NONE")))
-            illegal_insn_r = 1'b0;
-          else
-            illegal_insn_r = 1'b1;
-      end // case: endcase...
+             (FEATURE_CSYNC!="NONE"))) begin
+          illegal_insn_r   = 1'b0;
+          insn_one_clock_r = 1'b1; // MAROCCHINO_TODO: perhaps it is incorrect for PSYNC & CSYNC
+        end
+        else if (dcod_insn_i[`OR1K_SYSTRAPSYNC_OPC_SELECT] == `OR1K_SYSTRAPSYNC_OPC_MSYNC) begin
+          illegal_insn_r   = 1'b0;
+          insn_one_clock_r = 1'b0;
+        end
+        else begin
+          illegal_insn_r   = 1'b1;
+          insn_one_clock_r = 1'b1;
+        end
+      end // case sys-trap-sync
 
       default:
-         illegal_insn_r = 1'b1;
-
+        begin
+          illegal_insn_r   = 1'b1;
+          insn_one_clock_r = 1'b1; // pass illegal insruction exception through EXECUTE
+        end
     endcase // case (dcod_insn_i[`OR1K_OPCODE_SELECT])
   end // always
 
@@ -607,7 +643,6 @@ module mor1kx_decode_marocchino
       exec_op_branch_o         <= 1'b0;
       exec_delay_slot_o        <= 1'b0;
       // ALU common
-      exec_op_alu_o            <= 1'b0;
       exec_opc_alu_o           <= {`OR1K_ALU_OPC_WIDTH{1'b0}};
       exec_opc_alu_secondary_o <= {`OR1K_ALU_OPC_WIDTH{1'b0}};
       // Particular EXEC units related
@@ -621,6 +656,7 @@ module mor1kx_decode_marocchino
       exec_op_shift_o          <= 1'b0;
       exec_op_ffl1_o           <= 1'b0;
       exec_op_movhi_o          <= 1'b0;
+      exec_op_cmov_o           <= 1'b0;
       // MTSPR / MFSPR
       exec_op_mfspr_o          <= 1'b0;
       exec_op_mtspr_o          <= 1'b0;
@@ -636,7 +672,6 @@ module mor1kx_decode_marocchino
       exec_op_branch_o         <= 1'b0;
       exec_delay_slot_o        <= 1'b0;
       // ALU common
-      exec_op_alu_o            <= 1'b0;
       exec_opc_alu_o           <= {`OR1K_ALU_OPC_WIDTH{1'b0}};
       exec_opc_alu_secondary_o <= {`OR1K_ALU_OPC_WIDTH{1'b0}};
       // Particular EXEC units related
@@ -650,6 +685,7 @@ module mor1kx_decode_marocchino
       exec_op_shift_o          <= 1'b0;
       exec_op_ffl1_o           <= 1'b0;
       exec_op_movhi_o          <= 1'b0;
+      exec_op_cmov_o           <= 1'b0;
       // MTSPR / MFSPR
       exec_op_mfspr_o          <= 1'b0;
       exec_op_mtspr_o          <= 1'b0;
@@ -664,7 +700,6 @@ module mor1kx_decode_marocchino
       exec_op_branch_o         <= dcod_op_branch_i;
       exec_delay_slot_o        <= dcod_delay_slot_i;
       // ALU common
-      exec_op_alu_o            <= dcod_op_alu;
       exec_opc_alu_o           <= dcod_opc_alu;
       exec_opc_alu_secondary_o <= dcod_opc_alu_secondary;
       // Particular EXEC units related
@@ -678,6 +713,7 @@ module mor1kx_decode_marocchino
       exec_op_shift_o          <= dcod_op_shift;
       exec_op_ffl1_o           <= dcod_op_ffl1;
       exec_op_movhi_o          <= dcod_op_movhi;
+      exec_op_cmov_o           <= dcod_op_cmov;
       // MTSPR / MFSPR
       exec_op_mfspr_o          <= dcod_op_mfspr;
       exec_op_mtspr_o          <= dcod_op_mtspr;
@@ -790,6 +826,25 @@ endgenerate // FPU related
                                   (~dcod_op_mtspr) & 
                                   (~dcod_op_rfe);
     end
+  end // @ clock
+
+
+  //-------------------------------------------------//
+  // 1-clock instruction flag to force EXECUTE valid //
+  //-------------------------------------------------//
+  // !!! invalid instruction isn't included here
+  // !!! because it is already included in insn-one-clock-r
+  wire dcod_excepts = dcod_except_ibus_align  | dcod_except_ibus_err_i   |
+                      dcod_except_itlb_miss_i | dcod_except_ipagefault_i |
+                      dcod_except_syscall     | dcod_except_trap;
+  // ---
+  always @(posedge clk `OR_ASYNC_RST) begin
+    if (rst)
+      exec_insn_1clk_o <= 1'b1;
+    else if (pipeline_flush_i | padv_bubble)
+      exec_insn_1clk_o <= 1'b1;
+    else if (padv_decode_i)
+      exec_insn_1clk_o <= insn_one_clock_r | dcod_excepts;
   end // @ clock
 
 
