@@ -463,7 +463,7 @@ module mor1kx_execute_marocchino
   //---------------
   assign alu_nl_result_o = fpu_arith_valid ? fpu_result :
                            op_shift_i      ? shift_result :
-                           op_mul_i        ? mul_result :
+                           mul_valid       ? mul_result :
                            op_div_i        ? div_result :
                            op_ffl1_i       ? ffl1_result :
                            op_jal_i        ? exec_jal_result_i :  // for GPR[9]
@@ -507,7 +507,7 @@ module mor1kx_execute_marocchino
   assign exec_valid_o =
     exec_insn_1clk_i |
     (op_div_i & div_valid) |
-    (op_mul_i & mul_valid) |
+    mul_valid |
     (fpu_op_is_arith & fpu_arith_valid) |
     (fpu_op_is_cmp & fpu_cmp_valid) |
     ((op_lsu_load_i | op_lsu_store_i) & (lsu_valid_i | lsu_excepts_i)) |

@@ -649,7 +649,6 @@ module mor1kx_decode_marocchino
       exec_op_add_o            <= 1'b0;
       exec_adder_do_sub_o      <= 1'b0;
       exec_adder_do_carry_o    <= 1'b0;
-      exec_op_mul_o            <= 1'b0;
       exec_op_div_o            <= 1'b0;
       exec_op_div_signed_o     <= 1'b0;
       exec_op_div_unsigned_o   <= 1'b0;
@@ -678,7 +677,6 @@ module mor1kx_decode_marocchino
       exec_op_add_o            <= 1'b0;
       exec_adder_do_sub_o      <= 1'b0;
       exec_adder_do_carry_o    <= 1'b0;
-      exec_op_mul_o            <= 1'b0;
       exec_op_div_o            <= 1'b0;
       exec_op_div_signed_o     <= 1'b0;
       exec_op_div_unsigned_o   <= 1'b0;
@@ -706,7 +704,6 @@ module mor1kx_decode_marocchino
       exec_op_add_o            <= dcod_op_add;
       exec_adder_do_sub_o      <= dcod_adder_do_sub;
       exec_adder_do_carry_o    <= dcod_adder_do_carry;
-      exec_op_mul_o            <= dcod_op_mul;
       exec_op_div_o            <= dcod_op_div;
       exec_op_div_signed_o     <= dcod_op_div_signed;
       exec_op_div_unsigned_o   <= dcod_op_div_unsigned;
@@ -719,6 +716,28 @@ module mor1kx_decode_marocchino
       exec_op_mtspr_o          <= dcod_op_mtspr;
       // Sync operations
       exec_op_msync_o          <= dcod_op_msync;
+    end
+  end // @clock
+
+
+  // "OP" control signals with auto deasssert to execute stage
+  always @(posedge clk `OR_ASYNC_RST) begin
+    if (rst) begin
+      // Particular EXEC units related
+      exec_op_mul_o            <= 1'b0;
+    end
+    else if (pipeline_flush_i | padv_bubble) begin
+      // bubble already masked by padv-decode forces clearing exception flags
+      // Particular EXEC units related
+      exec_op_mul_o            <= 1'b0;
+    end
+    else if (padv_decode_i) begin
+      // Particular EXEC units related
+      exec_op_mul_o            <= dcod_op_mul;
+    end
+    else begin // MAROCCHINO_TODO: if (exec_insn_taken_i)
+      // Particular EXEC units related
+      exec_op_mul_o            <= 1'b0;
     end
   end // @clock
 
