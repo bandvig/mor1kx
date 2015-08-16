@@ -412,6 +412,8 @@ module mor1kx_ctrl_marocchino
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
       exec_new_input_o <= 1'b0;
+    else if (pipeline_flush_o)
+      exec_new_input_o <= 1'b0;
     else
       exec_new_input_o <= padv_decode_o;
   end // @ clock
