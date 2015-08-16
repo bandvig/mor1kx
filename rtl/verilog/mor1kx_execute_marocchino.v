@@ -118,43 +118,40 @@ module mor1kx_execute_marocchino
   localparam  EXEDW = OPTION_OPERAND_WIDTH; // short name
 
 
-
-  wire [EXEDW-1:0] a = rfa_i;
-  wire [EXEDW-1:0] b = immediate_sel_i ? immediate_i : rfb_i;
-
+  wire [EXEDW-1:0] op_a = rfa_i;
+  wire [EXEDW-1:0] op_b = immediate_sel_i ? immediate_i : rfb_i;
 
 
-  //-----------------
-  // Adder/subtractor
-  //-----------------
+  //------------------//
+  // Adder/subtractor //
+  //------------------//
   // outputs
   wire             adder_carryout;
   wire [EXEDW-1:0] adder_result;
   // inputs
-  wire [EXEDW-1:0] b_neg = ~b;
-  wire [EXEDW-1:0] b_mux = adder_do_sub_i ? b_neg : b;
+  wire [EXEDW-1:0] b_mux = adder_do_sub_i ? (~op_b) : op_b;
   wire carry_in = adder_do_sub_i | (adder_do_carry_i & carry_i);
   // Adder
   assign {adder_carryout, adder_result} =
-            a + b_mux + {{(EXEDW-1){1'b0}},carry_in};
+           op_a + b_mux + {{(EXEDW-1){1'b0}},carry_in};
   // result sign
   wire adder_result_sign = adder_result[EXEDW-1];
   // signed overflow detection
   // Input signs are same and result sign is different to input signs
-  wire adder_signed_overflow =
-            (a[EXEDW-1] == b_mux[EXEDW-1]) &
-            (a[EXEDW-1] ^ adder_result[EXEDW-1]);
+  wire adder_s_ovf =
+         (op_a[EXEDW-1] == b_mux[EXEDW-1]) &
+         (op_a[EXEDW-1] ^ adder_result[EXEDW-1]);
   // unsigned overflow detection
-  wire adder_unsigned_overflow = adder_carryout;
+  wire adder_u_ovf = adder_carryout;
 
 
 
-  //-----------------
-  // Comparison logic
-  //-----------------
-  wire a_eq_b = (a == b);// Equal compare
-  wire a_lts_b = ~(adder_result_sign == adder_signed_overflow);// Signed compare
-  wire a_ltu_b = ~adder_carryout;// Unsigned compare
+  //------------------//
+  // Comparison logic //
+  //------------------//
+  wire a_eq_b  = (op_a == op_b); // Equal compare
+  wire a_lts_b = (adder_result_sign ^ adder_s_ovf); // Signed compare (sign != ovf)
+  wire a_ltu_b = ~adder_carryout; // Unsigned compare
   // comb.
   reg flag_set;
   always @*
@@ -174,9 +171,9 @@ module mor1kx_execute_marocchino
 
 
 
-  //--------------------------------------------
-  // 32-bit multiplier
-  //--------------------------------------------
+  //-------------------//
+  // 32-bit multiplier //
+  //-------------------//
   reg [EXEDW-1:0] mul_opa;
   reg [EXEDW-1:0] mul_opb;
   reg [EXEDW-1:0] mul_result1;
@@ -186,8 +183,8 @@ module mor1kx_execute_marocchino
   // multiplier
   always @(posedge clk) begin
     if (op_mul_i) begin
-      mul_opa <= a;
-      mul_opb <= b;
+      mul_opa <= op_a;
+      mul_opb <= op_b;
     end
     mul_result1 <= mul_opa * mul_opb;
     mul_result  <= mul_result1;
@@ -208,14 +205,14 @@ module mor1kx_execute_marocchino
 
 
 
-  //--------------------------------------------
-  // 32-bit divider
-  //--------------------------------------------
-  reg [5:0] div_count;
+  //----------------//
+  // 32-bit divider //
+  //----------------//
+  reg       [5:0] div_count;
   reg [EXEDW-1:0] div_n;
   reg [EXEDW-1:0] div_d;
   reg [EXEDW-1:0] div_r;
-  wire [EXEDW:0]  div_sub;
+  wire  [EXEDW:0] div_sub;
   reg             div_neg;
   reg             div_done;
   reg             div_by_zero_r;
@@ -283,9 +280,9 @@ module mor1kx_execute_marocchino
 
 
 
-  //------------
-  // FPU related
-  //------------
+  //-------------//
+  // FPU related //
+  //-------------//
   //  arithmetic part interface
   wire fpu_op_is_arith;
   wire fpu_arith_valid;
@@ -341,37 +338,37 @@ module mor1kx_execute_marocchino
   endgenerate // FPU related
 
 
-  //------------
-  // FFL1
-  //------------
+  //------//
+  // FFL1 //
+  //------//
   wire [EXEDW-1:0] ffl1_result;
   assign ffl1_result = (opc_alu_secondary_i[2]) ?
-               (a[31] ? 32 : a[30] ? 31 : a[29] ? 30 :
-                a[28] ? 29 : a[27] ? 28 : a[26] ? 27 :
-                a[25] ? 26 : a[24] ? 25 : a[23] ? 24 :
-                a[22] ? 23 : a[21] ? 22 : a[20] ? 21 :
-                a[19] ? 20 : a[18] ? 19 : a[17] ? 18 :
-                a[16] ? 17 : a[15] ? 16 : a[14] ? 15 :
-                a[13] ? 14 : a[12] ? 13 : a[11] ? 12 :
-                a[10] ? 11 : a[9] ? 10 : a[8] ? 9 :
-                a[7] ? 8 : a[6] ? 7 : a[5] ? 6 : a[4] ? 5 :
-                a[3] ? 4 : a[2] ? 3 : a[1] ? 2 : a[0] ? 1 : 0 ) :
-               (a[0] ? 1 : a[1] ? 2 : a[2] ? 3 : a[3] ? 4 :
-                a[4] ? 5 : a[5] ? 6 : a[6] ? 7 : a[7] ? 8 :
-                a[8] ? 9 : a[9] ? 10 : a[10] ? 11 : a[11] ? 12 :
-                a[12] ? 13 : a[13] ? 14 : a[14] ? 15 :
-                a[15] ? 16 : a[16] ? 17 : a[17] ? 18 :
-                a[18] ? 19 : a[19] ? 20 : a[20] ? 21 :
-                a[21] ? 22 : a[22] ? 23 : a[23] ? 24 :
-                a[24] ? 25 : a[25] ? 26 : a[26] ? 27 :
-                a[27] ? 28 : a[28] ? 29 : a[29] ? 30 :
-                a[30] ? 31 : a[31] ? 32 : 0);
+           (op_a[31] ? 32 : op_a[30] ? 31 : op_a[29] ? 30 :
+            op_a[28] ? 29 : op_a[27] ? 28 : op_a[26] ? 27 :
+            op_a[25] ? 26 : op_a[24] ? 25 : op_a[23] ? 24 :
+            op_a[22] ? 23 : op_a[21] ? 22 : op_a[20] ? 21 :
+            op_a[19] ? 20 : op_a[18] ? 19 : op_a[17] ? 18 :
+            op_a[16] ? 17 : op_a[15] ? 16 : op_a[14] ? 15 :
+            op_a[13] ? 14 : op_a[12] ? 13 : op_a[11] ? 12 :
+            op_a[10] ? 11 : op_a[9] ? 10 : op_a[8] ? 9 :
+            op_a[7] ? 8 : op_a[6] ? 7 : op_a[5] ? 6 : op_a[4] ? 5 :
+            op_a[3] ? 4 : op_a[2] ? 3 : op_a[1] ? 2 : op_a[0] ? 1 : 0 ) :
+           (op_a[0] ? 1 : op_a[1] ? 2 : op_a[2] ? 3 : op_a[3] ? 4 :
+            op_a[4] ? 5 : op_a[5] ? 6 : op_a[6] ? 7 : op_a[7] ? 8 :
+            op_a[8] ? 9 : op_a[9] ? 10 : op_a[10] ? 11 : op_a[11] ? 12 :
+            op_a[12] ? 13 : op_a[13] ? 14 : op_a[14] ? 15 :
+            op_a[15] ? 16 : op_a[16] ? 17 : op_a[17] ? 18 :
+            op_a[18] ? 19 : op_a[19] ? 20 : op_a[20] ? 21 :
+            op_a[21] ? 22 : op_a[22] ? 23 : op_a[23] ? 24 :
+            op_a[24] ? 25 : op_a[25] ? 26 : op_a[26] ? 27 :
+            op_a[27] ? 28 : op_a[28] ? 29 : op_a[29] ? 30 :
+            op_a[30] ? 31 : op_a[31] ? 32 : 0);
 
 
 
-  //---------------
-  // Barrel shifter
-  //---------------
+  //----------------//
+  // Barrel shifter //
+  //----------------//
   // Shifter wires
   wire [`OR1K_ALU_OPC_SECONDARY_WIDTH-1:0] opc_alu_shr;
   assign opc_alu_shr = opc_alu_secondary_i[`OR1K_ALU_OPC_SECONDARY_WIDTH-1:0];
@@ -400,26 +397,26 @@ module mor1kx_execute_marocchino
   // Bit-reverse on left shift, perform right shift,
   // bit-reverse result on left shift.
   //
-  assign shift_lsw = op_sll ? reverse(a) : a;
-  assign shift_msw = op_sra ? {EXEDW{a[EXEDW-1]}} :
-                     op_ror ? a : {EXEDW{1'b0}};
+  assign shift_lsw = op_sll ? reverse(op_a) : op_a;
+  assign shift_msw = op_sra ? {EXEDW{op_a[EXEDW-1]}} :
+                     op_ror ? op_a : {EXEDW{1'b0}};
 
-  assign shift_right = {shift_msw, shift_lsw} >> b[4:0];
+  assign shift_right = {shift_msw, shift_lsw} >> op_b[4:0];
   assign shift_result = op_sll ? reverse(shift_right) : shift_right;
 
 
 
-  //-----------------
-  // Conditional move
-  //-----------------
+  //------------------//
+  // Conditional move //
+  //------------------//
   wire [EXEDW-1:0] cmov_result;
-  assign cmov_result = flag_i ? a : b;
+  assign cmov_result = flag_i ? op_a : op_b;
 
 
 
-  //-------------------
-  // Logical operations
-  //-------------------
+  //--------------------//
+  // Logical operations //
+  //--------------------//
   // Logic wires
   wire             op_logic;
   reg [EXEDW-1:0]  logic_result;
@@ -438,23 +435,23 @@ module mor1kx_execute_marocchino
   integer i;
   always @(*)
     for (i = 0; i < EXEDW; i=i+1) begin
-      logic_result[i] = logic_lut[{a[i], b[i]}];
+      logic_result[i] = logic_lut[{op_a[i], op_b[i]}];
     end
 
   assign op_logic = |logic_lut;
 
 
 
-  //-----------------------
-  // Address for SPR access
-  //-----------------------
-  assign exec_mXspr_addr_o = a[15:0] | b[15:0];
+  //------------------------//
+  // Address for SPR access //
+  //------------------------//
+  assign exec_mXspr_addr_o = op_a[15:0] | immediate_i[15:0];
 
 
 
-  //---------------
-  // Results muxing
-  //---------------
+  //----------------//
+  // Results muxing //
+  //----------------//
   assign alu_nl_result_o = fpu_arith_valid ? fpu_result :
                            op_shift_i      ? shift_result :
                            mul_valid       ? mul_result :
@@ -475,18 +472,18 @@ module mor1kx_execute_marocchino
 
   // Overflow flag generation
   assign exec_overflow_set_o   = (FEATURE_OVERFLOW != "NONE") &
-                                 ((op_add_i & adder_signed_overflow) |
+                                 ((op_add_i & adder_s_ovf) |
                                   (op_div_signed_i & div_by_zero));
   assign exec_overflow_clear_o = (FEATURE_OVERFLOW != "NONE") &
-                                 ((op_add_i & (~adder_signed_overflow)) |
+                                 ((op_add_i & (~adder_s_ovf)) |
                                   (op_div_signed_i & (~div_by_zero)));
 
   // Carry flag generation
   assign exec_carry_set_o   = (FEATURE_CARRY_FLAG != "NONE") &
-                              ((op_add_i & adder_unsigned_overflow) |
+                              ((op_add_i & adder_u_ovf) |
                                (op_div_unsigned_i & div_by_zero));
   assign exec_carry_clear_o = (FEATURE_CARRY_FLAG!="NONE") &
-                              ((op_add_i & (~adder_unsigned_overflow)) |
+                              ((op_add_i & (~adder_u_ovf)) |
                                (op_div_unsigned_i & (~div_by_zero)));
 
   // lsu address (not latched)

@@ -147,12 +147,14 @@ module mor1kx_decode_marocchino
   output reg                            exec_op_rfe_o
 );
 
-  wire [OPTION_OPERAND_WIDTH-1:0]    imm_sext;
-  wire                               imm_sext_sel;
-  wire [OPTION_OPERAND_WIDTH-1:0]    imm_zext;
-  wire                               imm_zext_sel;
-  wire [OPTION_OPERAND_WIDTH-1:0]    imm_high;
-  wire                               imm_high_sel;
+  wire [OPTION_OPERAND_WIDTH-1:0] imm_sext;
+  wire                            imm_sext_sel;
+  wire [OPTION_OPERAND_WIDTH-1:0] imm_zext;
+  wire                            imm_zext_sel;
+  wire [OPTION_OPERAND_WIDTH-1:0] imm_high;
+  wire                            imm_high_sel;
+  wire [OPTION_OPERAND_WIDTH-1:0] dcod_immediate;
+  wire                            dcod_immediate_sel;
 
   wire dcod_op_jal; // l.jal | l.jalr : jump and link
   wire dcod_op_jr; // l.jr  | l.jalr : jump to register
@@ -274,17 +276,17 @@ module mor1kx_decode_marocchino
   wire [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfd_adr;
   assign dcod_rfd_adr = dcod_op_jal ? 9 : dcod_insn_i[`OR1K_RD_SELECT];
 
+
+  // Upper 10 bits for jump/branch instructions
+  assign dcod_immjbr_upper_o = dcod_insn_i[25:16];
+
   // Immediate in l.mtspr is broken up, reassemble
   wire [`OR1K_IMM_WIDTH-1:0] dcod_imm16;
   assign dcod_imm16 = (dcod_op_mtspr | dcod_op_lsu_store) ?
                         {dcod_insn_i[25:21],dcod_insn_i[10:0]} :
                         dcod_insn_i[`OR1K_IMM_SELECT];
 
-
-  // Upper 10 bits for jump/branch instructions
-  assign dcod_immjbr_upper_o = dcod_insn_i[25:16];
-
-  assign imm_sext = {{16{dcod_imm16[15]}}, dcod_imm16[15:0]};
+  assign imm_sext     = {{16{dcod_imm16[15]}}, dcod_imm16[15:0]};
   assign imm_sext_sel = ((opc_insn[5:4] == 2'b10) &
                           ~(opc_insn == `OR1K_OPCODE_ORI) &
                           ~(opc_insn == `OR1K_OPCODE_ANDI)) |
@@ -294,20 +296,19 @@ module mor1kx_decode_marocchino
                         (opc_insn == `OR1K_OPCODE_SH) |
                         (opc_insn == `OR1K_OPCODE_SB);
 
-  assign imm_zext = {{16{1'b0}}, dcod_imm16[15:0]};
+  assign imm_zext     = {{16{1'b0}}, dcod_imm16[15:0]};
   assign imm_zext_sel = ((opc_insn[5:4] == 2'b10) &
                           ((opc_insn == `OR1K_OPCODE_ORI) |
                            (opc_insn == `OR1K_OPCODE_ANDI))) |
                         (opc_insn == `OR1K_OPCODE_MTSPR);
 
-  assign imm_high = {dcod_imm16, 16'd0};
+  assign imm_high     = {dcod_imm16, 16'd0};
   assign imm_high_sel = dcod_op_movhi;
 
-  wire [OPTION_OPERAND_WIDTH-1:0] dcod_immediate = imm_sext_sel ? imm_sext :
-                                                   imm_zext_sel ? imm_zext :
-                                                                  imm_high;
+  assign dcod_immediate     = imm_sext_sel ? imm_sext :
+                              imm_zext_sel ? imm_zext : imm_high;
+  assign dcod_immediate_sel = imm_sext_sel | imm_zext_sel | imm_high_sel;
 
-  wire dcod_immediate_sel = imm_sext_sel | imm_zext_sel | imm_high_sel;
 
   // ALU opcode
   wire [`OR1K_ALU_OPC_WIDTH-1:0] dcod_opc_alu =
