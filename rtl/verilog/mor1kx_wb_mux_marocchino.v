@@ -38,7 +38,7 @@ module mor1kx_wb_mux_marocchino
   input      [OPTION_OPERAND_WIDTH-1:0] lsu_result_i,
 
   // MFSPR
-  input                                 exec_op_mfspr_i,
+  input                                 ctrl_mfspr_rdy_i,
   input      [OPTION_OPERAND_WIDTH-1:0] mfspr_dat_i,
 
   // destination address & write request flag
@@ -111,22 +111,27 @@ module mor1kx_wb_mux_marocchino
   output reg                            wb_overflow_clear_o,
   output reg    [`OR1K_FPCSR_WIDTH-1:0] wb_fpcsr_o,
   output reg                            wb_fpcsr_set_o,
-  output reg [OPTION_OPERAND_WIDTH-1:0] wb_result_o,
+  output     [OPTION_OPERAND_WIDTH-1:0] wb_result_o,
   output reg [OPTION_RF_ADDR_WIDTH-1:0] wb_rfd_adr_o,
   output reg                            wb_rf_wb_o
 );
 
   // result
-  always @(posedge clk) begin
-    if (padv_wb_i & (~pipeline_flush_i)) begin
-      if (exec_op_mfspr_i)
-        wb_result_o <= mfspr_dat_i;
-      else if (exec_op_lsu_load_i)
-        wb_result_o <= lsu_result_i;
+  reg [OPTION_OPERAND_WIDTH-1:0] wb_result_r;
+  // ---
+  always @(posedge clk `OR_ASYNC_RST) begin
+    if (rst)
+      wb_result_r <= {OPTION_OPERAND_WIDTH{1'b0}};
+    else if (padv_wb_i & (~pipeline_flush_i)) begin
+      if (exec_op_lsu_load_i)
+        wb_result_r <= lsu_result_i;
       else if (exec_rf_wb_i)
-        wb_result_o <= alu_nl_result_i;
+        wb_result_r <= alu_nl_result_i;
     end
   end // @clock
+  // combined output
+  assign wb_result_o = ctrl_mfspr_rdy_i ? mfspr_dat_i :
+                                          wb_result_r;
 
   // write back request
   always @(posedge clk `OR_ASYNC_RST) begin

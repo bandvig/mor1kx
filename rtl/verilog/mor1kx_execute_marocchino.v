@@ -100,12 +100,6 @@ module mor1kx_execute_marocchino
   output exec_overflow_set_o,
   output exec_overflow_clear_o,
 
-  // MTSPR & MFSPR related inputs
-  input op_mtspr_i,
-  input op_mfspr_i,
-  input ctrl_mfspr_ack_i,
-  input ctrl_mtspr_ack_i,
-
   // MSYNC related controls
   input      op_msync_i,
   input      msync_done_i,
@@ -511,8 +505,6 @@ module mor1kx_execute_marocchino
     (fpu_op_is_arith & fpu_arith_valid) |
     (fpu_op_is_cmp & fpu_cmp_valid) |
     ((op_lsu_load_i | op_lsu_store_i) & (lsu_valid_i | lsu_excepts_i)) |
-    (op_msync_i & msync_done_i) |
-    (op_mfspr_i & ctrl_mfspr_ack_i) |
-    (op_mtspr_i & ctrl_mtspr_ack_i);
+    (op_msync_i & msync_done_i);
 
 endmodule // mor1kx_execute_marocchino

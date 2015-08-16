@@ -656,9 +656,6 @@ module mor1kx_decode_marocchino
       exec_op_ffl1_o           <= 1'b0;
       exec_op_movhi_o          <= 1'b0;
       exec_op_cmov_o           <= 1'b0;
-      // MTSPR / MFSPR
-      exec_op_mfspr_o          <= 1'b0;
-      exec_op_mtspr_o          <= 1'b0;
       // Sync operations
       exec_op_msync_o          <= 1'b0;
     end
@@ -684,9 +681,6 @@ module mor1kx_decode_marocchino
       exec_op_ffl1_o           <= 1'b0;
       exec_op_movhi_o          <= 1'b0;
       exec_op_cmov_o           <= 1'b0;
-      // MTSPR / MFSPR
-      exec_op_mfspr_o          <= 1'b0;
-      exec_op_mtspr_o          <= 1'b0;
       // Sync operations
       exec_op_msync_o          <= 1'b0;
     end
@@ -711,9 +705,6 @@ module mor1kx_decode_marocchino
       exec_op_ffl1_o           <= dcod_op_ffl1;
       exec_op_movhi_o          <= dcod_op_movhi;
       exec_op_cmov_o           <= dcod_op_cmov;
-      // MTSPR / MFSPR
-      exec_op_mfspr_o          <= dcod_op_mfspr;
-      exec_op_mtspr_o          <= dcod_op_mtspr;
       // Sync operations
       exec_op_msync_o          <= dcod_op_msync;
     end
@@ -725,19 +716,31 @@ module mor1kx_decode_marocchino
     if (rst) begin
       // Particular EXEC units related
       exec_op_mul_o            <= 1'b0;
+      // MTSPR / MFSPR
+      exec_op_mfspr_o          <= 1'b0;
+      exec_op_mtspr_o          <= 1'b0;
     end
     else if (pipeline_flush_i | padv_bubble) begin
       // bubble already masked by padv-decode forces clearing exception flags
       // Particular EXEC units related
       exec_op_mul_o            <= 1'b0;
+      // MTSPR / MFSPR
+      exec_op_mfspr_o          <= 1'b0;
+      exec_op_mtspr_o          <= 1'b0;
     end
     else if (padv_decode_i) begin
       // Particular EXEC units related
       exec_op_mul_o            <= dcod_op_mul;
+      // MTSPR / MFSPR
+      exec_op_mfspr_o          <= dcod_op_mfspr;
+      exec_op_mtspr_o          <= dcod_op_mtspr;
     end
     else begin // MAROCCHINO_TODO: if (exec_insn_taken_i)
       // Particular EXEC units related
       exec_op_mul_o            <= 1'b0;
+      // MTSPR / MFSPR
+      exec_op_mfspr_o          <= 1'b0;
+      exec_op_mtspr_o          <= 1'b0;
     end
   end // @clock
 

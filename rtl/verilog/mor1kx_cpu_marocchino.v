@@ -171,12 +171,15 @@ module mor1kx_cpu_marocchino
   wire ctrl_carry;
 
 
-  wire [15:0] exec_mXspr_addr;
+  wire                     [15:0] exec_mXspr_addr;
+  wire                            exec_op_mfspr;
+  wire                            exec_op_mtspr;
+  wire                            ctrl_mfspr_rdy; // to WB_MUX
+  wire [OPTION_OPERAND_WIDTH-1:0] mfspr_dat;      // to WB_MUX
 
 
   wire [OPTION_OPERAND_WIDTH-1:0] alu_nl_result;
   wire [OPTION_OPERAND_WIDTH-1:0] lsu_result;
-  wire [OPTION_OPERAND_WIDTH-1:0] mfspr_dat;
   wire [OPTION_OPERAND_WIDTH-1:0] wb_result;
 
 
@@ -184,12 +187,6 @@ module mor1kx_cpu_marocchino
   wire                         exec_fpcsr_set;
   wire [`OR1K_FPCSR_WIDTH-1:0] wb_fpcsr;
   wire                         wb_fpcsr_set;
-
-
-  wire                 exec_op_mfspr;
-  wire                 exec_op_mtspr;
-  wire                 ctrl_mfspr_ack;
-  wire                 ctrl_mtspr_ack;
 
 
   wire                 exec_valid;
@@ -661,12 +658,6 @@ module mor1kx_cpu_marocchino
     .exec_overflow_set_o              (exec_overflow_set), // EXE
     .exec_overflow_clear_o            (exec_overflow_clear), // EXE
 
-    // MTSPR & MFSPR related inputs
-    .op_mtspr_i                       (exec_op_mtspr), // EXE
-    .op_mfspr_i                       (exec_op_mfspr), // EXE
-    .ctrl_mfspr_ack_i                 (ctrl_mfspr_ack), // EXE
-    .ctrl_mtspr_ack_i                 (ctrl_mtspr_ack), // EXE
-
     // MSYNC related controls
     .op_msync_i                       (exec_op_msync), // EXE
     .msync_done_i                     (msync_done),  // EXE
@@ -784,7 +775,7 @@ module mor1kx_cpu_marocchino
     .lsu_result_i                 (lsu_result), // WB_MUX
 
     // MFSPR
-    .exec_op_mfspr_i              (exec_op_mfspr), // WB_MUX
+    .ctrl_mfspr_rdy_i             (ctrl_mfspr_rdy), // WB_MUX
     .mfspr_dat_i                  (mfspr_dat), // WB_MUX
 
     // destination address & write request flag
@@ -986,8 +977,7 @@ module mor1kx_cpu_marocchino
     // Outputs
     .ctrl_epcr_o                      (ctrl_epcr), // CTRL
     .mfspr_dat_o                      (mfspr_dat), // CTRL
-    .ctrl_mfspr_ack_o                 (ctrl_mfspr_ack), // CTRL
-    .ctrl_mtspr_ack_o                 (ctrl_mtspr_ack), // CTRL
+    .ctrl_mfspr_rdy_o                 (ctrl_mfspr_rdy), // CTRL: for WB_MUX
     .ctrl_flag_o                      (ctrl_flag), // CTRL
     .ctrl_carry_o                     (ctrl_carry), // CTRL
     .ctrl_fpu_round_mode_o            (ctrl_fpu_round_mode), // CTRL

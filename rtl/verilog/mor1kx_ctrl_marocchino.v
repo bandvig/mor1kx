@@ -142,8 +142,7 @@ module mor1kx_ctrl_marocchino
   output [OPTION_OPERAND_WIDTH-1:0] mfspr_dat_o,
 
   // WE to RF for l.mfspr
-  output                            ctrl_mfspr_ack_o,
-  output                            ctrl_mtspr_ack_o,
+  output reg                        ctrl_mfspr_rdy_o, // for WB-MUX
 
   // Flag out to branch control, combinatorial
   output                            ctrl_flag_o,
@@ -269,6 +268,7 @@ module mor1kx_ctrl_marocchino
   reg                               spr_we_en; // 1-clock write ensable strobe for local regs
   wire                              spr_we;
   wire                              spr_ack;
+  wire                              mXspr_ack; // MF(T)SPR done, push pipe
   wire   [OPTION_OPERAND_WIDTH-1:0] spr_write_dat;
   reg        [SPR_ACCESS_WIDTH-1:0] spr_access;
   wire       [SPR_ACCESS_WIDTH-1:0] spr_access_ack;
@@ -401,13 +401,15 @@ module mor1kx_ctrl_marocchino
   // Pipeline control logic //
   //------------------------//
 
+  wire exe_ctrl_valid = (exec_valid_i | mXspr_ack);
+
   assign padv_fetch_o =
     // MAROCCHINO_TODO: ~du_cpu_stall & ~stepping &  // from DU
-    exec_valid_i & (~dcod_bubble_i);
+    exe_ctrl_valid & (~dcod_bubble_i);
 
   assign padv_decode_o =
     // MAROCCHINO_TODO: ~du_cpu_stall & (~stepping | (stepping & pstep[1])) &  // from DU
-    exec_valid_i;
+    exe_ctrl_valid;
 
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
@@ -803,32 +805,26 @@ endgenerate
   // MT(F)SPR command
   reg cmd_op_mfspr;
   reg cmd_op_mtspr;
-  // ...
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst) begin
-      cmd_op_mfspr <= 1'b0;
-      cmd_op_mtspr <= 1'b0;
-    end
-    else if (padv_decode_o | pipeline_flush_o | spr_ack) begin
-      cmd_op_mfspr <= 1'b0;
-      cmd_op_mtspr <= 1'b0;
-    end
-    else if (exec_new_input_o) begin
-      cmd_op_mfspr <= exec_op_mfspr_i;
-      cmd_op_mtspr <= exec_op_mtspr_i;
-    end
-  end // @clock
-
-  // Take MT(F)SPR command
-  wire take_op_mXspr = (~pipeline_flush_o) &
-    exec_new_input_o & (exec_op_mfspr_i | exec_op_mtspr_i);
-
   // MT(F)SPR address & data
   reg                     [15:0] cmd_op_mXspr_addr;
   reg [OPTION_OPERAND_WIDTH-1:0] cmd_op_mXspr_data;
   // ...
   always @(posedge clk `OR_ASYNC_RST) begin
-    if (take_op_mXspr) begin
+    if (rst) begin
+      cmd_op_mfspr      <=  1'b0;
+      cmd_op_mtspr      <=  1'b0;
+      cmd_op_mXspr_addr <= 16'd0;
+      cmd_op_mXspr_data <= {OPTION_OPERAND_WIDTH{1'b0}};
+    end
+    else if (padv_decode_o | pipeline_flush_o | spr_ack) begin
+      cmd_op_mfspr      <= 1'b0;
+      cmd_op_mtspr      <= 1'b0;
+      cmd_op_mXspr_addr <= cmd_op_mXspr_addr;
+      cmd_op_mXspr_data <= cmd_op_mXspr_data;
+    end
+    else if (exec_op_mfspr_i | exec_op_mtspr_i) begin
+      cmd_op_mfspr      <= exec_op_mfspr_i;
+      cmd_op_mtspr      <= exec_op_mtspr_i;
       cmd_op_mXspr_addr <= exec_mXspr_addr_i;
       cmd_op_mXspr_data <= exec_rfb_i;
     end
@@ -839,7 +835,7 @@ endgenerate
     if (rst)
       spr_we_en <= 1'b0;
     else
-      spr_we_en <= (~pipeline_flush_o) & exec_new_input_o & exec_op_mtspr_i;
+      spr_we_en <= (~pipeline_flush_o) & exec_op_mtspr_i;
   end // @clock
 
 
@@ -991,28 +987,42 @@ endgenerate
 
   // data provided by either MFSPR or DU acceess
   reg [OPTION_OPERAND_WIDTH-1:0] mfspr_dat_r;
+  // ---
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
       mfspr_dat_r <= {OPTION_OPERAND_WIDTH{1'b0}};
     else if (spr_read_access & spr_ack)
       mfspr_dat_r <= mfspr_dat_w;
   end // @clock
+  // MFSPR data output
+  assign mfspr_dat_o = mfspr_dat_r;
 
-  // ready flag for M(T)SPR access
-  reg mXspr_ack;
+  // MF(T)SPR done, push pipe
+  assign mXspr_ack = (cmd_op_mfspr | cmd_op_mtspr) & spr_ack;
+
+  // MF(T)SPR ready flag for WB-MUX
+  // stored ready flag
+  reg mfspr_rdy_stored;
+  // ---
   always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      mXspr_ack <= 1'b0;
-    else if (padv_decode_o | pipeline_flush_o)
-      mXspr_ack <= 1'b0;
-    else if ((cmd_op_mfspr | cmd_op_mtspr) & spr_ack)
-      mXspr_ack <= 1'b1;
+    if (rst) begin
+      ctrl_mfspr_rdy_o <= 1'b0;
+      mfspr_rdy_stored <= 1'b0;
+    end
+    else if (pipeline_flush_o) begin
+      ctrl_mfspr_rdy_o <= ctrl_mfspr_rdy_o;
+      mfspr_rdy_stored <= 1'b0;
+    end
+    else if (padv_wb_o) begin
+      ctrl_mfspr_rdy_o <= (mXspr_ack | mfspr_rdy_stored);
+      mfspr_rdy_stored <= 1'b0;
+    end
+    else if (~mfspr_rdy_stored) begin
+      ctrl_mfspr_rdy_o <= ctrl_mfspr_rdy_o;
+      mfspr_rdy_stored <= mXspr_ack;
+    end
   end // @clock
 
-  // M(T)SPR outputs
-  assign mfspr_dat_o      = mfspr_dat_r;
-  assign ctrl_mfspr_ack_o = mXspr_ack;
-  assign ctrl_mtspr_ack_o = mXspr_ack;
 
 // Controls to generate ACKs from units that are external to this module
 
