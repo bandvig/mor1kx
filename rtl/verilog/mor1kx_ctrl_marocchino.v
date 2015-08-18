@@ -69,11 +69,17 @@ module mor1kx_ctrl_marocchino
   input                             clk,
   input                             rst,
 
+  // MF(T)SPR coomand processing
+  input  [OPTION_OPERAND_WIDTH-1:0] exec_rfa_i, // part of addr for MT(F)SPR
+  input  [OPTION_OPERAND_WIDTH-1:0] exec_immediate_i, // part of addr for MT(F)SPR
+  input  [OPTION_OPERAND_WIDTH-1:0] exec_rfb_i, // data for MTSPR
+  input                             exec_op_mfspr_i,
+  input                             exec_op_mtspr_i,
+  output reg                        ctrl_mfspr_rdy_o, // for WB-MUX
+  output [OPTION_OPERAND_WIDTH-1:0] mfspr_dat_o,
 
   // LSU address, needed for effective address
   input [OPTION_OPERAND_WIDTH-1:0]  lsu_adr_i,
-  // Operand B from RF might be jump address, might be value for SPR
-  input [OPTION_OPERAND_WIDTH-1:0]  exec_rfb_i,
 
   input                             wb_flag_set_i,
   input                             wb_flag_clear_i,
@@ -86,9 +92,6 @@ module mor1kx_ctrl_marocchino
 
   input [OPTION_OPERAND_WIDTH-1:0]  pc_wb_i,
 
-  input                             exec_op_mfspr_i,
-  input                             exec_op_mtspr_i,
-  input                      [15:0] exec_mXspr_addr_i,
   input                             wb_op_rfe_i,
 
   // Indicate if branch will be taken based on instruction currently in
@@ -137,12 +140,6 @@ module mor1kx_ctrl_marocchino
   // Exception PC input coming from the store buffer
   input [OPTION_OPERAND_WIDTH-1:0]  store_buffer_epcr_i,
   input                             store_buffer_err_i,
-
-  // SPR data out
-  output [OPTION_OPERAND_WIDTH-1:0] mfspr_dat_o,
-
-  // WE to RF for l.mfspr
-  output reg                        ctrl_mfspr_rdy_o, // for WB-MUX
 
   // Flag out to branch control, combinatorial
   output                            ctrl_flag_o,
@@ -825,7 +822,7 @@ endgenerate
     else if (exec_op_mfspr_i | exec_op_mtspr_i) begin
       cmd_op_mfspr      <= exec_op_mfspr_i;
       cmd_op_mtspr      <= exec_op_mtspr_i;
-      cmd_op_mXspr_addr <= exec_mXspr_addr_i;
+      cmd_op_mXspr_addr <= exec_rfa_i[15:0] | exec_immediate_i[15:0];
       cmd_op_mXspr_data <= exec_rfb_i;
     end
   end // @clock

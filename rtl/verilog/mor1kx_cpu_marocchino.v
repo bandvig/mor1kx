@@ -171,7 +171,6 @@ module mor1kx_cpu_marocchino
   wire ctrl_carry;
 
 
-  wire                     [15:0] exec_mXspr_addr;
   wire                            exec_op_mfspr;
   wire                            exec_op_mtspr;
   wire                            ctrl_mfspr_rdy; // to WB_MUX
@@ -632,9 +631,6 @@ module mor1kx_cpu_marocchino
     .exec_jal_result_i                (exec_jal_result), // EXE
     .alu_nl_result_o                  (alu_nl_result), // EXE  (not latched, for debug only)
 
-    // Address for SPR access
-    .exec_mXspr_addr_o                (exec_mXspr_addr), // EXE  not latched
-
     // FPU related
     .op_fpu_i                         (exec_op_fpu), // EXE
     .fpu_round_mode_i                 (ctrl_fpu_round_mode), // EXE
@@ -974,10 +970,16 @@ module mor1kx_cpu_marocchino
     // clocks & resets
     .clk (clk),
     .rst (rst),
+    // MF(T)SPR coomand processing
+    .exec_rfa_i                       (exec_rfa), // CTRL: part of addr for MT(F)SPR
+    .exec_immediate_i                 (exec_immediate), // CTRL: part of addr for MT(F)SPR
+    .exec_rfb_i                       (exec_rfb), // CTRL: data for MTSPR
+    .exec_op_mfspr_i                  (exec_op_mfspr), // CTRL
+    .exec_op_mtspr_i                  (exec_op_mtspr), // CTRL
+    .ctrl_mfspr_rdy_o                 (ctrl_mfspr_rdy), // CTRL: for WB_MUX
+    .mfspr_dat_o                      (mfspr_dat), // CTRL
     // Outputs
     .ctrl_epcr_o                      (ctrl_epcr), // CTRL
-    .mfspr_dat_o                      (mfspr_dat), // CTRL
-    .ctrl_mfspr_rdy_o                 (ctrl_mfspr_rdy), // CTRL: for WB_MUX
     .ctrl_flag_o                      (ctrl_flag), // CTRL
     .ctrl_carry_o                     (ctrl_carry), // CTRL
     .ctrl_fpu_round_mode_o            (ctrl_fpu_round_mode), // CTRL
@@ -1001,7 +1003,6 @@ module mor1kx_cpu_marocchino
     .spr_sr_o                         (spr_sr_o[15:0]), // CTRL
     // Inputs
     .lsu_adr_i                        (lsu_adr), // CTRL
-    .exec_rfb_i                       (exec_rfb), // CTRL
     .wb_flag_set_i                    (wb_flag_set), // CTRL
     .wb_flag_clear_i                  (wb_flag_clear), // CTRL
     .wb_atomic_flag_set_i             (wb_atomic_flag_set), // CTRL
@@ -1011,9 +1012,6 @@ module mor1kx_cpu_marocchino
     .wb_overflow_set_i                (wb_overflow_set), // CTRL
     .wb_overflow_clear_i              (wb_overflow_clear), // CTRL
     .pc_wb_i                          (pc_wb), // CTRL
-    .exec_op_mfspr_i                  (exec_op_mfspr), // CTRL
-    .exec_op_mtspr_i                  (exec_op_mtspr), // CTRL
-    .exec_mXspr_addr_i                (exec_mXspr_addr), // CTRL
     .wb_op_rfe_i                      (wb_op_rfe), // CTRL
     .dcod_branch_i                    (dcod_branch), // CTRL
     .dcod_branch_target_i             (dcod_branch_target), // CTRL

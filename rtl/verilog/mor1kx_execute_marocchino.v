@@ -74,9 +74,6 @@ module mor1kx_execute_marocchino
   input      [OPTION_OPERAND_WIDTH-1:0] exec_jal_result_i,
   output     [OPTION_OPERAND_WIDTH-1:0] alu_nl_result_o, // nl: not latched
 
-  // Address for SPR access
-  output                         [15:0] exec_mXspr_addr_o, // not latched
-
   // FPU related
   input      [`OR1K_FPUOP_WIDTH-1:0]   op_fpu_i,
   input      [`OR1K_FPCSR_RM_SIZE-1:0] fpu_round_mode_i,
@@ -439,14 +436,6 @@ module mor1kx_execute_marocchino
     end
 
   assign op_logic = |logic_lut;
-
-
-
-  //------------------------//
-  // Address for SPR access //
-  //------------------------//
-  assign exec_mXspr_addr_o = op_a[15:0] | immediate_i[15:0];
-
 
 
   //----------------//
