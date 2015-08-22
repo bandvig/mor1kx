@@ -55,8 +55,10 @@ module mor1kx_execute_marocchino
   // adder's outputs
   output [OPTION_OPERAND_WIDTH-1:0] exec_lsu_adr_o,
 
-  // multiplier inputs
-  input               op_mul_i,
+  // multiplier inputs/outputs
+  input                                 op_mul_i,
+  output reg [OPTION_OPERAND_WIDTH-1:0] wb_mul_result_o,
+  output reg                            wb_mul_rdy_o,
 
   // dividion inputs
   input               op_div_i,
@@ -98,12 +100,9 @@ module mor1kx_execute_marocchino
   output exec_overflow_clear_o,
 
   // MSYNC related controls
-  input      op_msync_i,
   input      msync_done_i,
 
   // LSU related inputs
-  input       op_lsu_load_i,
-  input       op_lsu_store_i,
   input       lsu_valid_i,
   input       lsu_excepts_i,
 
@@ -171,34 +170,102 @@ module mor1kx_execute_marocchino
   //-------------------//
   // 32-bit multiplier //
   //-------------------//
-  reg [EXEDW-1:0] mul_opa;
-  reg [EXEDW-1:0] mul_opb;
-  reg [EXEDW-1:0] mul_result1;
-  reg [EXEDW-1:0] mul_result;
-  reg       [2:0] mul_cnt_shr;
-  wire            mul_valid;
-  // multiplier
+  localparam MULHDW = (OPTION_OPERAND_WIDTH >> 1);
+
+  // algorithm:
+  //   AlBl[dw-1:0] = A[hdw-1:0] * B[hdw-1:0];
+  //   AhBl[dw-1:0] = A[dw-1:hdw] * B[hdw-1:0];
+  //   BhAl[dw-1:0] = B[dw-1:hdw] * A[hdw-1:0];
+  //   Sum[dw-1:0]  = {BhAl[hdw-1:0],{hdw{0}}} +
+  //                  {AlBl[hdw-1:0],{hdw{0}}} +
+  //                  AlBl;
+
+  wire mul_valid; // valid flag is 1-clock ahead of latching for WB
+  wire mul_adv = ~mul_valid | padv_wb_i; // advance multiplier pipe
+
+  // stage #1: register inputs & split them on halfed parts
+  reg [MULHDW-1:0] mul_s1_al;
+  reg [MULHDW-1:0] mul_s1_bl;
+  reg [MULHDW-1:0] mul_s1_ah;
+  reg [MULHDW-1:0] mul_s1_bh;
+  //  registering
   always @(posedge clk) begin
-    if (op_mul_i) begin
-      mul_opa <= op_a;
-      mul_opb <= op_b;
+    if (op_mul_i & mul_adv) begin
+      mul_s1_al <= op_a[MULHDW-1:0];
+      mul_s1_bl <= op_b[MULHDW-1:0];
+      mul_s1_ah <= op_a[EXEDW-1:MULHDW];
+      mul_s1_bh <= op_b[EXEDW-1:MULHDW];
     end
-    mul_result1 <= mul_opa * mul_opb;
-    mul_result  <= mul_result1;
-  end // @clock
-  // multiplier's clock counter
+  end // posedge clock
+  //  ready flag
+  reg mul_s1_rdy;
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
-      mul_cnt_shr <= 3'd0;
-    else if (padv_decode_i | pipeline_flush_i) // reset @ new decode data
-      mul_cnt_shr <= 3'd0;
-    else if (~(|mul_cnt_shr))
-      mul_cnt_shr <= {2'd0,op_mul_i}; // init
-    else if (~mul_valid)
-      mul_cnt_shr <= {mul_cnt_shr[1:0], 1'b0};
+      mul_s1_rdy <= 1'b0;
+    else if (pipeline_flush_i)
+      mul_s1_rdy <= 1'b0;
+    else if (mul_adv)
+      mul_s1_rdy <= op_mul_i;
+  end // posedge clock
+
+  // stage #2: partial products
+  reg [EXEDW-1:0] mul_s2_albl;
+  reg [EXEDW-1:0] mul_s2_ahbl;
+  reg [EXEDW-1:0] mul_s2_bhal;
+  //  registering
+  always @(posedge clk) begin
+    if (mul_s1_rdy & mul_adv) begin
+      mul_s2_albl <= mul_s1_al * mul_s1_bl;
+      mul_s2_ahbl <= mul_s1_ah * mul_s1_bl;
+      mul_s2_bhal <= mul_s1_bh * mul_s1_al;
+    end
+  end // posedge clock
+  //  ready flag
+  reg mul_s2_rdy;
+  always @(posedge clk `OR_ASYNC_RST) begin
+    if (rst)
+      mul_s2_rdy <= 1'b0;
+    else if (pipeline_flush_i)
+      mul_s2_rdy <= 1'b0;
+    else if (mul_adv)
+      mul_s2_rdy <= mul_s1_rdy;
+  end // posedge clock
+  // valid flag is 1-clock ahead of latching for WB
+  assign mul_valid = mul_s2_rdy;
+
+  // stage #3: result
+  wire [EXEDW-1:0] mul_s3t_sum;
+  assign mul_s3t_sum = {mul_s2_bhal[MULHDW-1:0],{MULHDW{1'b0}}} +
+                       {mul_s2_ahbl[MULHDW-1:0],{MULHDW{1'b0}}} +
+                        mul_s2_albl;
+  //  registering
+  always @(posedge clk) begin
+    if (mul_valid & padv_wb_i) begin
+      wb_mul_result_o <= mul_s3t_sum;
+    end
+  end // posedge clock
+  // multiplier ready flag
+  reg mul_rdy_stored;
+  // ---
+  always @(posedge clk `OR_ASYNC_RST) begin
+    if (rst) begin
+      wb_mul_rdy_o   <= 1'b0;
+      mul_rdy_stored <= 1'b0;
+    end
+    else if (pipeline_flush_i) begin
+      wb_mul_rdy_o   <= wb_mul_rdy_o;
+      mul_rdy_stored <= 1'b0;
+    end
+    else if (padv_wb_i) begin
+      wb_mul_rdy_o   <= (mul_valid | mul_rdy_stored);
+      mul_rdy_stored <= 1'b0;
+    end
+    else if (~mul_rdy_stored) begin
+      wb_mul_rdy_o   <= wb_mul_rdy_o;
+      mul_rdy_stored <= mul_valid;
+    end
   end // @clock
-  //  multiplier's ready flag
-  assign mul_valid = mul_cnt_shr[2];
+
 
 
 
@@ -443,7 +510,6 @@ module mor1kx_execute_marocchino
   //----------------//
   assign alu_nl_result_o = fpu_arith_valid ? fpu_result :
                            op_shift_i      ? shift_result :
-                           mul_valid       ? mul_result :
                            op_div_i        ? div_result :
                            op_ffl1_i       ? ffl1_result :
                            op_jal_i        ? exec_jal_result_i :  // for GPR[9]
@@ -490,7 +556,6 @@ module mor1kx_execute_marocchino
     mul_valid |
     (fpu_op_is_arith & fpu_arith_valid) |
     (fpu_op_is_cmp & fpu_cmp_valid) |
-    ((op_lsu_load_i | op_lsu_store_i) & (lsu_valid_i | lsu_excepts_i)) |
-    (op_msync_i & msync_done_i);
+    lsu_valid_i | lsu_excepts_i | msync_done_i;
 
 endmodule // mor1kx_execute_marocchino

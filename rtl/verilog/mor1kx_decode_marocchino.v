@@ -603,37 +603,6 @@ module mor1kx_decode_marocchino
 
 
 
-  //---------------------//
-  // LSU related latches //
-  //---------------------//
-  //   lsu & msync commands
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst) begin
-      exec_op_lsu_load_o     <= 1'b0;
-      exec_op_lsu_store_o    <= 1'b0;
-      exec_op_lsu_atomic_o   <= 1'b0;
-    end
-    else if (pipeline_flush_i | padv_bubble) begin
-      // bubble already masked by padv-decode forces clearing exception flags
-      exec_op_lsu_load_o     <= 1'b0;
-      exec_op_lsu_store_o    <= 1'b0;
-      exec_op_lsu_atomic_o   <= 1'b0;
-    end
-    else if (padv_decode_i) begin
-      exec_op_lsu_load_o     <= dcod_op_lsu_load;
-      exec_op_lsu_store_o    <= dcod_op_lsu_store;
-      exec_op_lsu_atomic_o   <= dcod_op_lsu_atomic;
-    end
-  end // @clock
-  //   lsu additional parameters
-  always @(posedge clk) begin
-    if (padv_decode_i) begin
-      exec_lsu_length_o <= dcod_lsu_length;
-      exec_lsu_zext_o   <= dcod_lsu_zext;
-    end
-  end // @clock
-
-
   // "OP" control signals to execute stage
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst) begin
@@ -657,8 +626,6 @@ module mor1kx_decode_marocchino
       exec_op_ffl1_o           <= 1'b0;
       exec_op_movhi_o          <= 1'b0;
       exec_op_cmov_o           <= 1'b0;
-      // Sync operations
-      exec_op_msync_o          <= 1'b0;
     end
     else if (pipeline_flush_i | padv_bubble) begin
       // bubble already masked by padv-decode forces clearing exception flags
@@ -682,8 +649,6 @@ module mor1kx_decode_marocchino
       exec_op_ffl1_o           <= 1'b0;
       exec_op_movhi_o          <= 1'b0;
       exec_op_cmov_o           <= 1'b0;
-      // Sync operations
-      exec_op_msync_o          <= 1'b0;
     end
     else if (padv_decode_i) begin
       // flag and branches
@@ -706,8 +671,6 @@ module mor1kx_decode_marocchino
       exec_op_ffl1_o           <= dcod_op_ffl1;
       exec_op_movhi_o          <= dcod_op_movhi;
       exec_op_cmov_o           <= dcod_op_cmov;
-      // Sync operations
-      exec_op_msync_o          <= dcod_op_msync;
     end
   end // @clock
 
@@ -715,6 +678,12 @@ module mor1kx_decode_marocchino
   // "OP" control signals with auto deasssert to execute stage
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst) begin
+      // LSU related
+      exec_op_lsu_load_o       <= 1'b0;
+      exec_op_lsu_store_o      <= 1'b0;
+      exec_op_lsu_atomic_o     <= 1'b0;
+      // Sync operations
+      exec_op_msync_o          <= 1'b0;
       // Particular EXEC units related
       exec_op_mul_o            <= 1'b0;
       // MTSPR / MFSPR
@@ -723,6 +692,12 @@ module mor1kx_decode_marocchino
     end
     else if (pipeline_flush_i | padv_bubble) begin
       // bubble already masked by padv-decode forces clearing exception flags
+      // LSU related
+      exec_op_lsu_load_o       <= 1'b0;
+      exec_op_lsu_store_o      <= 1'b0;
+      exec_op_lsu_atomic_o     <= 1'b0;
+      // Sync operations
+      exec_op_msync_o          <= 1'b0;
       // Particular EXEC units related
       exec_op_mul_o            <= 1'b0;
       // MTSPR / MFSPR
@@ -730,6 +705,12 @@ module mor1kx_decode_marocchino
       exec_op_mtspr_o          <= 1'b0;
     end
     else if (padv_decode_i) begin
+      // LSU related
+      exec_op_lsu_load_o       <= dcod_op_lsu_load;
+      exec_op_lsu_store_o      <= dcod_op_lsu_store;
+      exec_op_lsu_atomic_o     <= dcod_op_lsu_atomic;
+      // Sync operations
+      exec_op_msync_o          <= dcod_op_msync;
       // Particular EXEC units related
       exec_op_mul_o            <= dcod_op_mul;
       // MTSPR / MFSPR
@@ -737,11 +718,25 @@ module mor1kx_decode_marocchino
       exec_op_mtspr_o          <= dcod_op_mtspr;
     end
     else begin // MAROCCHINO_TODO: if (exec_insn_taken_i)
+      // LSU related
+      exec_op_lsu_load_o       <= 1'b0;
+      exec_op_lsu_store_o      <= 1'b0;
+      exec_op_lsu_atomic_o     <= 1'b0;
+      // Sync operations
+      exec_op_msync_o          <= 1'b0;
       // Particular EXEC units related
       exec_op_mul_o            <= 1'b0;
       // MTSPR / MFSPR
       exec_op_mfspr_o          <= 1'b0;
       exec_op_mtspr_o          <= 1'b0;
+    end
+  end // @clock
+
+  //   lsu additional parameters
+  always @(posedge clk) begin
+    if (padv_decode_i) begin
+      exec_lsu_length_o <= dcod_lsu_length;
+      exec_lsu_zext_o   <= dcod_lsu_zext;
     end
   end // @clock
 

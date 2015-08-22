@@ -36,11 +36,13 @@ module mor1kx_lsu_marocchino
   parameter OPTION_STORE_BUFFER_DEPTH_WIDTH = 8
 )
 (
+  // clocks & resets
   input                             clk,
   input                             rst,
-
+  // Pipeline controls
   input                             padv_decode_i,
-  input                             exec_new_input_i,
+  input                             padv_wb_i,
+  input                             pipeline_flush_i,
 
   // Input from execute stage (decode's latches)
   input [OPTION_OPERAND_WIDTH-1:0]  exec_lsu_adr_i, // calculated address from ALU
@@ -57,14 +59,16 @@ module mor1kx_lsu_marocchino
   // The exception PC as it has went through the store buffer
   output [OPTION_OPERAND_WIDTH-1:0] store_buffer_epcr_o,
 
-  output [OPTION_OPERAND_WIDTH-1:0] lsu_result_o,
-  output [OPTION_OPERAND_WIDTH-1:0] lsu_adr_o,
-  output                            lsu_valid_o,
+  // 
+  output reg [OPTION_OPERAND_WIDTH-1:0] lsu_result_o,
+  output     [OPTION_OPERAND_WIDTH-1:0] lsu_adr_o,
+  output                                lsu_valid_o,
+  output reg                            wb_lsu_rdy_o,
   // exception output
-  output                            lsu_except_dbus_o,
-  output                            lsu_except_align_o,
-  output                            lsu_except_dtlb_miss_o,
-  output                            lsu_except_dpagefault_o,
+  output reg                        lsu_except_dbus_o,
+  output reg                        lsu_except_align_o,
+  output reg                        lsu_except_dtlb_miss_o,
+  output reg                        lsu_except_dpagefault_o,
   output                            lsu_excepts_o,
 
   // Indicator that the dbus exception came via the store buffer
@@ -101,7 +105,6 @@ module mor1kx_lsu_marocchino
   input                             dbus_err_i,
   input                             dbus_ack_i,
   input [OPTION_OPERAND_WIDTH-1:0]  dbus_dat_i,
-  input                             pipeline_flush_i,
 
   input [31:0]                      snoop_adr_i,
   input                             snoop_en_i
@@ -186,16 +189,13 @@ module mor1kx_lsu_marocchino
   wire                              except_dtlb_miss;
   wire                              except_dpagefault;
 
-  // combined exception flag
-  wire lsu_excepts = except_dbus_err  | except_align |
-                     except_dtlb_miss | except_dpagefault;
 
-  // it makes sense to take new LSU command
-  wire exec_new_input_en = exec_new_input_i &
-                           (~pipeline_flush_i) & (~except_align);
+  // load or store
   wire exec_op_lsu_x = exec_op_lsu_store_i | exec_op_lsu_load_i;
+
   // signal to take new LSU command (less priority than flushing)
-  wire take_op_lsu_x = exec_new_input_en & exec_op_lsu_x;
+  wire take_op_lsu_x = exec_op_lsu_x & (~pipeline_flush_i) & (~except_align);
+
 
   // local latches of inputs from execute stage
   reg                             cmd_op_lsu_load;
@@ -255,47 +255,42 @@ module mor1kx_lsu_marocchino
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
       cmd_op_msync <= 1'b0;
-    else if (padv_decode_i | pipeline_flush_i)
+    else if (pipeline_flush_i)
       cmd_op_msync <= 1'b0;
-    else if (exec_new_input_i)
-      cmd_op_msync <= exec_op_msync_i;
+    else if (exec_op_msync_i)
+      cmd_op_msync <= 1'b1;
+    else if (padv_wb_i & msync_done_o) // MAROCCHINO_TODO: not compatible with paralleled execution
+      cmd_op_msync <= 1'b0;
   end // @clock
 
-  // LSU exceptions for output
-  reg except_dbus_err_r,  except_dbus_align_r,
-      except_dtlb_miss_r, except_dpagefault_r;
   // latching
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst) begin
-      except_dbus_err_r   <= 1'b0;
-      except_dbus_align_r <= 1'b0;
-      except_dtlb_miss_r  <= 1'b0;
-      except_dpagefault_r <= 1'b0;
+      lsu_except_dbus_o       <= 1'b0;
+      lsu_except_align_o      <= 1'b0;
+      lsu_except_dtlb_miss_o  <= 1'b0;
+      lsu_except_dpagefault_o <= 1'b0;
     end
-    else if (padv_decode_i | pipeline_flush_i) begin
-      except_dbus_err_r   <= 1'b0;
-      except_dbus_align_r <= 1'b0;
-      except_dtlb_miss_r  <= 1'b0;
-      except_dpagefault_r <= 1'b0;
+    else if (pipeline_flush_i) begin
+      lsu_except_dbus_o       <= 1'b0;
+      lsu_except_align_o      <= 1'b0;
+      lsu_except_dtlb_miss_o  <= 1'b0;
+      lsu_except_dpagefault_o <= 1'b0;
     end
-    else if (exec_op_lsu_x) begin
+    else begin
       if (except_dbus_err)
-        except_dbus_err_r   <= 1'b1;
+        lsu_except_dbus_o       <= 1'b1;
       if (except_align)
-        except_dbus_align_r <= 1'b1;
+        lsu_except_align_o      <= 1'b1;
       if (except_dtlb_miss)
-        except_dtlb_miss_r  <= 1'b1;
+        lsu_except_dtlb_miss_o  <= 1'b1;
       if (except_dpagefault)
-        except_dpagefault_r <= 1'b1;
+        lsu_except_dpagefault_o <= 1'b1;
     end
   end // @clock
   // output assignement
-  assign lsu_except_dbus_o       = except_dbus_err_r;
-  assign lsu_except_align_o      = except_dbus_align_r;
-  assign lsu_except_dtlb_miss_o  = except_dtlb_miss_r;
-  assign lsu_except_dpagefault_o = except_dpagefault_r;
-  assign lsu_excepts_o           = except_dbus_err_r  | except_dbus_align_r |
-                                   except_dtlb_miss_r | except_dpagefault_r;
+  assign lsu_excepts_o = lsu_except_dbus_o      | lsu_except_align_o |
+                         lsu_except_dtlb_miss_o | lsu_except_dpagefault_o;
 
 
   //----------------------//
@@ -315,7 +310,7 @@ module mor1kx_lsu_marocchino
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
       dbus_err <= 1'b0;
-    else if (padv_decode_i | pipeline_flush_i)
+    else if (pipeline_flush_i)
       dbus_err <= 1'b0;
     else if (dbus_err_i)
       dbus_err <= 1'b1;
@@ -340,6 +335,10 @@ module mor1kx_lsu_marocchino
   assign except_dpagefault =
     tlb_reload_pagefault |
     (cmd_op_lsu_x & dmmu_enable_i & dmmu_pagefault & (~tlb_reload_busy));
+
+  // --- combined exception flag (local use) ---
+  wire lsu_excepts = except_dbus_err  | except_align |
+                     except_dtlb_miss | except_dpagefault;
 
 
   //------------//
@@ -400,16 +399,62 @@ module mor1kx_lsu_marocchino
       access_done <= 1'b1;
   end // @ clock
 
-  // data from load
+  // output assignement (1-clk ahead for WB-latching)
+  assign lsu_valid_o = access_done & (~tlb_reload_busy) & (~dc_snoop_hit);
+
+  // ready flag for WB_MUX (!!! for load command only !!!)
+  // stored
+  reg lsu_load_rdy_stored, lsu_store_rdy_stored;
+  // ---
+  always @(posedge clk `OR_ASYNC_RST) begin
+    if (rst) begin
+      lsu_load_rdy_stored  <= 1'b0;
+      lsu_store_rdy_stored <= 1'b0;
+      wb_lsu_rdy_o         <= 1'b0;
+    end
+    else if (pipeline_flush_i) begin
+      lsu_load_rdy_stored  <= 1'b0;
+      lsu_store_rdy_stored <= 1'b0;
+      wb_lsu_rdy_o         <= wb_lsu_rdy_o;
+    end
+    else if (padv_wb_i) begin
+      lsu_load_rdy_stored  <= 1'b0;
+      lsu_store_rdy_stored <= 1'b0;
+      if ((lsu_valid_o & cmd_op_lsu_load) | lsu_load_rdy_stored)
+        wb_lsu_rdy_o <= 1'b1;
+      else if ((lsu_valid_o & cmd_op_lsu_store) | lsu_store_rdy_stored | msync_done_o)
+        wb_lsu_rdy_o <= wb_lsu_rdy_o;
+      else
+        wb_lsu_rdy_o <= 1'b0;
+    end
+    else begin
+      wb_lsu_rdy_o <= wb_lsu_rdy_o;
+      if (~lsu_load_rdy_stored)
+        lsu_load_rdy_stored  <= lsu_valid_o & cmd_op_lsu_load;
+      if (~lsu_store_rdy_stored)
+        lsu_store_rdy_stored <= lsu_valid_o & cmd_op_lsu_store;
+    end
+  end // @clock
+
+
+  // output data (latch result of load command)
   reg [OPTION_OPERAND_WIDTH-1:0] lsu_result_r;
-  always @(posedge clk) begin
-    if (cmd_op_lsu_load & lsu_ack & (~lsu_excepts) & (~access_done)) // latch result
+  // ---
+  always @(posedge clk `OR_ASYNC_RST) begin
+    if (rst)
+      lsu_result_r <= {OPTION_OPERAND_WIDTH{1'b0}};
+    else if (cmd_op_lsu_load & lsu_ack & (~lsu_excepts) & (~access_done))
       lsu_result_r <= dbus_dat_extended;
   end // @ clock
 
-  // output assignement
-  assign lsu_valid_o  = access_done & (~tlb_reload_busy) & (~dc_snoop_hit);
-  assign lsu_result_o = lsu_result_r;
+  // latch load command result for WB_MUX
+  always @(posedge clk `OR_ASYNC_RST) begin
+    if (rst)
+      lsu_result_o <= {OPTION_OPERAND_WIDTH{1'b0}};
+    else if (padv_wb_i)
+      lsu_result_o <= lsu_result_r;
+  end // @ clock
+
 
 
   // Data bus mapping for store
@@ -785,7 +830,7 @@ endgenerate
   assign dc_bsel = dbus_bsel;
 
   assign dc_we =
-    (exec_op_lsu_store_i & (~exec_op_lsu_atomic_i) & exec_new_input_en) |
+    (exec_op_lsu_store_i & (~exec_op_lsu_atomic_i) & take_op_lsu_x) |
     (dbus_atomic & dbus_we_o & (~write_done)) |
     (cmd_op_lsu_store & tlb_reload_busy & (~tlb_reload_req));
 

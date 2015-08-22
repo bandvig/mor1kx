@@ -178,8 +178,10 @@ module mor1kx_cpu_marocchino
 
 
   wire [OPTION_OPERAND_WIDTH-1:0] alu_nl_result;
-  wire [OPTION_OPERAND_WIDTH-1:0] lsu_result;
   wire [OPTION_OPERAND_WIDTH-1:0] wb_result;
+  
+  wire [OPTION_OPERAND_WIDTH-1:0] lsu_result; // to WB_MUX
+  wire                            wb_lsu_rdy; // to WB_MUX
 
 
   wire [`OR1K_FPCSR_WIDTH-1:0] exec_fpcsr;
@@ -265,6 +267,8 @@ module mor1kx_cpu_marocchino
   wire                            exec_op_div_unsigned;
 
   wire                            exec_op_mul;
+  wire [OPTION_OPERAND_WIDTH-1:0] wb_mul_result;
+  wire                            wb_mul_rdy;
 
   wire                            exec_op_ffl1;
   wire                            exec_op_movhi;
@@ -612,8 +616,10 @@ module mor1kx_cpu_marocchino
     // adder's outputs
     .exec_lsu_adr_o                   (exec_lsu_adr), // EXE
 
-    // multiplier inputs
+    // multiplier inputs/outputs
     .op_mul_i                         (exec_op_mul), // EXE
+    .wb_mul_result_o                  (wb_mul_result), // EXE
+    .wb_mul_rdy_o                     (wb_mul_rdy), // EXE
 
     // division inputs
     .op_div_i                         (exec_op_div), // EXE
@@ -655,12 +661,9 @@ module mor1kx_cpu_marocchino
     .exec_overflow_clear_o            (exec_overflow_clear), // EXE
 
     // MSYNC related controls
-    .op_msync_i                       (exec_op_msync), // EXE
     .msync_done_i                     (msync_done),  // EXE
 
     // LSU related inputs
-    .op_lsu_load_i                    (exec_op_lsu_load), // EXE
-    .op_lsu_store_i                   (exec_op_lsu_store), // EXE
     .lsu_valid_i                      (lsu_valid), // EXE
     .lsu_excepts_i                    (lsu_excepts), // EXE
 
@@ -691,7 +694,7 @@ module mor1kx_cpu_marocchino
     .rst (rst),
     // Pipeline controls
     .padv_decode_i                    (padv_decode), // LSU
-    .exec_new_input_i                 (exec_new_input), // LSU
+    .padv_wb_i                        (padv_wb), // LSU
     .pipeline_flush_i                 (pipeline_flush), // LSU
     // configuration
     .dc_enable_i                      (spr_sr_o[`OR1K_SPR_SR_DCE]), // LSU
@@ -743,7 +746,8 @@ module mor1kx_cpu_marocchino
     .atomic_flag_set_o                (lsu_atomic_flag_set), // LSU
     .atomic_flag_clear_o              (lsu_atomic_flag_clear), // LSU
     .msync_done_o                     (msync_done), // LSU
-    .lsu_valid_o                      (lsu_valid) // LSU
+    .lsu_valid_o                      (lsu_valid), // LSU
+    .wb_lsu_rdy_o                     (wb_lsu_rdy) // LSU
   );
 
 
@@ -762,12 +766,15 @@ module mor1kx_cpu_marocchino
     .padv_wb_i                    (padv_wb), // WB_MUX
     .pipeline_flush_i             (pipeline_flush), // WB_MUX
 
+    // from MULTIPLIER
+    .wb_mul_result_i              (wb_mul_result), // WB_MUX
+    .wb_mul_rdy_i                 (wb_mul_rdy), // WB_MUX
+
     // from ALU
     .alu_nl_result_i              (alu_nl_result), // WB_MUX
 
     // from LSU
-    .exec_op_lsu_load_i           (exec_op_lsu_load), // WB_MUX
-    .lsu_excepts_i                (lsu_excepts), // WB_MUX
+    .wb_lsu_rdy_i                 (wb_lsu_rdy), // WB_MUX
     .lsu_result_i                 (lsu_result), // WB_MUX
 
     // MFSPR

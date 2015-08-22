@@ -29,12 +29,15 @@ module mor1kx_wb_mux_marocchino
   input                                 padv_wb_i,
   input                                 pipeline_flush_i,
 
+  // from MULTIPLIER
+  input      [OPTION_OPERAND_WIDTH-1:0] wb_mul_result_i,
+  input                                 wb_mul_rdy_i,
+
   // from ALU
   input      [OPTION_OPERAND_WIDTH-1:0] alu_nl_result_i,
 
   // from LSU
-  input                                 exec_op_lsu_load_i,
-  input                                 lsu_excepts_i,
+  input                                 wb_lsu_rdy_i,
   input      [OPTION_OPERAND_WIDTH-1:0] lsu_result_i,
 
   // MFSPR
@@ -122,26 +125,31 @@ module mor1kx_wb_mux_marocchino
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
       wb_result_r <= {OPTION_OPERAND_WIDTH{1'b0}};
-    else if (padv_wb_i & (~pipeline_flush_i)) begin
-      if (exec_op_lsu_load_i)
-        wb_result_r <= lsu_result_i;
-      else if (exec_rf_wb_i)
-        wb_result_r <= alu_nl_result_i;
-    end
+    else if (padv_wb_i & exec_rf_wb_i & (~pipeline_flush_i))
+      wb_result_r <= alu_nl_result_i;
   end // @clock
   // combined output
   assign wb_result_o = ctrl_mfspr_rdy_i ? mfspr_dat_i :
+                       wb_lsu_rdy_i     ? lsu_result_i :
+                       wb_mul_rdy_i     ? wb_mul_result_i :
                                           wb_result_r;
 
   // write back request
+  wire pipe_excepts = exec_excepts_en_i &
+                      (exec_except_ibus_err_i  | exec_except_ipagefault_i |
+                       exec_except_itlb_miss_i | exec_except_ibus_align_i |
+                       exec_except_illegal_i   | exec_except_syscall_i    |
+                       exec_except_trap_i      |
+                       lsu_except_dbus_err_i   | lsu_except_dpagefault_i  |
+                       lsu_except_dtlb_miss_i  | lsu_except_dbus_align_i);
+  // ---
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
       wb_rf_wb_o <= 1'b0;
-    else if (pipeline_flush_i |
-             (exec_op_lsu_load_i & lsu_excepts_i))
+    else if (pipeline_flush_i)
       wb_rf_wb_o <= 1'b0;
     else if (padv_wb_i)
-      wb_rf_wb_o <= exec_rf_wb_i;
+      wb_rf_wb_o <= exec_rf_wb_i & (~pipe_excepts);
   end // @clock
 
   // address of destination register & PC
