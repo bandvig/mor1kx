@@ -183,6 +183,8 @@ module mor1kx_cpu_marocchino
   wire [OPTION_OPERAND_WIDTH-1:0] lsu_result; // to WB_MUX
   wire                            wb_lsu_rdy; // to WB_MUX
 
+  wire                            wb_alu_1clk_rdy;
+  wire [OPTION_OPERAND_WIDTH-1:0] wb_alu_1clk_result;
 
   wire [`OR1K_FPCSR_WIDTH-1:0] exec_fpcsr;
   wire                         exec_fpcsr_set;
@@ -613,8 +615,20 @@ module mor1kx_cpu_marocchino
     .op_add_i                         (exec_op_add), // EXE
     .adder_do_sub_i                   (exec_adder_do_sub), // EXE
     .adder_do_carry_i                 (exec_adder_do_carry), // EXE
-    // adder's outputs
-    .exec_lsu_adr_o                   (exec_lsu_adr), // EXE
+
+    // shift, ffl1, movhi, cmov
+    .op_shift_i                       (exec_op_shift), // EXE
+    .op_ffl1_i                        (exec_op_ffl1), // EXE
+    .op_movhi_i                       (exec_op_movhi), // EXE
+    .op_cmov_i                        (exec_op_cmov), // EXE
+
+    // jump & link
+    .op_jal_i                         (exec_op_jal), // EXE
+    .exec_jal_result_i                (exec_jal_result), // EXE
+
+    // output latches for 1-clock operations
+    .wb_alu_1clk_rdy_o                (wb_alu_1clk_rdy), // EXE
+    .wb_alu_1clk_result_o             (wb_alu_1clk_result), // EXE
 
     // multiplier inputs/outputs
     .op_mul_i                         (exec_op_mul), // EXE
@@ -626,16 +640,9 @@ module mor1kx_cpu_marocchino
     .op_div_signed_i                  (exec_op_div_signed), // EXE
     .op_div_unsigned_i                (exec_op_div_unsigned), // EXE
 
-    // shift, ffl1, movhi, cmov
-    .op_shift_i                       (exec_op_shift), // EXE
-    .op_ffl1_i                        (exec_op_ffl1), // EXE
-    .op_movhi_i                       (exec_op_movhi), // EXE
-    .op_cmov_i                        (exec_op_cmov), // EXE
-
-    // EXE  result forming
-    .op_jal_i                         (exec_op_jal), // EXE
-    .exec_jal_result_i                (exec_jal_result), // EXE
-    .alu_nl_result_o                  (alu_nl_result), // EXE  (not latched, for debug only)
+    // ALU results
+    .alu_nl_result_o                  (alu_nl_result), // EXE (not latched, to WB_MUX)
+    .exec_lsu_adr_o                   (exec_lsu_adr), // EXE (not latched, address to LSU)
 
     // FPU related
     .op_fpu_i                         (exec_op_fpu), // EXE
@@ -772,6 +779,8 @@ module mor1kx_cpu_marocchino
 
     // from ALU
     .alu_nl_result_i              (alu_nl_result), // WB_MUX
+    .wb_alu_1clk_rdy_i            (wb_alu_1clk_rdy), // WB_MUX
+    .wb_alu_1clk_result_i         (wb_alu_1clk_result), // WB_MUX
 
     // from LSU
     .wb_lsu_rdy_i                 (wb_lsu_rdy), // WB_MUX

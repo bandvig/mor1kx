@@ -35,6 +35,8 @@ module mor1kx_wb_mux_marocchino
 
   // from ALU
   input      [OPTION_OPERAND_WIDTH-1:0] alu_nl_result_i,
+  input                                 wb_alu_1clk_rdy_i,
+  input      [OPTION_OPERAND_WIDTH-1:0] wb_alu_1clk_result_i,
 
   // from LSU
   input                                 wb_lsu_rdy_i,
@@ -129,10 +131,11 @@ module mor1kx_wb_mux_marocchino
       wb_result_r <= alu_nl_result_i;
   end // @clock
   // combined output
-  assign wb_result_o = ctrl_mfspr_rdy_i ? mfspr_dat_i :
-                       wb_lsu_rdy_i     ? lsu_result_i :
-                       wb_mul_rdy_i     ? wb_mul_result_i :
-                                          wb_result_r;
+  assign wb_result_o = ctrl_mfspr_rdy_i  ? mfspr_dat_i :
+                       wb_alu_1clk_rdy_i ? wb_alu_1clk_result_i :
+                       wb_lsu_rdy_i      ? lsu_result_i :
+                       wb_mul_rdy_i      ? wb_mul_result_i :
+                                           wb_result_r;
 
   // write back request
   wire pipe_excepts = exec_excepts_en_i &

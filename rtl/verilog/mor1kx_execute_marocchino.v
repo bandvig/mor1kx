@@ -30,30 +30,42 @@ module mor1kx_execute_marocchino
 )
 (
   // clocks and resets
-  input               clk,
-  input               rst,
+  input                                 clk,
+  input                                 rst,
 
   // pipeline control signal in
-  input               padv_decode_i,
-  input               padv_wb_i,
-  input               pipeline_flush_i,// flush pipelined fpu
+  input                                 padv_decode_i,
+  input                                 padv_wb_i,
+  input                                 pipeline_flush_i,// flush pipelined fpu
 
   // input data
-  input [OPTION_OPERAND_WIDTH-1:0]  rfa_i,
-  input [OPTION_OPERAND_WIDTH-1:0]  rfb_i,
-  input [OPTION_OPERAND_WIDTH-1:0]  immediate_i,
-  input                             immediate_sel_i,
+  input      [OPTION_OPERAND_WIDTH-1:0] rfa_i,
+  input      [OPTION_OPERAND_WIDTH-1:0] rfb_i,
+  input      [OPTION_OPERAND_WIDTH-1:0] immediate_i,
+  input                                 immediate_sel_i,
 
   // opcode for alu
-  input [`OR1K_ALU_OPC_WIDTH-1:0]   opc_alu_i,
-  input [`OR1K_ALU_OPC_WIDTH-1:0]   opc_alu_secondary_i,
+  input       [`OR1K_ALU_OPC_WIDTH-1:0] opc_alu_i,
+  input       [`OR1K_ALU_OPC_WIDTH-1:0] opc_alu_secondary_i,
 
   // adder's inputs
-  input                             op_add_i,
-  input                             adder_do_sub_i,
-  input                             adder_do_carry_i,
-  // adder's outputs
-  output [OPTION_OPERAND_WIDTH-1:0] exec_lsu_adr_o,
+  input                                 op_add_i,
+  input                                 adder_do_sub_i,
+  input                                 adder_do_carry_i,
+
+  // shift, ffl1, movhi, cmov
+  input                                 op_shift_i,
+  input                                 op_ffl1_i,
+  input                                 op_movhi_i,
+  input                                 op_cmov_i,
+
+  // jump & link
+  input                                 op_jal_i,
+  input      [OPTION_OPERAND_WIDTH-1:0] exec_jal_result_i,
+
+  // output latches for 1-clock operations
+  output reg                            wb_alu_1clk_rdy_o,
+  output reg [OPTION_OPERAND_WIDTH-1:0] wb_alu_1clk_result_o,
 
   // multiplier inputs/outputs
   input                                 op_mul_i,
@@ -61,54 +73,47 @@ module mor1kx_execute_marocchino
   output reg                            wb_mul_rdy_o,
 
   // dividion inputs
-  input               op_div_i,
-  input               op_div_signed_i,
-  input               op_div_unsigned_i,
+  input                                 op_div_i,
+  input                                 op_div_signed_i,
+  input                                 op_div_unsigned_i,
 
-  // shift, ffl1, movhi, cmov
-  input               op_shift_i,
-  input               op_ffl1_i,
-  input               op_movhi_i,
-  input               op_cmov_i,
-
-  // ALU result forming
-  input                                 op_jal_i,
-  input      [OPTION_OPERAND_WIDTH-1:0] exec_jal_result_i,
-  output     [OPTION_OPERAND_WIDTH-1:0] alu_nl_result_o, // nl: not latched
+  // ALU results
+  output     [OPTION_OPERAND_WIDTH-1:0] alu_nl_result_o, // nl: not latched, to WB_MUX
+  output     [OPTION_OPERAND_WIDTH-1:0] exec_lsu_adr_o,  // not latched, address to LSU
 
   // FPU related
-  input      [`OR1K_FPUOP_WIDTH-1:0]   op_fpu_i,
-  input      [`OR1K_FPCSR_RM_SIZE-1:0] fpu_round_mode_i,
-  output     [`OR1K_FPCSR_WIDTH-1:0]   exec_fpcsr_o,
-  output                               exec_fpcsr_set_o,
+  input         [`OR1K_FPUOP_WIDTH-1:0] op_fpu_i,
+  input       [`OR1K_FPCSR_RM_SIZE-1:0] fpu_round_mode_i,
+  output        [`OR1K_FPCSR_WIDTH-1:0] exec_fpcsr_o,
+  output                                exec_fpcsr_set_o,
 
   // flag related inputs
-  input op_setflag_i,
-  input flag_i, // fed back from ctrl (for cmov)
+  input                                 op_setflag_i,
+  input                                 flag_i, // fed back from ctrl (for cmov)
   // flag related outputs
-  output exec_flag_set_o,
-  output exec_flag_clear_o,
+  output                                exec_flag_set_o,
+  output                                exec_flag_clear_o,
 
   // carry related inputs
-  input carry_i,
+  input                                 carry_i,
   // carry related outputs
-  output exec_carry_set_o,
-  output exec_carry_clear_o,
+  output                                exec_carry_set_o,
+  output                                exec_carry_clear_o,
 
   // owerflow related outputs
-  output exec_overflow_set_o,
-  output exec_overflow_clear_o,
+  output                                exec_overflow_set_o,
+  output                                exec_overflow_clear_o,
 
   // MSYNC related controls
-  input      msync_done_i,
+  input                                 msync_done_i,
 
   // LSU related inputs
-  input       lsu_valid_i,
-  input       lsu_excepts_i,
+  input                                 lsu_valid_i,
+  input                                 lsu_excepts_i,
 
   // ready flags
-  input  exec_insn_1clk_i,
-  output exec_valid_o
+  input                                 exec_insn_1clk_i,
+  output                                exec_valid_o
 );
 
   localparam  EXEDW = OPTION_OPERAND_WIDTH; // short name
@@ -141,7 +146,6 @@ module mor1kx_execute_marocchino
   wire adder_u_ovf = adder_carryout;
 
 
-
   //------------------//
   // Comparison logic //
   //------------------//
@@ -164,6 +168,147 @@ module mor1kx_execute_marocchino
       `OR1K_COMP_OPC_LES: flag_set = a_eq_b | a_lts_b;
       default:            flag_set = 1'b0;
     endcase
+
+
+  //------//
+  // FFL1 //
+  //------//
+  wire [EXEDW-1:0] ffl1_result;
+  assign ffl1_result = (opc_alu_secondary_i[2]) ?
+           (op_a[31] ? 32 : op_a[30] ? 31 : op_a[29] ? 30 :
+            op_a[28] ? 29 : op_a[27] ? 28 : op_a[26] ? 27 :
+            op_a[25] ? 26 : op_a[24] ? 25 : op_a[23] ? 24 :
+            op_a[22] ? 23 : op_a[21] ? 22 : op_a[20] ? 21 :
+            op_a[19] ? 20 : op_a[18] ? 19 : op_a[17] ? 18 :
+            op_a[16] ? 17 : op_a[15] ? 16 : op_a[14] ? 15 :
+            op_a[13] ? 14 : op_a[12] ? 13 : op_a[11] ? 12 :
+            op_a[10] ? 11 : op_a[9] ? 10 : op_a[8] ? 9 :
+            op_a[7] ? 8 : op_a[6] ? 7 : op_a[5] ? 6 : op_a[4] ? 5 :
+            op_a[3] ? 4 : op_a[2] ? 3 : op_a[1] ? 2 : op_a[0] ? 1 : 0 ) :
+           (op_a[0] ? 1 : op_a[1] ? 2 : op_a[2] ? 3 : op_a[3] ? 4 :
+            op_a[4] ? 5 : op_a[5] ? 6 : op_a[6] ? 7 : op_a[7] ? 8 :
+            op_a[8] ? 9 : op_a[9] ? 10 : op_a[10] ? 11 : op_a[11] ? 12 :
+            op_a[12] ? 13 : op_a[13] ? 14 : op_a[14] ? 15 :
+            op_a[15] ? 16 : op_a[16] ? 17 : op_a[17] ? 18 :
+            op_a[18] ? 19 : op_a[19] ? 20 : op_a[20] ? 21 :
+            op_a[21] ? 22 : op_a[22] ? 23 : op_a[23] ? 24 :
+            op_a[24] ? 25 : op_a[25] ? 26 : op_a[26] ? 27 :
+            op_a[27] ? 28 : op_a[28] ? 29 : op_a[29] ? 30 :
+            op_a[30] ? 31 : op_a[31] ? 32 : 0);
+
+
+  //----------------//
+  // Barrel shifter //
+  //----------------//
+  // Shifter wires
+  wire [`OR1K_ALU_OPC_SECONDARY_WIDTH-1:0] opc_alu_shr;
+  assign opc_alu_shr = opc_alu_secondary_i[`OR1K_ALU_OPC_SECONDARY_WIDTH-1:0];
+  wire [EXEDW-1:0] shift_result;
+
+  function [EXEDW-1:0] reverse;
+  input [EXEDW-1:0] in;
+  integer            i;
+  begin
+    for (i = 0; i < EXEDW; i=i+1) begin
+      reverse[(EXEDW-1)-i] = in[i];
+    end
+  end
+  endfunction
+
+  wire op_sll = (opc_alu_shr==`OR1K_ALU_OPC_SECONDARY_SHRT_SLL);
+  wire op_srl = (opc_alu_shr==`OR1K_ALU_OPC_SECONDARY_SHRT_SRL);
+  wire op_sra = (opc_alu_shr==`OR1K_ALU_OPC_SECONDARY_SHRT_SRA);
+  wire op_ror = (opc_alu_shr==`OR1K_ALU_OPC_SECONDARY_SHRT_ROR);
+
+  wire [EXEDW-1:0] shift_right;
+  wire [EXEDW-1:0] shift_lsw;
+  wire [EXEDW-1:0] shift_msw;
+
+  //
+  // Bit-reverse on left shift, perform right shift,
+  // bit-reverse result on left shift.
+  //
+  assign shift_lsw = op_sll ? reverse(op_a) : op_a;
+  assign shift_msw = op_sra ? {EXEDW{op_a[EXEDW-1]}} :
+                     op_ror ? op_a : {EXEDW{1'b0}};
+
+  assign shift_right = {shift_msw, shift_lsw} >> op_b[4:0];
+  assign shift_result = op_sll ? reverse(shift_right) : shift_right;
+
+
+  //------------------//
+  // Conditional move //
+  //------------------//
+  wire [EXEDW-1:0] cmov_result;
+  assign cmov_result = flag_i ? op_a : op_b;
+
+
+  //--------------------//
+  // Logical operations //
+  //--------------------//
+  // Logic wires
+  wire             op_logic;
+  reg [EXEDW-1:0]  logic_result;
+  // Create a look-up-table for AND/OR/XOR
+  reg [3:0] logic_lut;
+  always @(*) begin
+    case(opc_alu_i)
+      `OR1K_ALU_OPC_AND: logic_lut = 4'b1000;
+      `OR1K_ALU_OPC_OR:  logic_lut = 4'b1110;
+      `OR1K_ALU_OPC_XOR: logic_lut = 4'b0110;
+      default:           logic_lut = 4'd0;
+    endcase
+  end
+
+  // Extract the result, bit-for-bit, from the look-up-table
+  integer i;
+  always @(*)
+    for (i = 0; i < EXEDW; i=i+1) begin
+      logic_result[i] = logic_lut[{op_a[i], op_b[i]}];
+    end
+
+  assign op_logic = |logic_lut;
+
+
+  //--------------------------------------//
+  // Muxing and registering 1-clk results //
+  //--------------------------------------//
+  wire [EXEDW-1:0] alu_1clk_result_mux = op_shift_i ? shift_result      :
+                                         op_ffl1_i  ? ffl1_result       :
+                                         op_add_i   ? adder_result      :
+                                         op_logic   ? logic_result      :
+                                         op_cmov_i  ? cmov_result       :
+                                         op_movhi_i ? immediate_i       :
+                                         op_jal_i   ? exec_jal_result_i : // for GPR[9]
+                                                      {EXEDW{1'b0}};
+  //  registering
+  always @(posedge clk `OR_ASYNC_RST) begin
+    if (rst)
+      wb_alu_1clk_result_o <= {EXEDW{1'b0}};
+    else if (exec_insn_1clk_i & padv_wb_i)
+      wb_alu_1clk_result_o <= alu_1clk_result_mux;
+  end // posedge clock
+  // multiplier ready flag
+  reg alu_1clk_rdy_stored;
+  // ---
+  always @(posedge clk `OR_ASYNC_RST) begin
+    if (rst) begin
+      wb_alu_1clk_rdy_o   <= 1'b0;
+      alu_1clk_rdy_stored <= 1'b0;
+    end
+    else if (pipeline_flush_i) begin
+      wb_alu_1clk_rdy_o   <= wb_alu_1clk_rdy_o;
+      alu_1clk_rdy_stored <= 1'b0;
+    end
+    else if (padv_wb_i) begin
+      wb_alu_1clk_rdy_o   <= (exec_insn_1clk_i | alu_1clk_rdy_stored);
+      alu_1clk_rdy_stored <= 1'b0;
+    end
+    else if (~alu_1clk_rdy_stored) begin
+      wb_alu_1clk_rdy_o   <= wb_alu_1clk_rdy_o;
+      alu_1clk_rdy_stored <= exec_insn_1clk_i;
+    end
+  end // @clock
 
 
 
@@ -239,10 +384,11 @@ module mor1kx_execute_marocchino
                        {mul_s2_ahbl[MULHDW-1:0],{MULHDW{1'b0}}} +
                         mul_s2_albl;
   //  registering
-  always @(posedge clk) begin
-    if (mul_valid & padv_wb_i) begin
+  always @(posedge clk `OR_ASYNC_RST) begin
+    if (rst)
+      wb_mul_result_o <= {EXEDW{1'b0}};
+    else if (mul_valid & padv_wb_i)
       wb_mul_result_o <= mul_s3t_sum;
-    end
   end // posedge clock
   // multiplier ready flag
   reg mul_rdy_stored;
@@ -265,7 +411,6 @@ module mor1kx_execute_marocchino
       mul_rdy_stored <= mul_valid;
     end
   end // @clock
-
 
 
 
@@ -402,121 +547,13 @@ module mor1kx_execute_marocchino
   endgenerate // FPU related
 
 
-  //------//
-  // FFL1 //
-  //------//
-  wire [EXEDW-1:0] ffl1_result;
-  assign ffl1_result = (opc_alu_secondary_i[2]) ?
-           (op_a[31] ? 32 : op_a[30] ? 31 : op_a[29] ? 30 :
-            op_a[28] ? 29 : op_a[27] ? 28 : op_a[26] ? 27 :
-            op_a[25] ? 26 : op_a[24] ? 25 : op_a[23] ? 24 :
-            op_a[22] ? 23 : op_a[21] ? 22 : op_a[20] ? 21 :
-            op_a[19] ? 20 : op_a[18] ? 19 : op_a[17] ? 18 :
-            op_a[16] ? 17 : op_a[15] ? 16 : op_a[14] ? 15 :
-            op_a[13] ? 14 : op_a[12] ? 13 : op_a[11] ? 12 :
-            op_a[10] ? 11 : op_a[9] ? 10 : op_a[8] ? 9 :
-            op_a[7] ? 8 : op_a[6] ? 7 : op_a[5] ? 6 : op_a[4] ? 5 :
-            op_a[3] ? 4 : op_a[2] ? 3 : op_a[1] ? 2 : op_a[0] ? 1 : 0 ) :
-           (op_a[0] ? 1 : op_a[1] ? 2 : op_a[2] ? 3 : op_a[3] ? 4 :
-            op_a[4] ? 5 : op_a[5] ? 6 : op_a[6] ? 7 : op_a[7] ? 8 :
-            op_a[8] ? 9 : op_a[9] ? 10 : op_a[10] ? 11 : op_a[11] ? 12 :
-            op_a[12] ? 13 : op_a[13] ? 14 : op_a[14] ? 15 :
-            op_a[15] ? 16 : op_a[16] ? 17 : op_a[17] ? 18 :
-            op_a[18] ? 19 : op_a[19] ? 20 : op_a[20] ? 21 :
-            op_a[21] ? 22 : op_a[22] ? 23 : op_a[23] ? 24 :
-            op_a[24] ? 25 : op_a[25] ? 26 : op_a[26] ? 27 :
-            op_a[27] ? 28 : op_a[28] ? 29 : op_a[29] ? 30 :
-            op_a[30] ? 31 : op_a[31] ? 32 : 0);
-
-
-
-  //----------------//
-  // Barrel shifter //
-  //----------------//
-  // Shifter wires
-  wire [`OR1K_ALU_OPC_SECONDARY_WIDTH-1:0] opc_alu_shr;
-  assign opc_alu_shr = opc_alu_secondary_i[`OR1K_ALU_OPC_SECONDARY_WIDTH-1:0];
-  wire [EXEDW-1:0] shift_result;
-
-  function [EXEDW-1:0] reverse;
-  input [EXEDW-1:0] in;
-  integer            i;
-  begin
-    for (i = 0; i < EXEDW; i=i+1) begin
-      reverse[(EXEDW-1)-i] = in[i];
-    end
-  end
-  endfunction
-
-  wire op_sll = (opc_alu_shr==`OR1K_ALU_OPC_SECONDARY_SHRT_SLL);
-  wire op_srl = (opc_alu_shr==`OR1K_ALU_OPC_SECONDARY_SHRT_SRL);
-  wire op_sra = (opc_alu_shr==`OR1K_ALU_OPC_SECONDARY_SHRT_SRA);
-  wire op_ror = (opc_alu_shr==`OR1K_ALU_OPC_SECONDARY_SHRT_ROR);
-
-  wire [EXEDW-1:0] shift_right;
-  wire [EXEDW-1:0] shift_lsw;
-  wire [EXEDW-1:0] shift_msw;
-
-  //
-  // Bit-reverse on left shift, perform right shift,
-  // bit-reverse result on left shift.
-  //
-  assign shift_lsw = op_sll ? reverse(op_a) : op_a;
-  assign shift_msw = op_sra ? {EXEDW{op_a[EXEDW-1]}} :
-                     op_ror ? op_a : {EXEDW{1'b0}};
-
-  assign shift_right = {shift_msw, shift_lsw} >> op_b[4:0];
-  assign shift_result = op_sll ? reverse(shift_right) : shift_right;
-
-
-
-  //------------------//
-  // Conditional move //
-  //------------------//
-  wire [EXEDW-1:0] cmov_result;
-  assign cmov_result = flag_i ? op_a : op_b;
-
-
-
-  //--------------------//
-  // Logical operations //
-  //--------------------//
-  // Logic wires
-  wire             op_logic;
-  reg [EXEDW-1:0]  logic_result;
-  // Create a look-up-table for AND/OR/XOR
-  reg [3:0] logic_lut;
-  always @(*) begin
-    case(opc_alu_i)
-      `OR1K_ALU_OPC_AND: logic_lut = 4'b1000;
-      `OR1K_ALU_OPC_OR:  logic_lut = 4'b1110;
-      `OR1K_ALU_OPC_XOR: logic_lut = 4'b0110;
-      default:           logic_lut = 4'd0;
-    endcase
-  end
-
-  // Extract the result, bit-for-bit, from the look-up-table
-  integer i;
-  always @(*)
-    for (i = 0; i < EXEDW; i=i+1) begin
-      logic_result[i] = logic_lut[{op_a[i], op_b[i]}];
-    end
-
-  assign op_logic = |logic_lut;
-
 
   //----------------//
   // Results muxing //
   //----------------//
   assign alu_nl_result_o = fpu_arith_valid ? fpu_result :
-                           op_shift_i      ? shift_result :
                            op_div_i        ? div_result :
-                           op_ffl1_i       ? ffl1_result :
-                           op_jal_i        ? exec_jal_result_i :  // for GPR[9]
-                           op_cmov_i       ? cmov_result :
-                           op_movhi_i      ? immediate_i :
-                           op_logic        ? logic_result :
-                                             adder_result;
+                                             {EXEDW{1'b0}};
 
 
   // Update SR[F] either from integer or float point comparision
