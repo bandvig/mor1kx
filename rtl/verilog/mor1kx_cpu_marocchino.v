@@ -183,8 +183,6 @@ module mor1kx_cpu_marocchino
   wire [OPTION_OPERAND_WIDTH-1:0] lsu_result; // to WB_MUX
   wire                            wb_lsu_rdy; // to WB_MUX
 
-  wire                            wb_alu_1clk_rdy;
-  wire [OPTION_OPERAND_WIDTH-1:0] wb_alu_1clk_result;
 
   wire [`OR1K_FPCSR_WIDTH-1:0] exec_fpcsr;
   wire                         exec_fpcsr_set;
@@ -229,11 +227,11 @@ module mor1kx_cpu_marocchino
   wire                            dcod_branch;
   wire [9:0]                      dcod_immjbr_upper;
   wire [OPTION_OPERAND_WIDTH-1:0] dcod_branch_target;
-  wire [OPTION_OPERAND_WIDTH-1:0] exec_jal_result;
   wire [OPTION_OPERAND_WIDTH-1:0] exec_mispredict_target;
   wire                            branch_mispredict;
   wire                            predicted_flag;
   wire                            exec_predicted_flag;
+  wire                            exec_op_brcond;
 
 
   wire [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfa_adr;
@@ -252,34 +250,48 @@ module mor1kx_cpu_marocchino
 
   wire                            exec_op_msync;
   wire                            msync_done;
+  
 
-  wire                            exec_op_cmov;
+
   wire  [`OR1K_ALU_OPC_WIDTH-1:0] exec_opc_alu;
   wire  [`OR1K_ALU_OPC_WIDTH-1:0] exec_opc_alu_secondary;
+
+
 
   wire                            exec_op_add;
   wire                            exec_adder_do_sub;
   wire                            exec_adder_do_carry;
 
   wire                            exec_op_jal;
-  wire                            exec_op_brcond;
-
-  wire                            exec_op_div;
-  wire                            exec_op_div_signed;
-  wire                            exec_op_div_unsigned;
-
-  wire                            exec_op_mul;
-  wire [OPTION_OPERAND_WIDTH-1:0] wb_mul_result;
-  wire                            wb_mul_rdy;
-
+  wire [OPTION_OPERAND_WIDTH-1:0] exec_jal_result;
+  
+  wire                            exec_op_cmov;
   wire                            exec_op_ffl1;
   wire                            exec_op_movhi;
   wire                            exec_op_setflag;
   wire                            exec_op_shift;
 
+  wire                            exec_insn_1clk;
+  wire                            wb_alu_1clk_rdy;
+  wire [OPTION_OPERAND_WIDTH-1:0] wb_alu_1clk_result;
+
+
+
+  wire                            exec_op_div;
+  wire                            exec_op_div_signed;
+  wire                            exec_op_div_unsigned;
+  wire [OPTION_OPERAND_WIDTH-1:0] wb_div_result;
+  wire                            wb_div_rdy;
+
+
+
+  wire                            exec_op_mul;
+  wire [OPTION_OPERAND_WIDTH-1:0] wb_mul_result;
+  wire                            wb_mul_rdy;
+
+
   wire    [`OR1K_FPUOP_WIDTH-1:0] exec_op_fpu;
 
-  wire                            exec_insn_1clk;
 
 
   wire [OPTION_OPERAND_WIDTH-1:0] store_buffer_epcr;
@@ -639,6 +651,8 @@ module mor1kx_cpu_marocchino
     .op_div_i                         (exec_op_div), // EXE
     .op_div_signed_i                  (exec_op_div_signed), // EXE
     .op_div_unsigned_i                (exec_op_div_unsigned), // EXE
+    .wb_div_result_o                  (wb_div_result), // EXE
+    .wb_div_rdy_o                     (wb_div_rdy), // EXE
 
     // ALU results
     .alu_nl_result_o                  (alu_nl_result), // EXE (not latched, to WB_MUX)
@@ -776,6 +790,10 @@ module mor1kx_cpu_marocchino
     // from MULTIPLIER
     .wb_mul_result_i              (wb_mul_result), // WB_MUX
     .wb_mul_rdy_i                 (wb_mul_rdy), // WB_MUX
+
+    // from DIVIDER
+    .wb_div_result_i              (wb_div_result), // WB_MUX
+    .wb_div_rdy_i                 (wb_div_rdy), // WB_MUX
 
     // from ALU
     .alu_nl_result_i              (alu_nl_result), // WB_MUX

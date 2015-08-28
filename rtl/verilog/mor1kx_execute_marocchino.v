@@ -76,6 +76,8 @@ module mor1kx_execute_marocchino
   input                                 op_div_i,
   input                                 op_div_signed_i,
   input                                 op_div_unsigned_i,
+  output reg [OPTION_OPERAND_WIDTH-1:0] wb_div_result_o,
+  output reg                            wb_div_rdy_o,
 
   // ALU results
   output     [OPTION_OPERAND_WIDTH-1:0] alu_nl_result_o, // nl: not latched, to WB_MUX
@@ -288,7 +290,7 @@ module mor1kx_execute_marocchino
     else if (exec_insn_1clk_i & padv_wb_i)
       wb_alu_1clk_result_o <= alu_1clk_result_mux;
   end // posedge clock
-  // multiplier ready flag
+  // 1clk instruction ready flag
   reg alu_1clk_rdy_stored;
   // ---
   always @(posedge clk `OR_ASYNC_RST) begin
@@ -422,40 +424,44 @@ module mor1kx_execute_marocchino
   reg [EXEDW-1:0] div_d;
   reg [EXEDW-1:0] div_r;
   wire  [EXEDW:0] div_sub;
+  reg             div_signed, div_unsigned;
   reg             div_neg;
-  reg             div_done;
-  reg             div_by_zero_r;
-
+  reg             div_valid;
+  reg             div_by_zero;
 
   assign div_sub = {div_r[EXEDW-2:0],div_n[EXEDW-1]} - div_d;
 
   // Cycle counter
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst) begin
-      div_done  <= 1'b0;
+      div_valid <= 1'b0;
       div_count <= 6'd0;
     end
     if (padv_decode_i | pipeline_flush_i) begin // reset @ new decode data
-      div_done  <= 1'b0;
+      div_valid <= 1'b0;
       div_count <= 6'd0;
     end
-    else if (op_div_i & (~(|div_count))) begin
-      div_done  <= 1'b0;
+    else if (op_div_i) begin
+      div_valid <= 1'b0;
       div_count <= EXEDW;
     end
-    else if (div_count == 6'd1)
-      div_done <= 1'b1;
-    else if (~div_done)
-      div_count <= div_count - 6'd1;
+    else if (|div_count) begin
+      if (div_count == 6'd1)
+        div_valid <= 1'b1;
+      else if (~div_valid)
+        div_count <= div_count - 6'd1;
+    end
   end // @clock
 
   always @(posedge clk) begin
-    if (op_div_i & (~(|div_count))) begin
-      div_n <= rfa_i;
-      div_d <= rfb_i;
-      div_r <= 0;
-      div_neg <= 1'b0;
-      div_by_zero_r <= ~(|rfb_i);
+    if (op_div_i) begin
+      div_n        <= rfa_i;
+      div_d        <= rfb_i;
+      div_r        <= 0;
+      div_neg      <= 1'b0;
+      div_by_zero  <= ~(|rfb_i);
+      div_signed   <= op_div_signed_i;
+      div_unsigned <= op_div_unsigned_i;
       /*
        * Convert negative operands in the case of signed division.
        * If only one of the operands is negative, the result is
@@ -472,20 +478,48 @@ module mor1kx_execute_marocchino
           div_d <= ~rfb_i + 1;
       end
     end
-    else if (~div_done) begin
+    else if (~div_valid) begin
       if (~div_sub[EXEDW]) begin // div_sub >= 0
         div_r <= div_sub[EXEDW-1:0];
         div_n <= {div_n[EXEDW-2:0], 1'b1};
-      end else begin // div_sub < 0
+      end
+      else begin                 // div_sub < 0
         div_r <= {div_r[EXEDW-2:0],div_n[EXEDW-1]};
         div_n <= {div_n[EXEDW-2:0], 1'b0};
       end
     end // ~done
   end // @clock
 
-  wire div_valid   = div_done;
-  wire div_by_zero = div_by_zero_r;
   wire [EXEDW-1:0] div_result = div_neg ? ~div_n + 1 : div_n;
+  
+  //  registering
+  always @(posedge clk `OR_ASYNC_RST) begin
+    if (rst)
+      wb_div_result_o <= {EXEDW{1'b0}};
+    else if (div_valid & padv_wb_i)
+      wb_div_result_o <= div_result;
+  end // posedge clock
+  // divider ready flag
+  reg div_rdy_stored;
+  // ---
+  always @(posedge clk `OR_ASYNC_RST) begin
+    if (rst) begin
+      wb_div_rdy_o   <= 1'b0;
+      div_rdy_stored <= 1'b0;
+    end
+    else if (pipeline_flush_i) begin
+      wb_div_rdy_o   <= wb_div_rdy_o;
+      div_rdy_stored <= 1'b0;
+    end
+    else if (padv_wb_i) begin
+      wb_div_rdy_o   <= (div_valid | div_rdy_stored);
+      div_rdy_stored <= 1'b0;
+    end
+    else if (~div_rdy_stored) begin
+      wb_div_rdy_o   <= wb_div_rdy_o;
+      div_rdy_stored <= div_valid;
+    end
+  end // @clock
 
 
 
@@ -551,10 +585,8 @@ module mor1kx_execute_marocchino
   //----------------//
   // Results muxing //
   //----------------//
-  assign alu_nl_result_o = fpu_arith_valid ? fpu_result :
-                           op_div_i        ? div_result :
-                                             {EXEDW{1'b0}};
-
+  assign alu_nl_result_o = fpu_result;
+  assign exec_lsu_adr_o  = adder_result; // lsu address (not latched)
 
   // Update SR[F] either from integer or float point comparision
   assign exec_flag_set_o   = fpu_op_is_cmp ? (fpu_cmp_flag & fpu_cmp_valid) :
@@ -565,21 +597,19 @@ module mor1kx_execute_marocchino
   // Overflow flag generation
   assign exec_overflow_set_o   = (FEATURE_OVERFLOW != "NONE") &
                                  ((op_add_i & adder_s_ovf) |
-                                  (op_div_signed_i & div_by_zero));
+                                  (div_valid & div_signed & div_by_zero));
   assign exec_overflow_clear_o = (FEATURE_OVERFLOW != "NONE") &
                                  ((op_add_i & (~adder_s_ovf)) |
-                                  (op_div_signed_i & (~div_by_zero)));
+                                  (div_valid & div_signed & (~div_by_zero)));
 
   // Carry flag generation
   assign exec_carry_set_o   = (FEATURE_CARRY_FLAG != "NONE") &
                               ((op_add_i & adder_u_ovf) |
-                               (op_div_unsigned_i & div_by_zero));
+                               (div_valid & div_unsigned & div_by_zero));
   assign exec_carry_clear_o = (FEATURE_CARRY_FLAG!="NONE") &
                               ((op_add_i & (~adder_u_ovf)) |
-                               (op_div_unsigned_i & (~div_by_zero)));
+                               (div_valid & div_unsigned & (~div_by_zero)));
 
-  // lsu address (not latched)
-  assign exec_lsu_adr_o = adder_result;
 
 
   //-------------//
@@ -588,9 +618,7 @@ module mor1kx_execute_marocchino
 
   // ALU ready flag
   assign exec_valid_o =
-    exec_insn_1clk_i |
-    (op_div_i & div_valid) |
-    mul_valid |
+    exec_insn_1clk_i | div_valid | mul_valid |
     (fpu_op_is_arith & fpu_arith_valid) |
     (fpu_op_is_cmp & fpu_cmp_valid) |
     lsu_valid_i | lsu_excepts_i | msync_done_i;

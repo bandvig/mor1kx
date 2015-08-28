@@ -33,6 +33,10 @@ module mor1kx_wb_mux_marocchino
   input      [OPTION_OPERAND_WIDTH-1:0] wb_mul_result_i,
   input                                 wb_mul_rdy_i,
 
+  // from DIVIDER
+  input      [OPTION_OPERAND_WIDTH-1:0] wb_div_result_i,
+  input                                 wb_div_rdy_i,
+
   // from ALU
   input      [OPTION_OPERAND_WIDTH-1:0] alu_nl_result_i,
   input                                 wb_alu_1clk_rdy_i,
@@ -132,9 +136,10 @@ module mor1kx_wb_mux_marocchino
   end // @clock
   // combined output
   assign wb_result_o = ctrl_mfspr_rdy_i  ? mfspr_dat_i :
-                       wb_alu_1clk_rdy_i ? wb_alu_1clk_result_i :
                        wb_lsu_rdy_i      ? lsu_result_i :
+                       wb_alu_1clk_rdy_i ? wb_alu_1clk_result_i :
                        wb_mul_rdy_i      ? wb_mul_result_i :
+                       wb_div_rdy_i      ? wb_div_result_i :
                                            wb_result_r;
 
   // write back request

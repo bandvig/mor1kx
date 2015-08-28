@@ -619,9 +619,6 @@ module mor1kx_decode_marocchino
       exec_op_add_o            <= 1'b0;
       exec_adder_do_sub_o      <= 1'b0;
       exec_adder_do_carry_o    <= 1'b0;
-      exec_op_div_o            <= 1'b0;
-      exec_op_div_signed_o     <= 1'b0;
-      exec_op_div_unsigned_o   <= 1'b0;
       exec_op_shift_o          <= 1'b0;
       exec_op_ffl1_o           <= 1'b0;
       exec_op_movhi_o          <= 1'b0;
@@ -642,9 +639,6 @@ module mor1kx_decode_marocchino
       exec_op_add_o            <= 1'b0;
       exec_adder_do_sub_o      <= 1'b0;
       exec_adder_do_carry_o    <= 1'b0;
-      exec_op_div_o            <= 1'b0;
-      exec_op_div_signed_o     <= 1'b0;
-      exec_op_div_unsigned_o   <= 1'b0;
       exec_op_shift_o          <= 1'b0;
       exec_op_ffl1_o           <= 1'b0;
       exec_op_movhi_o          <= 1'b0;
@@ -664,9 +658,6 @@ module mor1kx_decode_marocchino
       exec_op_add_o            <= dcod_op_add;
       exec_adder_do_sub_o      <= dcod_adder_do_sub;
       exec_adder_do_carry_o    <= dcod_adder_do_carry;
-      exec_op_div_o            <= dcod_op_div;
-      exec_op_div_signed_o     <= dcod_op_div_signed;
-      exec_op_div_unsigned_o   <= dcod_op_div_unsigned;
       exec_op_shift_o          <= dcod_op_shift;
       exec_op_ffl1_o           <= dcod_op_ffl1;
       exec_op_movhi_o          <= dcod_op_movhi;
@@ -686,6 +677,9 @@ module mor1kx_decode_marocchino
       exec_op_msync_o          <= 1'b0;
       // Particular EXEC units related
       exec_op_mul_o            <= 1'b0;
+      exec_op_div_o            <= 1'b0;
+      exec_op_div_signed_o     <= 1'b0;
+      exec_op_div_unsigned_o   <= 1'b0;
       // MTSPR / MFSPR
       exec_op_mfspr_o          <= 1'b0;
       exec_op_mtspr_o          <= 1'b0;
@@ -700,6 +694,9 @@ module mor1kx_decode_marocchino
       exec_op_msync_o          <= 1'b0;
       // Particular EXEC units related
       exec_op_mul_o            <= 1'b0;
+      exec_op_div_o            <= 1'b0;
+      exec_op_div_signed_o     <= 1'b0;
+      exec_op_div_unsigned_o   <= 1'b0;
       // MTSPR / MFSPR
       exec_op_mfspr_o          <= 1'b0;
       exec_op_mtspr_o          <= 1'b0;
@@ -713,6 +710,9 @@ module mor1kx_decode_marocchino
       exec_op_msync_o          <= dcod_op_msync;
       // Particular EXEC units related
       exec_op_mul_o            <= dcod_op_mul;
+      exec_op_div_o            <= dcod_op_div;
+      exec_op_div_signed_o     <= dcod_op_div_signed;
+      exec_op_div_unsigned_o   <= dcod_op_div_unsigned;
       // MTSPR / MFSPR
       exec_op_mfspr_o          <= dcod_op_mfspr;
       exec_op_mtspr_o          <= dcod_op_mtspr;
@@ -726,6 +726,9 @@ module mor1kx_decode_marocchino
       exec_op_msync_o          <= 1'b0;
       // Particular EXEC units related
       exec_op_mul_o            <= 1'b0;
+      exec_op_div_o            <= 1'b0;
+      exec_op_div_signed_o     <= 1'b0;
+      exec_op_div_unsigned_o   <= 1'b0;
       // MTSPR / MFSPR
       exec_op_mfspr_o          <= 1'b0;
       exec_op_mtspr_o          <= 1'b0;
