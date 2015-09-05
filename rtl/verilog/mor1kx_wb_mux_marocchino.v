@@ -38,13 +38,16 @@ module mor1kx_wb_mux_marocchino
   input                                 wb_div_rdy_i,
 
   // from ALU
-  input      [OPTION_OPERAND_WIDTH-1:0] alu_nl_result_i,
   input                                 wb_alu_1clk_rdy_i,
   input      [OPTION_OPERAND_WIDTH-1:0] wb_alu_1clk_result_i,
 
   // from LSU
   input                                 wb_lsu_rdy_i,
   input      [OPTION_OPERAND_WIDTH-1:0] lsu_result_i,
+
+  // from FPU-32
+  input      [OPTION_OPERAND_WIDTH-1:0] wb_fp32_arith_res_i,
+  input                                 wb_fp32_arith_rdy_i,
 
   // MFSPR
   input                                 ctrl_mfspr_rdy_i,
@@ -62,18 +65,10 @@ module mor1kx_wb_mux_marocchino
   input                                 exec_delay_slot_i,
 
   // set/clear flags
-  input                                 lsu_atomic_flag_set_i,
-  input                                 lsu_atomic_flag_clear_i,
-  input                                 exec_flag_set_i,
-  input                                 exec_flag_clear_i,
   input                                 exec_carry_set_i,
   input                                 exec_carry_clear_i,
   input                                 exec_overflow_set_i,
   input                                 exec_overflow_clear_i,
-
-  // FPU related
-  input         [`OR1K_FPCSR_WIDTH-1:0] exec_fpcsr_i,
-  input                                 exec_fpcsr_set_i,
 
   // EXCEPTIONS
   //  input exceptions
@@ -110,37 +105,23 @@ module mor1kx_wb_mux_marocchino
   // muxed output
   output reg [OPTION_OPERAND_WIDTH-1:0] pc_wb_o,
   output reg                            wb_delay_slot_o,
-  output reg                            wb_atomic_flag_set_o,
-  output reg                            wb_atomic_flag_clear_o,
-  output reg                            wb_flag_set_o,
-  output reg                            wb_flag_clear_o,
   output reg                            wb_carry_set_o,
   output reg                            wb_carry_clear_o,
   output reg                            wb_overflow_set_o,
   output reg                            wb_overflow_clear_o,
-  output reg    [`OR1K_FPCSR_WIDTH-1:0] wb_fpcsr_o,
-  output reg                            wb_fpcsr_set_o,
   output     [OPTION_OPERAND_WIDTH-1:0] wb_result_o,
   output reg [OPTION_RF_ADDR_WIDTH-1:0] wb_rfd_adr_o,
   output reg                            wb_rf_wb_o
 );
 
-  // result
-  reg [OPTION_OPERAND_WIDTH-1:0] wb_result_r;
-  // ---
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      wb_result_r <= {OPTION_OPERAND_WIDTH{1'b0}};
-    else if (padv_wb_i & exec_rf_wb_i & (~pipeline_flush_i))
-      wb_result_r <= alu_nl_result_i;
-  end // @clock
   // combined output
-  assign wb_result_o = ctrl_mfspr_rdy_i  ? mfspr_dat_i :
-                       wb_lsu_rdy_i      ? lsu_result_i :
-                       wb_alu_1clk_rdy_i ? wb_alu_1clk_result_i :
-                       wb_mul_rdy_i      ? wb_mul_result_i :
-                       wb_div_rdy_i      ? wb_div_result_i :
-                                           wb_result_r;
+  assign wb_result_o = ctrl_mfspr_rdy_i    ? mfspr_dat_i :
+                       wb_lsu_rdy_i        ? lsu_result_i :
+                       wb_alu_1clk_rdy_i   ? wb_alu_1clk_result_i :
+                       wb_mul_rdy_i        ? wb_mul_result_i :
+                       wb_div_rdy_i        ? wb_div_result_i :
+                       wb_fp32_arith_rdy_i ? wb_fp32_arith_res_i :
+                                             {OPTION_OPERAND_WIDTH{1'b0}};
 
   // write back request
   wire pipe_excepts = exec_excepts_en_i &
@@ -181,30 +162,9 @@ module mor1kx_wb_mux_marocchino
       wb_delay_slot_o  <= exec_delay_slot_i;
   end // @clock
 
-  // FPU related
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst) begin
-      wb_fpcsr_o     <= {`OR1K_FPCSR_WIDTH{1'b0}};
-      wb_fpcsr_set_o <= 1'b0;
-    end
-    else if (pipeline_flush_i |
-             (padv_wb_i & exec_bubble_i)) begin
-      wb_fpcsr_o     <= {`OR1K_FPCSR_WIDTH{1'b0}};
-      wb_fpcsr_set_o <= 1'b0;
-    end
-    else if (padv_wb_i) begin
-      wb_fpcsr_o     <= exec_fpcsr_i;
-      wb_fpcsr_set_o <= exec_fpcsr_set_i;
-    end
-  end // @clock
-
   // flag/carry/overflow
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst) begin
-      wb_atomic_flag_set_o   <= 1'b0;
-      wb_atomic_flag_clear_o <= 1'b0;
-      wb_flag_set_o          <= 1'b0;
-      wb_flag_clear_o        <= 1'b0;
       wb_carry_set_o         <= 1'b0;
       wb_carry_clear_o       <= 1'b0;
       wb_overflow_set_o      <= 1'b0;
@@ -212,20 +172,12 @@ module mor1kx_wb_mux_marocchino
     end
     else if (pipeline_flush_i | 
              (padv_wb_i & exec_bubble_i)) begin
-      wb_atomic_flag_set_o   <= 1'b0;
-      wb_atomic_flag_clear_o <= 1'b0;
-      wb_flag_set_o          <= 1'b0;
-      wb_flag_clear_o        <= 1'b0;
       wb_carry_set_o         <= 1'b0;
       wb_carry_clear_o       <= 1'b0;
       wb_overflow_set_o      <= 1'b0;
       wb_overflow_clear_o    <= 1'b0;
     end
     else if (padv_wb_i) begin
-      wb_atomic_flag_set_o   <= lsu_atomic_flag_set_i;
-      wb_atomic_flag_clear_o <= lsu_atomic_flag_clear_i;
-      wb_flag_set_o          <= exec_flag_set_i;
-      wb_flag_clear_o        <= exec_flag_clear_i;
       wb_carry_set_o         <= exec_carry_set_i;
       wb_carry_clear_o       <= exec_carry_clear_i;
       wb_overflow_set_o      <= exec_overflow_set_i;

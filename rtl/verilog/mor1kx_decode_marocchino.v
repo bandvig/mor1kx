@@ -26,18 +26,17 @@
 module mor1kx_decode_marocchino
 #(
   parameter OPTION_OPERAND_WIDTH = 32,
-  parameter OPTION_RESET_PC = {{(OPTION_OPERAND_WIDTH-13){1'b0}},`OR1K_RESET_VECTOR,8'd0},
-  parameter OPTION_RF_ADDR_WIDTH = 5,
+  parameter OPTION_RESET_PC      = {{(OPTION_OPERAND_WIDTH-13){1'b0}},
+                                    `OR1K_RESET_VECTOR,8'd0},
+  parameter OPTION_RF_ADDR_WIDTH =  5,
 
-  parameter FEATURE_SYSCALL = "ENABLED",
-  parameter FEATURE_TRAP    = "ENABLED",
-  parameter FEATURE_RANGE   = "ENABLED",
+  parameter FEATURE_SYSCALL      = "ENABLED",
+  parameter FEATURE_TRAP         = "ENABLED",
 
-  parameter FEATURE_EXT    = "NONE",
-  parameter FEATURE_PSYNC  = "NONE",
-  parameter FEATURE_CSYNC  = "NONE",
+  parameter FEATURE_PSYNC        = "NONE",
+  parameter FEATURE_CSYNC        = "NONE",
 
-  parameter FEATURE_FPU    = "NONE" // ENABLED|NONE
+  parameter FEATURE_FPU          = "NONE" // ENABLED|NONE
 )
 (
   input                                 clk,
@@ -109,7 +108,8 @@ module mor1kx_decode_marocchino
   output reg                            exec_op_ffl1_o,
   output reg                            exec_op_movhi_o,
   output reg                            exec_op_cmov_o,
-  output        [`OR1K_FPUOP_WIDTH-1:0] exec_op_fpu_o,
+  output reg    [`OR1K_FPUOP_WIDTH-1:0] exec_op_fp32_arith_o,
+  output reg    [`OR1K_FPUOP_WIDTH-1:0] exec_op_fp32_cmp_o,
 
   // ALU related opc
   output reg  [`OR1K_ALU_OPC_WIDTH-1:0] exec_opc_alu_o,
@@ -403,8 +403,16 @@ module mor1kx_decode_marocchino
 
       `OR1K_OPCODE_FPU:
          begin
-          illegal_insn_r   = (FEATURE_FPU == "NONE");
-          insn_one_clock_r = (FEATURE_FPU == "NONE"); // pass illegal insruction exception through EXECUTE
+          illegal_insn_r = (FEATURE_FPU == "NONE");
+          case (dcod_insn_i[`OR1K_FPUOP_SELECT])
+            `OR1K_FPCOP_SFEQ,
+            `OR1K_FPCOP_SFNE,
+            `OR1K_FPCOP_SFGT,
+            `OR1K_FPCOP_SFGE,
+            `OR1K_FPCOP_SFLT,
+            `OR1K_FPCOP_SFLE: insn_one_clock_r = 1'b1;
+            default:          insn_one_clock_r = (FEATURE_FPU == "NONE"); // pass illegal insruction exception through EXECUTE
+          endcase
          end
 
       //`OR1K_OPCODE_MACRC, // Same to l.movhi - check!
@@ -423,7 +431,7 @@ module mor1kx_decode_marocchino
 
       `OR1K_OPCODE_SHRTI:
          begin
-          case(dcod_insn_i[`OR1K_ALU_OPC_SECONDARY_SELECT])
+          case (dcod_insn_i[`OR1K_ALU_OPC_SECONDARY_SELECT])
             `OR1K_ALU_OPC_SECONDARY_SHRT_SLL,
             `OR1K_ALU_OPC_SECONDARY_SHRT_SRL,
             `OR1K_ALU_OPC_SECONDARY_SHRT_SRA,
@@ -434,7 +442,7 @@ module mor1kx_decode_marocchino
          end
 
       `OR1K_OPCODE_ALU:
-        case(dcod_insn_i[`OR1K_ALU_OPC_SELECT])
+        case (dcod_insn_i[`OR1K_ALU_OPC_SELECT])
           `OR1K_ALU_OPC_ADD,
           `OR1K_ALU_OPC_ADDC,
           `OR1K_ALU_OPC_SUB,
@@ -458,12 +466,12 @@ module mor1kx_decode_marocchino
           `OR1K_ALU_OPC_EXTBH,
           `OR1K_ALU_OPC_EXTW:
             begin
-              illegal_insn_r   = (FEATURE_EXT=="NONE");
+              illegal_insn_r   = 1'b1;
               insn_one_clock_r = 1'b1;
             end
           `OR1K_ALU_OPC_SHRT:
             begin
-              case(dcod_insn_i[`OR1K_ALU_OPC_SECONDARY_SELECT])
+              case (dcod_insn_i[`OR1K_ALU_OPC_SECONDARY_SELECT])
                 `OR1K_ALU_OPC_SECONDARY_SHRT_SLL,
                 `OR1K_ALU_OPC_SECONDARY_SHRT_SRL,
                 `OR1K_ALU_OPC_SECONDARY_SHRT_SRA,
@@ -574,6 +582,14 @@ module mor1kx_decode_marocchino
   assign dcod_take_branch_o = branch_to_imm | dcod_op_jr;
 
 
+
+  // FPU related
+  wire [(`OR1K_FPUOP_WIDTH-1):0] dcod_op_fpu;
+  assign dcod_op_fpu = {(opc_insn == `OR1K_OPCODE_FPU) & (FEATURE_FPU != "NONE"),
+                        dcod_insn_i[`OR1K_FPUOP_WIDTH-2:0]};
+
+
+
   // Detect the situation where there is a jump to register in decode
   // stage and an instruction in execute stage that will write to that
   // register.
@@ -603,7 +619,7 @@ module mor1kx_decode_marocchino
 
 
 
-  // "OP" control signals to execute stage
+  // single clock "OP" controls to execute stage
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst) begin
       // flag and branches
@@ -623,6 +639,8 @@ module mor1kx_decode_marocchino
       exec_op_ffl1_o           <= 1'b0;
       exec_op_movhi_o          <= 1'b0;
       exec_op_cmov_o           <= 1'b0;
+      // FPU comparison
+      exec_op_fp32_cmp_o       <= {`OR1K_FPUOP_WIDTH{1'b0}};
     end
     else if (pipeline_flush_i | padv_bubble) begin
       // bubble already masked by padv-decode forces clearing exception flags
@@ -643,6 +661,8 @@ module mor1kx_decode_marocchino
       exec_op_ffl1_o           <= 1'b0;
       exec_op_movhi_o          <= 1'b0;
       exec_op_cmov_o           <= 1'b0;
+      // FPU comparison
+      exec_op_fp32_cmp_o       <= {`OR1K_FPUOP_WIDTH{1'b0}};
     end
     else if (padv_decode_i) begin
       // flag and branches
@@ -662,11 +682,13 @@ module mor1kx_decode_marocchino
       exec_op_ffl1_o           <= dcod_op_ffl1;
       exec_op_movhi_o          <= dcod_op_movhi;
       exec_op_cmov_o           <= dcod_op_cmov;
+      // FPU comparison
+      exec_op_fp32_cmp_o       <= dcod_op_fpu;
     end
   end // @clock
 
 
-  // "OP" control signals with auto deasssert to execute stage
+  // multi-clock/pipelined "OP" controls with auto deasssert to execute stage
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst) begin
       // LSU related
@@ -683,6 +705,8 @@ module mor1kx_decode_marocchino
       // MTSPR / MFSPR
       exec_op_mfspr_o          <= 1'b0;
       exec_op_mtspr_o          <= 1'b0;
+      // FPU arithmetic
+      exec_op_fp32_arith_o     <= {`OR1K_FPUOP_WIDTH{1'b0}};
     end
     else if (pipeline_flush_i | padv_bubble) begin
       // bubble already masked by padv-decode forces clearing exception flags
@@ -700,6 +724,8 @@ module mor1kx_decode_marocchino
       // MTSPR / MFSPR
       exec_op_mfspr_o          <= 1'b0;
       exec_op_mtspr_o          <= 1'b0;
+      // FPU arithmetic
+      exec_op_fp32_arith_o     <= {`OR1K_FPUOP_WIDTH{1'b0}};
     end
     else if (padv_decode_i) begin
       // LSU related
@@ -716,6 +742,8 @@ module mor1kx_decode_marocchino
       // MTSPR / MFSPR
       exec_op_mfspr_o          <= dcod_op_mfspr;
       exec_op_mtspr_o          <= dcod_op_mtspr;
+      // FPU arithmetic
+      exec_op_fp32_arith_o     <= dcod_op_fpu;
     end
     else begin // MAROCCHINO_TODO: if (exec_insn_taken_i)
       // LSU related
@@ -732,6 +760,8 @@ module mor1kx_decode_marocchino
       // MTSPR / MFSPR
       exec_op_mfspr_o          <= 1'b0;
       exec_op_mtspr_o          <= 1'b0;
+      // FPU arithmetic
+      exec_op_fp32_arith_o     <= {`OR1K_FPUOP_WIDTH{1'b0}};
     end
   end // @clock
 
@@ -743,31 +773,6 @@ module mor1kx_decode_marocchino
     end
   end // @clock
 
-
-  // FPU related
-generate
-/* verilator lint_off WIDTH */
-if (FEATURE_FPU != "NONE") begin : fpu_decode_marocchino_ena
-/* verilator lint_on WIDTH */
-  wire [(`OR1K_FPUOP_WIDTH-1):0] dcod_op_fpu;
-  assign dcod_op_fpu  = { (opc_insn == `OR1K_OPCODE_FPU),
-                             dcod_insn_i[`OR1K_FPUOP_WIDTH-2:0] };
-  reg [`OR1K_FPUOP_WIDTH-1:0] exec_op_fpu_r;
-  assign exec_op_fpu_o = exec_op_fpu_r;
-  // bubble already masked by padv-decode forces clearing exception flags
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      exec_op_fpu_r <= {`OR1K_FPUOP_WIDTH{1'b0}};
-    else if (pipeline_flush_i | padv_bubble)
-      exec_op_fpu_r <= {`OR1K_FPUOP_WIDTH{1'b0}};
-    else if (padv_decode_i)
-      exec_op_fpu_r <= dcod_op_fpu;
-  end // @clk
-end
-else begin : fpu_decode_marocchino_none
-  assign exec_op_fpu_o  = {`OR1K_FPUOP_WIDTH{1'b0}};
-end
-endgenerate // FPU related
 
   // rfe is a special case, instead of pushing the pipeline full
   // of nops on a decode bubble, we push it full of rfes.

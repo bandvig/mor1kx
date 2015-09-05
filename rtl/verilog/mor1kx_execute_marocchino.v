@@ -20,13 +20,8 @@ module mor1kx_execute_marocchino
 #(
   parameter OPTION_OPERAND_WIDTH = 32,
   parameter OPTION_RF_ADDR_WIDTH =  5,
-
-  parameter FEATURE_OVERFLOW   = "NONE",
-  parameter FEATURE_CARRY_FLAG = "ENABLED",
-
-  parameter FEATURE_EXT = "NONE",
-
-  parameter FEATURE_FPU = "NONE" // ENABLED|NONE
+  parameter FEATURE_EXT          = "NONE",
+  parameter FEATURE_FPU          = "NONE" // ENABLED|NONE
 )
 (
   // clocks and resets
@@ -80,21 +75,27 @@ module mor1kx_execute_marocchino
   output reg                            wb_div_rdy_o,
 
   // ALU results
-  output     [OPTION_OPERAND_WIDTH-1:0] alu_nl_result_o, // nl: not latched, to WB_MUX
   output     [OPTION_OPERAND_WIDTH-1:0] exec_lsu_adr_o,  // not latched, address to LSU
 
   // FPU related
-  input         [`OR1K_FPUOP_WIDTH-1:0] op_fpu_i,
+  //  arithmetic part
+  input         [`OR1K_FPUOP_WIDTH-1:0] op_fp32_arith_i,
   input       [`OR1K_FPCSR_RM_SIZE-1:0] fpu_round_mode_i,
-  output        [`OR1K_FPCSR_WIDTH-1:0] exec_fpcsr_o,
-  output                                exec_fpcsr_set_o,
+  output                         [31:0] wb_fp32_arith_res_o,
+  output                                wb_fp32_arith_rdy_o,
+  output        [`OR1K_FPCSR_WIDTH-1:0] wb_fp32_arith_fpcsr_o,
+  //  comparison part
+  input         [`OR1K_FPUOP_WIDTH-1:0] op_fp32_cmp_i,
+  output                                wb_fp32_flag_set_o,
+  output                                wb_fp32_flag_clear_o,
+  output        [`OR1K_FPCSR_WIDTH-1:0] wb_fp32_cmp_fpcsr_o,
 
   // flag related inputs
   input                                 op_setflag_i,
-  input                                 flag_i, // fed back from ctrl (for cmov)
-  // flag related outputs
-  output                                exec_flag_set_o,
-  output                                exec_flag_clear_o,
+  input                                 flag_i, // feedback from ctrl (for cmov)
+  // latched integer comparison result for WB
+  output reg                            wb_int_flag_set_o,
+  output reg                            wb_int_flag_clear_o,
 
   // carry related inputs
   input                                 carry_i,
@@ -272,9 +273,9 @@ module mor1kx_execute_marocchino
   assign op_logic = |logic_lut;
 
 
-  //--------------------------------------//
-  // Muxing and registering 1-clk results //
-  //--------------------------------------//
+  //------------------------------------------------------------------//
+  // Muxing and registering 1-clk results and integer comparison flag //
+  //------------------------------------------------------------------//
   wire [EXEDW-1:0] alu_1clk_result_mux = op_shift_i ? shift_result      :
                                          op_ffl1_i  ? ffl1_result       :
                                          op_add_i   ? adder_result      :
@@ -310,6 +311,28 @@ module mor1kx_execute_marocchino
       wb_alu_1clk_rdy_o   <= wb_alu_1clk_rdy_o;
       alu_1clk_rdy_stored <= exec_insn_1clk_i;
     end
+  end // @clock
+
+  // latched integer comparison result for WB
+  always @(posedge clk `OR_ASYNC_RST) begin
+    if (rst) begin
+      wb_int_flag_set_o   <= 1'b0;
+      wb_int_flag_clear_o <= 1'b0;
+    end
+    else if (pipeline_flush_i) begin
+      wb_int_flag_set_o   <= 1'b0;
+      wb_int_flag_clear_o <= 1'b0;
+    end
+    else if (padv_wb_i) begin
+      if (op_setflag_i) begin
+        wb_int_flag_set_o   <= flag_set;
+        wb_int_flag_clear_o <= ~flag_set;
+      end
+      else begin
+        wb_int_flag_set_o   <= 1'b0;
+        wb_int_flag_clear_o <= 1'b0;
+      end // set-flag-op / not
+    end // wb advance
   end // @clock
 
 
@@ -527,56 +550,47 @@ module mor1kx_execute_marocchino
   // FPU related //
   //-------------//
   //  arithmetic part interface
-  wire fpu_op_is_arith;
-  wire fpu_arith_valid;
-  wire [EXEDW-1:0] fpu_result;
-  //  comparator part interface
-  wire fpu_op_is_cmp;
-  wire fpu_cmp_valid;
-  wire fpu_cmp_flag;
+  wire fp32_arith_valid;
   //  instance
   generate
     /* verilator lint_off WIDTH */
     if (FEATURE_FPU!="NONE") begin :  fpu_alu_ena
     /* verilator lint_on WIDTH */
-      wire [(`OR1K_FPCSR_WIDTH-1):0] fpcsr_w;
-      // fpu32 instance
-      pfpu32_top u_pfpu32
+      pfpu32_top_marocchino  u_pfpu32
       (
-        .clk(clk),
-        .rst(rst),
-        .flush_i(pipeline_flush_i),
-        .padv_decode_i(padv_decode_i),
-        .padv_execute_i(padv_wb_i),
-        .op_fpu_i(op_fpu_i),
-        .round_mode_i(fpu_round_mode_i),
-        .rfa_i(rfa_i),
-        .rfb_i(rfb_i),
-        .fpu_result_o(fpu_result),
-        .fpu_arith_valid_o(fpu_arith_valid),
-        .fpu_cmp_flag_o(fpu_cmp_flag),
-        .fpu_cmp_valid_o(fpu_cmp_valid),
-        .fpcsr_o(fpcsr_w)
+        // clock & reset
+        .clk                    (clk),
+        .rst                    (rst),
+        // pipeline control
+        .flush_i                (pipeline_flush_i),
+        .padv_wb_i              (padv_wb_i),
+        // Operands
+        .rfa_i                  (rfa_i),
+        .rfb_i                  (rfb_i),
+        // FPU-32 arithmetic part
+        .op_arith_i             (op_fp32_arith_i),
+        .round_mode_i           (fpu_round_mode_i),
+        .fp32_arith_valid_o     (fp32_arith_valid),      // WB-latching ahead arithmetic ready flag
+        .wb_fp32_arith_res_o    (wb_fp32_arith_res_o),   // arithmetic result
+        .wb_fp32_arith_rdy_o    (wb_fp32_arith_rdy_o),   // arithmetic ready flag
+        .wb_fp32_arith_fpcsr_o  (wb_fp32_arith_fpcsr_o), // arithmetic exceptions
+        // FPU-32 comparison part
+        .op_cmp_i               (op_fp32_cmp_i),
+        .wb_fp32_flag_set_o     (wb_fp32_flag_set_o),   // comparison result
+        .wb_fp32_flag_clear_o   (wb_fp32_flag_clear_o), // comparison result
+        .wb_fp32_cmp_fpcsr_o    (wb_fp32_cmp_fpcsr_o)   // comparison exceptions
       );
-      // some glue logic
-      assign fpu_op_is_arith = op_fpu_i[`OR1K_FPUOP_WIDTH-1] & (~op_fpu_i[3]);
-      assign fpu_op_is_cmp   = op_fpu_i[`OR1K_FPUOP_WIDTH-1] &   op_fpu_i[3];
-      // flag to update FPCSR
-      assign exec_fpcsr_o     = fpcsr_w;
-      assign exec_fpcsr_set_o = (fpu_arith_valid | fpu_cmp_valid);
     end
     else begin :  fpu_alu_none
       // arithmetic part
-      assign fpu_op_is_arith = 1'b0;
-      assign fpu_arith_valid = 1'b0;
-      assign fpu_result      = {EXEDW{1'b0}};
-      // comparator part
-      assign fpu_op_is_cmp = 1'b0;
-      assign fpu_cmp_valid = 1'b0;
-      assign fpu_cmp_flag  = 1'b0;
-      // fpu's common
-      assign exec_fpcsr_o     = {`OR1K_FPCSR_WIDTH{1'b0}};
-      assign exec_fpcsr_set_o = 1'b0;
+      assign fp32_arith_valid      = 1'b0;
+      assign wb_fp32_arith_res_o   = {EXEDW{1'b0}};
+      assign wb_fp32_arith_rdy_o   = 1'b0;
+      assign wb_fp32_arith_fpcsr_o = {`OR1K_FPCSR_WIDTH{1'b0}};
+      // comparison part
+      assign wb_fp32_flag_set_o   = 1'b0;
+      assign wb_fp32_flag_clear_o = 1'b0;
+      assign wb_fp32_cmp_fpcsr_o  = {`OR1K_FPCSR_WIDTH{1'b0}};
     end // fpu_ena/fpu_none
   endgenerate // FPU related
 
@@ -585,30 +599,19 @@ module mor1kx_execute_marocchino
   //----------------//
   // Results muxing //
   //----------------//
-  assign alu_nl_result_o = fpu_result;
   assign exec_lsu_adr_o  = adder_result; // lsu address (not latched)
 
-  // Update SR[F] either from integer or float point comparision
-  assign exec_flag_set_o   = fpu_op_is_cmp ? (fpu_cmp_flag & fpu_cmp_valid) :
-                                             (flag_set & op_setflag_i);
-  assign exec_flag_clear_o = fpu_op_is_cmp ? ((~fpu_cmp_flag) & fpu_cmp_valid) :
-                                             ((~flag_set) & op_setflag_i);
-
   // Overflow flag generation
-  assign exec_overflow_set_o   = (FEATURE_OVERFLOW != "NONE") &
-                                 ((op_add_i & adder_s_ovf) |
-                                  (div_valid & div_signed & div_by_zero));
-  assign exec_overflow_clear_o = (FEATURE_OVERFLOW != "NONE") &
-                                 ((op_add_i & (~adder_s_ovf)) |
-                                  (div_valid & div_signed & (~div_by_zero)));
+  assign exec_overflow_set_o   = (op_add_i & adder_s_ovf) |
+                                 (div_valid & div_signed & div_by_zero);
+  assign exec_overflow_clear_o = (op_add_i & (~adder_s_ovf)) |
+                                 (div_valid & div_signed & (~div_by_zero));
 
   // Carry flag generation
-  assign exec_carry_set_o   = (FEATURE_CARRY_FLAG != "NONE") &
-                              ((op_add_i & adder_u_ovf) |
-                               (div_valid & div_unsigned & div_by_zero));
-  assign exec_carry_clear_o = (FEATURE_CARRY_FLAG!="NONE") &
-                              ((op_add_i & (~adder_u_ovf)) |
-                               (div_valid & div_unsigned & (~div_by_zero)));
+  assign exec_carry_set_o   = (op_add_i & adder_u_ovf) |
+                              (div_valid & div_unsigned & div_by_zero);
+  assign exec_carry_clear_o = (op_add_i & (~adder_u_ovf)) |
+                              (div_valid & div_unsigned & (~div_by_zero));
 
 
 
@@ -618,9 +621,7 @@ module mor1kx_execute_marocchino
 
   // ALU ready flag
   assign exec_valid_o =
-    exec_insn_1clk_i | div_valid | mul_valid |
-    (fpu_op_is_arith & fpu_arith_valid) |
-    (fpu_op_is_cmp & fpu_cmp_valid) |
+    exec_insn_1clk_i | div_valid | mul_valid | fp32_arith_valid |
     lsu_valid_i | lsu_excepts_i | msync_done_i;
 
 endmodule // mor1kx_execute_marocchino

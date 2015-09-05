@@ -29,7 +29,6 @@ module mor1kx_ctrl_marocchino
 
   parameter FEATURE_SYSCALL = "ENABLED",
   parameter FEATURE_TRAP = "ENABLED",
-  parameter FEATURE_RANGE = "ENABLED",
 
   parameter OPTION_DCACHE_BLOCK_WIDTH = 5,
   parameter OPTION_DCACHE_SET_WIDTH = 9,
@@ -59,8 +58,6 @@ module mor1kx_ctrl_marocchino
 
   parameter FEATURE_FASTCONTEXTS = "NONE",
   parameter OPTION_RF_NUM_SHADOW_GPR = 0,
-  parameter FEATURE_OVERFLOW = "NONE",
-  parameter FEATURE_CARRY_FLAG = "ENABLED",
 
   parameter SPR_SR_WIDTH = 16,
   parameter SPR_SR_RESET_VALUE = 16'h8001
@@ -81,8 +78,10 @@ module mor1kx_ctrl_marocchino
   // LSU address, needed for effective address
   input [OPTION_OPERAND_WIDTH-1:0]  lsu_adr_i,
 
-  input                             wb_flag_set_i,
-  input                             wb_flag_clear_i,
+  input                             wb_int_flag_set_i,
+  input                             wb_int_flag_clear_i,
+  input                             wb_fp32_flag_set_i,
+  input                             wb_fp32_flag_clear_i,
   input                             wb_atomic_flag_set_i,
   input                             wb_atomic_flag_clear_i,
   input                             wb_carry_set_i,
@@ -146,9 +145,9 @@ module mor1kx_ctrl_marocchino
   output                            ctrl_carry_o,
 
   // FPU Status flags to and from ALU
-  output [`OR1K_FPCSR_RM_SIZE-1:0]  ctrl_fpu_round_mode_o,
-  input  [`OR1K_FPCSR_WIDTH-1:0]    wb_fpcsr_i,
-  input                             wb_fpcsr_set_i,
+  output  [`OR1K_FPCSR_RM_SIZE-1:0] ctrl_fpu_round_mode_o,
+  input     [`OR1K_FPCSR_WIDTH-1:0] wb_fp32_arith_fpcsr_i,
+  input     [`OR1K_FPCSR_WIDTH-1:0] wb_fp32_cmp_fpcsr_i,
 
   // Branch indicator from control unit (l.rfe/exceptions)
   output                            ctrl_branch_exception_o,
@@ -290,21 +289,19 @@ module mor1kx_ctrl_marocchino
   wire [31:0]                       spr_isr [0:7];
 
 
-
   // Flag output
-  wire   ctrl_flag_clear = wb_flag_clear_i | wb_atomic_flag_clear_i;
-  wire   ctrl_flag_set   = wb_flag_set_i   | wb_atomic_flag_set_i;
+  wire   ctrl_flag_clear = wb_int_flag_clear_i | wb_fp32_flag_clear_i | wb_atomic_flag_clear_i;
+  wire   ctrl_flag_set   = wb_int_flag_set_i | wb_fp32_flag_set_i | wb_atomic_flag_set_i;
 
   assign ctrl_flag_o     = (~ctrl_flag_clear) &
                            (ctrl_flag_set | spr_sr[`OR1K_SPR_SR_F]);
 
   // Carry output
-  assign ctrl_carry_o = (FEATURE_CARRY_FLAG != "NONE") &
-                        (~wb_carry_clear_i) &
+  assign ctrl_carry_o = (~wb_carry_clear_i) &
                         (wb_carry_set_i | spr_sr[`OR1K_SPR_SR_CY]);
 
   // Overflow
-  wire ctrl_overflow = (FEATURE_RANGE != "NONE") & spr_sr[`OR1K_SPR_SR_OVE] &
+  wire ctrl_overflow = spr_sr[`OR1K_SPR_SR_OVE] &
                        (~wb_overflow_clear_i) &
                        (wb_overflow_set_i | spr_sr[`OR1K_SPR_SR_OV]);
 
@@ -441,15 +438,14 @@ if (FEATURE_FPU != "NONE") begin : fpu_csr_gen
   // (2) Only new arrived flags make sense to detect
   //     FPU exceptions.
  `ifdef OR1K_FPCSR_MASK_FLAGS
-  wire [`OR1K_FPCSR_ALLF_SIZE-1:0] fpu_allf =
-    wb_fpcsr_i[`OR1K_FPCSR_ALLF] & spr_fpcsr_mf;
+  wire [`OR1K_FPCSR_ALLF_SIZE-1:0] fpu_allf = spr_fpcsr_mf &
+    (wb_fp32_arith_fpcsr_i[`OR1K_FPCSR_ALLF] | wb_fp32_cmp_fpcsr_i[`OR1K_FPCSR_ALLF]);
  `else
-  wire [`OR1K_FPCSR_ALLF_SIZE-1:0] fpu_allf = wb_fpcsr_i[`OR1K_FPCSR_ALLF];
+  wire [`OR1K_FPCSR_ALLF_SIZE-1:0] fpu_allf =
+    (wb_fp32_arith_fpcsr_i[`OR1K_FPCSR_ALLF] | wb_fp32_cmp_fpcsr_i[`OR1K_FPCSR_ALLF]);
  `endif
 
-  assign except_fpu = wb_fpcsr_set_i &
-                      spr_fpcsr[`OR1K_FPCSR_FPEE] &
-                      (|fpu_allf);
+  assign except_fpu = spr_fpcsr[`OR1K_FPCSR_FPEE] & (|fpu_allf);
 
   // FPU Control & status register
   always @(posedge clk `OR_ASYNC_RST) begin
@@ -471,11 +467,6 @@ if (FEATURE_FPU != "NONE") begin : fpu_csr_gen
      `ifdef OR1K_FPCSR_MASK_FLAGS
       spr_fpcsr_mf <= spr_write_dat[`OR1K_FPCSR_MASK_ALL];
      `endif
-    end
-    else if (wb_new_result_o & wb_fpcsr_set_i) begin
-      spr_fpcsr[`OR1K_FPCSR_ALLF] <= fpu_allf;
-      spr_fpcsr[`OR1K_FPCSR_RM]   <= spr_fpcsr[`OR1K_FPCSR_RM];
-      spr_fpcsr[`OR1K_FPCSR_FPEE] <= spr_fpcsr[`OR1K_FPCSR_FPEE];
     end
   end // FPCSR reg's always(@posedge clk)
 end
@@ -526,9 +517,9 @@ endgenerate // FPU related: FPCSR and exceptions
       spr_sr[`OR1K_SPR_SR_DME] <= spr_write_dat[`OR1K_SPR_SR_DME];
       spr_sr[`OR1K_SPR_SR_IME] <= spr_write_dat[`OR1K_SPR_SR_IME];
       spr_sr[`OR1K_SPR_SR_CE ] <= spr_write_dat[`OR1K_SPR_SR_CE ] & (FEATURE_FASTCONTEXTS != "NONE");
-      spr_sr[`OR1K_SPR_SR_CY ] <= spr_write_dat[`OR1K_SPR_SR_CY ] & (FEATURE_CARRY_FLAG != "NONE");
-      spr_sr[`OR1K_SPR_SR_OV ] <= spr_write_dat[`OR1K_SPR_SR_OV ] & (FEATURE_OVERFLOW != "NONE");
-      spr_sr[`OR1K_SPR_SR_OVE] <= spr_write_dat[`OR1K_SPR_SR_OVE] & (FEATURE_OVERFLOW != "NONE");
+      spr_sr[`OR1K_SPR_SR_CY ] <= spr_write_dat[`OR1K_SPR_SR_CY ];
+      spr_sr[`OR1K_SPR_SR_OV ] <= spr_write_dat[`OR1K_SPR_SR_OV ];
+      spr_sr[`OR1K_SPR_SR_OVE] <= spr_write_dat[`OR1K_SPR_SR_OVE];
       spr_sr[`OR1K_SPR_SR_DSX] <= spr_write_dat[`OR1K_SPR_SR_DSX];
       spr_sr[`OR1K_SPR_SR_EPH] <= spr_write_dat[`OR1K_SPR_SR_EPH];
     end
@@ -671,7 +662,7 @@ endgenerate // FPU related: FPCSR and exceptions
     .FEATURE_DSX                     ("ENABLED"), // mor1kx_cfgrs instance: marocchino
     .FEATURE_FASTCONTEXTS            (FEATURE_FASTCONTEXTS),
     .OPTION_RF_NUM_SHADOW_GPR        (OPTION_RF_NUM_SHADOW_GPR),
-    .FEATURE_OVERFLOW                (FEATURE_OVERFLOW),
+    .FEATURE_OVERFLOW                ("ENABLED"), // mor1kx_cfgrs instance: marocchino
     .FEATURE_DATACACHE               ("ENABLED"), // mor1kx_cfgrs instance: marocchino
     .OPTION_DCACHE_BLOCK_WIDTH       (OPTION_DCACHE_BLOCK_WIDTH),
     .OPTION_DCACHE_SET_WIDTH         (OPTION_DCACHE_SET_WIDTH),
@@ -692,7 +683,7 @@ endgenerate // FPU related: FPCSR and exceptions
     .FEATURE_FPU                     (FEATURE_FPU), // mor1kx_cfgrs instance: marocchino
     .FEATURE_SYSCALL                 (FEATURE_SYSCALL),
     .FEATURE_TRAP                    (FEATURE_TRAP),
-    .FEATURE_RANGE                   (FEATURE_RANGE),
+    .FEATURE_RANGE                   ("ENABLED"), // mor1kx_cfgrs instance: marocchino
     .FEATURE_DELAYSLOT               ("ENABLED"), // mor1kx_cfgrs instance: marocchino
     .FEATURE_EVBAR                   ("ENABLED")
   )
