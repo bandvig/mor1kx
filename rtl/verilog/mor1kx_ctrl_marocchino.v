@@ -500,8 +500,8 @@ endgenerate // FPU related: FPCSR and exceptions
       spr_sr[`OR1K_SPR_SR_IEE] <= 1'b0; // block interrupt from PIC
       spr_sr[`OR1K_SPR_SR_DME] <= 1'b0; // D-MMU is off
       spr_sr[`OR1K_SPR_SR_IME] <= 1'b0; // I-MMU is off
-      spr_sr[`OR1K_SPR_SR_OVE] <= 1'b0; // enable overflow excep.
-      // depending on feature configuration
+      spr_sr[`OR1K_SPR_SR_OVE] <= 1'b0; // block overflow excep.
+      spr_sr[`OR1K_SPR_SR_OV ] <= ctrl_overflow; // but save overflow flag
       spr_sr[`OR1K_SPR_SR_DSX] <= wb_delay_slot_i;
     end
     else if ((spr_we & spr_access[`OR1K_SPR_SYS_BASE] &
@@ -531,7 +531,6 @@ endgenerate // FPU related: FPCSR and exceptions
       else begin
         spr_sr[`OR1K_SPR_SR_F ] <= ctrl_flag_o;
         spr_sr[`OR1K_SPR_SR_CY] <= ctrl_carry_o;
-        spr_sr[`OR1K_SPR_SR_OV] <= ctrl_overflow;
       end
     end
   end // @ clock

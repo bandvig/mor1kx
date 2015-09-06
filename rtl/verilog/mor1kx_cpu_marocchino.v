@@ -148,13 +148,9 @@ module mor1kx_cpu_marocchino
   wire wb_int_flag_set;
   wire wb_int_flag_clear;
 
-  wire exec_carry_set;
-  wire exec_carry_clear;
   wire wb_carry_set;
   wire wb_carry_clear;
 
-  wire exec_overflow_set;
-  wire exec_overflow_clear;
   wire wb_overflow_set;
   wire wb_overflow_clear;
 
@@ -169,8 +165,8 @@ module mor1kx_cpu_marocchino
 
 
   wire [OPTION_OPERAND_WIDTH-1:0] wb_result;
-  
-  wire [OPTION_OPERAND_WIDTH-1:0] lsu_result; // to WB_MUX
+
+  wire [OPTION_OPERAND_WIDTH-1:0] wb_lsu_result; // to WB_MUX
   wire                            wb_lsu_rdy; // to WB_MUX
 
   wire                 exec_valid;
@@ -233,7 +229,7 @@ module mor1kx_cpu_marocchino
 
   wire                            exec_op_msync;
   wire                            msync_done;
-  
+
 
 
   wire  [`OR1K_ALU_OPC_WIDTH-1:0] exec_opc_alu;
@@ -247,7 +243,7 @@ module mor1kx_cpu_marocchino
 
   wire                            exec_op_jal;
   wire [OPTION_OPERAND_WIDTH-1:0] exec_jal_result;
-  
+
   wire                            exec_op_cmov;
   wire                            exec_op_ffl1;
   wire                            exec_op_movhi;
@@ -255,28 +251,18 @@ module mor1kx_cpu_marocchino
   wire                            exec_op_shift;
 
   wire                            exec_insn_1clk;
-  wire                            wb_alu_1clk_rdy;
-  wire [OPTION_OPERAND_WIDTH-1:0] wb_alu_1clk_result;
-
 
 
   wire                            exec_op_div;
   wire                            exec_op_div_signed;
   wire                            exec_op_div_unsigned;
-  wire [OPTION_OPERAND_WIDTH-1:0] wb_div_result;
-  wire                            wb_div_rdy;
-
 
 
   wire                            exec_op_mul;
-  wire [OPTION_OPERAND_WIDTH-1:0] wb_mul_result;
-  wire                            wb_mul_rdy;
 
 
   // FPU-32 arithmetic part
   wire    [`OR1K_FPUOP_WIDTH-1:0] exec_op_fp32_arith;
-  wire                     [31:0] wb_fp32_arith_res;
-  wire                            wb_fp32_arith_rdy;
   wire    [`OR1K_FPCSR_WIDTH-1:0] wb_fp32_arith_fpcsr;
 
   // FPU-32 comparison part
@@ -284,7 +270,6 @@ module mor1kx_cpu_marocchino
   wire                            wb_fp32_flag_set;
   wire                            wb_fp32_flag_clear;
   wire    [`OR1K_FPCSR_WIDTH-1:0] wb_fp32_cmp_fpcsr;
-
 
 
   wire [OPTION_OPERAND_WIDTH-1:0] store_buffer_epcr;
@@ -429,7 +414,7 @@ module mor1kx_cpu_marocchino
     .dcod_branch_target_i             (dcod_branch_target), // FETCH
     .branch_mispredict_i              (branch_mispredict), // FETCH
     .exec_mispredict_target_i         (exec_mispredict_target), // FETCH
-    
+
     // exception/rfe control transfer
     .ctrl_branch_exception_i          (ctrl_branch_exception), // FETCH
     .ctrl_branch_except_pc_i          (ctrl_branch_except_pc), // FETCH
@@ -607,85 +592,120 @@ module mor1kx_cpu_marocchino
     .rfb_i                            (exec_rfb), // EXE
     .immediate_i                      (exec_immediate), // EXE
     .immediate_sel_i                  (exec_immediate_sel), // EXE
+    
+    // various instruction related flags & data
+    .exec_bubble_i                    (exec_bubble), // EXE
+    .exec_rfd_adr_i                   (exec_rfd_adr), // EXE
+    .exec_rf_wb_i                     (exec_rf_wb), // EXE
+    .pc_exec_i                        (pc_exec), // EXE
+    .exec_delay_slot_i                (exec_delay_slot), // EXE
 
-    // opcode for alu
+    // 1-clock instruction related inputs
+    .exec_insn_1clk_i                 (exec_insn_1clk), // EXE
+    //  # opcode for alu
     .opc_alu_i                        (exec_opc_alu), // EXE
     .opc_alu_secondary_i              (exec_opc_alu_secondary), // EXE
-
-    // adder's inputs
+    //  # adder's inputs
     .op_add_i                         (exec_op_add), // EXE
     .adder_do_sub_i                   (exec_adder_do_sub), // EXE
     .adder_do_carry_i                 (exec_adder_do_carry), // EXE
-
-    // shift, ffl1, movhi, cmov
+    .carry_i                          (ctrl_carry), // EXE
+    //  # shift, ffl1, movhi, cmov
     .op_shift_i                       (exec_op_shift), // EXE
     .op_ffl1_i                        (exec_op_ffl1), // EXE
     .op_movhi_i                       (exec_op_movhi), // EXE
     .op_cmov_i                        (exec_op_cmov), // EXE
-
-    // jump & link
+    //  # jump & link
     .op_jal_i                         (exec_op_jal), // EXE
     .exec_jal_result_i                (exec_jal_result), // EXE
+    //  # flag related inputs
+    .op_setflag_i                     (exec_op_setflag), // EXE
+    .flag_i                           (ctrl_flag), // EXE
 
-    // output latches for 1-clock operations
-    .wb_alu_1clk_rdy_o                (wb_alu_1clk_rdy), // EXE
-    .wb_alu_1clk_result_o             (wb_alu_1clk_result), // EXE
-
-    // multiplier inputs/outputs
+    // multi-clock instruction related inputs
+    //  ## multiplier inputs/outputs
     .op_mul_i                         (exec_op_mul), // EXE
-    .wb_mul_result_o                  (wb_mul_result), // EXE
-    .wb_mul_rdy_o                     (wb_mul_rdy), // EXE
-
-    // division inputs
+    //  ## division inputs
     .op_div_i                         (exec_op_div), // EXE
     .op_div_signed_i                  (exec_op_div_signed), // EXE
     .op_div_unsigned_i                (exec_op_div_unsigned), // EXE
-    .wb_div_result_o                  (wb_div_result), // EXE
-    .wb_div_rdy_o                     (wb_div_rdy), // EXE
+    //  ## FPU-32 arithmetic part
+    .op_fp32_arith_i                  (exec_op_fp32_arith), // EXE
+    .fpu_round_mode_i                 (ctrl_fpu_round_mode), // EXE
+    //  ## FPU-32 comparison part
+    .op_fp32_cmp_i                    (exec_op_fp32_cmp), // EXE
+    //  ## MFSPR
+    .ctrl_mfspr_rdy_i                 (ctrl_mfspr_rdy), // EXE
+    .mfspr_dat_i                      (mfspr_dat), // EXE
+    //  ## MSYNC related controls
+    .msync_done_i                     (msync_done),  // EXE
+    //  ## LSU related inputs
+    .lsu_valid_i                      (lsu_valid), // EXE
+    .wb_lsu_rdy_i                     (wb_lsu_rdy), // EXE
+    .wb_lsu_result_i                  (wb_lsu_result), // EXE
+
+    // EXCEPTIONS related input
+    //  ## instruction is interruptable
+    .exec_excepts_en_i                (exec_excepts_en), // EXE
+    //  ## RFE processing
+    .exec_op_rfe_i                    (exec_op_rfe), // EXE
+    //  ## input exceptions
+    .exec_except_ibus_err_i           (exec_except_ibus_err), // EXE
+    .exec_except_ipagefault_i         (exec_except_ipagefault), // EXE
+    .exec_except_itlb_miss_i          (exec_except_itlb_miss), // EXE
+    .exec_except_ibus_align_i         (exec_except_ibus_align), // EXE
+    .exec_except_illegal_i            (exec_except_illegal), // EXE
+    .exec_except_syscall_i            (exec_except_syscall), // EXE
+    .exec_except_trap_i               (exec_except_trap), // EXE
+    .lsu_except_dbus_err_i            (lsu_except_dbus), // EXE
+    .lsu_except_dpagefault_i          (lsu_except_dpagefault), // EXE
+    .lsu_except_dtlb_miss_i           (lsu_except_dtlb_miss), // EXE
+    .lsu_except_dbus_align_i          (lsu_except_align), // EXE
+    .lsu_excepts_i                    (lsu_excepts), // EXE
 
     // ALU results
     .exec_lsu_adr_o                   (exec_lsu_adr), // EXE (not latched, address to LSU)
 
-    // FPU related
-    //  arithmetic part
-    .op_fp32_arith_i                  (exec_op_fp32_arith), // EXE
-    .fpu_round_mode_i                 (ctrl_fpu_round_mode), // EXE
-    .wb_fp32_arith_res_o              (wb_fp32_arith_res), // EXE
-    .wb_fp32_arith_rdy_o              (wb_fp32_arith_rdy), // EXE
+    // EXEC ready flag
+    .exec_valid_o                     (exec_valid), // EXE
+
+    // WB outputs
+    .wb_result_o                      (wb_result), // EXE
+    //  ## integer comparison result
+    .wb_int_flag_set_o                (wb_int_flag_set), // EXE
+    .wb_int_flag_clear_o              (wb_int_flag_clear), // EXE
+    //  ## carry output
+    .wb_carry_set_o                   (wb_carry_set), // EXE
+    .wb_carry_clear_o                 (wb_carry_clear), // EXE
+    //  ## overflow output
+    .wb_overflow_set_o                (wb_overflow_set), // EXE
+    .wb_overflow_clear_o              (wb_overflow_clear), // EXE
+    //  ## FPU-32 arithmetic exeptions
     .wb_fp32_arith_fpcsr_o            (wb_fp32_arith_fpcsr), // EXE
-    //  comparison part
-    .op_fp32_cmp_i                    (exec_op_fp32_cmp), // EXE
+    //  ## FPU-32 comparison results
     .wb_fp32_flag_set_o               (wb_fp32_flag_set), // EXE
     .wb_fp32_flag_clear_o             (wb_fp32_flag_clear), // EXE
     .wb_fp32_cmp_fpcsr_o              (wb_fp32_cmp_fpcsr), // EXE
-
-    // flag related inputs
-    .op_setflag_i                     (exec_op_setflag), // EXE
-    .flag_i                           (ctrl_flag), // EXE
-    // latched integer comparison result for WB
-    .wb_int_flag_set_o                (wb_int_flag_set), // EXE
-    .wb_int_flag_clear_o              (wb_int_flag_clear), // EXE
-
-    // carry related inputs
-    .carry_i                          (ctrl_carry), // EXE
-    // carry related outputs
-    .exec_carry_set_o                 (exec_carry_set), // EXE
-    .exec_carry_clear_o               (exec_carry_clear), // EXE
-
-    // owerflow related outputs
-    .exec_overflow_set_o              (exec_overflow_set), // EXE
-    .exec_overflow_clear_o            (exec_overflow_clear), // EXE
-
-    // MSYNC related controls
-    .msync_done_i                     (msync_done),  // EXE
-
-    // LSU related inputs
-    .lsu_valid_i                      (lsu_valid), // EXE
-    .lsu_excepts_i                    (lsu_excepts), // EXE
-
-    // EXEC ready flag
-    .exec_insn_1clk_i                 (exec_insn_1clk), // EXE
-    .exec_valid_o                     (exec_valid) // EXE
+    //  ## instruction related information
+    .pc_wb_o                          (pc_wb), // EXE
+    .wb_delay_slot_o                  (wb_delay_slot), // EXE
+    .wb_rfd_adr_o                     (wb_rfd_adr), // EXE
+    .wb_rf_wb_o                       (wb_rf_wb), // EXE
+    //  ## RFE processing
+    .wb_op_rfe_o                      (wb_op_rfe), // EXE
+    //  ## output exceptions
+    .wb_except_ibus_err_o             (wb_except_ibus_err), // EXE
+    .wb_except_ipagefault_o           (wb_except_ipagefault), // EXE
+    .wb_except_itlb_miss_o            (wb_except_itlb_miss), // EXE
+    .wb_except_ibus_align_o           (wb_except_ibus_align), // EXE
+    .wb_except_illegal_o              (wb_except_illegal), // EXE
+    .wb_except_syscall_o              (wb_except_syscall), // EXE
+    .wb_except_trap_o                 (wb_except_trap), // EXE
+    .wb_except_dbus_o                 (wb_except_dbus), // EXE
+    .wb_except_dpagefault_o           (wb_except_dpagefault), // EXE
+    .wb_except_dtlb_miss_o            (wb_except_dtlb_miss), // EXE
+    .wb_except_align_o                (wb_except_align), // EXE
+    .wb_excepts_en_o                  (wb_excepts_en) // EXE
   );
 
 
@@ -757,116 +777,14 @@ module mor1kx_cpu_marocchino
     .exec_lsu_length_i                (exec_lsu_length), // LSU
     .exec_lsu_zext_i                  (exec_lsu_zext), // LSU
     // Outputs
-    .lsu_result_o                     (lsu_result), // LSU
+    .msync_done_o                     (msync_done), // LSU
+    .lsu_valid_o                      (lsu_valid), // LSU
     .lsu_adr_o                        (lsu_adr), // LSU
     .wb_atomic_flag_set_o             (wb_atomic_flag_set), // LSU
     .wb_atomic_flag_clear_o           (wb_atomic_flag_clear), // LSU
-    .msync_done_o                     (msync_done), // LSU
-    .lsu_valid_o                      (lsu_valid), // LSU
+    .wb_lsu_result_o                  (wb_lsu_result), // LSU
     .wb_lsu_rdy_o                     (wb_lsu_rdy) // LSU
   );
-
-
-  mor1kx_wb_mux_marocchino
-  #(
-    .OPTION_OPERAND_WIDTH(OPTION_OPERAND_WIDTH),
-    .OPTION_RF_ADDR_WIDTH(OPTION_RF_ADDR_WIDTH)
-  )
-  u_wb_mux
-  (
-    // clock & reset
-    .clk                          (clk),
-    .rst                          (rst),
-
-    // pipeline control signal in
-    .padv_wb_i                    (padv_wb), // WB_MUX
-    .pipeline_flush_i             (pipeline_flush), // WB_MUX
-
-    // from MULTIPLIER
-    .wb_mul_result_i              (wb_mul_result), // WB_MUX
-    .wb_mul_rdy_i                 (wb_mul_rdy), // WB_MUX
-
-    // from DIVIDER
-    .wb_div_result_i              (wb_div_result), // WB_MUX
-    .wb_div_rdy_i                 (wb_div_rdy), // WB_MUX
-
-    // from ALU
-    .wb_alu_1clk_rdy_i            (wb_alu_1clk_rdy), // WB_MUX
-    .wb_alu_1clk_result_i         (wb_alu_1clk_result), // WB_MUX
-
-    // from LSU
-    .wb_lsu_rdy_i                 (wb_lsu_rdy), // WB_MUX
-    .lsu_result_i                 (lsu_result), // WB_MUX
-    
-    // from FPU-32
-    .wb_fp32_arith_res_i          (wb_fp32_arith_res), // WB_MUX
-    .wb_fp32_arith_rdy_i          (wb_fp32_arith_rdy), // WB_MUX
-
-    // MFSPR
-    .ctrl_mfspr_rdy_i             (ctrl_mfspr_rdy), // WB_MUX
-    .mfspr_dat_i                  (mfspr_dat), // WB_MUX
-
-    // destination address & write request flag
-    .exec_bubble_i                (exec_bubble), // WB_MUX
-    .exec_rfd_adr_i               (exec_rfd_adr), // WB_MUX
-    .exec_rf_wb_i                 (exec_rf_wb), // WB_MUX
-
-    // PC
-    .pc_exec_i                    (pc_exec), // WB_MUX
-
-    // Insn in delay slot indicator (exception processing)
-    .exec_delay_slot_i            (exec_delay_slot), // WB_MUX
-
-    // set/clear flags
-    .exec_carry_set_i             (exec_carry_set), // WB_MUX
-    .exec_carry_clear_i           (exec_carry_clear), // WB_MUX
-    .exec_overflow_set_i          (exec_overflow_set), // WB_MUX
-    .exec_overflow_clear_i        (exec_overflow_clear), // WB_MUX
-
-    // EXCEPTIONS
-    //  input exceptions
-    .exec_except_ibus_err_i       (exec_except_ibus_err), // WB_MUX
-    .exec_except_ipagefault_i     (exec_except_ipagefault), // WB_MUX
-    .exec_except_itlb_miss_i      (exec_except_itlb_miss), // WB_MUX
-    .exec_except_ibus_align_i     (exec_except_ibus_align), // WB_MUX
-    .exec_except_illegal_i        (exec_except_illegal), // WB_MUX
-    .exec_except_syscall_i        (exec_except_syscall), // WB_MUX
-    .exec_except_trap_i           (exec_except_trap), // WB_MUX
-    .lsu_except_dbus_err_i        (lsu_except_dbus), // WB_MUX
-    .lsu_except_dpagefault_i      (lsu_except_dpagefault), // WB_MUX
-    .lsu_except_dtlb_miss_i       (lsu_except_dtlb_miss), // WB_MUX
-    .lsu_except_dbus_align_i      (lsu_except_align), // WB_MUX
-    .exec_excepts_en_i            (exec_excepts_en), // WB_MUX
-    //  output exceptions
-    .wb_except_ibus_err_o         (wb_except_ibus_err), // WB_MUX
-    .wb_except_ipagefault_o       (wb_except_ipagefault), // WB_MUX
-    .wb_except_itlb_miss_o        (wb_except_itlb_miss), // WB_MUX
-    .wb_except_ibus_align_o       (wb_except_ibus_align), // WB_MUX
-    .wb_except_illegal_o          (wb_except_illegal), // WB_MUX
-    .wb_except_syscall_o          (wb_except_syscall), // WB_MUX
-    .wb_except_trap_o             (wb_except_trap), // WB_MUX
-    .wb_except_dbus_o             (wb_except_dbus), // WB_MUX
-    .wb_except_dpagefault_o       (wb_except_dpagefault), // WB_MUX
-    .wb_except_dtlb_miss_o        (wb_except_dtlb_miss), // WB_MUX
-    .wb_except_align_o            (wb_except_align), // WB_MUX
-    .wb_excepts_en_o              (wb_excepts_en), // WB_MUX
-
-    // RFE processing
-    .exec_op_rfe_i                (exec_op_rfe), // WB_MUX
-    .wb_op_rfe_o                  (wb_op_rfe), // WB_MUX
-
-    // muxed output
-    .pc_wb_o                      (pc_wb), // WB_MUX
-    .wb_delay_slot_o              (wb_delay_slot), // WB_MUX
-    .wb_carry_set_o               (wb_carry_set), // WB_MUX
-    .wb_carry_clear_o             (wb_carry_clear), // WB_MUX
-    .wb_overflow_set_o            (wb_overflow_set), // WB_MUX
-    .wb_overflow_clear_o          (wb_overflow_clear), // WB_MUX
-    .wb_result_o                  (wb_result), // WB_MUX
-    .wb_rfd_adr_o                 (wb_rfd_adr), // WB_MUX
-    .wb_rf_wb_o                   (wb_rf_wb) // WB_MUX
-  );
-
 
 
   mor1kx_rf_marocchino

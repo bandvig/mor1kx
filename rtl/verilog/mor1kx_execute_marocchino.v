@@ -39,84 +39,119 @@ module mor1kx_execute_marocchino
   input      [OPTION_OPERAND_WIDTH-1:0] immediate_i,
   input                                 immediate_sel_i,
 
-  // opcode for alu
+  // various instruction related flags & data
+  input                                 exec_bubble_i,      // empty istruction
+  input      [OPTION_RF_ADDR_WIDTH-1:0] exec_rfd_adr_i,     // desination address
+  input                                 exec_rf_wb_i,       // WB-request
+  input      [OPTION_OPERAND_WIDTH-1:0] pc_exec_i,          // insn. address
+  input                                 exec_delay_slot_i,  // delay slot
+
+  // 1-clock instruction related inputs
+  input                                 exec_insn_1clk_i,
+  //  # opcode for alu
   input       [`OR1K_ALU_OPC_WIDTH-1:0] opc_alu_i,
   input       [`OR1K_ALU_OPC_WIDTH-1:0] opc_alu_secondary_i,
-
-  // adder's inputs
+  //  # adder's inputs
   input                                 op_add_i,
   input                                 adder_do_sub_i,
   input                                 adder_do_carry_i,
-
-  // shift, ffl1, movhi, cmov
+  input                                 carry_i,
+  //  # shift, ffl1, movhi, cmov
   input                                 op_shift_i,
   input                                 op_ffl1_i,
   input                                 op_movhi_i,
   input                                 op_cmov_i,
-
-  // jump & link
+  //  # jump & link
   input                                 op_jal_i,
   input      [OPTION_OPERAND_WIDTH-1:0] exec_jal_result_i,
+  //  # flag related inputs
+  input                                 op_setflag_i,
+  input                                 flag_i, // feedback from ctrl (for cmov)
 
-  // output latches for 1-clock operations
-  output reg                            wb_alu_1clk_rdy_o,
-  output reg [OPTION_OPERAND_WIDTH-1:0] wb_alu_1clk_result_o,
-
-  // multiplier inputs/outputs
+  // multi-clock instruction related inputs
+  //  ## multiplier inputs
   input                                 op_mul_i,
-  output reg [OPTION_OPERAND_WIDTH-1:0] wb_mul_result_o,
-  output reg                            wb_mul_rdy_o,
-
-  // dividion inputs
+  //  ## division inputs
   input                                 op_div_i,
   input                                 op_div_signed_i,
   input                                 op_div_unsigned_i,
-  output reg [OPTION_OPERAND_WIDTH-1:0] wb_div_result_o,
-  output reg                            wb_div_rdy_o,
+  //  ## FPU-32 arithmetic part
+  input         [`OR1K_FPUOP_WIDTH-1:0] op_fp32_arith_i,
+  input       [`OR1K_FPCSR_RM_SIZE-1:0] fpu_round_mode_i,
+  //  ## FPU-32 comparison part
+  input         [`OR1K_FPUOP_WIDTH-1:0] op_fp32_cmp_i,
+  //  ## MFSPR
+  input                                 ctrl_mfspr_rdy_i,
+  input      [OPTION_OPERAND_WIDTH-1:0] mfspr_dat_i,
+  //  ## MSYNC related controls
+  input                                 msync_done_i,
+  //  ## LSU related inputs
+  input                                 lsu_valid_i,
+  input                                 wb_lsu_rdy_i,
+  input      [OPTION_OPERAND_WIDTH-1:0] wb_lsu_result_i,
+
+  // EXCEPTIONS related input
+  //  ## instruction is interruptable
+  input                                 exec_excepts_en_i,
+  //  ## RFE processing
+  input                                 exec_op_rfe_i,
+  //  ## input exceptions
+  input                                 exec_except_ibus_err_i,
+  input                                 exec_except_ipagefault_i,
+  input                                 exec_except_itlb_miss_i,
+  input                                 exec_except_ibus_align_i,
+  input                                 exec_except_illegal_i,
+  input                                 exec_except_syscall_i,
+  input                                 exec_except_trap_i,
+  input                                 lsu_except_dbus_err_i,
+  input                                 lsu_except_dpagefault_i,
+  input                                 lsu_except_dtlb_miss_i,
+  input                                 lsu_except_dbus_align_i,
+  input                                 lsu_excepts_i,
 
   // ALU results
   output     [OPTION_OPERAND_WIDTH-1:0] exec_lsu_adr_o,  // not latched, address to LSU
 
-  // FPU related
-  //  arithmetic part
-  input         [`OR1K_FPUOP_WIDTH-1:0] op_fp32_arith_i,
-  input       [`OR1K_FPCSR_RM_SIZE-1:0] fpu_round_mode_i,
-  output                         [31:0] wb_fp32_arith_res_o,
-  output                                wb_fp32_arith_rdy_o,
+  // EXEC ready flag
+  output                                exec_valid_o,
+
+  // WB outputs
+  output     [OPTION_OPERAND_WIDTH-1:0] wb_result_o,
+  //  ## integer comparison result
+  output reg                            wb_int_flag_set_o,
+  output reg                            wb_int_flag_clear_o,
+  //  ## carry output
+  output reg                            wb_carry_set_o,
+  output reg                            wb_carry_clear_o,
+  //  ## overflow output
+  output reg                            wb_overflow_set_o,
+  output reg                            wb_overflow_clear_o,
+  //  ## FPU-32 arithmetic exceptions
   output        [`OR1K_FPCSR_WIDTH-1:0] wb_fp32_arith_fpcsr_o,
-  //  comparison part
-  input         [`OR1K_FPUOP_WIDTH-1:0] op_fp32_cmp_i,
+  //  ## FPU-32 comparison result
   output                                wb_fp32_flag_set_o,
   output                                wb_fp32_flag_clear_o,
   output        [`OR1K_FPCSR_WIDTH-1:0] wb_fp32_cmp_fpcsr_o,
-
-  // flag related inputs
-  input                                 op_setflag_i,
-  input                                 flag_i, // feedback from ctrl (for cmov)
-  // latched integer comparison result for WB
-  output reg                            wb_int_flag_set_o,
-  output reg                            wb_int_flag_clear_o,
-
-  // carry related inputs
-  input                                 carry_i,
-  // carry related outputs
-  output                                exec_carry_set_o,
-  output                                exec_carry_clear_o,
-
-  // owerflow related outputs
-  output                                exec_overflow_set_o,
-  output                                exec_overflow_clear_o,
-
-  // MSYNC related controls
-  input                                 msync_done_i,
-
-  // LSU related inputs
-  input                                 lsu_valid_i,
-  input                                 lsu_excepts_i,
-
-  // ready flags
-  input                                 exec_insn_1clk_i,
-  output                                exec_valid_o
+  //  ## instruction related information
+  output reg [OPTION_OPERAND_WIDTH-1:0] pc_wb_o,
+  output reg                            wb_delay_slot_o,
+  output reg [OPTION_RF_ADDR_WIDTH-1:0] wb_rfd_adr_o,
+  output reg                            wb_rf_wb_o,
+  //  ## RFE processing
+  output reg                            wb_op_rfe_o,
+  //  ## output exceptions
+  output reg                            wb_except_ibus_err_o,
+  output reg                            wb_except_ipagefault_o,
+  output reg                            wb_except_itlb_miss_o,
+  output reg                            wb_except_ibus_align_o,
+  output reg                            wb_except_illegal_o,
+  output reg                            wb_except_syscall_o,
+  output reg                            wb_except_trap_o,
+  output reg                            wb_except_dbus_o,
+  output reg                            wb_except_dpagefault_o,
+  output reg                            wb_except_dtlb_miss_o,
+  output reg                            wb_except_align_o,
+  output reg                            wb_excepts_en_o
 );
 
   localparam  EXEDW = OPTION_OPERAND_WIDTH; // short name
@@ -284,33 +319,24 @@ module mor1kx_execute_marocchino
                                          op_movhi_i ? immediate_i       :
                                          op_jal_i   ? exec_jal_result_i : // for GPR[9]
                                                       {EXEDW{1'b0}};
-  //  registering
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      wb_alu_1clk_result_o <= {EXEDW{1'b0}};
-    else if (exec_insn_1clk_i & padv_wb_i)
-      wb_alu_1clk_result_o <= alu_1clk_result_mux;
-  end // posedge clock
-  // 1clk instruction ready flag
-  reg alu_1clk_rdy_stored;
+  //  registering output for 1-clock operations
+  reg [EXEDW-1:0] wb_alu_1clk_result;
+  reg             wb_alu_1clk_rdy;
   // ---
   always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst) begin
-      wb_alu_1clk_rdy_o   <= 1'b0;
-      alu_1clk_rdy_stored <= 1'b0;
-    end
-    else if (pipeline_flush_i) begin
-      wb_alu_1clk_rdy_o   <= wb_alu_1clk_rdy_o;
-      alu_1clk_rdy_stored <= 1'b0;
-    end
-    else if (padv_wb_i) begin
-      wb_alu_1clk_rdy_o   <= (exec_insn_1clk_i | alu_1clk_rdy_stored);
-      alu_1clk_rdy_stored <= 1'b0;
-    end
-    else if (~alu_1clk_rdy_stored) begin
-      wb_alu_1clk_rdy_o   <= wb_alu_1clk_rdy_o;
-      alu_1clk_rdy_stored <= exec_insn_1clk_i;
-    end
+    if (rst)
+      wb_alu_1clk_result <= {EXEDW{1'b0}};
+    else if (exec_insn_1clk_i & padv_wb_i)
+      wb_alu_1clk_result <= alu_1clk_result_mux;
+  end // posedge clock
+  // ---
+  always @(posedge clk `OR_ASYNC_RST) begin
+    if (rst)
+      wb_alu_1clk_rdy <= 1'b0;
+    else if (pipeline_flush_i)
+      wb_alu_1clk_rdy <= wb_alu_1clk_rdy;
+    else if (padv_wb_i)
+      wb_alu_1clk_rdy <= exec_insn_1clk_i;
   end // @clock
 
   // latched integer comparison result for WB
@@ -340,7 +366,7 @@ module mor1kx_execute_marocchino
   //-------------------//
   // 32-bit multiplier //
   //-------------------//
-  localparam MULHDW = (OPTION_OPERAND_WIDTH >> 1);
+  localparam MULHDW = (EXEDW >> 1);
 
   // algorithm:
   //   AlBl[dw-1:0] = A[hdw-1:0] * B[hdw-1:0];
@@ -409,32 +435,23 @@ module mor1kx_execute_marocchino
                        {mul_s2_ahbl[MULHDW-1:0],{MULHDW{1'b0}}} +
                         mul_s2_albl;
   //  registering
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      wb_mul_result_o <= {EXEDW{1'b0}};
-    else if (mul_valid & padv_wb_i)
-      wb_mul_result_o <= mul_s3t_sum;
-  end // posedge clock
-  // multiplier ready flag
-  reg mul_rdy_stored;
+  reg [EXEDW-1:0] wb_mul_result;
+  reg             wb_mul_rdy;
   // ---
   always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst) begin
-      wb_mul_rdy_o   <= 1'b0;
-      mul_rdy_stored <= 1'b0;
-    end
-    else if (pipeline_flush_i) begin
-      wb_mul_rdy_o   <= wb_mul_rdy_o;
-      mul_rdy_stored <= 1'b0;
-    end
-    else if (padv_wb_i) begin
-      wb_mul_rdy_o   <= (mul_valid | mul_rdy_stored);
-      mul_rdy_stored <= 1'b0;
-    end
-    else if (~mul_rdy_stored) begin
-      wb_mul_rdy_o   <= wb_mul_rdy_o;
-      mul_rdy_stored <= mul_valid;
-    end
+    if (rst)
+      wb_mul_result <= {EXEDW{1'b0}};
+    else if (mul_valid & padv_wb_i)
+      wb_mul_result <= mul_s3t_sum;
+  end // posedge clock
+  // ---
+  always @(posedge clk `OR_ASYNC_RST) begin
+    if (rst)
+      wb_mul_rdy <= 1'b0;
+    else if (pipeline_flush_i)
+      wb_mul_rdy <= wb_mul_rdy;
+    else if (padv_wb_i)
+      wb_mul_rdy <= mul_valid;
   end // @clock
 
 
@@ -516,32 +533,23 @@ module mor1kx_execute_marocchino
   wire [EXEDW-1:0] div_result = div_neg ? ~div_n + 1 : div_n;
   
   //  registering
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      wb_div_result_o <= {EXEDW{1'b0}};
-    else if (div_valid & padv_wb_i)
-      wb_div_result_o <= div_result;
-  end // posedge clock
-  // divider ready flag
-  reg div_rdy_stored;
+  reg [EXEDW-1:0] wb_div_result;
+  reg             wb_div_rdy;
   // ---
   always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst) begin
-      wb_div_rdy_o   <= 1'b0;
-      div_rdy_stored <= 1'b0;
-    end
-    else if (pipeline_flush_i) begin
-      wb_div_rdy_o   <= wb_div_rdy_o;
-      div_rdy_stored <= 1'b0;
-    end
-    else if (padv_wb_i) begin
-      wb_div_rdy_o   <= (div_valid | div_rdy_stored);
-      div_rdy_stored <= 1'b0;
-    end
-    else if (~div_rdy_stored) begin
-      wb_div_rdy_o   <= wb_div_rdy_o;
-      div_rdy_stored <= div_valid;
-    end
+    if (rst)
+      wb_div_result <= {EXEDW{1'b0}};
+    else if (div_valid & padv_wb_i)
+      wb_div_result <= div_result;
+  end // posedge clock
+  // ---
+  always @(posedge clk `OR_ASYNC_RST) begin
+    if (rst)
+      wb_div_rdy <= 1'b0;
+    else if (pipeline_flush_i)
+      wb_div_rdy <= wb_div_rdy;
+    else if (padv_wb_i)
+      wb_div_rdy <= div_valid;
   end // @clock
 
 
@@ -550,7 +558,9 @@ module mor1kx_execute_marocchino
   // FPU related //
   //-------------//
   //  arithmetic part interface
-  wire fp32_arith_valid;
+  wire        fp32_arith_valid;
+  wire [31:0] wb_fp32_arith_res;
+  wire        wb_fp32_arith_rdy;
   //  instance
   generate
     /* verilator lint_off WIDTH */
@@ -571,8 +581,8 @@ module mor1kx_execute_marocchino
         .op_arith_i             (op_fp32_arith_i),
         .round_mode_i           (fpu_round_mode_i),
         .fp32_arith_valid_o     (fp32_arith_valid),      // WB-latching ahead arithmetic ready flag
-        .wb_fp32_arith_res_o    (wb_fp32_arith_res_o),   // arithmetic result
-        .wb_fp32_arith_rdy_o    (wb_fp32_arith_rdy_o),   // arithmetic ready flag
+        .wb_fp32_arith_res_o    (wb_fp32_arith_res),     // arithmetic result
+        .wb_fp32_arith_rdy_o    (wb_fp32_arith_rdy),     // arithmetic ready flag
         .wb_fp32_arith_fpcsr_o  (wb_fp32_arith_fpcsr_o), // arithmetic exceptions
         // FPU-32 comparison part
         .op_cmp_i               (op_fp32_cmp_i),
@@ -583,45 +593,167 @@ module mor1kx_execute_marocchino
     end
     else begin :  fpu_alu_none
       // arithmetic part
-      assign fp32_arith_valid      = 1'b0;
-      assign wb_fp32_arith_res_o   = {EXEDW{1'b0}};
-      assign wb_fp32_arith_rdy_o   = 1'b0;
+      assign fp32_arith_valid      =  1'b0;
+      assign wb_fp32_arith_res     = 32'd0;
+      assign wb_fp32_arith_rdy     =  1'b0;
       assign wb_fp32_arith_fpcsr_o = {`OR1K_FPCSR_WIDTH{1'b0}};
       // comparison part
-      assign wb_fp32_flag_set_o   = 1'b0;
-      assign wb_fp32_flag_clear_o = 1'b0;
-      assign wb_fp32_cmp_fpcsr_o  = {`OR1K_FPCSR_WIDTH{1'b0}};
+      assign wb_fp32_flag_set_o    =  1'b0;
+      assign wb_fp32_flag_clear_o  =  1'b0;
+      assign wb_fp32_cmp_fpcsr_o   = {`OR1K_FPCSR_WIDTH{1'b0}};
     end // fpu_ena/fpu_none
   endgenerate // FPU related
 
 
 
-  //----------------//
-  // Results muxing //
-  //----------------//
-  assign exec_lsu_adr_o  = adder_result; // lsu address (not latched)
-
-  // Overflow flag generation
-  assign exec_overflow_set_o   = (op_add_i & adder_s_ovf) |
-                                 (div_valid & div_signed & div_by_zero);
-  assign exec_overflow_clear_o = (op_add_i & (~adder_s_ovf)) |
-                                 (div_valid & div_signed & (~div_by_zero));
-
-  // Carry flag generation
-  assign exec_carry_set_o   = (op_add_i & adder_u_ovf) |
-                              (div_valid & div_unsigned & div_by_zero);
-  assign exec_carry_clear_o = (op_add_i & (~adder_u_ovf)) |
-                              (div_valid & div_unsigned & (~div_by_zero));
+  //-----------------//
+  // Address for LSU //
+  //-----------------//
+  assign exec_lsu_adr_o = adder_result; // lsu address (not latched)
 
 
 
   //-------------//
   // Stall logic //
   //-------------//
-
-  // ALU ready flag
   assign exec_valid_o =
     exec_insn_1clk_i | div_valid | mul_valid | fp32_arith_valid |
     lsu_valid_i | lsu_excepts_i | msync_done_i;
+
+
+
+  //-----------------------------//
+  // WB multiplexors and latches //
+  //-----------------------------//
+  // combined output
+  assign wb_result_o = ctrl_mfspr_rdy_i  ? mfspr_dat_i :
+                       wb_lsu_rdy_i      ? wb_lsu_result_i :
+                       wb_alu_1clk_rdy   ? wb_alu_1clk_result :
+                       wb_mul_rdy        ? wb_mul_result :
+                       wb_div_rdy        ? wb_div_result :
+                       wb_fp32_arith_rdy ? wb_fp32_arith_res :
+                                           {EXEDW{1'b0}};
+
+  // Overflow flag generation
+  // latched integer comparison result for WB
+  always @(posedge clk `OR_ASYNC_RST) begin
+    if (rst) begin
+      wb_overflow_set_o   <= 1'b0;
+      wb_overflow_clear_o <= 1'b0;
+    end
+    else if (pipeline_flush_i) begin
+      wb_overflow_set_o   <= 1'b0;
+      wb_overflow_clear_o <= 1'b0;
+    end
+    else if (padv_wb_i) begin
+      wb_overflow_set_o   <= (op_add_i & adder_s_ovf) |
+                             (div_valid & div_signed & div_by_zero);
+      wb_overflow_clear_o <= (op_add_i & (~adder_s_ovf)) |
+                             (div_valid & div_signed & (~div_by_zero));
+    end // wb advance
+  end // @clock
+
+  // Carry flag generation
+  always @(posedge clk `OR_ASYNC_RST) begin
+    if (rst) begin
+      wb_carry_set_o   <= 1'b0;
+      wb_carry_clear_o <= 1'b0;
+    end
+    else if (pipeline_flush_i) begin
+      wb_carry_set_o   <= 1'b0;
+      wb_carry_clear_o <= 1'b0;
+    end
+    else if (padv_wb_i) begin
+      wb_carry_set_o   <= (op_add_i & adder_u_ovf) |
+                          (div_valid & div_unsigned & div_by_zero);
+      wb_carry_clear_o <= (op_add_i & (~adder_u_ovf)) |
+                          (div_valid & div_unsigned & (~div_by_zero));
+    end // wb advance
+  end // @clock
+
+
+  // write back request
+  wire pipe_excepts = exec_excepts_en_i &
+                      (exec_except_ibus_err_i  | exec_except_ipagefault_i |
+                       exec_except_itlb_miss_i | exec_except_ibus_align_i |
+                       exec_except_illegal_i   | exec_except_syscall_i    |
+                       exec_except_trap_i      | lsu_excepts_i);
+  // ---
+  always @(posedge clk `OR_ASYNC_RST) begin
+    if (rst) begin
+      wb_rf_wb_o      <= 1'b0;
+      wb_delay_slot_o <= 1'b0;
+    end
+    else if (pipeline_flush_i) begin
+      wb_rf_wb_o      <= 1'b0;
+      wb_delay_slot_o <= 1'b0;
+    end
+    else if (padv_wb_i) begin
+      wb_rf_wb_o      <= exec_rf_wb_i & (~pipe_excepts);
+      wb_delay_slot_o <= exec_delay_slot_i;
+    end
+  end // @clock
+
+  // address of destination register & PC
+  always @(posedge clk) begin
+    if (padv_wb_i & 
+        (~pipeline_flush_i) & (~exec_bubble_i)) begin
+      wb_rfd_adr_o <= exec_rfd_adr_i;
+      pc_wb_o      <= pc_exec_i;
+    end 
+  end // @clock
+
+
+  // EXCEPTIONS & RFE
+  always @(posedge clk `OR_ASYNC_RST) begin
+    if (rst) begin
+      wb_except_ibus_err_o   <= 1'b0;
+      wb_except_ipagefault_o <= 1'b0;
+      wb_except_itlb_miss_o  <= 1'b0;
+      wb_except_ibus_align_o <= 1'b0;
+      wb_except_illegal_o    <= 1'b0;
+      wb_except_syscall_o    <= 1'b0;
+      wb_except_trap_o       <= 1'b0;
+      wb_except_dbus_o       <= 1'b0;
+      wb_except_dpagefault_o <= 1'b0;
+      wb_except_dtlb_miss_o  <= 1'b0;
+      wb_except_align_o      <= 1'b0;
+      wb_excepts_en_o        <= 1'b0;
+      // RFE
+      wb_op_rfe_o            <= 1'b0;
+    end
+    else if (pipeline_flush_i) begin
+      wb_except_ibus_err_o   <= 1'b0;
+      wb_except_ipagefault_o <= 1'b0;
+      wb_except_itlb_miss_o  <= 1'b0;
+      wb_except_ibus_align_o <= 1'b0;
+      wb_except_illegal_o    <= 1'b0;
+      wb_except_syscall_o    <= 1'b0;
+      wb_except_trap_o       <= 1'b0;
+      wb_except_dbus_o       <= 1'b0;
+      wb_except_dpagefault_o <= 1'b0;
+      wb_except_dtlb_miss_o  <= 1'b0;
+      wb_except_align_o      <= 1'b0;
+      wb_excepts_en_o        <= 1'b0;
+      // RFE
+      wb_op_rfe_o            <= 1'b0;
+    end
+    else if (padv_wb_i) begin
+      wb_except_ibus_err_o   <= exec_except_ibus_err_i;
+      wb_except_ipagefault_o <= exec_except_ipagefault_i;
+      wb_except_itlb_miss_o  <= exec_except_itlb_miss_i;
+      wb_except_ibus_align_o <= exec_except_ibus_align_i;
+      wb_except_illegal_o    <= exec_except_illegal_i;
+      wb_except_syscall_o    <= exec_except_syscall_i;
+      wb_except_trap_o       <= exec_except_trap_i;
+      wb_except_dbus_o       <= lsu_except_dbus_err_i;
+      wb_except_dpagefault_o <= lsu_except_dpagefault_i;
+      wb_except_dtlb_miss_o  <= lsu_except_dtlb_miss_i;
+      wb_except_align_o      <= lsu_except_dbus_align_i;
+      wb_excepts_en_o        <= exec_excepts_en_i;
+      // RFE
+      wb_op_rfe_o            <= exec_op_rfe_i;
+    end
+  end // @clock
 
 endmodule // mor1kx_execute_marocchino

@@ -60,10 +60,10 @@ module mor1kx_lsu_marocchino
   output [OPTION_OPERAND_WIDTH-1:0] store_buffer_epcr_o,
 
   // 
-  output reg [OPTION_OPERAND_WIDTH-1:0] lsu_result_o,
-  output     [OPTION_OPERAND_WIDTH-1:0] lsu_adr_o,
   output                                lsu_valid_o,
+  output     [OPTION_OPERAND_WIDTH-1:0] lsu_adr_o,
   output reg                            wb_lsu_rdy_o,
+  output reg [OPTION_OPERAND_WIDTH-1:0] wb_lsu_result_o,
   // exception output
   output reg                        lsu_except_dbus_o,
   output reg                        lsu_except_align_o,
@@ -456,9 +456,9 @@ module mor1kx_lsu_marocchino
   // latch load command result for WB_MUX
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
-      lsu_result_o <= {OPTION_OPERAND_WIDTH{1'b0}};
+      wb_lsu_result_o <= {OPTION_OPERAND_WIDTH{1'b0}};
     else if (padv_wb_i)
-      lsu_result_o <= lsu_result_r;
+      wb_lsu_result_o <= lsu_result_r;
   end // @ clock
 
 
