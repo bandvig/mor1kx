@@ -160,6 +160,7 @@ module mor1kx_cpu_marocchino
 
   wire                            exec_op_mfspr;
   wire                            exec_op_mtspr;
+  wire                            take_op_mXspr;
   wire                            ctrl_mfspr_rdy; // to WB_MUX
   wire [OPTION_OPERAND_WIDTH-1:0] mfspr_dat;      // to WB_MUX
 
@@ -226,6 +227,8 @@ module mor1kx_cpu_marocchino
   wire                      [1:0] exec_lsu_length;
   wire                            exec_lsu_zext;
   wire [OPTION_OPERAND_WIDTH-1:0] lsu_adr;
+  //wire                            lsu_busy;
+  wire                            take_op_lsu; // LSU->DECODE feedback (drop LSU related commands)
 
   wire                            exec_op_msync;
   wire                            msync_done;
@@ -256,13 +259,19 @@ module mor1kx_cpu_marocchino
   wire                            exec_op_div;
   wire                            exec_op_div_signed;
   wire                            exec_op_div_unsigned;
+  //wire                            div_busy;
+  wire                            take_op_div; // EXECUTE->DECODE feedback (drop DIVIDER related commands)
 
 
   wire                            exec_op_mul;
+  //wire                            mul_busy;
+  wire                            take_op_mul; // EXECUTE->DECODE feedback (drop MULTIPLIER related commands)
 
 
   // FPU-32 arithmetic part
   wire    [`OR1K_FPUOP_WIDTH-1:0] exec_op_fp32_arith;
+  //wire                            fp32_arith_busy; // idicates that arihmetic units are busy
+  wire                            take_op_fp32_arith; // FP32->DECODE feedback (drop FP32 arithmetic related command)
   wire    [`OR1K_FPCSR_WIDTH-1:0] wb_fp32_arith_fpcsr;
 
   // FPU-32 comparison part
@@ -302,7 +311,6 @@ module mor1kx_cpu_marocchino
   // pipeline controls from CTRL to units
   wire padv_fetch;
   wire padv_decode;
-  wire exec_new_input; // 1-clock delayed of padv-decode
   wire padv_wb;
   wire wb_new_result; // 1-clock delayed of padv-wb
   wire pipeline_flush;
@@ -502,21 +510,29 @@ module mor1kx_cpu_marocchino
     .exec_op_lsu_atomic_o             (exec_op_lsu_atomic), // DECODE & DECODE->EXE
     .exec_lsu_length_o                (exec_lsu_length), // DECODE & DECODE->EXE
     .exec_lsu_zext_o                  (exec_lsu_zext), // DECODE & DECODE->EXE
+    .take_op_lsu_i                    (take_op_lsu),   // DECODE & DECODE->EXE
     // Sync operations
     .exec_op_msync_o                  (exec_op_msync), // DECODE & DECODE->EXE
-    // ALU/FPU related
-    .exec_op_cmov_o                   (exec_op_cmov), // DECODE & DECODE->EXE
+    // Adder related
     .exec_op_add_o                    (exec_op_add), // DECODE & DECODE->EXE
     .exec_adder_do_sub_o              (exec_adder_do_sub), // DECODE & DECODE->EXE
     .exec_adder_do_carry_o            (exec_adder_do_carry), // DECODE & DECODE->EXE
-    .exec_op_mul_o                    (exec_op_mul), // DECODE & DECODE->EXE
-    .exec_op_div_o                    (exec_op_div), // DECODE & DECODE->EXE
-    .exec_op_div_signed_o             (exec_op_div_signed), // DECODE & DECODE->EXE
-    .exec_op_div_unsigned_o           (exec_op_div_unsigned), // DECODE & DECODE->EXE
+    // Various 1-clock related
     .exec_op_shift_o                  (exec_op_shift), // DECODE & DECODE->EXE
     .exec_op_ffl1_o                   (exec_op_ffl1), // DECODE & DECODE->EXE
     .exec_op_movhi_o                  (exec_op_movhi), // DECODE & DECODE->EXE
+    .exec_op_cmov_o                   (exec_op_cmov), // DECODE & DECODE->EXE
+    // Multiplier related
+    .exec_op_mul_o                    (exec_op_mul), // DECODE & DECODE->EXE
+    .take_op_mul_i                    (take_op_mul), // DECODE & DECODE->EXE
+    // Divider related
+    .exec_op_div_o                    (exec_op_div), // DECODE & DECODE->EXE
+    .exec_op_div_signed_o             (exec_op_div_signed), // DECODE & DECODE->EXE
+    .exec_op_div_unsigned_o           (exec_op_div_unsigned), // DECODE & DECODE->EXE
+    .take_op_div_i                    (take_op_div), // DECODE & DECODE->EXE
+    // FPU related
     .exec_op_fp32_arith_o             (exec_op_fp32_arith), // DECODE & DECODE->EXE
+    .take_op_fp32_arith_i             (take_op_fp32_arith), // DECODE & DECODE->EXE
     .exec_op_fp32_cmp_o               (exec_op_fp32_cmp), // DECODE & DECODE->EXE
     // ALU related opc
     .exec_opc_alu_o                   (exec_opc_alu), // DECODE & DECODE->EXE
@@ -524,6 +540,7 @@ module mor1kx_cpu_marocchino
     // MTSPR / MFSPR
     .exec_op_mfspr_o                  (exec_op_mfspr), // DECODE & DECODE->EXE
     .exec_op_mtspr_o                  (exec_op_mtspr), // DECODE & DECODE->EXE
+    .take_op_mXspr_i                  (take_op_mXspr), // DECODE & DECODE->EXE
     // 1-clock instruction flag to force EXECUTE valid
     .exec_insn_1clk_o                 (exec_insn_1clk), // DECODE & DECODE->EXE
     // Hazards resolving
@@ -622,15 +639,21 @@ module mor1kx_cpu_marocchino
     .op_setflag_i                     (exec_op_setflag), // EXE
     .flag_i                           (ctrl_flag), // EXE
 
-    // multi-clock instruction related inputs
+    // multi-clock instruction related inputs/outputs
     //  ## multiplier inputs/outputs
     .op_mul_i                         (exec_op_mul), // EXE
-    //  ## division inputs
+    .mul_busy_o                       (), // EXE
+    .take_op_mul_o                    (take_op_mul), // EXE
+    //  ## division inputs/outputs
     .op_div_i                         (exec_op_div), // EXE
     .op_div_signed_i                  (exec_op_div_signed), // EXE
     .op_div_unsigned_i                (exec_op_div_unsigned), // EXE
+    .div_busy_o                       (), // EXE
+    .take_op_div_o                    (take_op_div), // EXE
     //  ## FPU-32 arithmetic part
     .op_fp32_arith_i                  (exec_op_fp32_arith), // EXE
+    .fp32_arith_busy_o                (), // EXE
+    .take_op_fp32_arith_o             (take_op_fp32_arith), // EXE
     .fpu_round_mode_i                 (ctrl_fpu_round_mode), // EXE
     //  ## FPU-32 comparison part
     .op_fp32_cmp_i                    (exec_op_fp32_cmp), // EXE
@@ -729,7 +752,6 @@ module mor1kx_cpu_marocchino
     .clk (clk),
     .rst (rst),
     // Pipeline controls
-    .padv_decode_i                    (padv_decode), // LSU
     .padv_wb_i                        (padv_wb), // LSU
     .pipeline_flush_i                 (pipeline_flush), // LSU
     // configuration
@@ -778,6 +800,8 @@ module mor1kx_cpu_marocchino
     .exec_lsu_zext_i                  (exec_lsu_zext), // LSU
     // Outputs
     .msync_done_o                     (msync_done), // LSU
+    .take_op_lsu_o                    (take_op_lsu), // LSU
+    .lsu_busy_o                       (), // LSU
     .lsu_valid_o                      (lsu_valid), // LSU
     .lsu_adr_o                        (lsu_adr), // LSU
     .wb_atomic_flag_set_o             (wb_atomic_flag_set), // LSU
@@ -803,7 +827,6 @@ module mor1kx_cpu_marocchino
     .rst (rst),
     // pipeline control signals
     .padv_decode_i                    (padv_decode), // RF
-    .exec_new_input_i                 (exec_new_input), // RF (1-clock delayed of padv-decode)
     .wb_new_result_i                  (wb_new_result), // RF (1-clock delayed of padv-wb)
     .pipeline_flush_i                 (pipeline_flush), // RF
     // SPR bus
@@ -909,6 +932,7 @@ module mor1kx_cpu_marocchino
     .exec_rfb_i                       (exec_rfb), // CTRL: data for MTSPR
     .exec_op_mfspr_i                  (exec_op_mfspr), // CTRL
     .exec_op_mtspr_i                  (exec_op_mtspr), // CTRL
+    .take_op_mXspr_o                  (take_op_mXspr), // CTRL
     .ctrl_mfspr_rdy_o                 (ctrl_mfspr_rdy), // CTRL: for WB_MUX
     .mfspr_dat_o                      (mfspr_dat), // CTRL
     // Outputs
@@ -921,7 +945,6 @@ module mor1kx_cpu_marocchino
     .pipeline_flush_o                 (pipeline_flush), // CTRL
     .padv_fetch_o                     (padv_fetch), // CTRL
     .padv_decode_o                    (padv_decode), // CTRL
-    .exec_new_input_o                 (exec_new_input), // CTRL
     .padv_wb_o                        (padv_wb), // CTRL
     .wb_new_result_o                  (wb_new_result), // CTRL (1-clock delayed of padv-wb)
     .du_dat_o                         (du_dat_o), // CTRL

@@ -92,23 +92,31 @@ module mor1kx_decode_marocchino
   output reg                            exec_op_lsu_atomic_o,
   output reg                      [1:0] exec_lsu_length_o,
   output reg                            exec_lsu_zext_o,
+  input                                 take_op_lsu_i, // LSU->DECODE feedback (drop LSU related commands)
 
   // Sync operations
   output reg                            exec_op_msync_o,
 
-  // ALU/FPU related
+  // Adder related
   output reg                            exec_op_add_o,
   output reg                            exec_adder_do_sub_o,
   output reg                            exec_adder_do_carry_o,
-  output reg                            exec_op_mul_o,
-  output reg                            exec_op_div_o,
-  output reg                            exec_op_div_signed_o,
-  output reg                            exec_op_div_unsigned_o,
+  // Various 1-clock related
   output reg                            exec_op_shift_o,
   output reg                            exec_op_ffl1_o,
   output reg                            exec_op_movhi_o,
   output reg                            exec_op_cmov_o,
+  // Multiplier related
+  output reg                            exec_op_mul_o,
+  input                                 take_op_mul_i,
+  // Divider related
+  output reg                            exec_op_div_o,
+  output reg                            exec_op_div_signed_o,
+  output reg                            exec_op_div_unsigned_o,
+  input                                 take_op_div_i,
+  // FPU related
   output reg    [`OR1K_FPUOP_WIDTH-1:0] exec_op_fp32_arith_o,
+  input                                 take_op_fp32_arith_i, // FP32->DECODE feedback (drop FP32 arithmetic related command)
   output reg    [`OR1K_FPUOP_WIDTH-1:0] exec_op_fp32_cmp_o,
 
   // ALU related opc
@@ -118,6 +126,7 @@ module mor1kx_decode_marocchino
   // MTSPR / MFSPR
   output reg                            exec_op_mfspr_o,
   output reg                            exec_op_mtspr_o,
+  input                                 take_op_mXspr_i, // CTRL->DECODE feedback (drop M(F|T)SPR command
 
   // 1-clock instruction flag to force EXECUTE valid
   output reg                            exec_insn_1clk_o,
@@ -583,10 +592,15 @@ module mor1kx_decode_marocchino
 
 
 
-  // FPU related
-  wire [(`OR1K_FPUOP_WIDTH-1):0] dcod_op_fpu;
-  assign dcod_op_fpu = {(opc_insn == `OR1K_OPCODE_FPU) & (FEATURE_FPU != "NONE"),
-                        dcod_insn_i[`OR1K_FPUOP_WIDTH-2:0]};
+  // FPU-32 arithmetic part
+  wire [(`OR1K_FPUOP_WIDTH-1):0] dcod_op_fp32_arith =
+    {(FEATURE_FPU != "NONE") & (opc_insn == `OR1K_OPCODE_FPU) & ~dcod_insn_i[3],
+      dcod_insn_i[`OR1K_FPUOP_WIDTH-2:0]};
+
+  // FPU-32 comparison part
+  wire [(`OR1K_FPUOP_WIDTH-1):0] dcod_op_fp32_cmp =
+    {(FEATURE_FPU != "NONE") & (opc_insn == `OR1K_OPCODE_FPU) & dcod_insn_i[3],
+      dcod_insn_i[`OR1K_FPUOP_WIDTH-2:0]};
 
 
 
@@ -683,7 +697,7 @@ module mor1kx_decode_marocchino
       exec_op_movhi_o          <= dcod_op_movhi;
       exec_op_cmov_o           <= dcod_op_cmov;
       // FPU comparison
-      exec_op_fp32_cmp_o       <= dcod_op_fpu;
+      exec_op_fp32_cmp_o       <= dcod_op_fp32_cmp;
     end
   end // @clock
 
@@ -716,8 +730,9 @@ module mor1kx_decode_marocchino
       exec_op_lsu_atomic_o     <= 1'b0;
       // Sync operations
       exec_op_msync_o          <= 1'b0;
-      // Particular EXEC units related
+      // Multiplier related
       exec_op_mul_o            <= 1'b0;
+      // Divider related
       exec_op_div_o            <= 1'b0;
       exec_op_div_signed_o     <= 1'b0;
       exec_op_div_unsigned_o   <= 1'b0;
@@ -734,8 +749,9 @@ module mor1kx_decode_marocchino
       exec_op_lsu_atomic_o     <= dcod_op_lsu_atomic;
       // Sync operations
       exec_op_msync_o          <= dcod_op_msync;
-      // Particular EXEC units related
+      // Multiplier related
       exec_op_mul_o            <= dcod_op_mul;
+      // Divider related
       exec_op_div_o            <= dcod_op_div;
       exec_op_div_signed_o     <= dcod_op_div_signed;
       exec_op_div_unsigned_o   <= dcod_op_div_unsigned;
@@ -743,25 +759,36 @@ module mor1kx_decode_marocchino
       exec_op_mfspr_o          <= dcod_op_mfspr;
       exec_op_mtspr_o          <= dcod_op_mtspr;
       // FPU arithmetic
-      exec_op_fp32_arith_o     <= dcod_op_fpu;
+      exec_op_fp32_arith_o     <= dcod_op_fp32_arith;
     end
     else begin // MAROCCHINO_TODO: if (exec_insn_taken_i)
       // LSU related
-      exec_op_lsu_load_o       <= 1'b0;
-      exec_op_lsu_store_o      <= 1'b0;
-      exec_op_lsu_atomic_o     <= 1'b0;
+      if (take_op_lsu_i) begin
+        exec_op_lsu_load_o   <= 1'b0;
+        exec_op_lsu_store_o  <= 1'b0;
+        exec_op_lsu_atomic_o <= 1'b0;
+      end
       // Sync operations
-      exec_op_msync_o          <= 1'b0;
-      // Particular EXEC units related
-      exec_op_mul_o            <= 1'b0;
-      exec_op_div_o            <= 1'b0;
-      exec_op_div_signed_o     <= 1'b0;
-      exec_op_div_unsigned_o   <= 1'b0;
+      exec_op_msync_o <= 1'b0;
+      // Multiplier related
+      if (take_op_mul_i) begin
+        exec_op_mul_o <= 1'b0;
+      end
+      // Divider related
+      if (take_op_div_i) begin
+        exec_op_div_o          <= 1'b0;
+        exec_op_div_signed_o   <= 1'b0;
+        exec_op_div_unsigned_o <= 1'b0;
+      end
       // MTSPR / MFSPR
-      exec_op_mfspr_o          <= 1'b0;
-      exec_op_mtspr_o          <= 1'b0;
+      if (take_op_mXspr_i) begin
+        exec_op_mfspr_o <= 1'b0;
+        exec_op_mtspr_o <= 1'b0;
+      end
       // FPU arithmetic
-      exec_op_fp32_arith_o     <= {`OR1K_FPUOP_WIDTH{1'b0}};
+      if (take_op_fp32_arith_i) begin
+        exec_op_fp32_arith_o <= {`OR1K_FPUOP_WIDTH{1'b0}};
+      end
     end
   end // @clock
 

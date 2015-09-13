@@ -68,16 +68,22 @@ module mor1kx_execute_marocchino
   input                                 op_setflag_i,
   input                                 flag_i, // feedback from ctrl (for cmov)
 
-  // multi-clock instruction related inputs
-  //  ## multiplier inputs
+  // multi-clock instruction related inputs/outputs
+  //  ## multiplier inputs/outputs
   input                                 op_mul_i,
-  //  ## division inputs
+  output                                mul_busy_o, // multiplier's pipe is full
+  output                                take_op_mul_o,
+  //  ## division inputs/outputs
   input                                 op_div_i,
   input                                 op_div_signed_i,
   input                                 op_div_unsigned_i,
+  output reg                            div_busy_o,
+  output                                take_op_div_o,
   //  ## FPU-32 arithmetic part
   input         [`OR1K_FPUOP_WIDTH-1:0] op_fp32_arith_i,
   input       [`OR1K_FPCSR_RM_SIZE-1:0] fpu_round_mode_i,
+  output                                fp32_arith_busy_o, // idicates that arihmetic units are busy
+  output                                take_op_fp32_arith_o, // FP32->DECODE feedback (drop FP32 arithmetic related command)
   //  ## FPU-32 comparison part
   input         [`OR1K_FPUOP_WIDTH-1:0] op_fp32_cmp_i,
   //  ## MFSPR
@@ -376,8 +382,18 @@ module mor1kx_execute_marocchino
   //                  {AlBl[hdw-1:0],{hdw{0}}} +
   //                  AlBl;
 
-  wire mul_valid; // valid flag is 1-clock ahead of latching for WB
-  wire mul_adv = ~mul_valid | padv_wb_i; // advance multiplier pipe
+  // multiplier stage ready flags
+  reg  mul_s1_rdy;
+  reg  mul_s2_rdy;
+  wire mul_valid = mul_s2_rdy; // valid flag is 1-clock ahead of latching for WB
+
+  // multiplier pipe control and state indicators
+  //   MAROCCHINO_TODO: potential performance improvement
+  //                    more sofisticated control should update stage #1
+  //                    even in case if stage #2 is ready but no WB access yet
+  wire   mul_adv       = ~mul_valid | padv_wb_i; // advance multiplier pipe
+  assign mul_busy_o    = op_mul_i & ~mul_adv; // multiplier's pipe is full
+  assign take_op_mul_o = op_mul_i &  mul_adv;
 
   // stage #1: register inputs & split them on halfed parts
   reg [MULHDW-1:0] mul_s1_al;
@@ -386,7 +402,7 @@ module mor1kx_execute_marocchino
   reg [MULHDW-1:0] mul_s1_bh;
   //  registering
   always @(posedge clk) begin
-    if (op_mul_i & mul_adv) begin
+    if (mul_adv) begin
       mul_s1_al <= op_a[MULHDW-1:0];
       mul_s1_bl <= op_b[MULHDW-1:0];
       mul_s1_ah <= op_a[EXEDW-1:MULHDW];
@@ -394,7 +410,6 @@ module mor1kx_execute_marocchino
     end
   end // posedge clock
   //  ready flag
-  reg mul_s1_rdy;
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
       mul_s1_rdy <= 1'b0;
@@ -410,14 +425,13 @@ module mor1kx_execute_marocchino
   reg [EXEDW-1:0] mul_s2_bhal;
   //  registering
   always @(posedge clk) begin
-    if (mul_s1_rdy & mul_adv) begin
+    if (mul_adv) begin
       mul_s2_albl <= mul_s1_al * mul_s1_bl;
       mul_s2_ahbl <= mul_s1_ah * mul_s1_bl;
       mul_s2_bhal <= mul_s1_bh * mul_s1_al;
     end
   end // posedge clock
   //  ready flag
-  reg mul_s2_rdy;
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
       mul_s2_rdy <= 1'b0;
@@ -426,8 +440,6 @@ module mor1kx_execute_marocchino
     else if (mul_adv)
       mul_s2_rdy <= mul_s1_rdy;
   end // posedge clock
-  // valid flag is 1-clock ahead of latching for WB
-  assign mul_valid = mul_s2_rdy;
 
   // stage #3: result
   wire [EXEDW-1:0] mul_s3t_sum;
@@ -459,64 +471,70 @@ module mor1kx_execute_marocchino
   //----------------//
   // 32-bit divider //
   //----------------//
-  reg       [5:0] div_count;
-  reg [EXEDW-1:0] div_n;
-  reg [EXEDW-1:0] div_d;
-  reg [EXEDW-1:0] div_r;
-  wire  [EXEDW:0] div_sub;
-  reg             div_signed, div_unsigned;
-  reg             div_neg;
-  reg             div_valid;
-  reg             div_by_zero;
+  // regs of division controller
+  reg       div_valid;
+  reg [5:0] div_count;
 
-  assign div_sub = {div_r[EXEDW-2:0],div_n[EXEDW-1]} - div_d;
+  assign take_op_div_o = op_div_i & (div_valid ? padv_wb_i : ~div_busy_o);
 
-  // Cycle counter
+  // division controller
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst) begin
-      div_valid <= 1'b0;
-      div_count <= 6'd0;
+      div_valid  <= 1'b0;
+      div_busy_o <= 1'b0;
+      div_count  <= 6'd0;
     end
-    if (padv_decode_i | pipeline_flush_i) begin // reset @ new decode data
-      div_valid <= 1'b0;
-      div_count <= 6'd0;
+    if (pipeline_flush_i) begin
+      div_valid  <= 1'b0;
+      div_busy_o <= 1'b0;
+      div_count  <= 6'd0;
     end
-    else if (op_div_i) begin
-      div_valid <= 1'b0;
-      div_count <= EXEDW;
+    else if (take_op_div_o) begin
+      div_valid  <= 1'b0;
+      div_busy_o <= 1'b1;
+      div_count  <= EXEDW;
     end
-    else if (|div_count) begin
-      if (div_count == 6'd1)
-        div_valid <= 1'b1;
-      else if (~div_valid)
-        div_count <= div_count - 6'd1;
+    else if (div_valid & padv_wb_i) begin
+      div_valid  <= 1'b0;
+      div_busy_o <= div_busy_o;
+      div_count  <= div_count;
+    end
+    else if (div_busy_o) begin
+      if (div_count == 6'd1) begin
+        div_valid  <= 1'b1;
+        div_busy_o <= 1'b0;
+      end
+      div_count <= div_count - 6'd1;
     end
   end // @clock
 
+  // regs of divider
+  reg [EXEDW-1:0] div_n;
+  reg [EXEDW-1:0] div_d;
+  reg [EXEDW-1:0] div_r;
+  reg             div_signed, div_unsigned;
+  reg             div_neg;
+  reg             dbz_r;
+
+  // signums of input operands
+  wire op_div_sign_a = rfa_i[EXEDW-1] & op_div_signed_i;
+  wire op_div_sign_b = rfb_i[EXEDW-1] & op_div_signed_i;
+
+  // partial reminder
+  wire [EXEDW:0] div_sub = {div_r[EXEDW-2:0],div_n[EXEDW-1]} - div_d;
+
   always @(posedge clk) begin
-    if (op_div_i) begin
-      div_n        <= rfa_i;
-      div_d        <= rfb_i;
-      div_r        <= 0;
-      div_neg      <= 1'b0;
-      div_by_zero  <= ~(|rfb_i);
+    if (take_op_div_o) begin
+      // Convert negative operands in the case of signed division.
+      // If only one of the operands is negative, the result is
+      // converted back to negative later on
+      div_n   <= (rfa_i ^ {EXEDW{op_div_sign_a}}) + {{(EXEDW-1){1'b0}},op_div_sign_a};
+      div_d   <= (rfb_i ^ {EXEDW{op_div_sign_b}}) + {{(EXEDW-1){1'b0}},op_div_sign_b};
+      div_r   <= {EXEDW{1'b0}};
+      div_neg <= (op_div_sign_a ^ op_div_sign_b);
+      dbz_r   <= ~(|rfb_i);
       div_signed   <= op_div_signed_i;
       div_unsigned <= op_div_unsigned_i;
-      /*
-       * Convert negative operands in the case of signed division.
-       * If only one of the operands is negative, the result is
-       * converted back to negative later on
-       */
-      if (op_div_signed_i) begin
-        if (rfa_i[EXEDW-1] ^ rfb_i[EXEDW-1])
-          div_neg <= 1'b1;
-
-        if (rfa_i[EXEDW-1])
-          div_n <= ~rfa_i + 1;
-
-        if (rfb_i[EXEDW-1])
-          div_d <= ~rfb_i + 1;
-      end
     end
     else if (~div_valid) begin
       if (~div_sub[EXEDW]) begin // div_sub >= 0
@@ -530,9 +548,9 @@ module mor1kx_execute_marocchino
     end // ~done
   end // @clock
 
-  wire [EXEDW-1:0] div_result = div_neg ? ~div_n + 1 : div_n;
-  
-  //  registering
+  wire [EXEDW-1:0] div_result = (div_n ^ {EXEDW{div_neg}}) + {{(EXEDW-1){1'b0}},div_neg};
+
+  // WB registering
   reg [EXEDW-1:0] wb_div_result;
   reg             wb_div_rdy;
   // ---
@@ -580,6 +598,8 @@ module mor1kx_execute_marocchino
         // FPU-32 arithmetic part
         .op_arith_i             (op_fp32_arith_i),
         .round_mode_i           (fpu_round_mode_i),
+        .fp32_arith_busy_o      (fp32_arith_busy_o),     // idicates that arihmetic units are busy
+        .take_op_fp32_arith_o   (take_op_fp32_arith_o),  // FP32->DECODE feedback (drop FP32 arithmetic related command)
         .fp32_arith_valid_o     (fp32_arith_valid),      // WB-latching ahead arithmetic ready flag
         .wb_fp32_arith_res_o    (wb_fp32_arith_res),     // arithmetic result
         .wb_fp32_arith_rdy_o    (wb_fp32_arith_rdy),     // arithmetic ready flag
@@ -593,6 +613,8 @@ module mor1kx_execute_marocchino
     end
     else begin :  fpu_alu_none
       // arithmetic part
+      assign fp32_arith_busy_o     =  1'b0;
+      assign take_op_fp32_arith_o  =  1'b1;
       assign fp32_arith_valid      =  1'b0;
       assign wb_fp32_arith_res     = 32'd0;
       assign wb_fp32_arith_rdy     =  1'b0;
@@ -647,9 +669,9 @@ module mor1kx_execute_marocchino
     end
     else if (padv_wb_i) begin
       wb_overflow_set_o   <= (op_add_i & adder_s_ovf) |
-                             (div_valid & div_signed & div_by_zero);
+                             (div_valid & div_signed & dbz_r);
       wb_overflow_clear_o <= (op_add_i & (~adder_s_ovf)) |
-                             (div_valid & div_signed & (~div_by_zero));
+                             (div_valid & div_signed & (~dbz_r));
     end // wb advance
   end // @clock
 
@@ -665,9 +687,9 @@ module mor1kx_execute_marocchino
     end
     else if (padv_wb_i) begin
       wb_carry_set_o   <= (op_add_i & adder_u_ovf) |
-                          (div_valid & div_unsigned & div_by_zero);
+                          (div_valid & div_unsigned & dbz_r);
       wb_carry_clear_o <= (op_add_i & (~adder_u_ovf)) |
-                          (div_valid & div_unsigned & (~div_by_zero));
+                          (div_valid & div_unsigned & (~dbz_r));
     end // wb advance
   end // @clock
 
@@ -696,11 +718,11 @@ module mor1kx_execute_marocchino
 
   // address of destination register & PC
   always @(posedge clk) begin
-    if (padv_wb_i & 
+    if (padv_wb_i &
         (~pipeline_flush_i) & (~exec_bubble_i)) begin
       wb_rfd_adr_o <= exec_rfd_adr_i;
       pc_wb_o      <= pc_exec_i;
-    end 
+    end
   end // @clock
 
 

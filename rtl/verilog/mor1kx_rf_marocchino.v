@@ -32,7 +32,6 @@ module mor1kx_rf_marocchino
 
   // pipeline control signals
   input                             padv_decode_i,
-  input                             exec_new_input_i, // 1-clock delayed of padv-decode
   input                             wb_new_result_i, // 1-clock delayed of padv-wb
   input                             pipeline_flush_i,
 

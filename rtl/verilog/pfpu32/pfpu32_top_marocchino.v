@@ -60,6 +60,8 @@ module pfpu32_top_marocchino
   // FPU-32 arithmetic part
   input     [`OR1K_FPUOP_WIDTH-1:0] op_arith_i,
   input   [`OR1K_FPCSR_RM_SIZE-1:0] round_mode_i,
+  output                            fp32_arith_busy_o,     // idicates that arihmetic units are busy
+  output                            take_op_fp32_arith_o,  // FP32->DECODE feedback (drop FP32 arithmetic related command)
   output                            fp32_arith_valid_o,    // WB-latching ahead arithmetic ready flag
   output                     [31:0] wb_fp32_arith_res_o,   // arithmetic result
   output                            wb_fp32_arith_rdy_o,   // arithmetic ready flag
@@ -120,7 +122,7 @@ wire [23:0] in_fract24b = {((~in_opb_dn) & (~in_opb_0)),in_fractb};
 
 // comparator
 //   MSB (set by decode stage) indicates FPU instruction
-wire op_cmp = op_cmp_i[`OR1K_FPUOP_WIDTH-1] & op_cmp_i[3];
+wire op_cmp = op_cmp_i[`OR1K_FPUOP_WIDTH-1];
 //   Get rid of top bit to form comparison type opcode
 wire [`OR1K_FPUOP_WIDTH-1:0] op_cmp_type = {1'b0,op_cmp_i[`OR1K_FPUOP_WIDTH-2:0]};
 //   Support for ADD/SUB
@@ -165,19 +167,48 @@ pfpu32_fcmp_marocchino u_f32_cmp
 // MSB (set by decode stage) indicates FPU instruction
 wire op_arith = op_arith_i[`OR1K_FPUOP_WIDTH-1];
 // alias to extract operation type
-wire [3:0] op_arith_type = op_arith_i[3:0];
+wire [2:0] op_arith_type = op_arith_i[2:0];
 
 // advance arithmetic FPU units
 wire arith_adv = ~fp32_arith_valid_o | padv_wb_i;
 
+// FP32->DECODE feedback (drop FP32 arithmetic related command)
+assign take_op_fp32_arith_o = op_arith & arith_adv;
+
+// idicates that arihmetic units are busy
+//   MAROCCHINO_TODO: potential performance improvement
+//                    more sofisticated unit-wise control
+//                    should be implemented
+//   unit-wise ready signals
+wire add_rdy_o; // add/sub is ready
+wire mul_rdy_o; // mul is ready
+wire i2f_rdy_o; // i2f is ready
+wire f2i_rdy_o; // f2i is ready
+//   common arithmetic ready part
+wire arith_rdy = add_rdy_o | mul_rdy_o | i2f_rdy_o | f2i_rdy_o;
+//   store the fact that an arithmetic command is taken
+reg  op_arith_taken_r;
+// ---
+always @(posedge clk `OR_ASYNC_RST) begin
+  if (rst)
+    op_arith_taken_r <= 1'b0;
+  else if (flush_i)
+    op_arith_taken_r <= 1'b0;
+  else if (take_op_fp32_arith_o)
+    op_arith_taken_r <= 1'b1;
+  else if (arith_rdy)
+    op_arith_taken_r <= 1'b0;
+end // posedge clock
+//   busy indicator
+assign fp32_arith_busy_o = op_arith | (op_arith_taken_r & ~arith_rdy) | ~arith_adv;
+
 
 // addition / substraction
 //   command detection
-wire op_sub    = (op_arith_type == 4'd1) & op_arith;
-wire op_add    = (op_arith_type == 4'd0) & op_arith;
+wire op_sub    = (op_arith_type == 3'd1) & op_arith;
+wire op_add    = (op_arith_type == 3'd0) & op_arith;
 wire add_start = op_add | op_sub;
 //   connection wires
-wire        add_rdy_o;       // add/sub is ready
 wire        add_sign_o;      // add/sub signum
 wire        add_sub_0_o;     // flag that actual substruction is performed and result is zero
 wire  [4:0] add_shl_o;       // do left shift in align stage
@@ -231,11 +262,10 @@ pfpu32_addsub u_f32_addsub
 
 // MUL/DIV combined pipeline
 //   command detection
-wire op_mul    = (op_arith_type == 4'd2) & op_arith;
-wire op_div    = (op_arith_type == 4'd3) & op_arith;
+wire op_mul    = (op_arith_type == 3'd2) & op_arith;
+wire op_div    = (op_arith_type == 3'd3) & op_arith;
 wire mul_start = op_mul | op_div;
 //   MUL/DIV common outputs
-wire        mul_rdy_o;       // mul is ready
 wire        mul_sign_o;      // mul signum
 wire  [4:0] mul_shr_o;       // do right shift in align stage
 wire  [9:0] mul_exp10shr_o;  // exponent for right shift align
@@ -299,9 +329,8 @@ pfpu32_muldiv u_f32_muldiv
 
 // convertor
 //   i2f command detection
-wire i2f_start = (op_arith_type == 4'd4) & op_arith;
+wire i2f_start = (op_arith_type == 3'd4) & op_arith;
 //   i2f connection wires
-wire        i2f_rdy_o;       // i2f is ready
 wire        i2f_sign_o;      // i2f signum
 wire  [3:0] i2f_shr_o;
 wire  [7:0] i2f_exp8shr_o;
@@ -328,9 +357,8 @@ pfpu32_i2f u_i2f_cnv
   .i2f_fract32_o  (i2f_fract32_o)
 );
 //   f2i signals
-wire f2i_start = (op_arith_type == 4'd5) & op_arith;
+wire f2i_start = (op_arith_type == 3'd5) & op_arith;
 //   f2i connection wires
-wire        f2i_rdy_o;       // f2i is ready
 wire        f2i_sign_o;      // f2i signum
 wire [23:0] f2i_int24_o;     // f2i fractional
 wire  [4:0] f2i_shr_o;       // f2i required shift right value

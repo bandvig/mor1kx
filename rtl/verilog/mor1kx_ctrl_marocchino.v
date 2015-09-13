@@ -72,6 +72,7 @@ module mor1kx_ctrl_marocchino
   input  [OPTION_OPERAND_WIDTH-1:0] exec_rfb_i, // data for MTSPR
   input                             exec_op_mfspr_i,
   input                             exec_op_mtspr_i,
+  output                            take_op_mXspr_o, // CTRL->DECODE feedback (drop M(F|T)SPR command
   output reg                        ctrl_mfspr_rdy_o, // for WB-MUX
   output [OPTION_OPERAND_WIDTH-1:0] mfspr_dat_o,
 
@@ -159,9 +160,8 @@ module mor1kx_ctrl_marocchino
 
   output                            padv_fetch_o,
   output                            padv_decode_o,
-  output reg                        exec_new_input_o, // 1-clock delayed of padv-decode
   output                            padv_wb_o,
-  output                            wb_new_result_o, // 1-clock delayed of padv-execute
+  output reg                        wb_new_result_o, // 1-clock delayed of padv-execute
 
   // Debug bus
   input [15:0]                      du_addr_i,
@@ -405,17 +405,16 @@ module mor1kx_ctrl_marocchino
     // MAROCCHINO_TODO: ~du_cpu_stall & (~stepping | (stepping & pstep[1])) &  // from DU
     exe_ctrl_valid;
 
+  assign padv_wb_o = padv_decode_o;
+  // ---
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
-      exec_new_input_o <= 1'b0;
+      wb_new_result_o <= 1'b0;
     else if (pipeline_flush_o)
-      exec_new_input_o <= 1'b0;
+      wb_new_result_o <= 1'b0;
     else
-      exec_new_input_o <= padv_decode_o;
+      wb_new_result_o <= padv_wb_o;
   end // @ clock
-
-  assign padv_wb_o       = padv_decode_o;
-  assign wb_new_result_o = exec_new_input_o; // 1-clock delayed of padv-wb
 
   // Pipeline flush by DU/exceptions/rfe
   assign pipeline_flush_o = du_cpu_stall | exception_re | wb_op_rfe_i;
@@ -795,6 +794,8 @@ endgenerate
   // MT(F)SPR address & data
   reg                     [15:0] cmd_op_mXspr_addr;
   reg [OPTION_OPERAND_WIDTH-1:0] cmd_op_mXspr_data;
+  // CTRL->DECODE feedback (drop M(F|T)SPR command
+  assign take_op_mXspr_o = exec_op_mfspr_i | exec_op_mtspr_i;
   // ...
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst) begin
@@ -809,7 +810,7 @@ endgenerate
       cmd_op_mXspr_addr <= cmd_op_mXspr_addr;
       cmd_op_mXspr_data <= cmd_op_mXspr_data;
     end
-    else if (exec_op_mfspr_i | exec_op_mtspr_i) begin
+    else if (take_op_mXspr_o) begin
       cmd_op_mfspr      <= exec_op_mfspr_i;
       cmd_op_mtspr      <= exec_op_mtspr_i;
       cmd_op_mXspr_addr <= exec_rfa_i[15:0] | exec_immediate_i[15:0];
