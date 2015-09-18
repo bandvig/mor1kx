@@ -67,11 +67,11 @@ module mor1kx_lsu_marocchino
   output reg                            wb_lsu_rdy_o,
   output reg [OPTION_OPERAND_WIDTH-1:0] wb_lsu_result_o,
   // exception output
-  output reg                        lsu_except_dbus_o,
-  output reg                        lsu_except_align_o,
-  output reg                        lsu_except_dtlb_miss_o,
-  output reg                        lsu_except_dpagefault_o,
-  output                            lsu_excepts_o,
+  output reg                            wb_except_dbus_o,
+  output reg                            wb_except_dpagefault_o,
+  output reg                            wb_except_dtlb_miss_o,
+  output reg                            wb_except_align_o,
+  output                                lsu_excepts_o,
 
   // Indicator that the dbus exception came via the store buffer
   output reg                        store_buffer_err_o,
@@ -274,39 +274,65 @@ module mor1kx_lsu_marocchino
       cmd_op_msync <= 1'b0;
     else if (exec_op_msync_i)
       cmd_op_msync <= 1'b1;
-    else if (padv_wb_i & msync_done_o) // MAROCCHINO_TODO: not compatible with paralleled execution
+    else if (padv_wb_i & msync_done_o)
       cmd_op_msync <= 1'b0;
   end // @clock
 
+  // registers for temporary exception storing
+  reg lsu_except_dbus_r;
+  reg lsu_except_align_r;
+  reg lsu_except_dtlb_miss_r;
+  reg lsu_except_dpagefault_r;
   // latching
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst) begin
-      lsu_except_dbus_o       <= 1'b0;
-      lsu_except_align_o      <= 1'b0;
-      lsu_except_dtlb_miss_o  <= 1'b0;
-      lsu_except_dpagefault_o <= 1'b0;
+      lsu_except_dbus_r       <= 1'b0;
+      lsu_except_align_r      <= 1'b0;
+      lsu_except_dtlb_miss_r  <= 1'b0;
+      lsu_except_dpagefault_r <= 1'b0;
     end
     else if (pipeline_flush_i) begin
-      lsu_except_dbus_o       <= 1'b0;
-      lsu_except_align_o      <= 1'b0;
-      lsu_except_dtlb_miss_o  <= 1'b0;
-      lsu_except_dpagefault_o <= 1'b0;
+      lsu_except_dbus_r       <= 1'b0;
+      lsu_except_align_r      <= 1'b0;
+      lsu_except_dtlb_miss_r  <= 1'b0;
+      lsu_except_dpagefault_r <= 1'b0;
     end
     else begin
       if (except_dbus_err)
-        lsu_except_dbus_o       <= 1'b1;
+        lsu_except_dbus_r       <= 1'b1;
       if (except_align)
-        lsu_except_align_o      <= 1'b1;
+        lsu_except_align_r      <= 1'b1;
       if (except_dtlb_miss)
-        lsu_except_dtlb_miss_o  <= 1'b1;
+        lsu_except_dtlb_miss_r  <= 1'b1;
       if (except_dpagefault)
-        lsu_except_dpagefault_o <= 1'b1;
+        lsu_except_dpagefault_r <= 1'b1;
     end
   end // @clock
   // output assignement
-  assign lsu_excepts_o = lsu_except_dbus_o      | lsu_except_align_o |
-                         lsu_except_dtlb_miss_o | lsu_except_dpagefault_o;
+  assign lsu_excepts_o = lsu_except_dbus_r      | lsu_except_align_r |
+                         lsu_except_dtlb_miss_r | lsu_except_dpagefault_r;
 
+  // WB latches for LSU EXCEPTIONS
+  always @(posedge clk `OR_ASYNC_RST) begin
+    if (rst) begin
+      wb_except_dbus_o       <= 1'b0;
+      wb_except_dpagefault_o <= 1'b0;
+      wb_except_dtlb_miss_o  <= 1'b0;
+      wb_except_align_o      <= 1'b0;
+    end
+    else if (pipeline_flush_i) begin
+      wb_except_dbus_o       <= 1'b0;
+      wb_except_dpagefault_o <= 1'b0;
+      wb_except_dtlb_miss_o  <= 1'b0;
+      wb_except_align_o      <= 1'b0;
+    end
+    else if (padv_wb_i) begin
+      wb_except_dbus_o       <= lsu_except_dbus_r;
+      wb_except_dpagefault_o <= lsu_except_dpagefault_r;
+      wb_except_dtlb_miss_o  <= lsu_except_dtlb_miss_r;
+      wb_except_align_o      <= lsu_except_align_r;
+    end
+  end // @clock
 
   //----------------------//
   // Exceptions detection //

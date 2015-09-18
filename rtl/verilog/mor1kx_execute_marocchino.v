@@ -109,10 +109,6 @@ module mor1kx_execute_marocchino
   input                                 exec_except_illegal_i,
   input                                 exec_except_syscall_i,
   input                                 exec_except_trap_i,
-  input                                 lsu_except_dbus_err_i,
-  input                                 lsu_except_dpagefault_i,
-  input                                 lsu_except_dtlb_miss_i,
-  input                                 lsu_except_dbus_align_i,
   input                                 lsu_excepts_i,
 
   // ALU results
@@ -153,10 +149,6 @@ module mor1kx_execute_marocchino
   output reg                            wb_except_illegal_o,
   output reg                            wb_except_syscall_o,
   output reg                            wb_except_trap_o,
-  output reg                            wb_except_dbus_o,
-  output reg                            wb_except_dpagefault_o,
-  output reg                            wb_except_dtlb_miss_o,
-  output reg                            wb_except_align_o,
   output reg                            wb_excepts_en_o
 );
 
@@ -726,7 +718,7 @@ module mor1kx_execute_marocchino
   end // @clock
 
 
-  // EXCEPTIONS & RFE
+  // EXCEPTIONS (excluding LSU's) & RFE
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst) begin
       wb_except_ibus_err_o   <= 1'b0;
@@ -736,10 +728,6 @@ module mor1kx_execute_marocchino
       wb_except_illegal_o    <= 1'b0;
       wb_except_syscall_o    <= 1'b0;
       wb_except_trap_o       <= 1'b0;
-      wb_except_dbus_o       <= 1'b0;
-      wb_except_dpagefault_o <= 1'b0;
-      wb_except_dtlb_miss_o  <= 1'b0;
-      wb_except_align_o      <= 1'b0;
       wb_excepts_en_o        <= 1'b0;
       // RFE
       wb_op_rfe_o            <= 1'b0;
@@ -752,10 +740,6 @@ module mor1kx_execute_marocchino
       wb_except_illegal_o    <= 1'b0;
       wb_except_syscall_o    <= 1'b0;
       wb_except_trap_o       <= 1'b0;
-      wb_except_dbus_o       <= 1'b0;
-      wb_except_dpagefault_o <= 1'b0;
-      wb_except_dtlb_miss_o  <= 1'b0;
-      wb_except_align_o      <= 1'b0;
       wb_excepts_en_o        <= 1'b0;
       // RFE
       wb_op_rfe_o            <= 1'b0;
@@ -768,10 +752,6 @@ module mor1kx_execute_marocchino
       wb_except_illegal_o    <= exec_except_illegal_i;
       wb_except_syscall_o    <= exec_except_syscall_i;
       wb_except_trap_o       <= exec_except_trap_i;
-      wb_except_dbus_o       <= lsu_except_dbus_err_i;
-      wb_except_dpagefault_o <= lsu_except_dpagefault_i;
-      wb_except_dtlb_miss_o  <= lsu_except_dtlb_miss_i;
-      wb_except_align_o      <= lsu_except_dbus_align_i;
       wb_excepts_en_o        <= exec_excepts_en_i;
       // RFE
       wb_op_rfe_o            <= exec_op_rfe_i;

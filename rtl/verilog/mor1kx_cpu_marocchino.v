@@ -321,10 +321,6 @@ module mor1kx_cpu_marocchino
   wire dcod_except_ipagefault;
   wire dcod_except_itlb_miss;
   // Exceptions: reported by LSU
-  wire lsu_except_dbus;
-  wire lsu_except_dpagefault;
-  wire lsu_except_dtlb_miss;
-  wire lsu_except_align;
   wire lsu_excepts;
   // Exceptions: forwarding from DECODE/EXECUTE to EXECUTE/CTRL
   wire exec_except_ibus_err;
@@ -680,10 +676,6 @@ module mor1kx_cpu_marocchino
     .exec_except_illegal_i            (exec_except_illegal), // EXE
     .exec_except_syscall_i            (exec_except_syscall), // EXE
     .exec_except_trap_i               (exec_except_trap), // EXE
-    .lsu_except_dbus_err_i            (lsu_except_dbus), // EXE
-    .lsu_except_dpagefault_i          (lsu_except_dpagefault), // EXE
-    .lsu_except_dtlb_miss_i           (lsu_except_dtlb_miss), // EXE
-    .lsu_except_dbus_align_i          (lsu_except_align), // EXE
     .lsu_excepts_i                    (lsu_excepts), // EXE
 
     // ALU results
@@ -724,10 +716,6 @@ module mor1kx_cpu_marocchino
     .wb_except_illegal_o              (wb_except_illegal), // EXE
     .wb_except_syscall_o              (wb_except_syscall), // EXE
     .wb_except_trap_o                 (wb_except_trap), // EXE
-    .wb_except_dbus_o                 (wb_except_dbus), // EXE
-    .wb_except_dpagefault_o           (wb_except_dpagefault), // EXE
-    .wb_except_dtlb_miss_o            (wb_except_dtlb_miss), // EXE
-    .wb_except_align_o                (wb_except_align), // EXE
     .wb_excepts_en_o                  (wb_excepts_en) // EXE
   );
 
@@ -784,10 +772,6 @@ module mor1kx_cpu_marocchino
     .store_buffer_epcr_o              (store_buffer_epcr), // LSU
     .store_buffer_err_o               (store_buffer_err), // LSU
     .ctrl_epcr_i                      (ctrl_epcr), // LSU
-    .lsu_except_dbus_o                (lsu_except_dbus), // LSU
-    .lsu_except_align_o               (lsu_except_align), // LSU
-    .lsu_except_dtlb_miss_o           (lsu_except_dtlb_miss), // LSU
-    .lsu_except_dpagefault_o          (lsu_except_dpagefault), // LSU
     .lsu_excepts_o                    (lsu_excepts), // LSU
     // Input from execute stage (decode's latches)
     .exec_lsu_adr_i                   (exec_lsu_adr), // LSU (just adder's output)
@@ -807,7 +791,11 @@ module mor1kx_cpu_marocchino
     .wb_atomic_flag_set_o             (wb_atomic_flag_set), // LSU
     .wb_atomic_flag_clear_o           (wb_atomic_flag_clear), // LSU
     .wb_lsu_result_o                  (wb_lsu_result), // LSU
-    .wb_lsu_rdy_o                     (wb_lsu_rdy) // LSU
+    .wb_lsu_rdy_o                     (wb_lsu_rdy), // LSU
+    .wb_except_dbus_o                 (wb_except_dbus), // LSU
+    .wb_except_dpagefault_o           (wb_except_dpagefault), // LSU
+    .wb_except_dtlb_miss_o            (wb_except_dtlb_miss), // LSU
+    .wb_except_align_o                (wb_except_align) // LSU
   );
 
 
@@ -856,6 +844,35 @@ module mor1kx_cpu_marocchino
     .exec_rfb_o                       (exec_rfb) // RF
   );
 
+/*
+  mor1kx_oman_marocchino u_oman
+  #(
+    .OPTION_OPERAND_WIDTH(OPTION_OPERAND_WIDTH),
+    .OPTION_RF_ADDR_WIDTH(OPTION_RF_ADDR_WIDTH)
+  )
+  (
+    // clock & reset
+    .clk(clk),
+    .rst(rst),
+
+    // pipeline control
+    .padv_decode_i(padv_decode), // OMAN
+    .padv_wb_i(padv_wb), // OMAN
+    .pipeline_flush_i(pipeline_flush), // OMAN
+
+    // DECODE non-latched flags to indicate next required unit
+    .dcod_op_1clk_i (?), // OMAN
+
+    // collect valid flags from execution modules
+    .exec_insn_1clk_i (?), // OMAN
+    .div_valid_i (?), // OMAN
+    .mul_valid_i (?), // OMAN
+    .fp32_arith_valid_i (?), // OMAN
+    .lsu_valid_i (?), // OMAN
+    .msync_done_i (?), // OMAN
+
+  );
+*/
 
 `ifndef SYNTHESIS
 // synthesis translate_off
