@@ -49,12 +49,10 @@ module mor1kx_rf_marocchino
   input [OPTION_RF_ADDR_WIDTH-1:0]  fetch_rfb_adr_i,
 
   // from DECODE
+  input                             dcod_rfa_req_i,
   input [OPTION_RF_ADDR_WIDTH-1:0]  dcod_rfa_adr_i,
+  input                             dcod_rfb_req_i,
   input [OPTION_RF_ADDR_WIDTH-1:0]  dcod_rfb_adr_i,
-
-  // from EXECUTE
-  input                             exec_rf_wb_i,
-  input [OPTION_RF_ADDR_WIDTH-1:0]  exec_rfd_adr_i,
 
   // from WB
   input                             wb_rf_wb_i,
@@ -62,9 +60,8 @@ module mor1kx_rf_marocchino
   input [OPTION_OPERAND_WIDTH-1:0]  wb_result_i,
 
   // outputs
-  output [OPTION_OPERAND_WIDTH-1:0] dcod_rfb_o,
-  output [OPTION_OPERAND_WIDTH-1:0] exec_rfa_o,
-  output [OPTION_OPERAND_WIDTH-1:0] exec_rfb_o
+  output [OPTION_OPERAND_WIDTH-1:0] dcod_rfa_o,
+  output [OPTION_OPERAND_WIDTH-1:0] dcod_rfb_o
 );
 
 `include "mor1kx_utils.vh"
@@ -296,71 +293,21 @@ endgenerate
   end // @clock
 
 
-  //------------------------
-  // DECODE stage (dcod_*)
-  //------------------------
-
-  // EXECUTE-to-DECODE hazard
-  wire dcod_exe2dec_hazard_a = exec_rf_wb_i & (exec_rfd_adr_i == dcod_rfa_adr_i);
-  wire dcod_exe2dec_hazard_b = exec_rf_wb_i & (exec_rfd_adr_i == dcod_rfb_adr_i);
-  // to EXECUTE
-  reg exec_exe2dec_hazard_a;
-  reg exec_exe2dec_hazard_b;
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst) begin
-      exec_exe2dec_hazard_a <= 1'b0;
-      exec_exe2dec_hazard_b <= 1'b0;
-    end
-    else if (pipeline_flush_i) begin
-      exec_exe2dec_hazard_a <= 1'b0;
-      exec_exe2dec_hazard_b <= 1'b0;
-    end
-    else if (padv_decode_i) begin
-      exec_exe2dec_hazard_a <= dcod_exe2dec_hazard_a;
-      exec_exe2dec_hazard_b <= dcod_exe2dec_hazard_b;
-    end
-  end // @clock
+  //-----------------------//
+  // DECODE stage (dcod_*) //
+  //-----------------------//
 
 
   //  WB-to-DECODE hazard
-  assign dcod_wb2dec_hazard_a = wb_rf_wb_i & (wb_rfd_adr_i == dcod_rfa_adr_i);
-  assign dcod_wb2dec_hazard_b = wb_rf_wb_i & (wb_rfd_adr_i == dcod_rfb_adr_i);
+  assign dcod_wb2dec_hazard_a = wb_rf_wb_i & dcod_rfa_req_i & (wb_rfd_adr_i == dcod_rfa_adr_i);
+  assign dcod_wb2dec_hazard_b = wb_rf_wb_i & dcod_rfb_req_i & (wb_rfd_adr_i == dcod_rfb_adr_i);
 
-
-  // bypasses on DECODE
-  wire [OPTION_OPERAND_WIDTH-1:0] dcod_rfa;
-  wire [OPTION_OPERAND_WIDTH-1:0] dcod_rfb;
-
-  assign dcod_rfa = dcod_wb2dec_hazard_a   ? wb_result_i :
-                    dcod_bypass_a          ? dcod_bypass_result_a : // R/W collision for RF-A
+  assign dcod_rfa_o = dcod_wb2dec_hazard_a ? wb_result_i :
+                      dcod_bypass_a        ? dcod_bypass_result_a : // R/W collision for RF-A
                                              rfa_dout;
 
-  assign dcod_rfb = dcod_wb2dec_hazard_b   ? wb_result_i :
-                    dcod_bypass_b          ? dcod_bypass_result_b : // R/W collision for RF-B
+  assign dcod_rfb_o = dcod_wb2dec_hazard_b ? wb_result_i :
+                      dcod_bypass_b        ? dcod_bypass_result_b : // R/W collision for RF-B
                                              rfb_dout;
-  // none latched output 
-  assign dcod_rfb_o = dcod_rfb;
-  // to EXECUTE
-  reg [OPTION_OPERAND_WIDTH-1:0] exec_rfa;
-  reg [OPTION_OPERAND_WIDTH-1:0] exec_rfb;
-  always @(posedge clk) begin
-    if (padv_decode_i) begin
-       exec_rfa <= dcod_rfa;
-       exec_rfb <= dcod_rfb;
-    end
-  end // @clock
-
-
-
-  //--------------------------
-  // EXECUTE stage (exec_*)
-  //--------------------------
-
-  // hazard resolving
-  assign exec_rfa_o = exec_exe2dec_hazard_a ? wb_result_i :
-                                              exec_rfa; // default: resolved on DECODE
-
-  assign exec_rfb_o = exec_exe2dec_hazard_b ? wb_result_i :
-                                              exec_rfb; // default: resolved on DECODE
 
 endmodule // mor1kx_rf_marocchino

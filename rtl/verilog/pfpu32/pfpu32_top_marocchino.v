@@ -54,23 +54,20 @@ module pfpu32_top_marocchino
   // pipeline control
   input                             flush_i,
   input                             padv_wb_i,
+  input                             do_rf_wb_i,
   // Operands
   input                      [31:0] rfa_i,
   input                      [31:0] rfb_i,
   // FPU-32 arithmetic part
-  input     [`OR1K_FPUOP_WIDTH-1:0] op_arith_i,
   input   [`OR1K_FPCSR_RM_SIZE-1:0] round_mode_i,
+  input     [`OR1K_FPUOP_WIDTH-1:0] op_arith_i,
+  output                            take_op_fp32_arith_o,  // feedback to drop FP32 arithmetic related command
   output                            fp32_arith_busy_o,     // idicates that arihmetic units are busy
-  output                            take_op_fp32_arith_o,  // FP32->DECODE feedback (drop FP32 arithmetic related command)
   output                            fp32_arith_valid_o,    // WB-latching ahead arithmetic ready flag
+  input                             grant_wb_to_fp32_arith_i,
   output                     [31:0] wb_fp32_arith_res_o,   // arithmetic result
   output                            wb_fp32_arith_rdy_o,   // arithmetic ready flag
-  output    [`OR1K_FPCSR_WIDTH-1:0] wb_fp32_arith_fpcsr_o, // arithmetic exceptions
-  // FPU-32 comparison part
-  input     [`OR1K_FPUOP_WIDTH-1:0] op_cmp_i,
-  output                            wb_fp32_flag_set_o,   // comparison result
-  output                            wb_fp32_flag_clear_o, // comparison result
-  output    [`OR1K_FPCSR_WIDTH-1:0] wb_fp32_cmp_fpcsr_o   // comparison exceptions
+  output    [`OR1K_FPCSR_WIDTH-1:0] wb_fp32_arith_fpcsr_o  // arithmetic exceptions
 );
 
 // analysis of input values
@@ -120,48 +117,16 @@ wire [23:0] in_fract24a = {((~in_opa_dn) & (~in_opa_0)),in_fracta};
 wire [23:0] in_fract24b = {((~in_opb_dn) & (~in_opb_0)),in_fractb};
 
 
-// comparator
-//   MSB (set by decode stage) indicates FPU instruction
-wire op_cmp = op_cmp_i[`OR1K_FPUOP_WIDTH-1];
-//   Get rid of top bit to form comparison type opcode
-wire [`OR1K_FPUOP_WIDTH-1:0] op_cmp_type = {1'b0,op_cmp_i[`OR1K_FPUOP_WIDTH-2:0]};
-//   Support for ADD/SUB
-wire addsub_agtb_o, addsub_aeqb_o;
-//   Module istance
-pfpu32_fcmp_marocchino u_f32_cmp
-(
-  // clocks, resets and other controls
-  .clk                    (clk),
-  .rst                    (rst),
-  .flush_i                (flush_i),  // flush pipe
-  .padv_wb_i              (padv_wb_i),// advance output latches
-  // command
-  .fpu_op_is_comp_i       (op_cmp),
-  .cmp_type_i             (op_cmp_type),
-  // operand 'a' related inputs
-  .signa_i                (in_signa),
-  .exp10a_i               (in_exp10a),
-  .fract24a_i             (in_fract24a),
-  .snana_i                (in_snan_a),
-  .qnana_i                (in_qnan_a),
-  .infa_i                 (in_infa),
-  .zeroa_i                (in_opa_0),
-  // operand 'b' related inputs
-  .signb_i                (in_signb),
-  .exp10b_i               (in_exp10b),
-  .fract24b_i             (in_fract24b),
-  .snanb_i                (in_snan_b),
-  .qnanb_i                (in_qnan_b),
-  .infb_i                 (in_infb),
-  .zerob_i                (in_opb_0),
-  // support addsub
-  .addsub_agtb_o          (addsub_agtb_o),
-  .addsub_aeqb_o          (addsub_aeqb_o),
-  // outputs
-  .wb_fp32_flag_set_o     (wb_fp32_flag_set_o),   // comparison result
-  .wb_fp32_flag_clear_o   (wb_fp32_flag_clear_o), // comparison result
-  .wb_fp32_cmp_fpcsr_o    (wb_fp32_cmp_fpcsr_o)   // comparison exceptions
-);
+// Support for ADD/SUB (historically they were comparator's part)
+//  # exponents
+wire exp_gt = in_exp10a  > in_exp10b;
+wire exp_eq = in_exp10a == in_exp10b;
+//  # fractionals
+wire fract_gt = in_fract24a  > in_fract24b;
+wire fract_eq = in_fract24a == in_fract24b;
+//  # comparisons for ADD/SUB
+wire addsub_agtb = exp_gt | (exp_eq & fract_gt);
+wire addsub_aeqb = exp_eq & fract_eq;
 
 
 // MSB (set by decode stage) indicates FPU instruction
@@ -170,9 +135,9 @@ wire op_arith = op_arith_i[`OR1K_FPUOP_WIDTH-1];
 wire [2:0] op_arith_type = op_arith_i[2:0];
 
 // advance arithmetic FPU units
-wire arith_adv = ~fp32_arith_valid_o | padv_wb_i;
+wire arith_adv = ~fp32_arith_valid_o | (padv_wb_i & grant_wb_to_fp32_arith_i);
 
-// FP32->DECODE feedback (drop FP32 arithmetic related command)
+// feedback to drop FP32 arithmetic related command
 assign take_op_fp32_arith_o = op_arith & arith_adv;
 
 // idicates that arihmetic units are busy
@@ -200,7 +165,7 @@ always @(posedge clk `OR_ASYNC_RST) begin
     op_arith_taken_r <= 1'b0;
 end // posedge clock
 //   busy indicator
-assign fp32_arith_busy_o = op_arith | (op_arith_taken_r & ~arith_rdy) | ~arith_adv;
+assign fp32_arith_busy_o = op_arith | (op_arith_taken_r & ~arith_rdy);
 
 
 // addition / substraction
@@ -243,8 +208,8 @@ pfpu32_addsub u_f32_addsub
   .snan_i           (in_snan),
   .qnan_i           (in_qnan),
   .anan_sign_i      (in_anan_sign),
-  .addsub_agtb_i    (addsub_agtb_o),
-  .addsub_aeqb_i    (addsub_aeqb_o),
+  .addsub_agtb_i    (addsub_agtb),
+  .addsub_aeqb_i    (addsub_aeqb),
   // outputs
   .add_rdy_o        (add_rdy_o),       // add/sub is ready
   .add_sign_o       (add_sign_o),      // add/sub signum
@@ -392,12 +357,14 @@ pfpu32_f2i u_f2i_cnv
 pfpu32_rnd_marocchino u_f32_rnd
 (
   // clocks, resets and other controls
-  .clk             (clk),
-  .rst             (rst),
-  .flush_i         (flush_i),         // flush pipe
-  .adv_i           (arith_adv),       // advance pipe
-  .padv_wb_i       (padv_wb_i),       // advance output latches
-  .rmode_i         (round_mode_i),    // rounding mode
+  .clk                      (clk),
+  .rst                      (rst),
+  .flush_i                  (flush_i),         // flush pipe
+  .adv_i                    (arith_adv),       // advance pipe
+  .padv_wb_i                (padv_wb_i),       // arith. advance output latches
+  .do_rf_wb_i               (do_rf_wb_i),
+  .grant_wb_to_fp32_arith_i (grant_wb_to_fp32_arith_i),
+  .rmode_i                  (round_mode_i),    // rounding mode
   // from add/sub
   .add_rdy_i       (add_rdy_o),       // add/sub is ready
   .add_sign_i      (add_sign_o),      // add/sub signum
