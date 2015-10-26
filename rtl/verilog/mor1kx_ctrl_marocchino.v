@@ -27,9 +27,6 @@ module mor1kx_ctrl_marocchino
   parameter OPTION_RESET_PC           = {{(OPTION_OPERAND_WIDTH-13){1'b0}},
                                           `OR1K_RESET_VECTOR,8'd0},
 
-  parameter FEATURE_SYSCALL           = "ENABLED",
-  parameter FEATURE_TRAP              = "ENABLED",
-
   parameter OPTION_DCACHE_BLOCK_WIDTH = 5,
   parameter OPTION_DCACHE_SET_WIDTH   = 9,
   parameter OPTION_DCACHE_WAYS        = 2,
@@ -692,11 +689,11 @@ endgenerate // FPU related: FPCSR and exceptions
     .FEATURE_PERFCOUNTERS            (FEATURE_PERFCOUNTERS),
     .FEATURE_MAC                     (FEATURE_MAC),
     .FEATURE_FPU                     (FEATURE_FPU), // mor1kx_cfgrs instance: marocchino
-    .FEATURE_SYSCALL                 (FEATURE_SYSCALL),
-    .FEATURE_TRAP                    (FEATURE_TRAP),
+    .FEATURE_SYSCALL                 ("ENABLED"), // mor1kx_cfgrs instance: marocchino
+    .FEATURE_TRAP                    ("ENABLED"), // mor1kx_cfgrs instance: marocchino
     .FEATURE_RANGE                   ("ENABLED"), // mor1kx_cfgrs instance: marocchino
     .FEATURE_DELAYSLOT               ("ENABLED"), // mor1kx_cfgrs instance: marocchino
-    .FEATURE_EVBAR                   ("ENABLED")
+    .FEATURE_EVBAR                   ("ENABLED") // mor1kx_cfgrs instance: marocchino
   )
   u_cfgrs
   (

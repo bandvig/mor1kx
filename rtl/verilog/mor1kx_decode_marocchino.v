@@ -30,9 +30,6 @@ module mor1kx_decode_marocchino
                                     `OR1K_RESET_VECTOR,8'd0},
   parameter OPTION_RF_ADDR_WIDTH =  5,
 
-  parameter FEATURE_SYSCALL      = "ENABLED",
-  parameter FEATURE_TRAP         = "ENABLED",
-
   parameter FEATURE_PSYNC        = "NONE",
   parameter FEATURE_CSYNC        = "NONE",
 
@@ -313,13 +310,11 @@ module mor1kx_decode_marocchino
 
   assign dcod_op_rfe_o = (opc_insn == `OR1K_OPCODE_RFE);
 
-  assign dcod_except_syscall_o = (FEATURE_SYSCALL != "NONE") &
-                                 (opc_insn == `OR1K_OPCODE_SYSTRAPSYNC) &
+  assign dcod_except_syscall_o = (opc_insn == `OR1K_OPCODE_SYSTRAPSYNC) &
                                  (dcod_insn_i[`OR1K_SYSTRAPSYNC_OPC_SELECT] ==
                                   `OR1K_SYSTRAPSYNC_OPC_SYSCALL);
 
-  assign dcod_except_trap_o = (FEATURE_TRAP != "NONE") &
-                              (opc_insn == `OR1K_OPCODE_SYSTRAPSYNC) &
+  assign dcod_except_trap_o = (opc_insn == `OR1K_OPCODE_SYSTRAPSYNC) &
                               (dcod_insn_i[`OR1K_SYSTRAPSYNC_OPC_SELECT] ==
                                `OR1K_SYSTRAPSYNC_OPC_TRAP);
 
@@ -580,10 +575,8 @@ module mor1kx_decode_marocchino
         endcase // alu_opc
 
       `OR1K_OPCODE_SYSTRAPSYNC: begin
-        if (((dcod_insn_i[`OR1K_SYSTRAPSYNC_OPC_SELECT] == `OR1K_SYSTRAPSYNC_OPC_SYSCALL) &
-             (FEATURE_SYSCALL != "NONE")) |
-            ((dcod_insn_i[`OR1K_SYSTRAPSYNC_OPC_SELECT] == `OR1K_SYSTRAPSYNC_OPC_TRAP) &
-             (FEATURE_TRAP != "NONE")) |
+        if ((dcod_insn_i[`OR1K_SYSTRAPSYNC_OPC_SELECT] == `OR1K_SYSTRAPSYNC_OPC_SYSCALL) |
+            (dcod_insn_i[`OR1K_SYSTRAPSYNC_OPC_SELECT] == `OR1K_SYSTRAPSYNC_OPC_TRAP) |
             ((dcod_insn_i[`OR1K_SYSTRAPSYNC_OPC_SELECT] == `OR1K_SYSTRAPSYNC_OPC_PSYNC) &
              (FEATURE_PSYNC != "NONE")) |
             ((dcod_insn_i[`OR1K_SYSTRAPSYNC_OPC_SELECT] == `OR1K_SYSTRAPSYNC_OPC_CSYNC) &

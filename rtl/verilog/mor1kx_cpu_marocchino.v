@@ -41,9 +41,6 @@ module mor1kx_cpu_marocchino
   parameter FEATURE_DEBUGUNIT    = "NONE",
   parameter FEATURE_PERFCOUNTERS = "NONE",
 
-  parameter FEATURE_SYSCALL = "ENABLED",
-  parameter FEATURE_TRAP    = "ENABLED",
-
   parameter FEATURE_PIC          = "ENABLED",
   parameter OPTION_PIC_TRIGGER   = "LEVEL",
   parameter OPTION_PIC_NMI_WIDTH = 0,
@@ -458,8 +455,6 @@ module mor1kx_cpu_marocchino
     .OPTION_OPERAND_WIDTH (OPTION_OPERAND_WIDTH),
     .OPTION_RESET_PC      (OPTION_RESET_PC),
     .OPTION_RF_ADDR_WIDTH (OPTION_RF_ADDR_WIDTH),
-    .FEATURE_SYSCALL      (FEATURE_SYSCALL),
-    .FEATURE_TRAP         (FEATURE_TRAP),
     .FEATURE_PSYNC        (FEATURE_PSYNC),
     .FEATURE_CSYNC        (FEATURE_CSYNC),
     .FEATURE_FPU          (FEATURE_FPU) // pipeline cappuccino: decode instance
@@ -952,8 +947,6 @@ module mor1kx_cpu_marocchino
     .FEATURE_MAC                ("NONE"),
     .FEATURE_FPU                (FEATURE_FPU), // pipeline MAROCCHINO: ctrl instance
     .FEATURE_MULTICORE          (FEATURE_MULTICORE),
-    .FEATURE_SYSCALL            (FEATURE_SYSCALL),
-    .FEATURE_TRAP               (FEATURE_TRAP),
     .FEATURE_FASTCONTEXTS       (FEATURE_FASTCONTEXTS),
     .OPTION_RF_NUM_SHADOW_GPR   (OPTION_RF_NUM_SHADOW_GPR)
   )
