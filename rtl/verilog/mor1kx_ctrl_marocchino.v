@@ -312,10 +312,10 @@ module mor1kx_ctrl_marocchino
   wire except_range = ctrl_overflow;
 
   wire exception =
-    (except_ibus_err_i | except_ibus_align_i | except_itlb_miss_i | except_ipagefault_i |
-     except_illegal_i | except_syscall_i | except_range | except_fpu |except_trap_i |
-     except_dbus_i | except_align_i | except_dtlb_miss_i | except_dpagefault_i) |
-    ((except_ticktimer | except_pic) & wb_interrupts_en_i & wb_new_result_o);
+    except_ibus_err_i | except_ibus_align_i | except_itlb_miss_i | except_ipagefault_i |
+    except_illegal_i | except_syscall_i | except_range | except_fpu |except_trap_i |
+    except_dbus_i | except_align_i | except_dtlb_miss_i | except_dpagefault_i |
+    ((except_ticktimer | except_pic) & wb_interrupts_en_i);
 
 
   assign exception_re = exception & (~exception_r);

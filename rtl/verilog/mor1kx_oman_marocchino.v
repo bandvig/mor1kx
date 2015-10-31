@@ -383,13 +383,23 @@ module mor1kx_oman_marocchino
     end
   end // @clock
 
+  // Enable external interrupts (1-clock length by default)
+  always @(posedge clk `OR_ASYNC_RST) begin
+    if (rst)
+      wb_interrupts_en_o <= 1'b0;
+    else if (pipeline_flush_i)
+      wb_interrupts_en_o <= 1'b0;
+    else if (padv_wb_i)
+      wb_interrupts_en_o <= ocbo00_r[OCBT_INTERRUPTS_EN_POS];
+    else
+      wb_interrupts_en_o <= 1'b0;
+  end // @clock
+
   // WB EXCEPTIONS (excluding LSU's) & RFE
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst) begin
       // RFE
       wb_op_rfe_o            <= 1'b0;
-      // Flag that istruction is restrartable
-      wb_interrupts_en_o     <= 1'b0;
       // FETCH/DECODE exceptions
       wb_except_ibus_err_o   <= 1'b0;
       wb_except_ipagefault_o <= 1'b0;
@@ -402,8 +412,6 @@ module mor1kx_oman_marocchino
     else if (pipeline_flush_i) begin
       // RFE
       wb_op_rfe_o            <= 1'b0;
-      // Flag that istruction is restrartable
-      wb_interrupts_en_o     <= 1'b0;
       // FETCH/DECODE exceptions
       wb_except_ibus_err_o   <= 1'b0;
       wb_except_ipagefault_o <= 1'b0;
@@ -416,8 +424,6 @@ module mor1kx_oman_marocchino
     else if (padv_wb_i) begin
       // RFE
       wb_op_rfe_o            <= ocbo00_r[OCBT_OP_RFE_POS];
-      // Flag that istruction is restrartable
-      wb_interrupts_en_o     <= ocbo00_r[OCBT_INTERRUPTS_EN_POS];
       // FETCH/DECODE exceptions
       wb_except_ibus_err_o   <= ocbo00_r[6];
       wb_except_ipagefault_o <= ocbo00_r[5];
