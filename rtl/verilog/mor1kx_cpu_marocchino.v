@@ -596,8 +596,6 @@ module mor1kx_cpu_marocchino
     //   from DECODE
     .dcod_rfa_i                       (dcod_rfa), // EXE
     .dcod_rfb_i                       (dcod_rfb), // EXE
-    .dcod_immediate_i                 (dcod_immediate), // EXE
-    .dcod_immediate_sel_i             (dcod_immediate_sel), // EXE
     //   forwarding from WB
     .exe2dec_hazard_a_i               (exe2dec_hazard_a), // EXE
     .exe2dec_hazard_b_i               (exe2dec_hazard_b), // EXE
@@ -794,6 +792,8 @@ module mor1kx_cpu_marocchino
     .dcod_rfa_adr_i                   (dcod_rfa_adr), // RF
     .dcod_rfb_req_i                   (dcod_rfb_req), // RF
     .dcod_rfb_adr_i                   (dcod_rfb_adr), // RF
+    .dcod_immediate_i                 (dcod_immediate), // RF
+    .dcod_immediate_sel_i             (dcod_immediate_sel), // RF
     // from WB
     .wb_rf_wb_i                       (wb_rf_wb), // RF
     .wb_rfd_adr_i                     (wb_rfd_adr), // RF

@@ -38,8 +38,6 @@ module mor1kx_execute_marocchino
   //   from DECODE
   input      [OPTION_OPERAND_WIDTH-1:0] dcod_rfa_i,
   input      [OPTION_OPERAND_WIDTH-1:0] dcod_rfb_i,
-  input      [OPTION_OPERAND_WIDTH-1:0] dcod_immediate_i,
-  input                                 dcod_immediate_sel_i,
   //   forwarding from WB
   input                                 exe2dec_hazard_a_i,
   input                                 exe2dec_hazard_b_i,
@@ -246,7 +244,7 @@ module mor1kx_execute_marocchino
   always @(posedge clk) begin
     if (padv_decode_i & dcod_op_1clk_i) begin
       alu_1clk_a_r <= dcod_rfa_i;
-      alu_1clk_b_r <= (dcod_immediate_sel_i ? dcod_immediate_i : dcod_rfb_i);
+      alu_1clk_b_r <= dcod_rfb_i;
     end
     else if (exec_op_1clk_o) begin
       alu_1clk_a_r <= alu_1clk_a;
@@ -564,7 +562,7 @@ module mor1kx_execute_marocchino
   always @(posedge clk) begin
     if (padv_decode_i & dcod_op_mul_i) begin
       mul_a_r <= dcod_rfa_i;
-      mul_b_r <= (dcod_immediate_sel_i ? dcod_immediate_i : dcod_rfb_i);
+      mul_b_r <= dcod_rfb_i;
     end
     else if (op_mul_r & ~mul_adv) begin
       mul_a_r <= mul_a;

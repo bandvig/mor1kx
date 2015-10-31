@@ -36,28 +36,30 @@ module mor1kx_rf_marocchino
   input                             pipeline_flush_i,
 
   // SPR bus
-  input [15:0]                      spr_bus_addr_i,
+  input                      [15:0] spr_bus_addr_i,
   input                             spr_bus_stb_i,
   input                             spr_bus_we_i,
-  input [OPTION_OPERAND_WIDTH-1:0]  spr_bus_dat_i,
+  input  [OPTION_OPERAND_WIDTH-1:0] spr_bus_dat_i,
   output                            spr_gpr_ack_o,
   output [OPTION_OPERAND_WIDTH-1:0] spr_gpr_dat_o,
 
   // from FETCH
   input                             fetch_rf_adr_valid_i,
-  input [OPTION_RF_ADDR_WIDTH-1:0]  fetch_rfa_adr_i,
-  input [OPTION_RF_ADDR_WIDTH-1:0]  fetch_rfb_adr_i,
+  input  [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfa_adr_i,
+  input  [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfb_adr_i,
 
   // from DECODE
   input                             dcod_rfa_req_i,
-  input [OPTION_RF_ADDR_WIDTH-1:0]  dcod_rfa_adr_i,
+  input  [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfa_adr_i,
   input                             dcod_rfb_req_i,
-  input [OPTION_RF_ADDR_WIDTH-1:0]  dcod_rfb_adr_i,
+  input  [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfb_adr_i,
+  input  [OPTION_OPERAND_WIDTH-1:0] dcod_immediate_i,
+  input                             dcod_immediate_sel_i,
 
   // from WB
   input                             wb_rf_wb_i,
-  input [OPTION_RF_ADDR_WIDTH-1:0]  wb_rfd_adr_i,
-  input [OPTION_OPERAND_WIDTH-1:0]  wb_result_i,
+  input  [OPTION_RF_ADDR_WIDTH-1:0] wb_rfd_adr_i,
+  input  [OPTION_OPERAND_WIDTH-1:0] wb_result_i,
 
   // outputs
   output [OPTION_OPERAND_WIDTH-1:0] dcod_rfa_o,
@@ -302,11 +304,12 @@ endgenerate
   assign dcod_wb2dec_hazard_a = wb_rf_wb_i & dcod_rfa_req_i & (wb_rfd_adr_i == dcod_rfa_adr_i);
   assign dcod_wb2dec_hazard_b = wb_rf_wb_i & dcod_rfb_req_i & (wb_rfd_adr_i == dcod_rfb_adr_i);
 
-  assign dcod_rfa_o = dcod_wb2dec_hazard_a ? wb_result_i :
+  assign dcod_rfa_o = dcod_wb2dec_hazard_a ? wb_result_i          :
                       dcod_bypass_a        ? dcod_bypass_result_a : // R/W collision for RF-A
                                              rfa_dout;
 
-  assign dcod_rfb_o = dcod_wb2dec_hazard_b ? wb_result_i :
+  assign dcod_rfb_o = dcod_immediate_sel_i ? dcod_immediate_i     :
+                      dcod_wb2dec_hazard_b ? wb_result_i          :
                       dcod_bypass_b        ? dcod_bypass_result_b : // R/W collision for RF-B
                                              rfb_dout;
 
