@@ -216,61 +216,68 @@ module mor1kx_oman_marocchino
                   dcod_except_syscall_i,
                   dcod_except_trap_i };
 
-  // for 1-st step only one tap is implemented
-  reg [OCBT_MSB:0] ocbo00_r;
-  reg              ocb_empty;
-  // ---
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst) begin
-      ocbo00_r  <= {OCBT_WIDTH{1'b0}};
-      ocb_empty <= 1'b1;
-    end
-    else if (pipeline_flush_i) begin
-      ocbo00_r  <= {OCBT_WIDTH{1'b0}};
-      ocb_empty <= 1'b1;
-    end
-    else if (padv_decode_i) begin
-      ocbo00_r  <= ocbi;
-      ocb_empty <= 1'b0;
-    end
-    else if (padv_wb_i) begin
-      ocbo00_r  <= {OCBT_WIDTH{1'b0}};
-      ocb_empty <= 1'b1;
-    end
-  end // @ clock
 
-  // "buffer is full" flag
-  // MAROCCHINO_TODO: it has different sense for long buffer
-  wire ocb_full = ~ocb_empty;
+  wire [OCBT_MSB:0] ocbo00, ocbo01, ocbo02, ocbo03,
+                    ocbo04, ocbo05, ocbo06, ocbo07;
+
+  wire ocb_full, ocb_empty;
+
+
+  //-------------------------------//
+  // Order Control Buffer instance //
+  //-------------------------------//
+
+  mor1kx_ocb_marocchino
+  #(
+    .DATA_SIZE  (OCBT_WIDTH)
+  )
+  u_ocb
+  (
+    // clocks, resets and other input controls
+    .clk              (clk),
+    .rst              (rst),
+    .pipeline_flush_i (pipeline_flush_i), // flush pipe
+    .padv_decode_i    (padv_decode_i),    // write: advance DECODE
+    .padv_wb_i        (padv_wb_i),        // read:  advance WB
+    // data input
+    .ocbi_i           (ocbi),
+    // "OCB is empty" flag
+    .empty_o          (ocb_empty),
+    // "OCB is full" flag
+    //   (a) external control logic must stop the "writing without reading"
+    //       operation if OCB is full
+    //   (b) however, the "writing + reading" is possible
+    //       because it just pushes OCB and keeps it full
+    .full_o           (ocb_full),
+    // data ouputs
+    .ocbo00_o         (ocbo00), // OCB output (head)
+    .ocbo01_o         (ocbo01), // ...
+    .ocbo02_o         (ocbo02), // ...
+    .ocbo03_o         (ocbo03), // ...
+    .ocbo04_o         (ocbo04), // ...
+    .ocbo05_o         (ocbo05), // ...
+    .ocbo06_o         (ocbo06), // ...
+    .ocbo07_o         (ocbo07)  // OCB entrance
+  );
+
 
   // Grant WB-access to units
-  assign grant_wb_to_1clk_o        = ocbo00_r[OCBT_OP_1CLK_POS];
-  assign grant_wb_to_div_o         = ocbo00_r[OCBT_OP_DIV_POS];
-  assign grant_wb_to_mul_o         = ocbo00_r[OCBT_OP_MUL_POS];
-  assign grant_wb_to_fp32_arith_o  = ocbo00_r[OCBT_OP_FP32_POS];
-  assign grant_wb_to_lsu_o         = ocbo00_r[OCBT_OP_LS_POS];
+  assign grant_wb_to_1clk_o        = ocbo00[OCBT_OP_1CLK_POS];
+  assign grant_wb_to_div_o         = ocbo00[OCBT_OP_DIV_POS];
+  assign grant_wb_to_mul_o         = ocbo00[OCBT_OP_MUL_POS];
+  assign grant_wb_to_fp32_arith_o  = ocbo00[OCBT_OP_FP32_POS];
+  assign grant_wb_to_lsu_o         = ocbo00[OCBT_OP_LS_POS];
   // common flag signaling that WB is required
-  assign do_rf_wb_o                = ocbo00_r[OCBT_RF_WB_POS];
+  assign do_rf_wb_o                = ocbo00[OCBT_RF_WB_POS];
 
   // EXECUTE-to-DECODE hazards
   //  # WB address and flag
-  wire [OPTION_RF_ADDR_WIDTH-1:0] exec_rfd_adr = ocbo00_r[OCBT_RFD_ADR_MSB:OCBT_RFD_ADR_LSB];
-  wire                            exec_rf_wb   = ocbo00_r[OCBT_RF_WB_POS];
+  wire [OPTION_RF_ADDR_WIDTH-1:0] exec_rfd_adr = ocbo00[OCBT_RFD_ADR_MSB:OCBT_RFD_ADR_LSB];
+  wire                            exec_rf_wb   = ocbo00[OCBT_RF_WB_POS];
   //  # Hazard by operand A
   assign exe2dec_hazard_a_o = exec_rf_wb & dcod_rfa_req_i & (exec_rfd_adr == dcod_rfa_adr_i);
   //  # Hazard by operand B
   assign exe2dec_hazard_b_o = exec_rf_wb & dcod_rfb_req_i & (exec_rfd_adr == dcod_rfb_adr_i);
-
-
-  //   Bubble is just used to block FETCH advance (CTRL).
-  //   Detect the situation where there is a jump to register in decode
-  // stage and an instruction in execute stage that will write to that
-  // register.
-  //   A bubble is also inserted when an rfe instruction is in decode stage,
-  // the main purpose of this is to stall fetch while the rfe is propagating
-  // up to WB stage.
-  //   By DECODE exceptions (FETCH exceptions block it in FETCH itself)
-  assign dcod_bubble_o = (dcod_op_jr_i & exe2dec_hazard_b_o) | dcod_op_rfe_i | dcod_an_except;
 
 
   // auxiliaries
@@ -285,59 +292,77 @@ module mor1kx_oman_marocchino
   // issued instructions only.
   //   l.rfe and FETCH/DECODE exceptions are also should
   // push WB latches
-  assign exec_valid_o = ocbo00_r[OCBT_OP_1CLK_POS] |
-                        (div_valid_i & ocbo00_r[OCBT_OP_DIV_POS]) |
-                        (mul_valid_i & ocbo00_r[OCBT_OP_MUL_POS]) |
-                        (fp32_arith_valid_i & ocbo00_r[OCBT_OP_FP32_POS]) |
-                        (lsu_valid_or_excepts & ocbo00_r[OCBT_OP_LS_POS]) |
-                        ocbo00_r[OCBT_OP_PASS_EXEC_POS] | // also includes l.rfe in the sense
-                        ocbo00_r[OCBT_FD_AN_EXCEPT_POS];
+  assign exec_valid_o = ocbo00[OCBT_OP_1CLK_POS] |
+                        (div_valid_i & ocbo00[OCBT_OP_DIV_POS]) |
+                        (mul_valid_i & ocbo00[OCBT_OP_MUL_POS]) |
+                        (fp32_arith_valid_i & ocbo00[OCBT_OP_FP32_POS]) |
+                        (lsu_valid_or_excepts & ocbo00[OCBT_OP_LS_POS]) |
+                        ocbo00[OCBT_OP_PASS_EXEC_POS] | // also includes l.rfe in the sense
+                        ocbo00[OCBT_FD_AN_EXCEPT_POS];
 
 
   // waiting EXECUTE result (only multicycle instructions make sense)
-  wire exec_waiting = (~div_valid_i & ocbo00_r[OCBT_OP_DIV_POS]) |
-                      (~mul_valid_i & ocbo00_r[OCBT_OP_MUL_POS]) |
-                      (~fp32_arith_valid_i & ocbo00_r[OCBT_OP_FP32_POS]) |
-                      (~lsu_valid_or_excepts & ocbo00_r[OCBT_OP_LS_POS]);
+  wire exec_waiting = (~div_valid_i & ocbo00[OCBT_OP_DIV_POS]) |
+                      (~mul_valid_i & ocbo00[OCBT_OP_MUL_POS]) |
+                      (~fp32_arith_valid_i & ocbo00[OCBT_OP_FP32_POS]) |
+                      (~lsu_valid_or_excepts & ocbo00[OCBT_OP_LS_POS]);
 
   // DECODE stall components
   //  stall by unit usage hazard
   //     (unit could be either busy or waiting for WB access)
   wire stall_by_hazard_u =
-    (dcod_op_1clk_i & exec_op_1clk_i & ~ocbo00_r[OCBT_OP_1CLK_POS]) |
-    (dcod_op_div_i & (div_busy_i | (div_valid_i & ~ocbo00_r[OCBT_OP_DIV_POS]))) |
-    (dcod_op_mul_i & mul_valid_i & ~ocbo00_r[OCBT_OP_MUL_POS]) |
-    (dcod_op_fp32_arith_i & (fp32_arith_busy_i | (fp32_arith_valid_i & ~ocbo00_r[OCBT_OP_FP32_POS]))) |
-    (dcod_op_ls_i & (lsu_busy_i | (lsu_valid_i & ~ocbo00_r[OCBT_OP_LS_POS])));
+    (dcod_op_1clk_i & exec_op_1clk_i & ~ocbo00[OCBT_OP_1CLK_POS]) |
+    (dcod_op_div_i & (div_busy_i | (div_valid_i & ~ocbo00[OCBT_OP_DIV_POS]))) |
+    (dcod_op_mul_i & mul_valid_i & ~ocbo00[OCBT_OP_MUL_POS]) |
+    (dcod_op_fp32_arith_i & (fp32_arith_busy_i | (fp32_arith_valid_i & ~ocbo00[OCBT_OP_FP32_POS]))) |
+    (dcod_op_ls_i & (lsu_busy_i | (lsu_valid_i & ~ocbo00[OCBT_OP_LS_POS])));
 
   //  stall if OCB is full
-  wire stall_by_ocb_full = ocb_full & exec_waiting; // MAROCCHINO_TODO: extend to whole buffer
+  wire stall_by_ocb_full = ocb_full & exec_waiting;
 
   //  stall by operand A hazard
   //    hazard has occured inside OCB
-  wire ocb_hazard_a = 1'b0; // MAROCCHINO_TODO: makes sense if buffer length > 1
+  wire ocb_hazard_a = dcod_rfa_req_i &
+    ((ocbo07[OCBT_RF_WB_POS] & (ocbo07[OCBT_RFD_ADR_MSB:OCBT_RFD_ADR_LSB] == dcod_rfa_adr_i)) |
+     (ocbo06[OCBT_RF_WB_POS] & (ocbo06[OCBT_RFD_ADR_MSB:OCBT_RFD_ADR_LSB] == dcod_rfa_adr_i)) |
+     (ocbo05[OCBT_RF_WB_POS] & (ocbo05[OCBT_RFD_ADR_MSB:OCBT_RFD_ADR_LSB] == dcod_rfa_adr_i)) |
+     (ocbo04[OCBT_RF_WB_POS] & (ocbo04[OCBT_RFD_ADR_MSB:OCBT_RFD_ADR_LSB] == dcod_rfa_adr_i)) |
+     (ocbo03[OCBT_RF_WB_POS] & (ocbo03[OCBT_RFD_ADR_MSB:OCBT_RFD_ADR_LSB] == dcod_rfa_adr_i)) |
+     (ocbo02[OCBT_RF_WB_POS] & (ocbo02[OCBT_RFD_ADR_MSB:OCBT_RFD_ADR_LSB] == dcod_rfa_adr_i)) |
+     (ocbo01[OCBT_RF_WB_POS] & (ocbo01[OCBT_RFD_ADR_MSB:OCBT_RFD_ADR_LSB] == dcod_rfa_adr_i)));
   //    combine with DECODE-to-EXECUTE hazard
   wire stall_by_hazard_a = ocb_hazard_a | (exe2dec_hazard_a_o & exec_waiting);
 
   //  stall by operand B hazard
   //    hazard has occured inside OCB
-  wire ocb_hazard_b = 1'b0; // MAROCCHINO_TODO: makes sense if buffer length > 1
+  wire ocb_hazard_b = dcod_rfb_req_i &
+    ((ocbo07[OCBT_RF_WB_POS] & (ocbo07[OCBT_RFD_ADR_MSB:OCBT_RFD_ADR_LSB] == dcod_rfb_adr_i)) |
+     (ocbo06[OCBT_RF_WB_POS] & (ocbo06[OCBT_RFD_ADR_MSB:OCBT_RFD_ADR_LSB] == dcod_rfb_adr_i)) |
+     (ocbo05[OCBT_RF_WB_POS] & (ocbo05[OCBT_RFD_ADR_MSB:OCBT_RFD_ADR_LSB] == dcod_rfb_adr_i)) |
+     (ocbo04[OCBT_RF_WB_POS] & (ocbo04[OCBT_RFD_ADR_MSB:OCBT_RFD_ADR_LSB] == dcod_rfb_adr_i)) |
+     (ocbo03[OCBT_RF_WB_POS] & (ocbo03[OCBT_RFD_ADR_MSB:OCBT_RFD_ADR_LSB] == dcod_rfb_adr_i)) |
+     (ocbo02[OCBT_RF_WB_POS] & (ocbo02[OCBT_RFD_ADR_MSB:OCBT_RFD_ADR_LSB] == dcod_rfb_adr_i)) |
+     (ocbo01[OCBT_RF_WB_POS] & (ocbo01[OCBT_RFD_ADR_MSB:OCBT_RFD_ADR_LSB] == dcod_rfb_adr_i)));
   //    combine with DECODE-to-EXECUTE hazard
-  wire stall_by_hazard_b = ocb_hazard_b | (exe2dec_hazard_b_o & (exec_waiting | dcod_op_jr_i));
+  wire stall_by_hazard_b = ocb_hazard_b | (exe2dec_hazard_b_o & exec_waiting);
 
   //  stall by comparison flag hazard
   //    hazard has occured inside OCB
-  wire ocb_flag = 1'b0; // MAROCCHINO_TODO: makes sense if buffer length > 1
+  wire ocb_flag = ocbo07[OCBT_FLAG_WB_POS] | ocbo06[OCBT_FLAG_WB_POS] | ocbo05[OCBT_FLAG_WB_POS] |
+                  ocbo04[OCBT_FLAG_WB_POS] | ocbo03[OCBT_FLAG_WB_POS] | ocbo02[OCBT_FLAG_WB_POS] |
+                  ocbo01[OCBT_FLAG_WB_POS];
   //    waiting completion of atomic instruction (others WB-flag instructions are 1-clk)
-  wire flag_waiting = ~lsu_valid_or_excepts & ocbo00_r[OCBT_OP_LSU_ATOMIC_POS];
+  wire flag_waiting = ~lsu_valid_or_excepts & ocbo00[OCBT_OP_LSU_ATOMIC_POS];
   //    combine with DECODE-to-EXECUTE hazard
   wire stall_by_flag = dcod_flag_req_i & (ocb_flag | flag_waiting);
 
   //  stall by carry flag hazard
   //    hazard has occured inside OCB
-  wire ocb_carry = 1'b0; // MAROCCHINO_TODO: makes sense if buffer length > 1
+  wire ocb_carry = ocbo07[OCBT_CARRY_WB_POS] | ocbo06[OCBT_CARRY_WB_POS] | ocbo05[OCBT_CARRY_WB_POS] |
+                   ocbo04[OCBT_CARRY_WB_POS] | ocbo03[OCBT_CARRY_WB_POS] | ocbo02[OCBT_CARRY_WB_POS] |
+                   ocbo01[OCBT_CARRY_WB_POS];
   //    waiting completion of DIV instruction (others WB-carry instructions are 1-clk)
-  wire carry_waiting = ~div_valid_i & ocbo00_r[OCBT_OP_DIV_POS];
+  wire carry_waiting = ~div_valid_i & ocbo00[OCBT_OP_DIV_POS];
   //    combine with DECODE-to-EXECUTE hazard
   wire stall_by_carry = dcod_carry_req_i & (ocb_carry | carry_waiting);
 
@@ -356,8 +381,19 @@ module mor1kx_oman_marocchino
                         ~stall_by_mXspr;
 
 
+  //   Bubble is just used to block FETCH advance (CTRL).
+  //   Detect the situation where there is a jump to register in decode
+  // stage and an instruction in execute stage that will write to that
+  // register.
+  //   A bubble is also inserted when an rfe instruction is in decode stage,
+  // the main purpose of this is to stall fetch while the rfe is propagating
+  // up to WB stage.
+  //   By DECODE exceptions (FETCH exceptions block it in FETCH itself)
+  assign dcod_bubble_o = ((ocb_hazard_b | exe2dec_hazard_b_o) & dcod_op_jr_i) | dcod_op_rfe_i | dcod_an_except;
+
+
   // an internal exception
-  wire pipe_an_except = ocbo00_r[OCBT_FD_AN_EXCEPT_POS] | (ocbo00_r[OCBT_OP_LS_POS] & lsu_excepts_i); 
+  wire pipe_an_except = ocbo00[OCBT_FD_AN_EXCEPT_POS] | (ocbo00[OCBT_OP_LS_POS] & lsu_excepts_i); 
 
   // WB: delay slot and wb-request
   always @(posedge clk `OR_ASYNC_RST) begin
@@ -371,7 +407,7 @@ module mor1kx_oman_marocchino
     end
     else if (padv_wb_i) begin
       wb_rf_wb_o      <= exec_rf_wb & (~pipe_an_except);
-      wb_delay_slot_o <= ocbo00_r[OCBT_DELAY_SLOT_POS];
+      wb_delay_slot_o <= ocbo00[OCBT_DELAY_SLOT_POS];
     end
   end // @clock
 
@@ -379,7 +415,7 @@ module mor1kx_oman_marocchino
   always @(posedge clk) begin
     if (padv_wb_i & (~pipeline_flush_i)) begin
       wb_rfd_adr_o <= exec_rfd_adr;
-      pc_wb_o      <= ocbo00_r[OCBT_PC_MSB:OCBT_PC_LSB];
+      pc_wb_o      <= ocbo00[OCBT_PC_MSB:OCBT_PC_LSB];
     end
   end // @clock
 
@@ -390,7 +426,7 @@ module mor1kx_oman_marocchino
     else if (pipeline_flush_i)
       wb_interrupts_en_o <= 1'b0;
     else if (padv_wb_i)
-      wb_interrupts_en_o <= ocbo00_r[OCBT_INTERRUPTS_EN_POS];
+      wb_interrupts_en_o <= ocbo00[OCBT_INTERRUPTS_EN_POS];
     else
       wb_interrupts_en_o <= 1'b0;
   end // @clock
@@ -423,15 +459,15 @@ module mor1kx_oman_marocchino
     end
     else if (padv_wb_i) begin
       // RFE
-      wb_op_rfe_o            <= ocbo00_r[OCBT_OP_RFE_POS];
+      wb_op_rfe_o            <= ocbo00[OCBT_OP_RFE_POS];
       // FETCH/DECODE exceptions
-      wb_except_ibus_err_o   <= ocbo00_r[6];
-      wb_except_ipagefault_o <= ocbo00_r[5];
-      wb_except_itlb_miss_o  <= ocbo00_r[4];
-      wb_except_ibus_align_o <= ocbo00_r[3];
-      wb_except_illegal_o    <= ocbo00_r[2];
-      wb_except_syscall_o    <= ocbo00_r[1];
-      wb_except_trap_o       <= ocbo00_r[0];
+      wb_except_ibus_err_o   <= ocbo00[6];
+      wb_except_ipagefault_o <= ocbo00[5];
+      wb_except_itlb_miss_o  <= ocbo00[4];
+      wb_except_ibus_align_o <= ocbo00[3];
+      wb_except_illegal_o    <= ocbo00[2];
+      wb_except_syscall_o    <= ocbo00[1];
+      wb_except_trap_o       <= ocbo00[0];
     end
   end // @clock
 
