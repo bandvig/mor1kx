@@ -1,20 +1,27 @@
-/* ****************************************************************************
-  This Source Code Form is subject to the terms of the
-  Open Hardware Description License, v. 1.0. If a copy
-  of the OHDL was not distributed with this file, You
-  can obtain one at http://juliusbaxter.net/ohdl/ohdl.txt
-
-  Description: mor1kx [O]rder [MAN]ager unit for MAROCCHINO pipeline
-    a) collect various state signals from DECODE and EXECUTE modules
-    b) analisys of conflicts
-    c) generate valid flags for advance DECODE and WB
-
-  Copyright (C) 2015 Andrey Bacherov <avbacherov@opencores.org>
-
-***************************************************************************** */
+/////////////////////////////////////////////////////////////////////
+//                                                                 //
+//  mor1kx_oman_marocchino                                         //
+//                                                                 //
+//  Description: mor1kx [O]rder [MAN]ager unit                     //
+//               for MAROCCHINO pipeline                           //
+//    a) collect various state signals from DECODE                 //
+//       and EXECUTE modules                                       //
+//    b) analisys of conflicts                                     //
+//    c) generate valid flags for advance DECODE and WB            //
+//                                                                 //
+/////////////////////////////////////////////////////////////////////
+//                                                                 //
+//   Copyright (C) 2015 Andrey Bacherov                            //
+//                      avbacherov@opencores.org                   //
+//                                                                 //
+//      This Source Code Form is subject to the terms of the       //
+//      Open Hardware Description License, v. 1.0. If a copy       //
+//      of the OHDL was not distributed with this file, You        //
+//      can obtain one at http://juliusbaxter.net/ohdl/ohdl.txt    //
+//                                                                 //
+/////////////////////////////////////////////////////////////////////
 
 `include "mor1kx-defines.v"
-
 
 module mor1kx_oman_marocchino
 #(
