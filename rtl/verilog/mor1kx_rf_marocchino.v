@@ -42,7 +42,6 @@ module mor1kx_rf_marocchino
 
   // pipeline control signals
   input                             padv_decode_i,
-  input                             wb_new_result_i, // 1-clock delayed of padv-wb
   input                             pipeline_flush_i,
 
   // SPR bus
@@ -105,7 +104,7 @@ module mor1kx_rf_marocchino
   //  - writting act could be blocked by exceptions processing
   //    because the istruction isn't completed and
   //    will be restarted by l.rfe
-  wire wb_rf_we = wb_rf_wb_i & wb_new_result_i & (~pipeline_flush_i);
+  wire wb_rf_we = wb_rf_wb_i & ~pipeline_flush_i;
 
 generate
 // Zero-pad unused parts of vector
@@ -289,8 +288,8 @@ endgenerate
   //-----------------------//
 
   //  WB-to-DECODE hazard
-  wire dcod_wb2dec_hazard_a = wb_rf_wb_i & wb_new_result_i & dcod_rfa_req_i & (wb_rfd_adr_i == dcod_rfa_adr_i);
-  wire dcod_wb2dec_hazard_b = wb_rf_wb_i & wb_new_result_i & dcod_rfb_req_i & (wb_rfd_adr_i == dcod_rfb_adr_i);
+  wire dcod_wb2dec_hazard_a = wb_rf_we & dcod_rfa_req_i & (wb_rfd_adr_i == dcod_rfa_adr_i);
+  wire dcod_wb2dec_hazard_b = wb_rf_we & dcod_rfb_req_i & (wb_rfd_adr_i == dcod_rfb_adr_i);
 
   assign dcod_rfa_o = dcod_wb2dec_hazard_a ? wb_result_i :
                                              rfa_dout;

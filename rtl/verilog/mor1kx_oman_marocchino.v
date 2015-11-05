@@ -399,24 +399,38 @@ module mor1kx_oman_marocchino
   assign dcod_bubble_o = ((ocb_hazard_b | exe2dec_hazard_b_o) & dcod_op_jr_i) | dcod_op_rfe_i | dcod_an_except;
 
 
-  // an internal exception
-  wire pipe_an_except = ocbo00[OCBT_FD_AN_EXCEPT_POS] | (ocbo00[OCBT_OP_LS_POS] & lsu_excepts_i); 
-
-  // WB: delay slot and wb-request
+  // WB-request (1-clock to prevent extra writes in RF)
+  // Enable external interrupts (1-clock length by default)
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst) begin
-      wb_rf_wb_o      <= 1'b0;
-      wb_delay_slot_o <= 1'b0;
+      wb_rf_wb_o          <= 1'b0;
+      wb_interrupts_en_o  <= 1'b0;
     end
     else if (pipeline_flush_i) begin
-      wb_rf_wb_o      <= 1'b0;
-      wb_delay_slot_o <= 1'b0;
+      wb_rf_wb_o          <= 1'b0;
+      wb_interrupts_en_o  <= 1'b0;
     end
     else if (padv_wb_i) begin
-      wb_rf_wb_o      <= exec_rf_wb & (~pipe_an_except);
-      wb_delay_slot_o <= ocbo00[OCBT_DELAY_SLOT_POS];
+      wb_rf_wb_o          <= exec_rf_wb;
+      wb_interrupts_en_o  <= ocbo00[OCBT_INTERRUPTS_EN_POS];
+    end
+    else begin
+      wb_rf_wb_o          <= 1'b0;
+      wb_interrupts_en_o  <= 1'b0;
     end
   end // @clock
+
+
+  // WB delay slot
+  always @(posedge clk `OR_ASYNC_RST) begin
+    if (rst)
+      wb_delay_slot_o <= 1'b0;
+    else if (pipeline_flush_i)
+      wb_delay_slot_o <= 1'b0;
+    else if (padv_wb_i)
+      wb_delay_slot_o <= ocbo00[OCBT_DELAY_SLOT_POS];
+  end // @clock
+
 
   // address of destination register & PC
   always @(posedge clk) begin
@@ -426,17 +440,6 @@ module mor1kx_oman_marocchino
     end
   end // @clock
 
-  // Enable external interrupts (1-clock length by default)
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      wb_interrupts_en_o <= 1'b0;
-    else if (pipeline_flush_i)
-      wb_interrupts_en_o <= 1'b0;
-    else if (padv_wb_i)
-      wb_interrupts_en_o <= ocbo00[OCBT_INTERRUPTS_EN_POS];
-    else
-      wb_interrupts_en_o <= 1'b0;
-  end // @clock
 
   // WB EXCEPTIONS (excluding LSU's) & RFE
   always @(posedge clk `OR_ASYNC_RST) begin

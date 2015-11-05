@@ -73,7 +73,6 @@ module mor1kx_ctrl_marocchino
   output                                padv_fetch_o,
   output                                padv_decode_o,
   output                                padv_wb_o,
-  output reg                            wb_new_result_o, // 1-clock delayed of padv-execute
 
   // MF(T)SPR coomand processing
   //  ## iput data and command from DECODE
@@ -395,14 +394,17 @@ module mor1kx_ctrl_marocchino
     dcod_valid_i & dcod_insn_valid_i & ~cmd_op_mXspr;
 
   assign padv_wb_o = (exec_valid_i & ~cmd_op_mXspr) | mXspr_ack;
+
+  // 1-clock delayed padv-wb
+  reg wb_new_result;
   // ---
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
-      wb_new_result_o <= 1'b0;
+      wb_new_result <= 1'b0;
     else if (pipeline_flush_o)
-      wb_new_result_o <= 1'b0;
+      wb_new_result <= 1'b0;
     else
-      wb_new_result_o <= padv_wb_o;
+      wb_new_result <= padv_wb_o;
   end // @ clock
 
   // Pipeline flush by DU/exceptions/rfe
@@ -511,7 +513,7 @@ endgenerate // FPU related: FPCSR and exceptions
       spr_sr[`OR1K_SPR_SR_DSX] <= spr_write_dat[`OR1K_SPR_SR_DSX];
       spr_sr[`OR1K_SPR_SR_EPH] <= spr_write_dat[`OR1K_SPR_SR_EPH];
     end
-    else if (wb_new_result_o) begin
+    else if (wb_new_result) begin
       if (wb_op_rfe_i) begin
         // Skip FO. TODO: make this even more selective.
         spr_sr[14:0] <= spr_esr[14:0];
@@ -612,7 +614,7 @@ endgenerate // FPU related: FPCSR and exceptions
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
       spr_ppc <= OPTION_RESET_PC;
-    else if (wb_new_result_o)
+    else if (wb_new_result)
       spr_ppc <= pc_wb_i;
   end // @ clock
 
@@ -642,10 +644,10 @@ endgenerate // FPU related: FPCSR and exceptions
       spr_npc <= stepped_into_rfe        ? spr_epcr              :
                  stepped_into_delay_slot ? last_branch_target_pc :
                  stepped_into_exception  ? exception_pc_addr     :
-                 wb_new_result_o         ? pc_nxt_wb             :
+                 wb_new_result         ? pc_nxt_wb             :
                                            spr_npc;
     end
-    else if (wb_new_result_o) begin
+    else if (wb_new_result) begin
       spr_npc <= (du_stall_on_trap & except_trap_i) ? pc_wb_i     :
                  du_cpu_stall                       ? ctrl_epcr_o :
                                                       pc_nxt_wb;
@@ -1139,7 +1141,7 @@ if (FEATURE_DEBUGUNIT != "NONE") begin : du
   /* goes out to the debug interface and comes back 1 cycle later
      via du_stall_i */
   assign du_stall_o = stepping & pstep[4] |
-                     (du_stall_on_trap & wb_new_result_o & except_trap_i); // DU
+                     (du_stall_on_trap & wb_new_result & except_trap_i); // DU
 
   /* Pulse to indicate we're restarting after a stall */
   assign du_restart_from_stall = du_stall_r & (~du_stall_i);
@@ -1167,7 +1169,7 @@ if (FEATURE_DEBUGUNIT != "NONE") begin : du
       stepped_into_exception <= 1'b0;
     else if (du_restart_from_stall)
       stepped_into_exception <= 1'b0;
-    else if (stepping & exception & wb_new_result_o) // DU
+    else if (stepping & exception & wb_new_result) // DU
       stepped_into_exception <= 1'b1;
   end // @ clock
 
@@ -1207,7 +1209,7 @@ if (FEATURE_DEBUGUNIT != "NONE") begin : du
       branch_step <= 0;
     else if (stepping & pstep[2])
       branch_step <= {branch_step[0], dcod_branch_i};
-    else if ((~stepping) & wb_new_result_o) // DU
+    else if ((~stepping) & wb_new_result) // DU
       branch_step <= {branch_step[0], wb_delay_slot_i};// DU
   end // @ clock
 
@@ -1268,7 +1270,7 @@ if (FEATURE_DEBUGUNIT != "NONE") begin : du
       spr_drr <= 0;
     else if (spr_we & (spr_addr == `OR1K_SPR_DRR_ADDR))
       spr_drr[13:0] <= spr_write_dat[13:0];
-    else if (du_stall_on_trap & wb_new_result_o & except_trap_i) // DU
+    else if (du_stall_on_trap & wb_new_result & except_trap_i) // DU
       spr_drr[`OR1K_SPR_DRR_TE] <= 1'b1;
   end // @ clock
 

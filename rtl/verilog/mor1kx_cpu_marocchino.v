@@ -319,7 +319,6 @@ module mor1kx_cpu_marocchino
   wire padv_fetch;
   wire padv_decode;
   wire padv_wb;
-  wire wb_new_result; // 1-clock delayed of padv-wb
   wire pipeline_flush;
 
   // Exceptions: reported from FETCH to OMAN
@@ -774,7 +773,6 @@ module mor1kx_cpu_marocchino
     .rst                              (rst),
     // pipeline control signals
     .padv_decode_i                    (padv_decode), // RF
-    .wb_new_result_i                  (wb_new_result), // RF (1-clock delayed of padv-wb)
     .pipeline_flush_i                 (pipeline_flush), // RF
     // SPR bus
     .spr_bus_addr_i                   (spr_bus_addr_o[15:0]), // RF
@@ -966,7 +964,6 @@ module mor1kx_cpu_marocchino
     .padv_fetch_o                     (padv_fetch), // CTRL
     .padv_decode_o                    (padv_decode), // CTRL
     .padv_wb_o                        (padv_wb), // CTRL
-    .wb_new_result_o                  (wb_new_result), // CTRL (1-clock delayed of padv-wb)
 
     // MF(T)SPR coomand processing
     //  ## iput data & command from DECODE
