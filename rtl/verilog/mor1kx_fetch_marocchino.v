@@ -976,16 +976,17 @@ endgenerate
   // IMMU exceptions with enable
   assign except_itlb_miss  = immu_tlb_miss  & immu_excepts_enabled;
   assign except_ipagefault = immu_pagefault & immu_excepts_enabled;
-  assign immu_an_except    = (immu_tlb_miss | immu_tlb_miss) & immu_excepts_enabled;
+  assign immu_an_except    = (immu_tlb_miss | immu_pagefault) & immu_excepts_enabled;
 
-  mor1kx_immu
+
+  mor1kx_immu_marocchino
   #(
-    .FEATURE_IMMU_HW_TLB_RELOAD(FEATURE_IMMU_HW_TLB_RELOAD),
-    .OPTION_OPERAND_WIDTH(OPTION_OPERAND_WIDTH),
-    .OPTION_IMMU_SET_WIDTH(OPTION_IMMU_SET_WIDTH),
-    .OPTION_IMMU_WAYS(OPTION_IMMU_WAYS)
+    .FEATURE_IMMU_HW_TLB_RELOAD (FEATURE_IMMU_HW_TLB_RELOAD),
+    .OPTION_OPERAND_WIDTH       (OPTION_OPERAND_WIDTH),
+    .OPTION_IMMU_SET_WIDTH      (OPTION_IMMU_SET_WIDTH),
+    .OPTION_IMMU_WAYS           (OPTION_IMMU_WAYS)
   )
-  mor1kx_immu
+  u_immu
   (
     .clk                            (clk),
     .rst                            (rst),
@@ -1000,14 +1001,13 @@ endgenerate
     .cache_inhibit_o                (immu_cache_inhibit), // IMMU
     .tlb_miss_o                     (immu_tlb_miss), // IMMU
     .pagefault_o                    (immu_pagefault), // IMMU
-    .busy_o                         (), // IMMU (not used)
     // TLB HW reload face. MAROCCHINO_TODO: not implemented
-    .tlb_reload_ack_i               (1'b0), // IMMU
-    .tlb_reload_data_i              ({OPTION_OPERAND_WIDTH{1'b0}}), // IMMU
-    .tlb_reload_pagefault_clear_i   (1'b0), // IMMU
     .tlb_reload_req_o               (), // IMMU
+    .tlb_reload_ack_i               (1'b0), // IMMU
     .tlb_reload_addr_o              (), // IMMU
+    .tlb_reload_data_i              ({OPTION_OPERAND_WIDTH{1'b0}}), // IMMU
     .tlb_reload_pagefault_o         (), // IMMU
+    .tlb_reload_pagefault_clear_i   (1'b0), // IMMU
     .tlb_reload_busy_o              (), // IMMU
     // SPR bus face
     .spr_bus_addr_i                 (spr_bus_addr_i[15:0]), // IMMU
