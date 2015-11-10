@@ -60,7 +60,7 @@ module mor1kx_immu_marocchino
   input                                 spr_bus_stb_i,
   input      [OPTION_OPERAND_WIDTH-1:0] spr_bus_dat_i,
   output     [OPTION_OPERAND_WIDTH-1:0] spr_bus_dat_o,
-  output                                spr_bus_ack_o
+  output reg                            spr_bus_ack_o
 );
 
   wire  [OPTION_OPERAND_WIDTH-1:0] itlb_match_dout[OPTION_IMMU_WAYS-1:0];
@@ -99,8 +99,6 @@ module mor1kx_immu_marocchino
   wire                       [1:0] spr_way_idx;
   reg                        [1:0] spr_way_idx_r;
 
-  wire      [OPTION_IMMU_WAYS-1:0] way_huge;
-
   wire      [OPTION_IMMU_WAYS-1:0] way_hit;
   wire      [OPTION_IMMU_WAYS-1:0] way_huge_hit;
 
@@ -112,10 +110,7 @@ module mor1kx_immu_marocchino
   reg                              sxe;
   reg                              uxe;
 
-  reg                              spr_bus_ack;
-  reg                              spr_bus_ack_r;
-  wire  [OPTION_OPERAND_WIDTH-1:0] spr_bus_dat;
-  reg   [OPTION_OPERAND_WIDTH-1:0] spr_bus_dat_r;
+  wire                             spr_immu_stb;    // SPR acceess 
 
   wire                             block_excepts; // by SPR access
 
@@ -123,103 +118,13 @@ module mor1kx_immu_marocchino
   integer                          j;
 
 
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      spr_bus_ack <= 1'b0;
-    else if (spr_bus_stb_i & (spr_bus_addr_i[15:11] == 5'd2))
-      spr_bus_ack <= 1'b1;
-    else
-      spr_bus_ack <= 1'b0;
-  end // @ clock
-
-  always @(posedge clk)
-    spr_bus_ack_r <= spr_bus_ack;
-
-  always @(posedge clk)
-    if (spr_bus_ack & ~spr_bus_ack_r)
-      spr_bus_dat_r <= spr_bus_dat;
-
-  assign spr_bus_ack_o = spr_bus_ack & spr_bus_stb_i &
-        (spr_bus_addr_i[15:11] == 5'd2);
-
-generate
-for (i = 0; i < OPTION_IMMU_WAYS; i=i+1) begin : ways
-  assign way_huge[i] = &itlb_match_huge_dout[i][1:0]; // huge & valid
-
-  assign way_hit[i] = (itlb_match_dout[i][31:13] == virt_addr_match_i[31:13]) &
-                      itlb_match_dout[i][0];  // valid bit
-
-  assign way_huge_hit[i] = (itlb_match_huge_dout[i][31:24] == virt_addr_match_i[31:24]) &
-                            itlb_match_huge_dout[i][0];
-end
-endgenerate
-
-  always @(*) begin
-    tlb_miss_o      = ~tlb_reload_pagefault & ~block_excepts;
-    phys_addr_o     = virt_addr_match_i[23:0];
-    sxe             = 1'b0;
-    uxe             = 1'b0;
-    cache_inhibit_o = 1'b0;
-
-    for (j = 0; j < OPTION_IMMU_WAYS; j=j+1) begin
-      if ((way_huge[j] & way_huge_hit[j]) | (~way_huge[j] & way_hit[j]))
-        tlb_miss_o = 1'b0;
-
-      if (way_huge[j] & way_huge_hit[j]) begin
-        phys_addr_o     = {itlb_trans_huge_dout[j][31:24], virt_addr_match_i[23:0]};
-        sxe             = itlb_trans_huge_dout[j][6];
-        uxe             = itlb_trans_huge_dout[j][7];
-        cache_inhibit_o = itlb_trans_huge_dout[j][1];
-      end 
-      else if (~way_huge[j] & way_hit[j])begin
-        phys_addr_o     = {itlb_trans_dout[j][31:13], virt_addr_match_i[12:0]};
-        sxe             = itlb_trans_dout[j][6];
-        uxe             = itlb_trans_dout[j][7];
-        cache_inhibit_o = itlb_trans_dout[j][1];
-      end
-
-      itlb_match_we[j] = 1'b0;
-      if (itlb_match_reload_we & ~tlb_reload_huge)
-        itlb_match_we[j] = 1'b1;
-      if (j == spr_way_idx)
-        itlb_match_we[j] = itlb_match_spr_cs & spr_bus_we_i & ~spr_bus_ack;
-
-      itlb_trans_we[j] = 1'b0;
-      if (itlb_trans_reload_we & ~tlb_reload_huge)
-        itlb_trans_we[j] = 1'b1;
-      if (j == spr_way_idx)
-        itlb_trans_we[j] = itlb_trans_spr_cs & spr_bus_we_i & ~spr_bus_ack;
-    end
-  end // loop by ways
-
-  assign pagefault_o = (supervisor_mode_i ? ~sxe : ~uxe) & ~tlb_reload_busy_o & ~block_excepts;
-
-  assign block_excepts = enable_i &
-   (((itlb_match_spr_cs | itlb_trans_spr_cs) & ~spr_bus_ack) |
-    ((itlb_match_spr_cs_r | itlb_trans_spr_cs_r) & spr_bus_ack & ~spr_bus_ack_r));
-
-  assign spr_way_idx = {spr_bus_addr_i[10], spr_bus_addr_i[8]};
-
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst) begin
-      itlb_match_spr_cs_r <= 1'b0;
-      itlb_trans_spr_cs_r <= 1'b0;
-      immucr_spr_cs_r     <= 1'b0;
-      spr_way_idx_r       <= 2'd0;
-    end
-    else begin
-      itlb_match_spr_cs_r <= itlb_match_spr_cs;
-      itlb_trans_spr_cs_r <= itlb_trans_spr_cs;
-      immucr_spr_cs_r     <= immucr_spr_cs;
-      spr_way_idx_r       <= spr_way_idx;
-    end
-  end // @ clock
+  assign spr_immu_stb = spr_bus_stb_i & (spr_bus_addr_i[15:11] == `OR1K_SPR_IMMU_BASE);
 
 generate 
 /* verilator lint_off WIDTH */
 if (FEATURE_IMMU_HW_TLB_RELOAD != "NONE") begin
 /* verilator lint_on WIDTH */
-  assign immucr_spr_cs = spr_bus_stb_i & (spr_bus_addr_i == `OR1K_SPR_IMMUCR_ADDR);
+  assign immucr_spr_cs = spr_immu_stb & (~(|spr_bus_addr_i[10:0]));
 
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
@@ -235,24 +140,119 @@ else begin
 end
 endgenerate
 
-  assign itlb_match_spr_cs = spr_bus_stb_i & (spr_bus_addr_i[15:11] == 5'd2) &
-                             (|spr_bus_addr_i[10:9]) & ~spr_bus_addr_i[7];
+  always @(posedge clk `OR_ASYNC_RST) begin
+    if (rst)
+      spr_bus_ack_o <= 1'b0;
+    else if (spr_bus_ack_o)
+      spr_bus_ack_o <= 1'b0;
+    else if (spr_immu_stb)
+      spr_bus_ack_o <= 1'b1;
+  end // @ clock
 
-  assign itlb_trans_spr_cs = spr_bus_stb_i & (spr_bus_addr_i[15:11] == 5'd2) &
-                             (|spr_bus_addr_i[10:9]) & spr_bus_addr_i[7];
+  assign itlb_match_spr_cs = spr_immu_stb & (|spr_bus_addr_i[10:9]) & ~spr_bus_addr_i[7];
 
-  assign itlb_match_addr = (itlb_match_spr_cs & ~spr_bus_ack) ?
+  assign itlb_trans_spr_cs = spr_immu_stb & (|spr_bus_addr_i[10:9]) &  spr_bus_addr_i[7];
+
+  assign block_excepts = enable_i &
+   (((itlb_match_spr_cs | itlb_trans_spr_cs) & ~spr_bus_ack_o) |
+    ((itlb_match_spr_cs_r | itlb_trans_spr_cs_r) & spr_bus_ack_o));
+
+  assign spr_way_idx = {spr_bus_addr_i[10], spr_bus_addr_i[8]};
+
+  always @(posedge clk `OR_ASYNC_RST) begin
+    if (rst) begin
+      itlb_match_spr_cs_r <= 1'b0;
+      itlb_trans_spr_cs_r <= 1'b0;
+      immucr_spr_cs_r     <= 1'b0;
+      spr_way_idx_r       <= 2'd0;
+    end
+    else if (spr_bus_ack_o) begin
+      itlb_match_spr_cs_r <= 1'b0;
+      itlb_trans_spr_cs_r <= 1'b0;
+      immucr_spr_cs_r     <= 1'b0;
+      spr_way_idx_r       <= 2'd0;
+    end
+    else if (spr_immu_stb) begin
+      itlb_match_spr_cs_r <= itlb_match_spr_cs;
+      itlb_trans_spr_cs_r <= itlb_trans_spr_cs;
+      immucr_spr_cs_r     <= immucr_spr_cs;
+      spr_way_idx_r       <= spr_way_idx;
+    end
+  end // @ clock
+
+  assign spr_bus_dat_o = itlb_match_spr_cs_r ? itlb_match_dout[spr_way_idx_r] :
+                         itlb_trans_spr_cs_r ? itlb_trans_dout[spr_way_idx_r] :
+                         immucr_spr_cs_r     ? immucr                         :
+                                               {OPTION_OPERAND_WIDTH{1'b0}};
+
+
+generate
+for (i = 0; i < OPTION_IMMU_WAYS; i=i+1) begin : ways
+  // 8KB page hit
+  assign way_hit[i] = (itlb_match_dout[i][31:13] == virt_addr_match_i[31:13]) & // address hit
+                      ~(&itlb_match_huge_dout[i][1:0]) &                        // not valid huge
+                      itlb_match_dout[i][0];                                    // valid bit
+  // Huge page hit
+  assign way_huge_hit[i] = (itlb_match_huge_dout[i][31:24] == virt_addr_match_i[31:24]) & // address hit
+                           itlb_match_huge_dout[i][1] & itlb_match_huge_dout[i][0];       // valid huge
+end
+endgenerate
+
+  always @(*) begin
+    tlb_miss_o      = ~tlb_reload_pagefault & ~block_excepts;
+    phys_addr_o     = virt_addr_match_i[23:0];
+    sxe             = 1'b0;
+    uxe             = 1'b0;
+    cache_inhibit_o = 1'b0;
+
+    for (j = 0; j < OPTION_IMMU_WAYS; j=j+1) begin
+      if (way_huge_hit[j] | way_hit[j])
+        tlb_miss_o = 1'b0;
+
+      if (way_huge_hit[j]) begin
+        phys_addr_o     = {itlb_trans_huge_dout[j][31:24], virt_addr_match_i[23:0]};
+        sxe             = itlb_trans_huge_dout[j][6];
+        uxe             = itlb_trans_huge_dout[j][7];
+        cache_inhibit_o = itlb_trans_huge_dout[j][1];
+      end 
+      else if (way_hit[j])begin
+        phys_addr_o     = {itlb_trans_dout[j][31:13], virt_addr_match_i[12:0]};
+        sxe             = itlb_trans_dout[j][6];
+        uxe             = itlb_trans_dout[j][7];
+        cache_inhibit_o = itlb_trans_dout[j][1];
+      end
+
+      itlb_match_we[j] = 1'b0;
+      if (itlb_match_reload_we & ~tlb_reload_huge)
+        itlb_match_we[j] = 1'b1;
+      if (j == spr_way_idx)
+        itlb_match_we[j] = itlb_match_spr_cs & spr_bus_we_i & ~spr_bus_ack_o;
+
+      itlb_trans_we[j] = 1'b0;
+      if (itlb_trans_reload_we & ~tlb_reload_huge)
+        itlb_trans_we[j] = 1'b1;
+      if (j == spr_way_idx)
+        itlb_trans_we[j] = itlb_trans_spr_cs & spr_bus_we_i & ~spr_bus_ack_o;
+    end
+  end // loop by ways
+
+  assign pagefault_o = (supervisor_mode_i ? ~sxe : ~uxe) & ~tlb_reload_busy_o & ~block_excepts;
+
+
+
+
+  assign itlb_match_addr = (itlb_match_spr_cs & ~spr_bus_ack_o) ?
           spr_bus_addr_i[OPTION_IMMU_SET_WIDTH-1:0] :
           virt_addr_i[13+(OPTION_IMMU_SET_WIDTH-1):13];
 
-  assign itlb_trans_addr = (itlb_trans_spr_cs & ~spr_bus_ack) ?
+  assign itlb_trans_addr = (itlb_trans_spr_cs & ~spr_bus_ack_o) ?
           spr_bus_addr_i[OPTION_IMMU_SET_WIDTH-1:0] :
           virt_addr_i[13+(OPTION_IMMU_SET_WIDTH-1):13];
 
-  assign itlb_match_din = (itlb_match_spr_cs & spr_bus_we_i & ~spr_bus_ack) ?
+  assign itlb_match_din = (itlb_match_spr_cs & spr_bus_we_i & ~spr_bus_ack_o) ?
                           spr_bus_dat_i : itlb_match_reload_din;
 
-  assign itlb_trans_din = (itlb_trans_spr_cs & spr_bus_we_i & ~spr_bus_ack) ?
+  assign itlb_trans_din = (itlb_trans_spr_cs & spr_bus_we_i & ~spr_bus_ack_o) ?
                           spr_bus_dat_i : itlb_trans_reload_din;
 
   assign itlb_match_huge_addr = virt_addr_i[24+(OPTION_IMMU_SET_WIDTH-1):24];
@@ -261,14 +261,6 @@ endgenerate
   assign itlb_match_huge_we = itlb_match_reload_we & tlb_reload_huge;
   assign itlb_trans_huge_we = itlb_trans_reload_we & tlb_reload_huge;
 
-  assign spr_bus_dat = itlb_match_spr_cs_r ? itlb_match_dout[spr_way_idx_r] :
-                       itlb_trans_spr_cs_r ? itlb_trans_dout[spr_way_idx_r] :
-                       immucr_spr_cs_r     ? immucr                         :
-                                             {OPTION_OPERAND_WIDTH{1'b0}};
-
-  // Use registered value on all but the first cycle spr_bus_ack is asserted
-  assign spr_bus_dat_o = (spr_bus_ack & ~spr_bus_ack_r) ? spr_bus_dat :
-                                                          spr_bus_dat_r;
 
   localparam TLB_IDLE            = 3'd0;
   localparam TLB_GET_PTE_POINTER = 3'd1;

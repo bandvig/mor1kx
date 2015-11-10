@@ -1020,11 +1020,8 @@ endgenerate
 
 
   // IMMU
-  assign spr_access_ack[`OR1K_SPR_IMMU_BASE] = spr_bus_ack_immu_i &
-                                               spr_access[`OR1K_SPR_IMMU_BASE];
-  assign spr_internal_read_dat[`OR1K_SPR_IMMU_BASE] =
-    spr_bus_dat_immu_i &
-    {OPTION_OPERAND_WIDTH{spr_access[`OR1K_SPR_IMMU_BASE]}};
+  assign spr_access_ack[`OR1K_SPR_IMMU_BASE]        = spr_bus_ack_immu_i;
+  assign spr_internal_read_dat[`OR1K_SPR_IMMU_BASE] = spr_bus_dat_immu_i;
 
 
   // DCACHE
