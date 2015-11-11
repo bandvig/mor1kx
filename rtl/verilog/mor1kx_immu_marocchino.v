@@ -28,24 +28,34 @@ module mor1kx_immu_marocchino
 #(
   parameter FEATURE_IMMU_HW_TLB_RELOAD = "NONE",
   parameter OPTION_OPERAND_WIDTH       = 32,
+  parameter OPTION_RESET_PC            = {{(OPTION_OPERAND_WIDTH-13){1'b0}},
+                                          `OR1K_RESET_VECTOR,8'd0},
   parameter OPTION_IMMU_SET_WIDTH      = 6,
   parameter OPTION_IMMU_WAYS           = 1
 )
 (
+  // clock & reset 
   input                                 clk,
   input                                 rst,
 
+  // controls
+  input                                 adv_i,        // advance
+
+  // configuration
   input                                 enable_i,
   input                                 supervisor_mode_i,
 
+  // address translation
   input      [OPTION_OPERAND_WIDTH-1:0] virt_addr_i,
-  input      [OPTION_OPERAND_WIDTH-1:0] virt_addr_match_i,
+  output reg [OPTION_OPERAND_WIDTH-1:0] virt_addr_fetch_o,
   output reg [OPTION_OPERAND_WIDTH-1:0] phys_addr_o,
-  output reg                            cache_inhibit_o,
 
+  // flags
+  output reg                            cache_inhibit_o,
   output reg                            tlb_miss_o,
   output                                pagefault_o,
 
+  // HW reload
   output reg                            tlb_reload_req_o,
   input                                 tlb_reload_ack_i,
   output reg [OPTION_OPERAND_WIDTH-1:0] tlb_reload_addr_o,
@@ -116,6 +126,24 @@ module mor1kx_immu_marocchino
 
   genvar                           i;
   integer                          j;
+
+
+  // ICACHE/IMMU match address store register
+  always @(posedge clk `OR_ASYNC_RST) begin
+    if (rst)
+      virt_addr_fetch_o <= OPTION_RESET_PC - 4; // will be restored on 1st advance
+    else if (adv_i)
+      virt_addr_fetch_o <= virt_addr_i;
+  end // @ clock
+
+
+  //---------------//
+  // SPR interface //
+  //---------------//
+
+  // Note #1
+  //   We don't expect R/W-collisions for SPRbus vs FETCH advance 
+  // because we execute l.mt(f)spr after pipeline stalling (see OMAN)
 
 
   assign spr_immu_stb = spr_bus_stb_i & (spr_bus_addr_i[15:11] == `OR1K_SPR_IMMU_BASE);
@@ -189,18 +217,18 @@ endgenerate
 generate
 for (i = 0; i < OPTION_IMMU_WAYS; i=i+1) begin : ways
   // 8KB page hit
-  assign way_hit[i] = (itlb_match_dout[i][31:13] == virt_addr_match_i[31:13]) & // address hit
+  assign way_hit[i] = (itlb_match_dout[i][31:13] == virt_addr_fetch_o[31:13]) & // address hit
                       ~(&itlb_match_huge_dout[i][1:0]) &                        // not valid huge
                       itlb_match_dout[i][0];                                    // valid bit
   // Huge page hit
-  assign way_huge_hit[i] = (itlb_match_huge_dout[i][31:24] == virt_addr_match_i[31:24]) & // address hit
+  assign way_huge_hit[i] = (itlb_match_huge_dout[i][31:24] == virt_addr_fetch_o[31:24]) & // address hit
                            itlb_match_huge_dout[i][1] & itlb_match_huge_dout[i][0];       // valid huge
 end
 endgenerate
 
   always @(*) begin
     tlb_miss_o      = ~tlb_reload_pagefault & ~block_excepts;
-    phys_addr_o     = virt_addr_match_i[23:0];
+    phys_addr_o     = virt_addr_fetch_o[23:0];
     sxe             = 1'b0;
     uxe             = 1'b0;
     cache_inhibit_o = 1'b0;
@@ -210,13 +238,13 @@ endgenerate
         tlb_miss_o = 1'b0;
 
       if (way_huge_hit[j]) begin
-        phys_addr_o     = {itlb_trans_huge_dout[j][31:24], virt_addr_match_i[23:0]};
+        phys_addr_o     = {itlb_trans_huge_dout[j][31:24], virt_addr_fetch_o[23:0]};
         sxe             = itlb_trans_huge_dout[j][6];
         uxe             = itlb_trans_huge_dout[j][7];
         cache_inhibit_o = itlb_trans_huge_dout[j][1];
       end 
       else if (way_hit[j])begin
-        phys_addr_o     = {itlb_trans_dout[j][31:13], virt_addr_match_i[12:0]};
+        phys_addr_o     = {itlb_trans_dout[j][31:13], virt_addr_fetch_o[12:0]};
         sxe             = itlb_trans_dout[j][6];
         uxe             = itlb_trans_dout[j][7];
         cache_inhibit_o = itlb_trans_dout[j][1];
@@ -318,7 +346,7 @@ if (FEATURE_IMMU_HW_TLB_RELOAD != "NONE") begin
         tlb_reload_req_o <= 1'b0;
         if (do_reload) begin
           tlb_reload_req_o  <= 1'b1;
-          tlb_reload_addr_o <= {immucr[31:10],virt_addr_match_i[31:24],2'b00};
+          tlb_reload_addr_o <= {immucr[31:10],virt_addr_fetch_o[31:24],2'b00};
           tlb_reload_state  <= TLB_GET_PTE_POINTER;
         end
       end // tlb reload idle
@@ -345,7 +373,7 @@ if (FEATURE_IMMU_HW_TLB_RELOAD != "NONE") begin
             tlb_reload_state <= TLB_GET_PTE;
           end
           else begin
-            tlb_reload_addr_o <= {tlb_reload_data_i[31:13],virt_addr_match_i[23:13],2'b00};
+            tlb_reload_addr_o <= {tlb_reload_data_i[31:13],virt_addr_fetch_o[23:13],2'b00};
             tlb_reload_state  <= TLB_GET_PTE;
           end
         end
@@ -378,7 +406,7 @@ if (FEATURE_IMMU_HW_TLB_RELOAD != "NONE") begin
 
             // Match register generation.
             // VPN
-            itlb_match_reload_din[31:13] <= virt_addr_match_i[31:13];
+            itlb_match_reload_din[31:13] <= virt_addr_fetch_o[31:13];
             // PL1
             itlb_match_reload_din[1] <= tlb_reload_huge;
             // Valid
@@ -419,48 +447,55 @@ endgenerate
 
 generate
 for (i = 0; i < OPTION_IMMU_WAYS; i=i+1) begin : itlb
-   // ITLB match registers
-   mor1kx_true_dpram_sclk
-     #(
-       .ADDR_WIDTH(OPTION_IMMU_SET_WIDTH),
-       .DATA_WIDTH(OPTION_OPERAND_WIDTH)
-       )
-   itlb_match_regs
-      (
-       // Outputs
-       .dout_a (itlb_match_dout[i]),
-       .dout_b (itlb_match_huge_dout[i]),
-       // Inputs
-       .clk    (clk),
-       .addr_a (itlb_match_addr),
-       .we_a   (itlb_match_we[i]),
-       .din_a  (itlb_match_din),
-       .addr_b (itlb_match_huge_addr),
-       .we_b   (itlb_match_huge_we),
-       .din_b  (itlb_match_reload_din)
-       );
+  // ITLB match registers
+  mor1kx_dpram_en_w1st_sclk
+  #(
+    .ADDR_WIDTH     (OPTION_IMMU_SET_WIDTH),
+    .DATA_WIDTH     (OPTION_OPERAND_WIDTH),
+    .CLEAR_ON_INIT  (0)
+  )
+  itlb_match_regs
+  (
+    // common clock
+    .clk    (clk),
+    // port "a": 8KB pages
+    .en_a   (1'b1), // ram_re | itlb_match_re[i] | itlb_match_we[i]
+    .we_a   (itlb_match_we[i]),
+    .addr_a (itlb_match_addr),
+    .din_a  (itlb_match_din),
+    .dout_a (itlb_match_dout[i]),
+    // port "b": Huge pages
+    .en_b   (1'b1), // ram_re | itlb_match_huge_we
+    .we_b   (itlb_match_huge_we),
+    .addr_b (itlb_match_huge_addr),
+    .din_b  (itlb_match_reload_din),
+    .dout_b (itlb_match_huge_dout[i])
+  );
 
-
-   // ITLB translate registers
-   mor1kx_true_dpram_sclk
-     #(
-       .ADDR_WIDTH(OPTION_IMMU_SET_WIDTH),
-       .DATA_WIDTH(OPTION_OPERAND_WIDTH)
-       )
-   itlb_translate_regs
-     (
-      // Outputs
-      .dout_a (itlb_trans_dout[i]),
-      .dout_b (itlb_trans_huge_dout[i]),
-      // Inputs
-      .clk    (clk),
-      .addr_a (itlb_trans_addr),
-      .we_a   (itlb_trans_we[i]),
-      .din_a  (itlb_trans_din),
-      .addr_b (itlb_trans_huge_addr),
-      .we_b   (itlb_trans_huge_we),
-      .din_b  (itlb_trans_reload_din)
-      );
+  // ITLB translate registers
+  mor1kx_dpram_en_w1st_sclk
+  #(
+    .ADDR_WIDTH     (OPTION_IMMU_SET_WIDTH),
+    .DATA_WIDTH     (OPTION_OPERAND_WIDTH),
+    .CLEAR_ON_INIT  (0)
+  )
+  itlb_trans_regs
+  (
+    // common clock
+    .clk    (clk),
+    // port "a": 8KB pages
+    .en_a   (1'b1), // ram_re | itlb_trans_re[i] | itlb_trans_we[i]
+    .we_a   (itlb_trans_we[i]),
+    .addr_a (itlb_trans_addr),
+    .din_a  (itlb_trans_din),
+    .dout_a (itlb_trans_dout[i]),
+    // port "b": Huge pages
+    .en_b   (1'b1), // ram_re | itlb_trans_huge_we
+    .we_b   (itlb_trans_huge_we),
+    .addr_b (itlb_trans_huge_addr),
+    .din_b  (itlb_trans_reload_din),
+    .dout_b (itlb_trans_huge_dout[i])
+   );
 end
 endgenerate
 

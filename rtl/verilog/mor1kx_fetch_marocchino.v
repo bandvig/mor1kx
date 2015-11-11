@@ -212,7 +212,7 @@ module mor1kx_fetch_marocchino
   //   It is also play role of virtual address store to use
   // in cases of ICACHE miss, stalling due to exceptions
   // or till IBUS answer and restart fetching after SPR transaction.
-  reg [OPTION_OPERAND_WIDTH-1:0] s1o_virt_addr;
+  wire [OPTION_OPERAND_WIDTH-1:0] virt_addr_fetch;
 
   // to s3: program counter
   reg [OPTION_OPERAND_WIDTH-1:0] s2o_pc;
@@ -228,7 +228,7 @@ module mor1kx_fetch_marocchino
   wire fetch_excepts = immu_an_except | except_ibus_err;
 
   // flag to indicate that ICACHE/IBUS is fetching next insn
-  assign imem_fetching_next_insn = s1o_virt_addr[2] ^ s2o_pc[2];
+  assign imem_fetching_next_insn = virt_addr_fetch[2] ^ s2o_pc[2];
 
 
   /************************************************/
@@ -341,14 +341,14 @@ module mor1kx_fetch_marocchino
 
 
   // regular value of next PC
-  wire [OPTION_OPERAND_WIDTH-1:0] s1t_pc_next = s1o_virt_addr + 4;
+  wire [OPTION_OPERAND_WIDTH-1:0] s1t_pc_next = virt_addr_fetch + 4;
 
   // Select the PC for next fetch
   wire [OPTION_OPERAND_WIDTH-1:0] s1t_pc_mux =
     // Debug (MAROCCHINO_TODO)
     du_restart_i                                 ? du_restart_pc_i :
     // on exceptions, pipeline flush or SPR access (because no padv-*)
-    (~padv_s1 | fetch_excepts | flush_by_ctrl)   ? s1o_virt_addr :
+    (~padv_s1 | fetch_excepts | flush_by_ctrl)   ? virt_addr_fetch :
     // padv-s1 and neither exceptions nor pipeline flush
     (ctrl_branch_exception_i                     ? ctrl_branch_except_pc_i :
      take_ds                                     ? s1t_pc_next :
@@ -407,17 +407,9 @@ module mor1kx_fetch_marocchino
   assign ic_enabled = ~immu_rst_excepts & ~assert_spr_bus_req & ic_enabled_r;
 
 
-  // ICACHE/IMMU match address store register
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      s1o_virt_addr <= OPTION_RESET_PC - 4; // will be restored on 1st advance
-    else if (padv_s1 & ~fetch_excepts & ~flush_by_ctrl)
-      s1o_virt_addr <= s1t_pc_mux;
-  end // @ clock
-
   // Select physical address depending on IMMU enabled/disabled
   wire [OPTION_OPERAND_WIDTH-1:0] s2t_phys_addr_mux =
-    immu_enabled_r ? immu_phys_addr : s1o_virt_addr;
+    immu_enabled_r ? immu_phys_addr : virt_addr_fetch;
 
 
   /****************************************/
@@ -588,7 +580,7 @@ module mor1kx_fetch_marocchino
     else if (flush_by_ctrl)
       s2o_pc <= s2o_pc;
     else if (padv_fetch_i & ((~flush_by_branch & ~flush_by_mispredict) | fetch_excepts))
-      s2o_pc <= s1o_virt_addr;
+      s2o_pc <= virt_addr_fetch;
   end // @ clock
 
 
@@ -978,11 +970,15 @@ endgenerate
   assign except_ipagefault = immu_pagefault & immu_excepts_enabled;
   assign immu_an_except    = (immu_tlb_miss | immu_pagefault) & immu_excepts_enabled;
 
+  // advance IMMU
+  wire immu_adv = padv_s1 & ~fetch_excepts & ~flush_by_ctrl;
 
+  // IMMU unit
   mor1kx_immu_marocchino
   #(
     .FEATURE_IMMU_HW_TLB_RELOAD (FEATURE_IMMU_HW_TLB_RELOAD),
     .OPTION_OPERAND_WIDTH       (OPTION_OPERAND_WIDTH),
+    .OPTION_RESET_PC            (OPTION_RESET_PC),
     .OPTION_IMMU_SET_WIDTH      (OPTION_IMMU_SET_WIDTH),
     .OPTION_IMMU_WAYS           (OPTION_IMMU_WAYS)
   )
@@ -990,14 +986,16 @@ endgenerate
   (
     .clk                            (clk),
     .rst                            (rst),
-    // Controls
+    // controls
+    .adv_i                          (immu_adv), // IMMU advance
+    // configuration
     .enable_i                       (immu_enabled_r), // IMMU
     .supervisor_mode_i              (immu_svmode_r), // IMMU
-    // Inputs addresses
+    // address translation
     .virt_addr_i                    (s1t_pc_mux), // IMMU
-    .virt_addr_match_i              (s1o_virt_addr), // IMMU
-    // Outputs
+    .virt_addr_fetch_o              (virt_addr_fetch), // IMMU
     .phys_addr_o                    (immu_phys_addr), // IMMU
+    // flags
     .cache_inhibit_o                (immu_cache_inhibit), // IMMU
     .tlb_miss_o                     (immu_tlb_miss), // IMMU
     .pagefault_o                    (immu_pagefault), // IMMU
