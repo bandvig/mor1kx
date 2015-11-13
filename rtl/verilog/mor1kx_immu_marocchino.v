@@ -161,33 +161,23 @@ module mor1kx_immu_marocchino
   // SPR interface //
   //---------------//
 
-  // Note #1
   //   We don't expect R/W-collisions for SPRbus vs FETCH advance
   // because we execute l.mt(f)spr after pipeline stalling (see OMAN)
 
-
   assign spr_immu_stb = spr_bus_stb_i & (spr_bus_addr_i[15:11] == `OR1K_SPR_IMMU_BASE);
 
-generate
-/* verilator lint_off WIDTH */
-if (FEATURE_IMMU_HW_TLB_RELOAD != "NONE") begin
-/* verilator lint_on WIDTH */
-  assign immucr_spr_cs = spr_immu_stb & (~(|spr_bus_addr_i[10:0]));
-
+  // Process IMMU Control Register
+  //  # IMMUCR "chip select"
+  assign immucr_spr_cs = spr_immu_stb & (~(|spr_bus_addr_i[10:0])) & (FEATURE_IMMU_HW_TLB_RELOAD != "NONE");
+  //  # IMMUCR proc
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
       immucr <= {OPTION_OPERAND_WIDTH{1'b0}};
     else if (immucr_spr_cs & spr_bus_we_i)
       immucr <= spr_bus_dat_i;
   end // @ clock
-end
-else begin
-  assign immucr_spr_cs = 0;
-  always @(posedge clk)
-    immucr <= {OPTION_OPERAND_WIDTH{1'b0}};
-end
-endgenerate
 
+  // SPR ack generation
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
       spr_bus_ack_o <= 1'b0;
@@ -197,12 +187,14 @@ endgenerate
       spr_bus_ack_o <= 1'b1;
   end // @ clock
 
+  // match RAM chip select
   assign itlb_match_spr_cs = spr_immu_stb & (|spr_bus_addr_i[10:9]) & ~spr_bus_addr_i[7];
-
+  // translate RAM chip select
   assign itlb_trans_spr_cs = spr_immu_stb & (|spr_bus_addr_i[10:9]) &  spr_bus_addr_i[7];
-
+  // way select
   assign spr_way_idx = {spr_bus_addr_i[10], spr_bus_addr_i[8]};
 
+  // SPR data output multiplexer control
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst) begin
       itlb_match_spr_cs_r <= 1'b0;
@@ -223,7 +215,7 @@ endgenerate
       spr_way_idx_r       <= spr_way_idx;
     end
   end // @ clock
-
+  // SPR data output multiplexer
   assign spr_bus_dat_o = itlb_match_spr_cs_r ? itlb_match_dout[spr_way_idx_r] :
                          itlb_trans_spr_cs_r ? itlb_trans_dout[spr_way_idx_r] :
                          immucr_spr_cs_r     ? immucr                         :
@@ -275,7 +267,7 @@ endgenerate
         itlb_match_we[j] = 1'b1;
       if (j == spr_way_idx)
         itlb_match_we[j] = itlb_match_spr_cs & spr_bus_we_i & ~spr_bus_ack_o;
-
+ 
       itlb_trans_we[j] = 1'b0;
       if (itlb_trans_reload_we & ~tlb_reload_huge)
         itlb_trans_we[j] = 1'b1;
@@ -289,25 +281,31 @@ endgenerate
   assign phys_addr_fetch_o = enable_r ? phys_addr : virt_addr_fetch_o;
 
 
-  assign itlb_match_addr = (itlb_match_spr_cs & ~spr_bus_ack_o) ?
-          spr_bus_addr_i[OPTION_IMMU_SET_WIDTH-1:0] :
-          virt_addr_i[13+(OPTION_IMMU_SET_WIDTH-1):13];
-
-  assign itlb_trans_addr = (itlb_trans_spr_cs & ~spr_bus_ack_o) ?
-          spr_bus_addr_i[OPTION_IMMU_SET_WIDTH-1:0] :
-          virt_addr_i[13+(OPTION_IMMU_SET_WIDTH-1):13];
-
-  assign itlb_match_din = (itlb_match_spr_cs & spr_bus_we_i & ~spr_bus_ack_o) ?
-                          spr_bus_dat_i : itlb_match_reload_din;
-
-  assign itlb_trans_din = (itlb_trans_spr_cs & spr_bus_we_i & ~spr_bus_ack_o) ?
-                          spr_bus_dat_i : itlb_trans_reload_din;
-
+  // match 8KB input address
+  assign itlb_match_addr =
+    (itlb_match_spr_cs & ~spr_bus_ack_o) ? spr_bus_addr_i[OPTION_IMMU_SET_WIDTH-1:0]          :
+    spr_bus_ack_o                        ? virt_addr_fetch_o[13+(OPTION_IMMU_SET_WIDTH-1):13] : // re-read after SPR access
+                                           virt_addr_i[13+(OPTION_IMMU_SET_WIDTH-1):13];
+  // match huge address and write command
   assign itlb_match_huge_addr = virt_addr_i[24+(OPTION_IMMU_SET_WIDTH-1):24];
-  assign itlb_trans_huge_addr = virt_addr_i[24+(OPTION_IMMU_SET_WIDTH-1):24];
+  assign itlb_match_huge_we   = itlb_match_reload_we & tlb_reload_huge;
+  // match data in
+  assign itlb_match_din =
+    (itlb_match_spr_cs & spr_bus_we_i & ~spr_bus_ack_o) ? spr_bus_dat_i : itlb_match_reload_din;
 
-  assign itlb_match_huge_we = itlb_match_reload_we & tlb_reload_huge;
-  assign itlb_trans_huge_we = itlb_trans_reload_we & tlb_reload_huge;
+
+  // translation 8KB input address
+  assign itlb_trans_addr =
+    (itlb_trans_spr_cs & ~spr_bus_ack_o) ? spr_bus_addr_i[OPTION_IMMU_SET_WIDTH-1:0]          :
+    spr_bus_ack_o                        ? virt_addr_fetch_o[13+(OPTION_IMMU_SET_WIDTH-1):13] : // re-read after SPR access
+                                           virt_addr_i[13+(OPTION_IMMU_SET_WIDTH-1):13];
+  // translation huge address and write command
+  assign itlb_trans_huge_addr = virt_addr_i[24+(OPTION_IMMU_SET_WIDTH-1):24];
+  assign itlb_trans_huge_we   = itlb_trans_reload_we & tlb_reload_huge;
+  // translation data in
+  assign itlb_trans_din =
+    (itlb_trans_spr_cs & spr_bus_we_i & ~spr_bus_ack_o) ? spr_bus_dat_i : itlb_trans_reload_din;
+
 
   /*
   localparam [2:0] TLB_IDLE            = 3'd0,
@@ -465,6 +463,13 @@ else begin // SW reload
 end // HW/SW reload
 endgenerate
 
+  // Enable for RAM blocks if:
+  //  1) regular FETCH advance
+  //  2) SPR access. The spr-immu-stb is used because:
+  //    a) before clock posedge the SPR read/write is active
+  //    b) after clock posedge (spr-bus-ack-o is active) re-read is performed
+  wire ram_re = (adv_i & enable_i) | spr_immu_stb;
+
 generate
 for (i = 0; i < OPTION_IMMU_WAYS; i=i+1) begin : itlb
   // ITLB match registers
@@ -479,13 +484,13 @@ for (i = 0; i < OPTION_IMMU_WAYS; i=i+1) begin : itlb
     // common clock
     .clk    (clk),
     // port "a": 8KB pages
-    .en_a   (1'b1), // ram_re | itlb_match_re[i] | itlb_match_we[i]
+    .en_a   (ram_re | itlb_match_we[i]),
     .we_a   (itlb_match_we[i]),
     .addr_a (itlb_match_addr),
     .din_a  (itlb_match_din),
     .dout_a (itlb_match_dout[i]),
     // port "b": Huge pages
-    .en_b   (1'b1), // ram_re | itlb_match_huge_we
+    .en_b   (ram_re | itlb_match_huge_we),
     .we_b   (itlb_match_huge_we),
     .addr_b (itlb_match_huge_addr),
     .din_b  (itlb_match_reload_din),
@@ -504,13 +509,13 @@ for (i = 0; i < OPTION_IMMU_WAYS; i=i+1) begin : itlb
     // common clock
     .clk    (clk),
     // port "a": 8KB pages
-    .en_a   (1'b1), // ram_re | itlb_trans_re[i] | itlb_trans_we[i]
+    .en_a   (ram_re | itlb_trans_we[i]),
     .we_a   (itlb_trans_we[i]),
     .addr_a (itlb_trans_addr),
     .din_a  (itlb_trans_din),
     .dout_a (itlb_trans_dout[i]),
     // port "b": Huge pages
-    .en_b   (1'b1), // ram_re | itlb_trans_huge_we
+    .en_b   (ram_re | itlb_trans_huge_we),
     .we_b   (itlb_trans_huge_we),
     .addr_b (itlb_trans_huge_addr),
     .din_b  (itlb_trans_reload_din),
