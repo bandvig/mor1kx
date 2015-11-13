@@ -34,12 +34,13 @@ module mor1kx_immu_marocchino
   parameter OPTION_IMMU_WAYS           = 1
 )
 (
-  // clock & reset 
+  // clock & reset
   input                                 clk,
   input                                 rst,
 
   // controls
   input                                 adv_i,        // advance
+  input                                 force_off_i,  // drop stored "IMMU enable"
 
   // configuration
   input                                 enable_i,
@@ -48,7 +49,7 @@ module mor1kx_immu_marocchino
   // address translation
   input      [OPTION_OPERAND_WIDTH-1:0] virt_addr_i,
   output reg [OPTION_OPERAND_WIDTH-1:0] virt_addr_fetch_o,
-  output reg [OPTION_OPERAND_WIDTH-1:0] phys_addr_o,
+  output     [OPTION_OPERAND_WIDTH-1:0] phys_addr_fetch_o,
 
   // flags
   output reg                            cache_inhibit_o,
@@ -120,9 +121,7 @@ module mor1kx_immu_marocchino
   reg                              sxe;
   reg                              uxe;
 
-  wire                             spr_immu_stb;    // SPR acceess 
-
-  wire                             block_excepts; // by SPR access
+  wire                             spr_immu_stb;    // SPR acceess
 
   genvar                           i;
   integer                          j;
@@ -137,18 +136,39 @@ module mor1kx_immu_marocchino
   end // @ clock
 
 
+  // Stored "IMMU enable" and "Supevisor Mode" flags
+  // (for masking IMMU output flags, but not for advancing)
+  reg enable_r;
+  reg supervisor_mode_r;
+  // ---
+  always @(posedge clk `OR_ASYNC_RST) begin
+    if (rst) begin
+      enable_r          <= 1'b0;
+      supervisor_mode_r <= 1'b0;
+    end
+    else if (force_off_i) begin
+      enable_r          <= 1'b0;
+      supervisor_mode_r <= supervisor_mode_r;
+    end
+    else if (adv_i) begin
+      enable_r          <= enable_i;
+      supervisor_mode_r <= supervisor_mode_i;
+    end
+  end // @ clock
+
+
   //---------------//
   // SPR interface //
   //---------------//
 
   // Note #1
-  //   We don't expect R/W-collisions for SPRbus vs FETCH advance 
+  //   We don't expect R/W-collisions for SPRbus vs FETCH advance
   // because we execute l.mt(f)spr after pipeline stalling (see OMAN)
 
 
   assign spr_immu_stb = spr_bus_stb_i & (spr_bus_addr_i[15:11] == `OR1K_SPR_IMMU_BASE);
 
-generate 
+generate
 /* verilator lint_off WIDTH */
 if (FEATURE_IMMU_HW_TLB_RELOAD != "NONE") begin
 /* verilator lint_on WIDTH */
@@ -160,7 +180,7 @@ if (FEATURE_IMMU_HW_TLB_RELOAD != "NONE") begin
     else if (immucr_spr_cs & spr_bus_we_i)
       immucr <= spr_bus_dat_i;
   end // @ clock
-end 
+end
 else begin
   assign immucr_spr_cs = 0;
   always @(posedge clk)
@@ -180,10 +200,6 @@ endgenerate
   assign itlb_match_spr_cs = spr_immu_stb & (|spr_bus_addr_i[10:9]) & ~spr_bus_addr_i[7];
 
   assign itlb_trans_spr_cs = spr_immu_stb & (|spr_bus_addr_i[10:9]) &  spr_bus_addr_i[7];
-
-  assign block_excepts = enable_i &
-   (((itlb_match_spr_cs | itlb_trans_spr_cs) & ~spr_bus_ack_o) |
-    ((itlb_match_spr_cs_r | itlb_trans_spr_cs_r) & spr_bus_ack_o));
 
   assign spr_way_idx = {spr_bus_addr_i[10], spr_bus_addr_i[8]};
 
@@ -219,35 +235,39 @@ for (i = 0; i < OPTION_IMMU_WAYS; i=i+1) begin : ways
   // 8KB page hit
   assign way_hit[i] = (itlb_match_dout[i][31:13] == virt_addr_fetch_o[31:13]) & // address hit
                       ~(&itlb_match_huge_dout[i][1:0]) &                        // not valid huge
-                      itlb_match_dout[i][0];                                    // valid bit
+                      itlb_match_dout[i][0] &                                   // valid bit
+                      enable_r;                                                 // mmu enabled
   // Huge page hit
   assign way_huge_hit[i] = (itlb_match_huge_dout[i][31:24] == virt_addr_fetch_o[31:24]) & // address hit
-                           itlb_match_huge_dout[i][1] & itlb_match_huge_dout[i][0];       // valid huge
+                           itlb_match_huge_dout[i][1] & itlb_match_huge_dout[i][0] &      // valid huge
+                           enable_r;                                                      // mmu enabled
 end
 endgenerate
 
+  reg [OPTION_OPERAND_WIDTH-1:0] phys_addr;
+  
   always @(*) begin
-    tlb_miss_o      = ~tlb_reload_pagefault & ~block_excepts;
-    phys_addr_o     = virt_addr_fetch_o[23:0];
-    sxe             = 1'b0;
-    uxe             = 1'b0;
-    cache_inhibit_o = 1'b0;
+    tlb_miss_o        = ~tlb_reload_pagefault & ~spr_immu_stb & enable_r;
+    phys_addr         = virt_addr_fetch_o[23:0];
+    sxe               = 1'b0;
+    uxe               = 1'b0;
+    cache_inhibit_o   = 1'b0;
 
     for (j = 0; j < OPTION_IMMU_WAYS; j=j+1) begin
       if (way_huge_hit[j] | way_hit[j])
         tlb_miss_o = 1'b0;
 
       if (way_huge_hit[j]) begin
-        phys_addr_o     = {itlb_trans_huge_dout[j][31:24], virt_addr_fetch_o[23:0]};
-        sxe             = itlb_trans_huge_dout[j][6];
-        uxe             = itlb_trans_huge_dout[j][7];
-        cache_inhibit_o = itlb_trans_huge_dout[j][1];
-      end 
+        phys_addr         = {itlb_trans_huge_dout[j][31:24], virt_addr_fetch_o[23:0]};
+        sxe               = itlb_trans_huge_dout[j][6];
+        uxe               = itlb_trans_huge_dout[j][7];
+        cache_inhibit_o   = itlb_trans_huge_dout[j][1];
+      end
       else if (way_hit[j])begin
-        phys_addr_o     = {itlb_trans_dout[j][31:13], virt_addr_fetch_o[12:0]};
-        sxe             = itlb_trans_dout[j][6];
-        uxe             = itlb_trans_dout[j][7];
-        cache_inhibit_o = itlb_trans_dout[j][1];
+        phys_addr         = {itlb_trans_dout[j][31:13], virt_addr_fetch_o[12:0]};
+        sxe               = itlb_trans_dout[j][6];
+        uxe               = itlb_trans_dout[j][7];
+        cache_inhibit_o   = itlb_trans_dout[j][1];
       end
 
       itlb_match_we[j] = 1'b0;
@@ -264,9 +284,9 @@ endgenerate
     end
   end // loop by ways
 
-  assign pagefault_o = (supervisor_mode_i ? ~sxe : ~uxe) & ~tlb_reload_busy_o & ~block_excepts;
+  assign pagefault_o = (supervisor_mode_r ? ~sxe : ~uxe) & ~tlb_reload_busy_o & ~spr_immu_stb & enable_r;
 
-
+  assign phys_addr_fetch_o = enable_r ? phys_addr : virt_addr_fetch_o;
 
 
   assign itlb_match_addr = (itlb_match_spr_cs & ~spr_bus_ack_o) ?
@@ -289,13 +309,13 @@ endgenerate
   assign itlb_match_huge_we = itlb_match_reload_we & tlb_reload_huge;
   assign itlb_trans_huge_we = itlb_trans_reload_we & tlb_reload_huge;
 
+  /*
+  localparam [2:0] TLB_IDLE            = 3'd0,
+                   TLB_GET_PTE_POINTER = 3'd1,
+                   TLB_GET_PTE         = 3'd2,
+                   TLB_READ            = 3'd4; */
 
-  localparam TLB_IDLE            = 3'd0;
-  localparam TLB_GET_PTE_POINTER = 3'd1;
-  localparam TLB_GET_PTE         = 3'd2;
-  localparam TLB_READ            = 3'd4;
-
-generate 
+generate
 /* verilator lint_off WIDTH */
 if (FEATURE_IMMU_HW_TLB_RELOAD != "NONE") begin
 /* verilator lint_on WIDTH */
@@ -325,7 +345,7 @@ if (FEATURE_IMMU_HW_TLB_RELOAD != "NONE") begin
   reg [2:0] tlb_reload_state = TLB_IDLE;
   wire      do_reload;
 
-  assign do_reload              = enable_i & tlb_miss_o & (immucr[31:10] != 22'd0);
+  assign do_reload              = enable_r & tlb_miss_o & (immucr[31:10] != 22'd0);
   assign tlb_reload_busy_o      = (tlb_reload_state != TLB_IDLE) | do_reload;
   assign tlb_reload_pagefault_o = tlb_reload_pagefault & ~tlb_reload_pagefault_clear_i;
 
@@ -366,7 +386,7 @@ if (FEATURE_IMMU_HW_TLB_RELOAD != "NONE") begin
             tlb_reload_pagefault <= 1'b1;
             tlb_reload_req_o     <= 1'b0;
             tlb_reload_state     <= TLB_IDLE;
-          end 
+          end
           else if (tlb_reload_data_i[9]) begin
             tlb_reload_huge  <= 1'b1;
             tlb_reload_req_o <= 1'b0;
@@ -390,7 +410,7 @@ if (FEATURE_IMMU_HW_TLB_RELOAD != "NONE") begin
           if (~tlb_reload_data_i[10]) begin
             tlb_reload_pagefault <= 1'b1;
             tlb_reload_state     <= TLB_IDLE;
-          end 
+          end
           else begin
             // Translate register generation.
             // PPN
@@ -428,7 +448,7 @@ if (FEATURE_IMMU_HW_TLB_RELOAD != "NONE") begin
     endcase
   end // @ clock
   */
-end 
+end
 else begin // SW reload
   assign tlb_reload_pagefault_o = 1'b0;
   assign tlb_reload_busy_o      = 1'b0;

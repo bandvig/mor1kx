@@ -114,12 +114,7 @@ module mor1kx_fetch_marocchino
 
   /* MMU related controls and signals */
 
-  // Flag to take into accaunt address translation.
-  reg                             immu_enabled_r;
-  // Supervisor mode for IMMU
-  reg                             immu_svmode_r;
   // IMMU's regular output
-  wire [OPTION_OPERAND_WIDTH-1:0] immu_phys_addr;
   wire                            immu_cache_inhibit;
   // IMMU exceptions (valid for enabled mmu only)
   wire                            except_itlb_miss;
@@ -159,10 +154,10 @@ module mor1kx_fetch_marocchino
   // IBUS FSM statuses
   wire                            ibus_fsm_free;
   // IBUS access state machine
-  localparam                [2:0] IDLE       = 0,
-                                  READ       = 1,
-                                  TLB_RELOAD = 2,
-                                  IC_REFILL  = 3;
+  localparam                [2:0] IDLE       = 3'd0,
+                                  READ       = 3'd1,
+                                  TLB_RELOAD = 3'd2,
+                                  IC_REFILL  = 3'd4;
   //
   reg                       [2:0] state;
   // request IBUS transaction
@@ -213,6 +208,9 @@ module mor1kx_fetch_marocchino
   // in cases of ICACHE miss, stalling due to exceptions
   // or till IBUS answer and restart fetching after SPR transaction.
   wire [OPTION_OPERAND_WIDTH-1:0] virt_addr_fetch;
+
+  // Physical address (after translation in IMMU)
+  wire [OPTION_OPERAND_WIDTH-1:0] phys_addr_fetch;
 
   // to s3: program counter
   reg [OPTION_OPERAND_WIDTH-1:0] s2o_pc;
@@ -371,25 +369,7 @@ module mor1kx_fetch_marocchino
 
 
   // Force switching ICACHE/IMMU off in case of IMMU-generated exceptions
-  wire immu_rst_excepts = (immu_an_except & flush_by_ctrl);
-
-  // Update IMMU enable/disable and Supervisor mode.
-  //   For masking MMU flags (exceptions & cache-inhibit) and
-  // select source of physical address for check cache hit.
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst) begin
-      immu_enabled_r <= 1'b0;
-      immu_svmode_r  <= 1'b0;
-    end
-    else if (immu_rst_excepts) begin // IMMU -> off
-      immu_enabled_r <= 1'b0;
-      immu_svmode_r  <= immu_svmode_r;
-    end
-    else if (padv_s1 & ~fetch_excepts & ~flush_by_ctrl) begin
-      immu_enabled_r <= immu_enable_i;
-      immu_svmode_r  <= supervisor_mode_i;
-    end
-  end // @ clock
+  wire ic_immu_force_off = (immu_an_except & flush_by_ctrl);
 
   // Update ICACHE enable/disable.
   reg ic_enabled_r;
@@ -397,19 +377,14 @@ module mor1kx_fetch_marocchino
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
       ic_enabled_r <= 1'b0;
-    else if (immu_rst_excepts | assert_spr_bus_req) // ICAHCE -> idle
+    else if (ic_immu_force_off | assert_spr_bus_req) // ICAHCE -> idle
       ic_enabled_r <= 1'b0;
     else if (padv_s1 & ~fetch_excepts & ~flush_by_ctrl)
       ic_enabled_r <= ic_enable_i;
   end // @ clock
   //   Force ICACHE go to idle state if either SPR access is requested
   // or IMMU-generated exceptions is cleaned
-  assign ic_enabled = ~immu_rst_excepts & ~assert_spr_bus_req & ic_enabled_r;
-
-
-  // Select physical address depending on IMMU enabled/disabled
-  wire [OPTION_OPERAND_WIDTH-1:0] s2t_phys_addr_mux =
-    immu_enabled_r ? immu_phys_addr : virt_addr_fetch;
+  assign ic_enabled = ~ic_immu_force_off & ~assert_spr_bus_req & ic_enabled_r;
 
 
   /****************************************/
@@ -765,12 +740,12 @@ module mor1kx_fetch_marocchino
         if (imem_req_r & (~ic_try | ~ic_ack) & ~fetch_excepts) begin
           if (~ic_try) begin
             ibus_req_r <= 1'b1;
-            ibus_adr_r <= s2t_phys_addr_mux;
+            ibus_adr_r <= phys_addr_fetch;
             state      <= READ;
           end
           else if (ic_refill_req) begin
             ibus_req_r <= 1'b1;
-            ibus_adr_r <= s2t_phys_addr_mux;
+            ibus_adr_r <= phys_addr_fetch;
             state      <= IC_REFILL;
           end
         end // new address taken & cache off/miss & no exceptions
@@ -898,7 +873,7 @@ generate
     assign ic_check_limit_width = 1'b1;
   else if (OPTION_ICACHE_LIMIT_WIDTH < OPTION_OPERAND_WIDTH)
     assign ic_check_limit_width =
-      (s2t_phys_addr_mux[OPTION_OPERAND_WIDTH-1:OPTION_ICACHE_LIMIT_WIDTH] == 0);
+      (phys_addr_fetch[OPTION_OPERAND_WIDTH-1:OPTION_ICACHE_LIMIT_WIDTH] == 0);
   else begin
     initial begin
       $display("ERROR: OPTION_ICACHE_LIMIT_WIDTH > OPTION_OPERAND_WIDTH");
@@ -908,7 +883,7 @@ generate
 endgenerate
 
   // ICACHE -> FETCH pipe (without exceptions)
-  assign ic_try = ic_enabled & ic_check_limit_width & ~(immu_enabled_r & immu_cache_inhibit);
+  assign ic_try = ic_enabled & ic_check_limit_width & ~immu_cache_inhibit;
   assign ic_rdy = ic_try & imem_req_r & ic_ack;
 
   // FETCH pipe -> ICACHE
@@ -938,7 +913,7 @@ endgenerate
     .ic_imem_err_i       (except_ibus_err), // ICACHE
     .ic_access_i         (ic_access), // ICACHE
     .cpu_adr_i           (s1t_pc_mux), // ICACHE
-    .cpu_adr_match_i     (s2t_phys_addr_mux), // ICACHE
+    .cpu_adr_match_i     (phys_addr_fetch), // ICACHE
     .cpu_req_i           (ic_req), // ICACHE
     .wradr_i             (ibus_adr_r), // ICACHE
     .wrdat_i             (ibus_dat_i), // ICACHE
@@ -963,7 +938,7 @@ endgenerate
 
   // Block IMMU exceptions for "next to delay slot instruction"
   // and mispredict cases.
-  wire immu_excepts_enabled = immu_enabled_r & ~flush_by_branch & ~flush_by_mispredict;
+  wire immu_excepts_enabled = ~flush_by_branch & ~flush_by_mispredict;
 
   // IMMU exceptions with enable
   assign except_itlb_miss  = immu_tlb_miss  & immu_excepts_enabled;
@@ -988,13 +963,14 @@ endgenerate
     .rst                            (rst),
     // controls
     .adv_i                          (immu_adv), // IMMU advance
+    .force_off_i                    (ic_immu_force_off), // drop stored "IMMU enable"
     // configuration
-    .enable_i                       (immu_enabled_r), // IMMU
-    .supervisor_mode_i              (immu_svmode_r), // IMMU
+    .enable_i                       (immu_enable_i), // IMMU
+    .supervisor_mode_i              (supervisor_mode_i), // IMMU
     // address translation
     .virt_addr_i                    (s1t_pc_mux), // IMMU
     .virt_addr_fetch_o              (virt_addr_fetch), // IMMU
-    .phys_addr_o                    (immu_phys_addr), // IMMU
+    .phys_addr_fetch_o              (phys_addr_fetch), // IMMU
     // flags
     .cache_inhibit_o                (immu_cache_inhibit), // IMMU
     .tlb_miss_o                     (immu_tlb_miss), // IMMU
