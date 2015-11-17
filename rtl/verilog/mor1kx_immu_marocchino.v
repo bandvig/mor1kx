@@ -308,10 +308,10 @@ endgenerate
 
 
   /*
-  localparam [2:0] TLB_IDLE            = 3'd0,
-                   TLB_GET_PTE_POINTER = 3'd1,
-                   TLB_GET_PTE         = 3'd2,
-                   TLB_READ            = 3'd4; */
+  localparam [3:0] TLB_IDLE            = 4'b0001,
+                   TLB_GET_PTE_POINTER = 4'b0010,
+                   TLB_GET_PTE         = 4'b0100,
+                   TLB_READ            = 4'b1000; */
 
 generate
 /* verilator lint_off WIDTH */
@@ -340,7 +340,7 @@ if (FEATURE_IMMU_HW_TLB_RELOAD != "NONE") begin
   // 1 | x | 0 =  1  |  0
   // 1 | x | 1 =  1  |  1
   /*
-  reg [2:0] tlb_reload_state = TLB_IDLE;
+  reg [3:0] tlb_reload_state = TLB_IDLE;
   wire      do_reload;
 
   assign do_reload              = enable_r & tlb_miss_o & (immucr[31:10] != 22'd0);

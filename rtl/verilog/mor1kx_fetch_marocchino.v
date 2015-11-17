@@ -1,26 +1,31 @@
-/* ****************************************************************************
-  This Source Code Form is subject to the terms of the
-  Open Hardware Description License, v. 1.0. If a copy
-  of the OHDL was not distributed with this file, You
-  can obtain one at http://juliusbaxter.net/ohdl/ohdl.txt
-
-  Description: mor1kx fetch/address stage unit for MAROCCHINO pipeline
-
-  basically an interface to the ibus/icache subsystem that can react to
-  exception and branch signals.
-
-  refactored version of mor1kx_fetch_cappuccino
-
-  Copyright (C) 2012 Authors
-
-  Author(s): Julius Baxter <juliusbaxter@gmail.com>
-             Stefan Kristiansson <stefan.kristiansson@saunalahti.fi>
-
-  Copyright (C) 2015 Authors
-
-  Author(s): Andrey Bacherov <avbacherov@opencores.org>
-
-***************************************************************************** */
+////////////////////////////////////////////////////////////////////////
+//                                                                    //
+//  mor1kx_icache_marocchino                                          //
+//                                                                    //
+//  Description: mor1kx fetch/address stage unit                      //
+//               for MAROCCHINO pipeline                              //
+//               basically an interface to the ibus/icache subsystem  //
+//               that can react to exception and branch signals       //
+//                                                                    //
+//               refactored version of mor1kx_fetch_cappuccino        //
+//                                                                    //
+////////////////////////////////////////////////////////////////////////
+//                                                                    //
+//   Copyright (C) 2012  Julius Baxter                                //
+//                       juliusbaxter@gmail.com                       //
+//                                                                    //
+//                       Stefan Kristiansson                          //
+//                       stefan.kristiansson@saunalahti.fi            //
+//                                                                    //
+//   Copyright (C) 2015 Andrey Bacherov                               //
+//                      avbacherov@opencores.org                      //
+//                                                                    //
+//      This Source Code Form is subject to the terms of the          //
+//      Open Hardware Description License, v. 1.0. If a copy          //
+//      of the OHDL was not distributed with this file, You           //
+//      can obtain one at http://juliusbaxter.net/ohdl/ohdl.txt       //
+//                                                                    //
+////////////////////////////////////////////////////////////////////////
 
 `include "mor1kx-defines.v"
 
@@ -891,14 +896,14 @@ endgenerate
   wire ic_req    = ic_access & imem_req_r;
 
   // ICACHE module
-  mor1kx_icache
+  mor1kx_icache_marocchino
   #(
-    .OPTION_ICACHE_BLOCK_WIDTH(OPTION_ICACHE_BLOCK_WIDTH),
-    .OPTION_ICACHE_SET_WIDTH(OPTION_ICACHE_SET_WIDTH),
-    .OPTION_ICACHE_WAYS(OPTION_ICACHE_WAYS),
-    .OPTION_ICACHE_LIMIT_WIDTH(OPTION_ICACHE_LIMIT_WIDTH)
+    .OPTION_ICACHE_BLOCK_WIDTH  (OPTION_ICACHE_BLOCK_WIDTH),
+    .OPTION_ICACHE_SET_WIDTH    (OPTION_ICACHE_SET_WIDTH),
+    .OPTION_ICACHE_WAYS         (OPTION_ICACHE_WAYS),
+    .OPTION_ICACHE_LIMIT_WIDTH  (OPTION_ICACHE_LIMIT_WIDTH)
   )
-  mor1kx_icache
+  u_icache
   (
     .clk                 (clk),
     .rst                 (rst),
@@ -906,7 +911,6 @@ endgenerate
     .refill_o            (ic_refill), // ICACHE
     .refill_req_o        (ic_refill_req), // ICACHE
     .refill_done_o       (ic_refill_done), // ICACHE
-    .invalidate_o        (), // ICACHE (not used)
     .cpu_ack_o           (ic_ack), // ICACHE
     .cpu_dat_o           (ic_dat), // ICACHE
     // Inputs
