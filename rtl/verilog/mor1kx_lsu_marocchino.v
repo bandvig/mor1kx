@@ -1041,12 +1041,12 @@ endgenerate
 
   assign tlb_reload_pagefault_clear = ~cmd_ls;
 
-  mor1kx_dmmu
+  mor1kx_dmmu_marocchino
   #(
-    .FEATURE_DMMU_HW_TLB_RELOAD(FEATURE_DMMU_HW_TLB_RELOAD),
-    .OPTION_OPERAND_WIDTH(OPTION_OPERAND_WIDTH),
-    .OPTION_DMMU_SET_WIDTH(OPTION_DMMU_SET_WIDTH),
-    .OPTION_DMMU_WAYS(OPTION_DMMU_WAYS)
+    .FEATURE_DMMU_HW_TLB_RELOAD (FEATURE_DMMU_HW_TLB_RELOAD),
+    .OPTION_OPERAND_WIDTH       (OPTION_OPERAND_WIDTH),
+    .OPTION_DMMU_SET_WIDTH      (OPTION_DMMU_SET_WIDTH),
+    .OPTION_DMMU_WAYS           (OPTION_DMMU_WAYS)
   )
   u_dmmu
   (
@@ -1054,19 +1054,19 @@ endgenerate
     .clk                              (clk),
     .rst                              (rst),
     // configuration and commands
+    //.enable_i                         (dmmu_enable),
+    .supervisor_mode_i                (supervisor_mode_i),
     .op_store_i                       (cmd_store),
     .op_load_i                        (cmd_load),
-    .supervisor_mode_i                (supervisor_mode_i),
-    // Input: virtual address
+    // address translation
     .virt_addr_i                      (dc_adr),
     .virt_addr_match_i                (cmd_addr),
-    // Output: physical address and flags
     .phys_addr_o                      (dmmu_phys_addr),
+    // translation flags
     .cache_inhibit_o                  (dmmu_cache_inhibit),
     .tlb_miss_o                       (tlb_miss),
     .pagefault_o                      (dmmu_pagefault),
     // HW TLB reload
-    .enable_i                         (dmmu_enable),
     .tlb_reload_ack_i                 (tlb_reload_ack),
     .tlb_reload_data_i                (tlb_reload_data),
     .tlb_reload_pagefault_clear_i     (tlb_reload_pagefault_clear),

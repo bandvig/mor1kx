@@ -319,7 +319,7 @@ if (FEATURE_IMMU_HW_TLB_RELOAD != "NONE") begin
 /* verilator lint_on WIDTH */
 
   initial begin
-    $display("ERROR: HW TLB reload is not implemented in MAROCCHINO");
+    $display("IMMU ERROR: HW TLB reload is not implemented in MAROCCHINO");
     $finish();
   end
 
