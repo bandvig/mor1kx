@@ -69,7 +69,7 @@ module mor1kx_dmmu_marocchino
   input                                 spr_bus_stb_i,
   input      [OPTION_OPERAND_WIDTH-1:0] spr_bus_dat_i,
   output     [OPTION_OPERAND_WIDTH-1:0] spr_bus_dat_o,
-  output                                spr_bus_ack_o
+  output reg                            spr_bus_ack_o
 );
 
   wire  [OPTION_OPERAND_WIDTH-1:0] dtlb_match_dout[OPTION_DMMU_WAYS-1:0];
@@ -108,8 +108,6 @@ module mor1kx_dmmu_marocchino
   wire                       [1:0] spr_way_idx;
   reg                        [1:0] spr_way_idx_r;
 
-  reg                              spr_bus_ack;
-
   wire      [OPTION_DMMU_WAYS-1:0] way_hit;
   wire      [OPTION_DMMU_WAYS-1:0] way_huge_hit;
 
@@ -125,18 +123,71 @@ module mor1kx_dmmu_marocchino
   reg                              sre;
   reg                              swe;
 
-   genvar                          i;
+  genvar                           i;
 
+  //---------------//
+  // SPR interface //
+  //---------------//
+
+  //   We don't expect R/W-collisions for SPRbus vs FETCH advance
+  // because we execute l.mt(f)spr after pipeline stalling (see OMAN)
+
+  wire spr_dmmu_stb = spr_bus_stb_i & (spr_bus_addr_i[15:11] == `OR1K_SPR_DMMU_BASE);
+
+  // Process DMMU Control Register
+  //  # DMMUCR "chip select"
+  assign dmmucr_spr_cs = spr_dmmu_stb & (~(|spr_bus_addr_i[10:0])) & (FEATURE_DMMU_HW_TLB_RELOAD != "NONE");
+  //  # DMMUCR proc
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
-      spr_bus_ack <= 1'b0;
-    else if (spr_bus_stb_i & spr_bus_addr_i[15:11] == 5'd1)
-      spr_bus_ack <= 1'b1;
-    else
-      spr_bus_ack <= 1'b0;
+      dmmucr <= {OPTION_OPERAND_WIDTH{1'b0}};
+    else if (dmmucr_spr_cs & spr_bus_we_i)
+      dmmucr <= spr_bus_dat_i;
   end
 
-  assign spr_bus_ack_o = spr_bus_ack & spr_bus_stb_i & spr_bus_addr_i[15:11] == 5'd1;
+  // SPR ack generation
+  always @(posedge clk `OR_ASYNC_RST) begin
+    if (rst)
+      spr_bus_ack_o <= 1'b0;
+    else if (spr_bus_ack_o)
+      spr_bus_ack_o <= 1'b0;
+    else if (spr_dmmu_stb)
+      spr_bus_ack_o <= 1'b1;
+  end
+
+  // match RAM chip select
+  assign dtlb_match_spr_cs = spr_dmmu_stb & (|spr_bus_addr_i[10:9]) & ~spr_bus_addr_i[7];
+  // translate RAM chip select
+  assign dtlb_trans_spr_cs = spr_dmmu_stb & (|spr_bus_addr_i[10:9]) &  spr_bus_addr_i[7];
+  // way select
+  assign spr_way_idx = {spr_bus_addr_i[10], spr_bus_addr_i[8]};
+
+  always @(posedge clk `OR_ASYNC_RST) begin
+    if (rst) begin
+      dtlb_match_spr_cs_r <= 1'b0;
+      dtlb_trans_spr_cs_r <= 1'b0;
+      dmmucr_spr_cs_r     <= 1'b0;
+      spr_way_idx_r       <= 2'd0;
+    end
+    else if (spr_bus_ack_o) begin
+      dtlb_match_spr_cs_r <= 1'b0;
+      dtlb_trans_spr_cs_r <= 1'b0;
+      dmmucr_spr_cs_r     <= 1'b0;
+      spr_way_idx_r       <= 2'd0;
+    end
+    else if (spr_dmmu_stb) begin
+      dtlb_match_spr_cs_r <= dtlb_match_spr_cs;
+      dtlb_trans_spr_cs_r <= dtlb_trans_spr_cs;
+      dmmucr_spr_cs_r     <= dmmucr_spr_cs;
+      spr_way_idx_r       <= spr_way_idx;
+    end
+  end
+
+  assign spr_bus_dat_o =  dtlb_match_spr_cs_r ? dtlb_match_dout[spr_way_idx_r] :
+                          dtlb_trans_spr_cs_r ? dtlb_trans_dout[spr_way_idx_r] :
+                          dmmucr_spr_cs_r     ? dmmucr :
+                                                {OPTION_OPERAND_WIDTH{1'b0}};
+
 
 generate
 for (i = 0; i < OPTION_DMMU_WAYS; i=i+1) begin : ways
@@ -185,13 +236,13 @@ endgenerate
       if (dtlb_match_reload_we)
         dtlb_match_we[j] = 1'b1;
       if (j == spr_way_idx)
-        dtlb_match_we[j] = dtlb_match_spr_cs & spr_bus_we_i;
+        dtlb_match_we[j] = dtlb_match_spr_cs & spr_bus_we_i & ~spr_bus_ack_o;
 
       dtlb_trans_we[j] = 1'b0;
       if (dtlb_trans_reload_we)
         dtlb_trans_we[j] = 1'b1;
       if (j == spr_way_idx)
-        dtlb_trans_we[j] = dtlb_trans_spr_cs & spr_bus_we_i;
+        dtlb_trans_we[j] = dtlb_trans_spr_cs & spr_bus_we_i & ~spr_bus_ack_o;
     end // loop by ways
   end // always
 
@@ -199,61 +250,27 @@ endgenerate
                                             ((~uwe & op_store_i) | (~ure & op_load_i))) &
                        ~tlb_reload_busy_o;
 
-  assign spr_way_idx = {spr_bus_addr_i[10], spr_bus_addr_i[8]};
-
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst) begin
-      dtlb_match_spr_cs_r <= 1'b0;
-      dtlb_trans_spr_cs_r <= 1'b0;
-      dmmucr_spr_cs_r     <= 1'b0;
-      spr_way_idx_r       <= 2'd0;
-    end
-    else begin
-      dtlb_match_spr_cs_r <= dtlb_match_spr_cs;
-      dtlb_trans_spr_cs_r <= dtlb_trans_spr_cs;
-      dmmucr_spr_cs_r     <= dmmucr_spr_cs;
-      spr_way_idx_r       <= spr_way_idx;
-    end
-  end
-
-  assign dmmucr_spr_cs = spr_bus_stb_i & (spr_bus_addr_i == `OR1K_SPR_DMMUCR_ADDR) &
-                         (FEATURE_DMMU_HW_TLB_RELOAD != "NONE");
-
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      dmmucr <= {OPTION_OPERAND_WIDTH{1'b0}};
-    else if (dmmucr_spr_cs & spr_bus_we_i)
-      dmmucr <= spr_bus_dat_i;
-  end
-
-  assign spr_bus_dat_o =  dtlb_match_spr_cs_r ? dtlb_match_dout[spr_way_idx_r] :
-                          dtlb_trans_spr_cs_r ? dtlb_trans_dout[spr_way_idx_r] :
-                          dmmucr_spr_cs_r     ? dmmucr :
-                                                {OPTION_OPERAND_WIDTH{1'b0}};
-
-
-  assign dtlb_match_spr_cs = spr_bus_stb_i & (spr_bus_addr_i[15:11] == 5'd1) &
-                             (|spr_bus_addr_i[10:9]) & ~spr_bus_addr_i[7];
-  assign dtlb_trans_spr_cs = spr_bus_stb_i & (spr_bus_addr_i[15:11] == 5'd1) &
-                             (|spr_bus_addr_i[10:9]) &  spr_bus_addr_i[7];
-
 
   // match 8KB input address
-  assign dtlb_match_addr = dtlb_match_spr_cs ? spr_bus_addr_i[OPTION_DMMU_SET_WIDTH-1:0] :
-                                               virt_addr_i[13+(OPTION_DMMU_SET_WIDTH-1):13];
+  assign dtlb_match_addr =
+    (dtlb_match_spr_cs & ~spr_bus_ack_o) ? spr_bus_addr_i[OPTION_DMMU_SET_WIDTH-1:0]          :
+    spr_bus_ack_o                        ? virt_addr_match_i[13+(OPTION_DMMU_SET_WIDTH-1):13] :
+                                           virt_addr_i[13+(OPTION_DMMU_SET_WIDTH-1):13];
   // match huge address and write command
   assign dtlb_match_huge_addr = virt_addr_i[24+(OPTION_DMMU_SET_WIDTH-1):24];
-  assign dtlb_match_huge_we = dtlb_match_reload_we & tlb_reload_huge;
+  assign dtlb_match_huge_we   = dtlb_match_reload_we & tlb_reload_huge;
   // match data in
   assign dtlb_match_din = dtlb_match_reload_we ? dtlb_match_reload_din : spr_bus_dat_i;
 
 
   // translation 8KB input address
-  assign dtlb_trans_addr = dtlb_trans_spr_cs ? spr_bus_addr_i[OPTION_DMMU_SET_WIDTH-1:0] :
-                                               virt_addr_i[13+(OPTION_DMMU_SET_WIDTH-1):13];
+  assign dtlb_trans_addr =
+    (dtlb_trans_spr_cs & ~spr_bus_ack_o) ? spr_bus_addr_i[OPTION_DMMU_SET_WIDTH-1:0]          :
+    spr_bus_ack_o                        ? virt_addr_match_i[13+(OPTION_DMMU_SET_WIDTH-1):13] :
+                                           virt_addr_i[13+(OPTION_DMMU_SET_WIDTH-1):13];
   // translation huge address and write command
   assign dtlb_trans_huge_addr = virt_addr_i[24+(OPTION_DMMU_SET_WIDTH-1):24];
-  assign dtlb_trans_huge_we = dtlb_trans_reload_we & tlb_reload_huge;
+  assign dtlb_trans_huge_we   = dtlb_trans_reload_we & tlb_reload_huge;
   // translation data in
   assign dtlb_trans_din = dtlb_trans_reload_we ? dtlb_trans_reload_din : spr_bus_dat_i;
 
@@ -420,47 +437,53 @@ endgenerate
 generate
 for (i = 0; i < OPTION_DMMU_WAYS; i=i+1) begin : dtlb
    // DTLB match registers
-   mor1kx_true_dpram_sclk
-     #(
-       .ADDR_WIDTH(OPTION_DMMU_SET_WIDTH),
-       .DATA_WIDTH(OPTION_OPERAND_WIDTH)
-       )
-   dtlb_match_regs
-      (
-       // Outputs
-       .dout_a (dtlb_match_dout[i]),
-       .dout_b (dtlb_match_huge_dout[i]),
-       // Inputs
-       .clk    (clk),
-       .addr_a (dtlb_match_addr),
-       .we_a   (dtlb_match_we[i]),
-       .din_a  (dtlb_match_din),
-       .addr_b (dtlb_match_huge_addr),
-       .we_b   (dtlb_match_huge_we),
-       .din_b  (dtlb_match_reload_din)
-       );
+  mor1kx_dpram_en_w1st_sclk
+  #(
+    .ADDR_WIDTH     (OPTION_DMMU_SET_WIDTH),
+    .DATA_WIDTH     (OPTION_OPERAND_WIDTH),
+    .CLEAR_ON_INIT  (0)
+  )
+  dtlb_match_regs
+  (
+    // common clock
+    .clk    (clk),
+    // port "a": 8KB pages
+    .en_a   (1'b1),
+    .we_a   (dtlb_match_we[i]),
+    .addr_a (dtlb_match_addr),
+    .din_a  (dtlb_match_din),
+    .dout_a (dtlb_match_dout[i]),
+    // port "b": Huge pages
+    .en_b   (1'b1),
+    .we_b   (dtlb_match_huge_we),
+    .addr_b (dtlb_match_huge_addr),
+    .din_b  (dtlb_match_reload_din),
+    .dout_b (dtlb_match_huge_dout[i])
+  );
 
-
-   // DTLB translate registers
-   mor1kx_true_dpram_sclk
-     #(
-       .ADDR_WIDTH(OPTION_DMMU_SET_WIDTH),
-       .DATA_WIDTH(OPTION_OPERAND_WIDTH)
-       )
-   dtlb_translate_regs
-     (
-      // Outputs
-      .dout_a (dtlb_trans_dout[i]),
-      .dout_b (dtlb_trans_huge_dout[i]),
-      // Inputs
-      .clk    (clk),
-      .addr_a (dtlb_trans_addr),
-      .we_a   (dtlb_trans_we[i]),
-      .din_a  (dtlb_trans_din),
-      .addr_b (dtlb_trans_huge_addr),
-      .we_b   (dtlb_trans_huge_we),
-      .din_b  (dtlb_trans_reload_din)
-      );
+  mor1kx_dpram_en_w1st_sclk
+  #(
+    .ADDR_WIDTH     (OPTION_DMMU_SET_WIDTH),
+    .DATA_WIDTH     (OPTION_OPERAND_WIDTH),
+    .CLEAR_ON_INIT  (0)
+  )
+  dtlb_trans_regs
+  (
+    // common clock
+    .clk    (clk),
+    // port "a": 8KB pages
+    .en_a   (1'b1),
+    .we_a   (dtlb_trans_we[i]),
+    .addr_a (dtlb_trans_addr),
+    .din_a  (dtlb_trans_din),
+    .dout_a (dtlb_trans_dout[i]),
+    // port "b": Huge pages
+    .en_b   (1'b1),
+    .we_b   (dtlb_trans_huge_we),
+    .addr_b (dtlb_trans_huge_addr),
+    .din_b  (dtlb_trans_reload_din),
+    .dout_b (dtlb_trans_huge_dout[i])
+   );
 end
 endgenerate
 

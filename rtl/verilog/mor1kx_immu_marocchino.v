@@ -290,8 +290,7 @@ endgenerate
   assign itlb_match_huge_addr = virt_addr_i[24+(OPTION_IMMU_SET_WIDTH-1):24];
   assign itlb_match_huge_we   = itlb_match_reload_we & tlb_reload_huge;
   // match data in
-  assign itlb_match_din =
-    (itlb_match_spr_cs & spr_bus_we_i & ~spr_bus_ack_o) ? spr_bus_dat_i : itlb_match_reload_din;
+  assign itlb_match_din = itlb_match_reload_we ? itlb_match_reload_din : spr_bus_dat_i;
 
 
   // translation 8KB input address
@@ -303,8 +302,7 @@ endgenerate
   assign itlb_trans_huge_addr = virt_addr_i[24+(OPTION_IMMU_SET_WIDTH-1):24];
   assign itlb_trans_huge_we   = itlb_trans_reload_we & tlb_reload_huge;
   // translation data in
-  assign itlb_trans_din =
-    (itlb_trans_spr_cs & spr_bus_we_i & ~spr_bus_ack_o) ? spr_bus_dat_i : itlb_trans_reload_din;
+  assign itlb_trans_din = itlb_trans_reload_we ? itlb_trans_reload_din : spr_bus_dat_i;
 
 
   /*

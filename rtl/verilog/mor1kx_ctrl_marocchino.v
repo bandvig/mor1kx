@@ -1012,11 +1012,8 @@ endgenerate
 // Controls to generate ACKs from units that are external to this module
 
   // DMMU
-  assign spr_access_ack[`OR1K_SPR_DMMU_BASE] = spr_bus_ack_dmmu_i &
-                                               spr_access[`OR1K_SPR_DMMU_BASE];
-  assign spr_internal_read_dat[`OR1K_SPR_DMMU_BASE] =
-    spr_bus_dat_dmmu_i &
-    {OPTION_OPERAND_WIDTH{spr_access[`OR1K_SPR_DMMU_BASE]}};
+  assign spr_access_ack[`OR1K_SPR_DMMU_BASE]        = spr_bus_ack_dmmu_i;
+  assign spr_internal_read_dat[`OR1K_SPR_DMMU_BASE] = spr_bus_dat_dmmu_i;
 
 
   // IMMU
