@@ -147,6 +147,7 @@ module mor1kx_lsu_marocchino
   wire [OPTION_OPERAND_WIDTH-1:0]   dmmu_phys_addr;
   wire                              dmmu_cache_inhibit;
 
+  /* HW reload TLB related (MAROCCHINO_TODO : not implemented yet)
   wire                              tlb_reload_req;
   wire                              tlb_reload_busy;
   wire [OPTION_OPERAND_WIDTH-1:0]   tlb_reload_addr;
@@ -154,7 +155,7 @@ module mor1kx_lsu_marocchino
   reg                               tlb_reload_ack;
   reg [OPTION_OPERAND_WIDTH-1:0]    tlb_reload_data;
   wire                              tlb_reload_pagefault_clear;
-  reg                               tlb_reload_done;
+  reg                               tlb_reload_done; */
 
   // Store buffer
   wire                              store_buffer_write;
@@ -478,13 +479,10 @@ module mor1kx_lsu_marocchino
   assign except_dbus_err = dbus_err | store_buffer_err_o;
 
   // --- D-TLB miss ---
-  assign except_dtlb_miss =
-    cmd_ls & dmmu_enable_i & tlb_miss & (~tlb_reload_busy);
+  assign except_dtlb_miss = cmd_ls & dmmu_enable_i & tlb_miss;
 
   // --- Page fault ---
-  assign except_dpagefault =
-    tlb_reload_pagefault |
-    (cmd_ls & dmmu_enable_i & dmmu_pagefault & (~tlb_reload_busy));
+  assign except_dpagefault = cmd_ls & dmmu_enable_i & dmmu_pagefault;
 
   // --- combined exception flag (local use) ---
   wire lsu_excepts = except_dbus_err  | except_align |
@@ -579,9 +577,9 @@ module mor1kx_lsu_marocchino
   // LSU is busy
   //   MAROCCHINO_TODO: potential improvement
   //                    more pipelinization
-  assign lsu_busy_o  = op_ls | cmd_ls | lsu_msync_r | msync_busy | tlb_reload_busy | dc_snoop_hit;
+  assign lsu_busy_o  = op_ls | cmd_ls | lsu_msync_r | msync_busy | dc_snoop_hit;
   // output assignement (1-clk ahead for WB-latching)
-  assign lsu_valid_o = (lsu_load_rdy_stored | lsu_store_rdy_stored) & (~tlb_reload_busy) & (~dc_snoop_hit);
+  assign lsu_valid_o = (lsu_load_rdy_stored | lsu_store_rdy_stored) & (~dc_snoop_hit);
 
 
   // output data (latch result of load command)
@@ -611,15 +609,13 @@ module mor1kx_lsu_marocchino
                             cmd_rfb; // word access
 
 
-  reg [2:0] state;
+  reg [3:0] state;
 
   // Bus access logic
-  localparam [2:0]
-    IDLE        = 3'd0,
-    READ        = 3'd1,
-    WRITE       = 3'd2,
-    TLB_RELOAD  = 3'd3,
-    DC_REFILL   = 3'd4;
+  localparam [3:0] IDLE      = 4'b0001,
+                   READ      = 4'b0010,
+                   WRITE     = 4'b0100,
+                   DC_REFILL = 4'b1000;
 
   // Stall until the store buffer is empty
   assign msync_busy = cmd_op_msync & (state != IDLE);
@@ -629,8 +625,7 @@ module mor1kx_lsu_marocchino
                            store_buffer_write : write_done;
 
   assign dbus_access = (state == WRITE) |
-                       ((state != DC_REFILL) &
-                        (cmd_store | tlb_reload_busy | (~dc_access)));
+                       ((state != DC_REFILL) & (cmd_store | ~dc_access));
 
   assign lsu_ack = lsu_excepts ? 1'b0 :
                    (cmd_store | (state == WRITE)) ?
@@ -646,7 +641,7 @@ module mor1kx_lsu_marocchino
   assign dbus_dat_o   = dbus_dat;
   assign dbus_burst_o = (state == DC_REFILL) & (~dc_refill_done);
 
-  assign dbus_stall = tlb_reload_busy | lsu_excepts | pipeline_flush_i;
+  assign dbus_stall = lsu_excepts | pipeline_flush_i;
 
   //
   // Slightly subtle, but if there is an atomic store coming out from the
@@ -665,8 +660,6 @@ module mor1kx_lsu_marocchino
     // init
     dbus_ack        <= 1'b0;
     write_done      <= 1'b0;
-    tlb_reload_ack  <= 1'b0;
-    tlb_reload_done <= 1'b0;
     // process
     case (state)
       IDLE: begin
@@ -681,12 +674,7 @@ module mor1kx_lsu_marocchino
             state <= WRITE;
           end
           else if (cmd_ls & (~dc_refill) & dbus_access & (~dbus_ack)) begin
-            if (tlb_reload_req) begin
-              dbus_req_o <= 1'b1;
-              dbus_adr   <= tlb_reload_addr;
-              state      <= TLB_RELOAD;
-            end
-            else if (cmd_load) begin
+            if (cmd_load) begin
               dbus_req_o  <= 1'b1;
               dbus_adr    <= dmmu_enable_i ? dmmu_phys_addr : cmd_addr;
               dbus_bsel_o <= dbus_bsel;
@@ -750,21 +738,6 @@ module mor1kx_lsu_marocchino
           end
         end
       end // write
-
-      TLB_RELOAD: begin
-        dbus_adr        <= tlb_reload_addr;
-        tlb_reload_data <= dbus_dat_i;
-        tlb_reload_ack  <= dbus_ack_i & tlb_reload_req;
-        //---
-        if (dbus_err_i | (~tlb_reload_req)) begin
-          tlb_reload_done <= 1'b1;
-          state           <= IDLE;
-        end
-        //---
-        dbus_req_o <= tlb_reload_req;
-        if (dbus_ack_i | tlb_reload_ack)
-          dbus_req_o <= 1'b0;
-      end // tlb-reload
 
       default: state <= IDLE;
     endcase
@@ -865,7 +838,7 @@ module mor1kx_lsu_marocchino
       store_buffer_write_pending <= 1'b1;
   end // @ clock
 
-  assign store_buffer_write = ((cmd_store & (cmd_new | tlb_reload_done)) |
+  assign store_buffer_write = ((cmd_store & cmd_new) |
                                 store_buffer_write_pending) & (~dbus_stall) &
                                (~store_buffer_full) & (~dc_refill) & (~dc_refill_r) & (~dc_snoop_hit);
 
@@ -985,52 +958,51 @@ endgenerate
 
   assign dc_we =
     (lsu_store_r & (~lsu_atomic_r) & take_op_ls) |
-    (dbus_atomic & dbus_we_o & (~write_done)) |
-    (cmd_store & tlb_reload_busy & (~tlb_reload_req));
+    (dbus_atomic & dbus_we_o & (~write_done));
 
   mor1kx_dcache
   #(
-    .OPTION_OPERAND_WIDTH(OPTION_OPERAND_WIDTH),
-    .OPTION_DCACHE_BLOCK_WIDTH(OPTION_DCACHE_BLOCK_WIDTH),
-    .OPTION_DCACHE_SET_WIDTH(OPTION_DCACHE_SET_WIDTH),
-    .OPTION_DCACHE_WAYS(OPTION_DCACHE_WAYS),
-    .OPTION_DCACHE_LIMIT_WIDTH(OPTION_DCACHE_LIMIT_WIDTH),
-    .OPTION_DCACHE_SNOOP(OPTION_DCACHE_SNOOP)
+    .OPTION_OPERAND_WIDTH       (OPTION_OPERAND_WIDTH),
+    .OPTION_DCACHE_BLOCK_WIDTH  (OPTION_DCACHE_BLOCK_WIDTH),
+    .OPTION_DCACHE_SET_WIDTH    (OPTION_DCACHE_SET_WIDTH),
+    .OPTION_DCACHE_WAYS         (OPTION_DCACHE_WAYS),
+    .OPTION_DCACHE_LIMIT_WIDTH  (OPTION_DCACHE_LIMIT_WIDTH),
+    .OPTION_DCACHE_SNOOP        (OPTION_DCACHE_SNOOP)
   )
   u_dcache
   (
     // Outputs
-    .refill_o                   (dc_refill),
-    .refill_req_o               (dc_refill_req),
-    .refill_done_o              (dc_refill_done),
-    .cpu_err_o                  (dc_err),
-    .cpu_ack_o                  (dc_ack),
-    .cpu_dat_o                  (dc_ldat),
-    .snoop_hit_o                (dc_snoop_hit),
-    .spr_bus_dat_o              (spr_bus_dat_dc_o),
-    .spr_bus_ack_o              (spr_bus_ack_dc_o),
+    .refill_o                   (dc_refill), // DCACHE
+    .refill_req_o               (dc_refill_req), // DCACHE
+    .refill_done_o              (dc_refill_done), // DCACHE
+    .cpu_err_o                  (dc_err), // DCACHE
+    .cpu_ack_o                  (dc_ack), // DCACHE
+    .cpu_dat_o                  (dc_ldat), // DCACHE
+    .snoop_hit_o                (dc_snoop_hit), // DCACHE
+    .spr_bus_dat_o              (spr_bus_dat_dc_o), // DCACHE
+    .spr_bus_ack_o              (spr_bus_ack_dc_o), // DCACHE
     // Inputs
-    .clk                        (clk),
-    .rst                        (rst),
-    .dc_dbus_err_i              (dbus_err),
-    .dc_enable_i                (dc_enabled),
-    .dc_access_i                (dc_access),
-    .cpu_dat_i                  (lsu_sdat),
-    .cpu_adr_i                  (dc_adr),
-    .cpu_adr_match_i            (dc_adr_match),
-    .cpu_req_i                  (dc_req),
-    .cpu_we_i                   (dc_we),
-    .cpu_bsel_i                 (dc_bsel),
-    .refill_allowed             (dc_refill_allowed),
-    .wradr_i                    (dbus_adr),
-    .wrdat_i                    (dbus_dat_i),
-    .we_i                       (dbus_ack_i),
-    .snoop_adr_i                (snoop_adr_i[31:0]),
-    .snoop_valid_i              (snoop_valid),
-    .spr_bus_addr_i             (spr_bus_addr_i[15:0]),
-    .spr_bus_we_i               (spr_bus_we_i),
-    .spr_bus_stb_i              (spr_bus_stb_i),
-    .spr_bus_dat_i              (spr_bus_dat_i)
+    .clk                        (clk), // DCACHE
+    .rst                        (rst), // DCACHE
+    .dc_dbus_err_i              (dbus_err), // DCACHE
+    .dc_enable_i                (dc_enabled), // DCACHE
+    .dc_access_i                (dc_access), // DCACHE
+    .cpu_dat_i                  (lsu_sdat), // DCACHE
+    .cpu_adr_i                  (dc_adr), // DCACHE
+    .cpu_adr_match_i            (dc_adr_match), // DCACHE
+    .cpu_req_i                  (dc_req), // DCACHE
+    .cpu_we_i                   (dc_we), // DCACHE
+    .cpu_bsel_i                 (dc_bsel), // DCACHE
+    .refill_allowed             (dc_refill_allowed), // DCACHE
+    .wradr_i                    (dbus_adr), // DCACHE
+    .wrdat_i                    (dbus_dat_i), // DCACHE
+    .we_i                       (dbus_ack_i), // DCACHE
+    .snoop_adr_i                (snoop_adr_i[31:0]), // DCACHE
+    .snoop_valid_i              (snoop_valid), // DCACHE
+    .spr_bus_addr_i             (spr_bus_addr_i[15:0]), // DCACHE
+    .spr_bus_we_i               (spr_bus_we_i), // DCACHE
+    .spr_bus_stb_i              (spr_bus_stb_i), // DCACHE
+    .spr_bus_dat_i              (spr_bus_dat_i) // DCACHE
   );
 
   //------------------//
@@ -1038,8 +1010,6 @@ endgenerate
   //------------------//
 
   wire dmmu_enable = dmmu_enable_i & (~pipeline_flush_i); // used for HW TLB reload only
-
-  assign tlb_reload_pagefault_clear = ~cmd_ls;
 
   mor1kx_dmmu_marocchino
   #(
@@ -1051,36 +1021,36 @@ endgenerate
   u_dmmu
   (
     // clocks and resets
-    .clk                              (clk),
-    .rst                              (rst),
+    .clk                              (clk), // DMMU
+    .rst                              (rst), // DMMU
     // configuration and commands
-    //.enable_i                         (dmmu_enable),
-    .supervisor_mode_i                (supervisor_mode_i),
-    .op_store_i                       (cmd_store),
-    .op_load_i                        (cmd_load),
+    //.enable_i                         (dmmu_enable), // DMMU
+    .supervisor_mode_i                (supervisor_mode_i), // DMMU
+    .op_store_i                       (cmd_store), // DMMU
+    .op_load_i                        (cmd_load), // DMMU
     // address translation
-    .virt_addr_i                      (dc_adr),
-    .virt_addr_match_i                (cmd_addr),
-    .phys_addr_o                      (dmmu_phys_addr),
+    .virt_addr_i                      (dc_adr), // DMMU
+    .virt_addr_match_i                (cmd_addr), // DMMU
+    .phys_addr_o                      (dmmu_phys_addr), // DMMU
     // translation flags
-    .cache_inhibit_o                  (dmmu_cache_inhibit),
-    .tlb_miss_o                       (tlb_miss),
-    .pagefault_o                      (dmmu_pagefault),
-    // HW TLB reload
-    .tlb_reload_ack_i                 (tlb_reload_ack),
-    .tlb_reload_data_i                (tlb_reload_data),
-    .tlb_reload_pagefault_clear_i     (tlb_reload_pagefault_clear),
-    .tlb_reload_req_o                 (tlb_reload_req),
-    .tlb_reload_busy_o                (tlb_reload_busy),
-    .tlb_reload_addr_o                (tlb_reload_addr),
-    .tlb_reload_pagefault_o           (tlb_reload_pagefault),
+    .cache_inhibit_o                  (dmmu_cache_inhibit), // DMMU
+    .tlb_miss_o                       (tlb_miss), // DMMU
+    .pagefault_o                      (dmmu_pagefault), // DMMU
+    // HW TLB reload face.  MAROCCHINO_TODO: not implemented
+    .tlb_reload_ack_i                 (1'b0), // DMMU
+    .tlb_reload_data_i                ({OPTION_OPERAND_WIDTH{1'b0}}), // DMMU
+    .tlb_reload_pagefault_clear_i     (1'b0), // DMMU
+    .tlb_reload_req_o                 (), // DMMU
+    .tlb_reload_busy_o                (), // DMMU
+    .tlb_reload_addr_o                (), // DMMU
+    .tlb_reload_pagefault_o           (), // DMMU
     // SPR bus
-    .spr_bus_addr_i                   (spr_bus_addr_i[15:0]),
-    .spr_bus_we_i                     (spr_bus_we_i),
-    .spr_bus_stb_i                    (spr_bus_stb_i),
-    .spr_bus_dat_i                    (spr_bus_dat_i),
-    .spr_bus_dat_o                    (spr_bus_dat_dmmu_o),
-    .spr_bus_ack_o                    (spr_bus_ack_dmmu_o)
+    .spr_bus_addr_i                   (spr_bus_addr_i[15:0]), // DMMU
+    .spr_bus_we_i                     (spr_bus_we_i), // DMMU
+    .spr_bus_stb_i                    (spr_bus_stb_i), // DMMU
+    .spr_bus_dat_i                    (spr_bus_dat_i), // DMMU
+    .spr_bus_dat_o                    (spr_bus_dat_dmmu_o), // DMMU
+    .spr_bus_ack_o                    (spr_bus_ack_dmmu_o) // DMMU
   );
 
 endmodule // mor1kx_lsu_marocchino
