@@ -147,7 +147,7 @@ module mor1kx_fetch_marocchino
   // ICACHE requests and performs refill
   wire                        ic_refill;
   wire                        ic_refill_req;
-  wire                        ic_refill_done;
+  wire                        ic_refill_last;
 
 
   /* IBUS access state machine controls */
@@ -728,7 +728,6 @@ module mor1kx_fetch_marocchino
   // !!! should follows appropriate FSM condition,
   //     but without taking into account exceptions
   assign ibus_fsm_free = ((state == IDLE) & (~imem_req_r | ic_rdy)) |
-     // MAROCCHINO_TODO: ((state == IC_REFILL) & ic_refill_done) |
                          ibus_rdy;
 
   // refill support
@@ -760,7 +759,7 @@ module mor1kx_fetch_marocchino
         ibus_req_r <= 1'b1;
         if (ibus_ack_i) begin
           ibus_adr_r <= next_ibus_adr;
-          if (ic_refill_done) begin
+          if (ic_refill_last) begin
             ibus_req_r <= 1'b0;
             state      <= IDLE;
           end
@@ -794,7 +793,7 @@ module mor1kx_fetch_marocchino
   // to WBUS bridge
   assign ibus_adr_o   = ibus_adr_r;
   assign ibus_req_o   = ibus_req_r;
-  assign ibus_burst_o = (state == IC_REFILL) & ic_refill & ~ic_refill_done;
+  assign ibus_burst_o = (state == IC_REFILL) & ic_refill & ~ic_refill_last;
 
   //---------------//
   // SPR interface //
@@ -910,8 +909,8 @@ endgenerate
     // Outputs
     .refill_o            (ic_refill), // ICACHE
     .refill_req_o        (ic_refill_req), // ICACHE
-    .refill_done_o       (ic_refill_done), // ICACHE
-    .cpu_ack_o           (ic_ack), // ICACHE
+    .refill_last_o       (ic_refill_last), // ICACHE
+    .ic_ack_o           (ic_ack), // ICACHE
     .ic_dat_o            (ic_dat), // ICACHE
     // Inputs
     .ic_imem_err_i       (except_ibus_err), // ICACHE
