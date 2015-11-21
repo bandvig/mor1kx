@@ -912,12 +912,12 @@ endgenerate
     .refill_req_o        (ic_refill_req), // ICACHE
     .refill_done_o       (ic_refill_done), // ICACHE
     .cpu_ack_o           (ic_ack), // ICACHE
-    .cpu_dat_o           (ic_dat), // ICACHE
+    .ic_dat_o            (ic_dat), // ICACHE
     // Inputs
     .ic_imem_err_i       (except_ibus_err), // ICACHE
     .ic_access_i         (ic_access), // ICACHE
-    .cpu_adr_i           (s1t_pc_mux), // ICACHE
-    .cpu_adr_match_i     (phys_addr_fetch), // ICACHE
+    .virt_addr_i         (s1t_pc_mux), // ICACHE
+    .phys_addr_fetch_i   (phys_addr_fetch), // ICACHE
     .cpu_req_i           (ic_req), // ICACHE
     .wradr_i             (ibus_adr_r), // ICACHE
     .wrdat_i             (ibus_dat_i), // ICACHE
