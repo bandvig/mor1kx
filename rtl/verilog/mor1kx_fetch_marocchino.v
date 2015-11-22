@@ -803,19 +803,14 @@ module mor1kx_fetch_marocchino
   // So, no padv-*. We only delay SPR access command till IBUS transaction
   // completion.
 
-  //   Delay ACK by 1-clock to be sync-ed with invalidation
-  // process implemented in current ICACHE implementation
-  reg    spr_bus_ack_ic_r;
-  assign spr_bus_ack_ic_o = spr_bus_ack_ic_r;
-
   // request access to ICACHE
   wire spr_bus_ic_stb   = spr_bus_stb_i & (spr_bus_addr_i == `OR1K_SPR_ICBIR_ADDR);
   // request access to IMMU
-  wire spr_bus_immu_stb = spr_bus_stb_i & (spr_bus_addr_i[15:11] == 5'd2);
+  wire spr_bus_immu_stb = spr_bus_stb_i & (spr_bus_addr_i[15:11] == `OR1K_SPR_IMMU_BASE);
 
   // flag to rise spr-bus-ic(immu)-cs-r
-  assign assert_spr_bus_req = ((spr_bus_ic_stb & ~spr_bus_ic_cs_r & ~spr_bus_ack_ic_r) |
-                               (spr_bus_immu_stb & ~spr_bus_immu_cs_r)) & ~imem_req_r;
+  assign assert_spr_bus_req = (spr_bus_ic_stb & ~spr_bus_ic_cs_r & ~imem_req_r) |
+                              (spr_bus_immu_stb & ~spr_bus_immu_cs_r & ~imem_req_r & ~ic_refill);
 
   // IMMU SPR access processing
   // provide STB-signal after IBUS transaction completion
@@ -831,28 +826,15 @@ module mor1kx_fetch_marocchino
   end // @ clock
 
   // ICACHE SPR access processing
-  wire   spr_bus_ack_ic; // connection to ICACHE
-  // ----
   always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst) begin
-      spr_bus_ic_cs_r   <= 1'b0;
-      spr_bus_ack_ic_r  <= 1'b0;
-    end
-    // The delayed ACK drops SPR request fom EXECUTE at next posedge clock
-    else if (spr_bus_ack_ic_r) begin
-      spr_bus_ic_cs_r   <= 1'b0;
-      spr_bus_ack_ic_r  <= 1'b0;
-    end
-    // Drop request flags and 1-clock delay for ACK to EXECUTE
-    else if (spr_bus_ic_cs_r & spr_bus_ack_ic) begin
-      spr_bus_ic_cs_r   <= 1'b0;
-      spr_bus_ack_ic_r  <= 1'b1;
-    end
+    if (rst)
+      spr_bus_ic_cs_r <= 1'b0;
+    // Drop chip select after request completion
+    else if (spr_bus_ic_cs_r & spr_bus_ack_ic_o)
+      spr_bus_ic_cs_r <= 1'b0;
     // provide STB-signal to ICACHE
-    else if (assert_spr_bus_req) begin
-      spr_bus_ic_cs_r  <= spr_bus_ic_stb;
-      spr_bus_ack_ic_r <= 1'b0;
-    end
+    else if (assert_spr_bus_req)
+      spr_bus_ic_cs_r <= spr_bus_ic_stb;
   end // @ clock
 
 
@@ -910,7 +892,7 @@ endgenerate
     .refill_o            (ic_refill), // ICACHE
     .refill_req_o        (ic_refill_req), // ICACHE
     .refill_last_o       (ic_refill_last), // ICACHE
-    .ic_ack_o           (ic_ack), // ICACHE
+    .ic_ack_o            (ic_ack), // ICACHE
     .ic_dat_o            (ic_dat), // ICACHE
     // Inputs
     .ic_imem_err_i       (except_ibus_err), // ICACHE
@@ -927,7 +909,7 @@ endgenerate
     .spr_bus_stb_i       (spr_bus_ic_cs_r), // ICACHE
     .spr_bus_dat_i       (spr_bus_dat_i), // ICACHE
     .spr_bus_dat_o       (spr_bus_dat_ic_o), // ICACHE
-    .spr_bus_ack_o       (spr_bus_ack_ic) // ICACHE
+    .spr_bus_ack_o       (spr_bus_ack_ic_o) // ICACHE
   );
 
 

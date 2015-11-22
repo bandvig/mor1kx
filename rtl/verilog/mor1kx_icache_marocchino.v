@@ -31,7 +31,7 @@ module mor1kx_icache_marocchino
 #(
   parameter OPTION_OPERAND_WIDTH      = 32,
   parameter OPTION_ICACHE_BLOCK_WIDTH =  5,
-  parameter OPTION_ICACHE_SET_WIDTH   =  9,
+  parameter OPTION_ICACHE_SET_WIDTH   =  8,
   parameter OPTION_ICACHE_WAYS        =  2,
   parameter OPTION_ICACHE_LIMIT_WIDTH = 32
 )
@@ -112,10 +112,9 @@ module mor1kx_icache_marocchino
   assign refill_o   = (state == REFILL);
   wire   invalidate = (state == INVALIDATE);
 
-  wire [31:0] next_refill_adr;
-  wire             refill_hit;
+  wire              [OPTION_OPERAND_WIDTH-1:0] next_refill_adr;
+  reg                                          refill_hit_r;
   reg [(1<<(OPTION_ICACHE_BLOCK_WIDTH-2))-1:0] refill_done;
-  reg [(1<<(OPTION_ICACHE_BLOCK_WIDTH-2))-1:0] refill_done_r;
 
   // The index we read and write from tag memory
   wire [OPTION_ICACHE_SET_WIDTH-1:0] tag_rindex;
@@ -136,10 +135,9 @@ module mor1kx_icache_marocchino
   reg                          tag_we;
 
   // Access to the way memories
-  wire            [WAY_WIDTH-3:0] way_raddr [OPTION_ICACHE_WAYS-1:0];
-  wire            [WAY_WIDTH-3:0] way_waddr [OPTION_ICACHE_WAYS-1:0];
-  wire [OPTION_OPERAND_WIDTH-1:0] way_din   [OPTION_ICACHE_WAYS-1:0];
-  wire [OPTION_OPERAND_WIDTH-1:0] way_dout  [OPTION_ICACHE_WAYS-1:0];
+  wire            [WAY_WIDTH-3:0] way_addr [OPTION_ICACHE_WAYS-1:0];
+  wire [OPTION_OPERAND_WIDTH-1:0] way_din  [OPTION_ICACHE_WAYS-1:0];
+  wire [OPTION_OPERAND_WIDTH-1:0] way_dout [OPTION_ICACHE_WAYS-1:0];
   wire   [OPTION_ICACHE_WAYS-1:0] way_we;
 
   // Does any way hit?
@@ -165,7 +163,7 @@ module mor1kx_icache_marocchino
 
   // MAROCCHINO_TODO: potential improvement.
   // Allowing (out of the cache line being refilled) accesses during refill.
-  assign ic_ack_o = (read & hit) | (refill_hit & ic_access_i);
+  assign ic_ack_o = (read & hit) | refill_hit_r;
 
   for (i = 0; i < OPTION_ICACHE_WAYS; i=i+1) begin : ways_out
     // WAY aliases of TAG-RAM output
@@ -187,7 +185,7 @@ module mor1kx_icache_marocchino
     ic_dat_o = {OPTION_OPERAND_WIDTH{1'b0}};
     // Put correct way on the data port
     for (w0 = 0; w0 < OPTION_ICACHE_WAYS; w0 = w0 + 1) begin
-      if (way_hit[w0] | (refill_hit & lru_way_r[w0])) begin
+      if (way_hit[w0] | (refill_hit_r & lru_way_r[w0])) begin
         ic_dat_o = way_dout[w0];
       end
     end
@@ -199,26 +197,19 @@ module mor1kx_icache_marocchino
  
   assign refill_last_o = refill_done[next_refill_adr[OPTION_ICACHE_BLOCK_WIDTH-1:2]];
 
-  assign refill_hit = refill_done_r[phys_addr_fetch_i[OPTION_ICACHE_BLOCK_WIDTH-1:2]] &
-    (phys_addr_fetch_i[OPTION_ICACHE_LIMIT_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH] ==
-     wradr_i[OPTION_ICACHE_LIMIT_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH]) &
-    refill_o;
-
   assign refill_req_o = (read & cpu_req_i & ~hit) | refill_o;
 
-  /*
-   * SPR bus interface
-   */
-  assign invalidate_spr = spr_bus_stb_i & spr_bus_we_i & (spr_bus_addr_i == `OR1K_SPR_ICBIR_ADDR);
+  // SPR bus interface
+  //  # invalidate commamd
+  assign spr_icache_stb = spr_bus_stb_i & spr_bus_we_i & (spr_bus_addr_i == `OR1K_SPR_ICBIR_ADDR);
+  //  # data output
+  assign spr_bus_dat_o = {OPTION_OPERAND_WIDTH{1'b0}}; 
 
-  /*
-   * Cache FSM
-   */
+  //-----------//
+  // Cache FSM //
+  //-----------//
   integer w1;
   always @(posedge clk `OR_ASYNC_RST) begin
-    refill_done_r <= refill_done;
-    spr_bus_ack_o <= 0;
-
     case (state)
       IDLE: begin
         if (cpu_req_i)
@@ -231,9 +222,6 @@ module mor1kx_icache_marocchino
             state <= READ;
           end
           else if (cpu_req_i) begin
-            refill_done <= 0;
-            refill_done_r <= 0;
-
             // Store the LRU information for correct replacement
             // on refill. Always one when only one way.
             lru_way_r <= (OPTION_ICACHE_WAYS == 1) | lru_way;
@@ -252,65 +240,72 @@ module mor1kx_icache_marocchino
 
       REFILL: begin
         if (we_i) begin
-          refill_done[wradr_i[OPTION_ICACHE_BLOCK_WIDTH-1:2]] <= 1'b1;
-
-          if (refill_last_o)
-            state <= IDLE;
-        end
-      end
+          if (refill_last_o) begin
+            refill_done <= 0;
+            state       <= IDLE;
+          end
+          else begin
+            refill_hit_r <= (refill_done == 0); // 1st re-fill is requested insn
+            refill_done[wradr_i[OPTION_ICACHE_BLOCK_WIDTH-1:2]] <= 1'b1;
+          end // last or regulat
+        end // we
+      end // RE-FILL
 
       INVALIDATE: begin
-        if (~invalidate_spr)
-          state <= IDLE;
-          spr_bus_ack_o <= 1;
-        end
+        spr_bus_ack_o <= 1'b0;
+        state         <= IDLE;
+      end
 
       default:
         state <= IDLE;
     endcase
 
-    if (invalidate_spr & ~refill_o) begin
-      spr_bus_ack_o  <= 1;
+    if (spr_icache_stb & ~refill_o & ~invalidate) begin
+      spr_bus_ack_o  <= 1'b1;
       state          <= INVALIDATE;
     end
 
-    if (rst)
-      state <= IDLE;
-    else if(ic_imem_err_i)
-      state <= IDLE;
+    if (rst) begin
+      spr_bus_ack_o <= 1'b0;
+      refill_hit_r  <= 1'b0;
+      refill_done   <= 0;
+      state         <= IDLE;
+    end
+    else if(ic_imem_err_i) begin
+      refill_hit_r  <= 1'b0;
+      refill_done   <= 0;
+      state         <= IDLE;
+    end
   end // @ clock
 
 
   // WAY-RAM write signal (for RE-FILL only)
   assign way_we = {OPTION_ICACHE_WAYS{we_i}} & lru_way_r;
 
-  // WAY-RAM input data and addresses
-  for (i = 0; i < OPTION_ICACHE_WAYS; i=i+1) begin : ways_in_data
-    assign way_raddr[i] = virt_addr_i[WAY_WIDTH-1:2];
-    assign way_waddr[i] = wradr_i[WAY_WIDTH-1:2];
-    assign way_din[i]   = wrdat_i;
-  end
-
-  // WAY-RAM instance
   generate
-  for (i = 0; i < OPTION_ICACHE_WAYS; i=i+1) begin : way_memories
-    mor1kx_simple_dpram_sclk
+  for (i = 0; i < OPTION_ICACHE_WAYS; i=i+1) begin : ways_ram
+    // WAY-RAM input data and addresses
+    assign way_addr[i] = way_we[i] ? wradr_i[WAY_WIDTH-1:2] :
+                                     virt_addr_i[WAY_WIDTH-1:2];
+    assign way_din[i]  = wrdat_i;
+ 
+    // WAY-RAM instance
+    mor1kx_spram_en_w1st
     #(
-      .ADDR_WIDTH     (WAY_WIDTH-2),
-      .DATA_WIDTH     (OPTION_OPERAND_WIDTH),
-      .ENABLE_BYPASS  (0)
+      .ADDR_WIDTH    (WAY_WIDTH-2),
+      .DATA_WIDTH    (OPTION_OPERAND_WIDTH),
+      .CLEAR_ON_INIT (0)
     )
     way_data_ram
     (
-      // Outputs
-      .dout   (way_dout[i][OPTION_OPERAND_WIDTH-1:0]),
-      // Inputs
-      .clk    (clk),
-      .raddr  (way_raddr[i][WAY_WIDTH-3:0]),
-      .re     (1'b1),
-      .waddr  (way_waddr[i][WAY_WIDTH-3:0]),
-      .we     (way_we[i]),
-      .din    (way_din[i][31:0])
+      // clock
+      .clk  (clk),
+      // port
+      .en   (1'b1),       // enable
+      .we   (way_we[i]),  // operation is write
+      .addr (way_addr[i][WAY_WIDTH-3:0]),
+      .din  (way_din[i][OPTION_OPERAND_WIDTH-1:0]),
+      .dout (way_dout[i][OPTION_OPERAND_WIDTH-1:0])
     );
   end // block: way_memories
   endgenerate
@@ -419,44 +414,58 @@ module mor1kx_icache_marocchino
   end // always
 
 
-  // TAG read address
-  assign tag_rindex = virt_addr_i[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH];
+  // TAG-RAM data input
+  //  # LRU section
+  assign tag_din[TAG_LRU_MSB:TAG_LRU_LSB] = tag_lru_in;
+  //  # WAY sections collection
+  generate
+  for (i = 0; i < OPTION_ICACHE_WAYS; i=i+1) begin : tw_sections
+    assign tag_din[(i+1)*TAGMEM_WAY_WIDTH-1:i*TAGMEM_WAY_WIDTH] = tag_way_in[i];
+  end
+  endgenerate
 
   /*
-   * The tag mem is written during reads to write the LRU info and during
-   * refill and invalidate
+   * The tag mem is written during reads to write the LRU info
+   * and during refill and invalidate
    */
   assign tag_windex = read       ? phys_addr_fetch_i[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH] : // at update LRU field
                       invalidate ? spr_bus_dat_i[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH]     : // at invalidate
                                    wradr_i[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH];            // at re-fill
 
-  // TAG-RAM data input
-  //  # LRU part
-  assign tag_din[TAG_LRU_MSB:TAG_LRU_LSB] = tag_lru_in;
-  //  # WAY parts
-  for (i = 0; i < OPTION_ICACHE_WAYS; i=i+1) begin : tag_data_in_collection
-    assign tag_din[(i+1)*TAGMEM_WAY_WIDTH-1:i*TAGMEM_WAY_WIDTH] = tag_way_in[i];
-  end
+  // TAG read address
+  assign tag_rindex = virt_addr_i[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH];
 
+  // RW-conflict resolving
+  //  # conflict detection
+  wire tr_rw_hazard = tag_we & (tag_rindex == tag_windex);
+
+  // Write-only port (*_wp_*) controls
+  //  # enable write-only port
+  wire tr_wp_en = tag_we & ~(tag_rindex == tag_windex);
 
   // TAG-RAM instance
-  mor1kx_simple_dpram_sclk
+  mor1kx_dpram_en_w1st_sclk
   #(
     .ADDR_WIDTH     (OPTION_ICACHE_SET_WIDTH),
     .DATA_WIDTH     (TAGMEM_WIDTH),
-    .ENABLE_BYPASS  (0)
+    .CLEAR_ON_INIT  (0)
   )
   tag_ram
   (
-    // Outputs
-    .dout     (tag_dout[TAGMEM_WIDTH-1:0]),
-    // Inputs
-    .clk      (clk),
-    .raddr    (tag_rindex),
-    .re       (1'b1),
-    .waddr    (tag_windex),
-    .we       (tag_we),
-    .din      (tag_din)
+    // common clock
+    .clk    (clk),
+    // port "a": Read / Write (for RW-conflict case)
+    .en_a   (1'b1),          // enable port "a"
+    .we_a   (tr_rw_hazard),  // operation is "write"
+    .addr_a (tag_rindex),
+    .din_a  (tag_din),
+    .dout_a (tag_dout),
+    // port "b": Write if no RW-conflict
+    .en_b   (tr_wp_en),   // enable port "b"
+    .we_b   (tag_we),     // operation is "write"
+    .addr_b (tag_windex),
+    .din_b  (tag_din),
+    .dout_b ()            // not used
   );
 
 endmodule // mor1kx_icache_marocchino

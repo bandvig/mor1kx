@@ -1029,10 +1029,8 @@ endgenerate
 
 
   // ICACHE
-  assign spr_access_ack[`OR1K_SPR_IC_BASE] = spr_bus_ack_ic_i &
-                                             spr_access[`OR1K_SPR_IC_BASE];
-  assign spr_internal_read_dat[`OR1K_SPR_IC_BASE] =
-    spr_bus_dat_ic_i & {OPTION_OPERAND_WIDTH{spr_access[`OR1K_SPR_IC_BASE]}};
+  assign spr_access_ack[`OR1K_SPR_IC_BASE]        = spr_bus_ack_ic_i;
+  assign spr_internal_read_dat[`OR1K_SPR_IC_BASE] = spr_bus_dat_ic_i;
 
 
 generate
