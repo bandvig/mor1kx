@@ -31,19 +31,21 @@
 
 module mor1kx_fetch_marocchino
 #(
-  parameter OPTION_OPERAND_WIDTH       = 32,
-  parameter OPTION_RESET_PC            = {{(OPTION_OPERAND_WIDTH-13){1'b0}},
-                                          `OR1K_RESET_VECTOR,8'd0},
-  parameter OPTION_RF_ADDR_WIDTH       =  5,
+  parameter OPTION_OPERAND_WIDTH        = 32,
+  parameter OPTION_RESET_PC             = {{(OPTION_OPERAND_WIDTH-13){1'b0}},
+                                           `OR1K_RESET_VECTOR,8'd0},
+  parameter OPTION_RF_ADDR_WIDTH        =  5,
   // cache configuration
-  parameter OPTION_ICACHE_BLOCK_WIDTH  =  5,
-  parameter OPTION_ICACHE_SET_WIDTH    =  9,
-  parameter OPTION_ICACHE_WAYS         =  2,
-  parameter OPTION_ICACHE_LIMIT_WIDTH  = 32,
+  parameter OPTION_ICACHE_BLOCK_WIDTH   =  5,
+  parameter OPTION_ICACHE_SET_WIDTH     =  9,
+  parameter OPTION_ICACHE_WAYS          =  2,
+  parameter OPTION_ICACHE_LIMIT_WIDTH   = 32,
+  parameter OPTION_ICACHE_CLEAR_ON_INIT =  0,
   // mmu configuration
-  parameter FEATURE_IMMU_HW_TLB_RELOAD = "NONE",
-  parameter OPTION_IMMU_SET_WIDTH      = 6,
-  parameter OPTION_IMMU_WAYS           = 1
+  parameter FEATURE_IMMU_HW_TLB_RELOAD  = "NONE",
+  parameter OPTION_IMMU_SET_WIDTH       =  6,
+  parameter OPTION_IMMU_WAYS            =  1,
+  parameter OPTION_IMMU_CLEAR_ON_INIT   =  0
 )
 (
   // clock and reset
@@ -136,17 +138,15 @@ module mor1kx_fetch_marocchino
 
   /* ICACHE related controls and signals */
 
-  // ICACHE on/off control
-  wire                        ic_enabled;
   // ICACHE access flag (without taking exceptions into accaunt)
-  wire                        ic_try;
+  wire                        ic_access;
   // ICACHE output ready (by read or re-fill) and data
   wire                        ic_rdy;
   wire                        ic_ack;
   wire [`OR1K_INSN_WIDTH-1:0] ic_dat;
   // ICACHE requests and performs refill
-  wire                        ic_refill;
   wire                        ic_refill_req;
+  wire                        ic_refill_allowed;
   wire                        ic_refill_last;
 
 
@@ -159,12 +159,12 @@ module mor1kx_fetch_marocchino
   // IBUS FSM statuses
   wire                            ibus_fsm_free;
   // IBUS access state machine
-  localparam                [2:0] IDLE       = 3'd0,
-                                  READ       = 3'd1,
-                                  TLB_RELOAD = 3'd2,
-                                  IC_REFILL  = 3'd4;
+  localparam                [3:0] IDLE       = 4'b0001,
+                                  IMEM_REQ   = 4'b0010,
+                                  IBUS_READ  = 4'b0100,
+                                  IC_REFILL  = 4'b1000;
   //
-  reg                       [2:0] state;
+  reg                       [3:0] state;
   // request IBUS transaction
   reg                             ibus_req_r;
   // address for IBUS transaction
@@ -178,8 +178,6 @@ module mor1kx_fetch_marocchino
 
   // The logic is located in Stage #2 section
 
-  // Request & Ready
-  reg                         imem_req_r; // next insn request
   //   ACK/DATA stored
   // They passed (if ready) to stage #2 output latches @ next advance
   reg                         imem_ic_ack_stored;
@@ -195,15 +193,8 @@ module mor1kx_fetch_marocchino
   // Flush processing
   wire flush_by_ctrl;       // flush registers from pipeline-flush command till IBUS transaction completion
   wire flush_by_branch;     // flush some registers if branch processing
-  wire flush_by_mispredict; // flush some registers if mispredict branch processing
-
-  // Support access through SPR BUS
-  //   For MAROCCHINO SPR access means that pipeline is stalled till ACK.
-  // So, no padv-*, but we delay SPR access command till IBUS transaction
-  // completion.
-  reg  spr_bus_ic_cs_r;    // STB-signal to ICACHE after IBUS transaction completion
-  reg  spr_bus_immu_cs_r;  // STB-signal to IMMU   after IBUS transaction completion
-  wire assert_spr_bus_req; // flag to rise spr-bus-ic(immu)-cs-r
+  wire flush_by_mispredict; // flush some registers if mispredicted branch processing
+  wire flush_by_borm;       // flush some registers if branch or mispredicted branch processing
 
   // ICACHE/IMMU match address store register
   //   The register operates in the same way
@@ -225,7 +216,7 @@ module mor1kx_fetch_marocchino
 
 
   // Advance stage #1
-  wire padv_s1 = padv_fetch_i & ibus_fsm_free;
+  wire padv_s1 = padv_fetch_i & ibus_fsm_free & ~fetch_excepts;
 
   // combined MMU's and IBUS's exceptions
   wire fetch_excepts = immu_an_except | except_ibus_err;
@@ -247,7 +238,7 @@ module mor1kx_fetch_marocchino
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
       take_ds_r <= 1'b0;
-    else if ((padv_s1 & ~fetch_excepts) | flush_by_ctrl)
+    else if (padv_s1 | flush_by_ctrl)
       take_ds_r <= 1'b0;
     else if (~take_ds_r)
       take_ds_r <= (s3t_jb & ~imem_fetching_next_insn);
@@ -263,7 +254,7 @@ module mor1kx_fetch_marocchino
       fetching_ds_r <= 1'b0;
     else if (flush_by_ctrl)
       fetching_ds_r <= 1'b0;
-    else if (padv_s1 & ~fetch_excepts)
+    else if (padv_s1)
       fetching_ds_r <= take_ds;
     else if (~fetching_ds_r)
       fetching_ds_r <= (s3t_jb & imem_fetching_next_insn);
@@ -283,7 +274,7 @@ module mor1kx_fetch_marocchino
       mispredict_stored        <= 1'b0;
       mispredict_target_stored <= OPTION_RESET_PC;
     end
-    else if ((padv_s1 & ~fetch_excepts & ~take_ds) | flush_by_ctrl | mispredict_taken_r) begin
+    else if ((padv_s1 & ~take_ds) | flush_by_ctrl | mispredict_taken_r) begin
       mispredict_stored        <= 1'b0;
       mispredict_target_stored <= mispredict_target_stored;
     end
@@ -300,7 +291,7 @@ module mor1kx_fetch_marocchino
     else if (padv_decode_i | flush_by_ctrl)
       mispredict_taken_r <= 1'b0;
     // take mispredict
-    else if (padv_s1 & ~fetch_excepts & ~take_ds & branch_mispredict_i & ~mispredict_taken_r)
+    else if (padv_s1 & ~take_ds & branch_mispredict_i & ~mispredict_taken_r)
       mispredict_taken_r <= 1'b1;
   end // @ clock
   // flush some registers if mispredict branch processing
@@ -318,7 +309,7 @@ module mor1kx_fetch_marocchino
       branch_stored        <= 1'b0;
       branch_target_stored <= OPTION_RESET_PC;
     end
-    else if ((padv_s1 & ~fetch_excepts & ~take_ds) | flush_by_ctrl | branch_taken_r) begin
+    else if ((padv_s1 & ~take_ds) | flush_by_ctrl | branch_taken_r) begin
       branch_stored        <= 1'b0;
       branch_target_stored <= branch_target_stored;
     end
@@ -335,12 +326,16 @@ module mor1kx_fetch_marocchino
     else if (padv_decode_i | flush_by_ctrl)
       branch_taken_r <= 1'b0;
     // take branch
-    else if (padv_s1 & ~fetch_excepts & ~take_ds & dcod_take_branch_i & ~branch_taken_r)
+    else if (padv_s1 & ~take_ds & dcod_take_branch_i & ~branch_taken_r)
       branch_taken_r <= 1'b1;
   end // @ clock
   // ---
   // flush some registers if branch processing
   assign flush_by_branch = ((dcod_take_branch_i & ~branch_taken_r) | branch_stored) & ~fetching_ds; //  & ~take_ds
+
+
+  // flush some registers if branch or mispredicted branch processing
+  assign flush_by_borm = flush_by_branch | flush_by_mispredict;
 
 
   // regular value of next PC
@@ -349,47 +344,26 @@ module mor1kx_fetch_marocchino
   // Select the PC for next fetch
   wire [OPTION_OPERAND_WIDTH-1:0] s1t_pc_mux =
     // Debug (MAROCCHINO_TODO)
-    du_restart_i                                 ? du_restart_pc_i :
-    // on exceptions, pipeline flush or SPR access (because no padv-*)
-    (~padv_s1 | fetch_excepts | flush_by_ctrl)   ? virt_addr_fetch :
+    du_restart_i                                ? du_restart_pc_i :
     // padv-s1 and neither exceptions nor pipeline flush
-    (ctrl_branch_exception_i                     ? ctrl_branch_except_pc_i :
-     take_ds                                     ? s1t_pc_next :
-     (branch_mispredict_i & ~mispredict_taken_r) ? exec_mispredict_target_i :
-     mispredict_stored                           ? mispredict_target_stored :
-     (dcod_take_branch_i & ~branch_taken_r)      ? dcod_branch_target_i :
-     branch_stored                               ? branch_target_stored :
-                                                   s1t_pc_next);
+    ctrl_branch_exception_i                     ? ctrl_branch_except_pc_i :
+    take_ds                                     ? s1t_pc_next :
+    (branch_mispredict_i & ~mispredict_taken_r) ? exec_mispredict_target_i :
+    mispredict_stored                           ? mispredict_target_stored :
+    (dcod_take_branch_i & ~branch_taken_r)      ? dcod_branch_target_i :
+    branch_stored                               ? branch_target_stored :
+                                                  s1t_pc_next;
 
   // 1-clock fetch-exception-taken
   // The flush-by-ctrl is dropped synchronously with s1-stall
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
       fetch_exception_taken_o <= 1'b0;
-    else if (padv_s1 & ~fetch_excepts & ~flush_by_ctrl)
+    else if (padv_s1 & ~flush_by_ctrl)
       fetch_exception_taken_o <= ctrl_branch_exception_i;
     else
       fetch_exception_taken_o <= 1'b0;
   end // @ clock
-
-
-  // Force switching ICACHE/IMMU off in case of IMMU-generated exceptions
-  wire ic_immu_force_off = (immu_an_except & flush_by_ctrl);
-
-  // Update ICACHE enable/disable.
-  reg ic_enabled_r;
-  // ---
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      ic_enabled_r <= 1'b0;
-    else if (ic_immu_force_off | assert_spr_bus_req) // ICAHCE -> idle
-      ic_enabled_r <= 1'b0;
-    else if (padv_s1 & ~fetch_excepts & ~flush_by_ctrl)
-      ic_enabled_r <= ic_enable_i;
-  end // @ clock
-  //   Force ICACHE go to idle state if either SPR access is requested
-  // or IMMU-generated exceptions is cleaned
-  assign ic_enabled = ~ic_immu_force_off & ~assert_spr_bus_req & ic_enabled_r;
 
 
   /****************************************/
@@ -402,18 +376,6 @@ module mor1kx_fetch_marocchino
   //----------------------------------------//
 
   wire imem_rdy = ic_rdy | ibus_rdy;
-
-  // Flag indicating that ICACHE/MMU have taken new address
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      imem_req_r <= 1'b0;
-    else if (fetch_excepts)
-      imem_req_r <= 1'b0;
-    else if (padv_s1 & ~flush_by_ctrl)
-      imem_req_r <= 1'b1;
-    else if (imem_rdy)
-      imem_req_r <= 1'b0;
-  end // @ clock
 
   // ACKs and DATA stored till nearest advance
   always @(posedge clk `OR_ASYNC_RST) begin
@@ -469,7 +431,7 @@ module mor1kx_fetch_marocchino
   //-------------------------//
 
   // block ACKs by various reasons (stall includes exceptions)
-  wire s2t_ack_enable = ~flush_by_branch & ~flush_by_mispredict & ~fetch_excepts;
+  wire s2t_ack_enable = ~flush_by_borm & ~fetch_excepts;
 
   // masked ACKs
   wire s2t_ic_ack_instant   = ic_rdy               & s2t_ack_enable;
@@ -556,10 +518,10 @@ module mor1kx_fetch_marocchino
   // to s3: program counter
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
-      s2o_pc <= OPTION_RESET_PC;
+      s2o_pc <= {OPTION_OPERAND_WIDTH{1'b0}};
     else if (flush_by_ctrl)
       s2o_pc <= s2o_pc;
-    else if (padv_fetch_i & ((~flush_by_branch & ~flush_by_mispredict) | fetch_excepts))
+    else if (padv_fetch_i & (~flush_by_borm | fetch_excepts))
       s2o_pc <= virt_addr_fetch;
   end // @ clock
 
@@ -636,7 +598,7 @@ module mor1kx_fetch_marocchino
   // to DECODE: actual program counter
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
-      pc_decode_o <= OPTION_RESET_PC;
+      pc_decode_o <= {OPTION_OPERAND_WIDTH{1'b0}};
     else if (flush_by_ctrl)
       pc_decode_o <= pc_decode_o;
     else if (padv_fetch_i & (~flush_by_mispredict | s3t_excepts | s2o_ds))
@@ -722,13 +684,15 @@ module mor1kx_fetch_marocchino
 
   // IBUS output ready (no bus error case)
   // !!! should follows appropriate FSM condition,
-  assign ibus_rdy = (state == READ) & ibus_ack_i;
+  assign ibus_rdy = (state == IBUS_READ) & ibus_ack_i;
 
   // IBUS FSM status is stop
   // !!! should follows appropriate FSM condition,
   //     but without taking into account exceptions
-  assign ibus_fsm_free = ((state == IDLE) & (~imem_req_r | ic_rdy)) |
-                         ibus_rdy;
+  assign ibus_fsm_free =
+    (state == IDLE) |                                  // IBUS FSM is free
+    ((state == IMEM_REQ) & (flush_by_borm | ic_ack)) | // IBUS FSM is free
+    ibus_rdy;                                          // IBUS FSM is free
 
   // refill support
   assign next_ibus_adr = (OPTION_ICACHE_BLOCK_WIDTH == 5) ?
@@ -737,63 +701,82 @@ module mor1kx_fetch_marocchino
 
   // state machine itself
   always @(posedge clk `OR_ASYNC_RST) begin
-    // states
-    case (state)
-      IDLE: begin
-        ibus_req_r <= 1'b0;
-        if (imem_req_r & (~ic_try | ~ic_ack) & ~fetch_excepts) begin
-          if (~ic_try) begin
+    if (rst) begin
+      ibus_req_r <= 1'b0;
+      state      <= IDLE;
+    end
+    else begin
+      // defaults
+      ibus_req_r <= 1'b0;
+      // states
+      case (state)
+        IDLE: begin
+          if (padv_s1 & ~flush_by_ctrl)
+            state <= IMEM_REQ;
+        end
+      
+        IMEM_REQ: begin
+          if (fetch_excepts | flush_by_ctrl) begin
+            state <= IDLE;
+          end
+          else if (flush_by_borm | ic_ack) begin
+            state <= IMEM_REQ;
+          end
+          else if (~ic_access) begin
             ibus_req_r <= 1'b1;
             ibus_adr_r <= phys_addr_fetch;
-            state      <= READ;
+            state      <= IBUS_READ;
           end
           else if (ic_refill_req) begin
             ibus_req_r <= 1'b1;
             ibus_adr_r <= phys_addr_fetch;
             state      <= IC_REFILL;
           end
-        end // new address taken & cache off/miss & no exceptions
-      end // idle
-
-      IC_REFILL: begin
-        ibus_req_r <= 1'b1;
-        if (ibus_ack_i) begin
-          ibus_adr_r <= next_ibus_adr;
-          if (ic_refill_last) begin
+          else
+            state <= IDLE;
+        end
+  
+        IC_REFILL: begin
+          ibus_req_r <= 1'b1;
+          if (ibus_ack_i) begin
+            ibus_adr_r <= next_ibus_adr;
+            if (ic_refill_last) begin
+              ibus_req_r <= 1'b0;
+              state      <= IDLE;
+            end
+          end
+          if (ibus_err_i) begin
             ibus_req_r <= 1'b0;
             state      <= IDLE;
           end
-        end
-        if (ibus_err_i) begin
-          ibus_req_r <= 1'b0;
-          state      <= IDLE;
-        end
-      end // ic-refill
-
-      READ: begin
-        ibus_req_r <= 1'b1;
-        if (ibus_ack_i | ibus_err_i) begin
-          ibus_req_r <= 1'b0;
-          state      <= IDLE;
-        end
-      end // read
-
-      default: begin
-        ibus_req_r <= 1'b0;
-        state      <= IDLE;
-      end // not defined
-    endcase // case (state)
-
-    if (rst) begin
-      ibus_req_r <= 1'b0;
-      state      <= IDLE;
-    end
+        end // ic-refill
+  
+        IBUS_READ: begin
+          ibus_req_r <= 1'b1;
+          if (ibus_err_i) begin
+            ibus_req_r <= 1'b0;
+            state      <= IDLE;
+          end
+          else if (ibus_ack_i) begin
+            ibus_req_r <= 1'b0;
+            if (padv_s1 & ~flush_by_ctrl) // IBUS READ -> IMEM REQUEST
+              state <= IMEM_REQ;
+            else
+              state <= IDLE; // IBUS READ -> IDLE
+          end
+        end // read
+  
+        default: begin
+          state <= IDLE;
+        end // not defined
+      endcase // case (state)
+    end // reset / regular update
   end // @ clock
 
   // to WBUS bridge
   assign ibus_adr_o   = ibus_adr_r;
   assign ibus_req_o   = ibus_req_r;
-  assign ibus_burst_o = (state == IC_REFILL) & ic_refill & ~ic_refill_last;
+  assign ibus_burst_o = (state == IC_REFILL) & ~ic_refill_last;
 
   //---------------//
   // SPR interface //
@@ -802,114 +785,69 @@ module mor1kx_fetch_marocchino
   //   For MAROCCHINO SPR access means that pipeline is stalled till ACK.
   // So, no padv-*. We only delay SPR access command till IBUS transaction
   // completion.
+  wire spr_bus_ifetch_stb = spr_bus_stb_i & (state == IDLE);
 
-  // request access to ICACHE
-  wire spr_bus_ic_stb   = spr_bus_stb_i & (spr_bus_addr_i == `OR1K_SPR_ICBIR_ADDR);
-  // request access to IMMU
-  wire spr_bus_immu_stb = spr_bus_stb_i & (spr_bus_addr_i[15:11] == `OR1K_SPR_IMMU_BASE);
 
-  // flag to rise spr-bus-ic(immu)-cs-r
-  assign assert_spr_bus_req = (spr_bus_ic_stb & ~spr_bus_ic_cs_r & ~imem_req_r) |
-                              (spr_bus_immu_stb & ~spr_bus_immu_cs_r & ~imem_req_r & ~ic_refill);
+  // advance ICACHE/IMMU
+  wire ic_immu_adv = padv_s1 & ~flush_by_ctrl;
 
-  // IMMU SPR access processing
-  // provide STB-signal after IBUS transaction completion
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      spr_bus_immu_cs_r <= 1'b0;
-    // Drop flags after SPR access completion
-    else if (spr_bus_immu_cs_r & spr_bus_ack_immu_o)
-      spr_bus_immu_cs_r <= 1'b0;
-    // provide STB-signal to IMMU
-    else if (assert_spr_bus_req)
-      spr_bus_immu_cs_r <= spr_bus_immu_stb;
-  end // @ clock
-
-  // ICACHE SPR access processing
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      spr_bus_ic_cs_r <= 1'b0;
-    // Drop chip select after request completion
-    else if (spr_bus_ic_cs_r & spr_bus_ack_ic_o)
-      spr_bus_ic_cs_r <= 1'b0;
-    // provide STB-signal to ICACHE
-    else if (assert_spr_bus_req)
-      spr_bus_ic_cs_r <= spr_bus_ic_stb;
-  end // @ clock
+  // Force switching ICACHE/IMMU off in case of IMMU-generated exceptions
+  // We use pipeline-flush-i here because FETCH is anycase stopped by
+  // IMMU's exceptions
+  wire ic_immu_force_off = immu_an_except & pipeline_flush_i;
 
 
   //-------------------//
   // Instance of cache //
   //-------------------//
 
-  wire ic_check_limit_width;
+  assign ic_refill_allowed = (state == IMEM_REQ) & ~flush_by_borm & ~flush_by_ctrl;
 
-generate
-  //   Hack? Work around IMMU?
-  // Today the thing is actual for DCACHE only.
-  // Addresses 0x8******* are treated as non-cacheble regardless IMMU's flag.
-
-  // MAROCCHINO_TODO:
-  //   The ic_check_limit_width usage isn't harmonized with IMMU on/off.
-  // On the other hand it isn't problem for FETCH because
-  // ic_check_limit_width == 1 thanks to setting of
-  // OPTION_ICACHE_LIMIT_WIDTH == OPTION_OPERAND_WIDTH from instance of mor1kx.
-
-  if (OPTION_ICACHE_LIMIT_WIDTH == OPTION_OPERAND_WIDTH)
-    assign ic_check_limit_width = 1'b1;
-  else if (OPTION_ICACHE_LIMIT_WIDTH < OPTION_OPERAND_WIDTH)
-    assign ic_check_limit_width =
-      (phys_addr_fetch[OPTION_OPERAND_WIDTH-1:OPTION_ICACHE_LIMIT_WIDTH] == 0);
-  else begin
-    initial begin
-      $display("ERROR: OPTION_ICACHE_LIMIT_WIDTH > OPTION_OPERAND_WIDTH");
-      $finish();
-    end
-  end
-endgenerate
-
-  // ICACHE -> FETCH pipe (without exceptions)
-  assign ic_try = ic_enabled & ic_check_limit_width & ~immu_cache_inhibit;
-  assign ic_rdy = ic_try & imem_req_r & ic_ack;
-
-  // FETCH pipe -> ICACHE
-  wire ic_access = ic_try & ~fetch_excepts;
-  wire ic_req    = ic_access & imem_req_r;
+  // mask ICACHE ack with memory request flag
+  assign ic_rdy = ((state == IMEM_REQ) | (state == IC_REFILL)) & ic_ack;
 
   // ICACHE module
   mor1kx_icache_marocchino
   #(
-    .OPTION_ICACHE_BLOCK_WIDTH  (OPTION_ICACHE_BLOCK_WIDTH),
-    .OPTION_ICACHE_SET_WIDTH    (OPTION_ICACHE_SET_WIDTH),
-    .OPTION_ICACHE_WAYS         (OPTION_ICACHE_WAYS),
-    .OPTION_ICACHE_LIMIT_WIDTH  (OPTION_ICACHE_LIMIT_WIDTH)
+    .OPTION_OPERAND_WIDTH         (OPTION_OPERAND_WIDTH),
+    .OPTION_ICACHE_BLOCK_WIDTH    (OPTION_ICACHE_BLOCK_WIDTH),
+    .OPTION_ICACHE_SET_WIDTH      (OPTION_ICACHE_SET_WIDTH),
+    .OPTION_ICACHE_WAYS           (OPTION_ICACHE_WAYS),
+    .OPTION_ICACHE_LIMIT_WIDTH    (OPTION_ICACHE_LIMIT_WIDTH),
+    .OPTION_ICACHE_CLEAR_ON_INIT  (OPTION_ICACHE_CLEAR_ON_INIT)
   )
   u_icache
   (
-    .clk                 (clk),
-    .rst                 (rst),
-    // Outputs
-    .refill_o            (ic_refill), // ICACHE
-    .refill_req_o        (ic_refill_req), // ICACHE
-    .refill_last_o       (ic_refill_last), // ICACHE
-    .ic_ack_o            (ic_ack), // ICACHE
-    .ic_dat_o            (ic_dat), // ICACHE
-    // Inputs
-    .ic_imem_err_i       (except_ibus_err), // ICACHE
-    .ic_access_i         (ic_access), // ICACHE
-    .virt_addr_i         (s1t_pc_mux), // ICACHE
-    .phys_addr_fetch_i   (phys_addr_fetch), // ICACHE
-    .cpu_req_i           (ic_req), // ICACHE
-    .wradr_i             (ibus_adr_r), // ICACHE
-    .wrdat_i             (ibus_dat_i), // ICACHE
-    .we_i                (ibus_ack_i), // ICACHE
+    // clock and reset
+    .clk                  (clk),
+    .rst                  (rst),
+    // controls
+    .adv_i                (ic_immu_adv), // ICACHE advance
+    .force_off_i          (ic_immu_force_off), // ICACHE: drop stored "ICACHE enable"
+    .fetch_excepts_i      (fetch_excepts), // ICACHE
+    // configuration
+    .enable_i             (ic_enable_i), // ICACHE
+    // regular requests in/out
+    .virt_addr_i          (s1t_pc_mux), // ICACHE
+    .phys_addr_fetch_i    (phys_addr_fetch), // ICACHE
+    .immu_cache_inhibit_i (immu_cache_inhibit), // ICACHE
+    .ic_access_o          (ic_access), // ICACHE
+    .ic_ack_o             (ic_ack), // ICACHE
+    .ic_dat_o             (ic_dat), // ICACHE
+    // re-fill
+    .refill_req_o         (ic_refill_req), // ICACHE
+    .ic_refill_allowed_i  (ic_refill_allowed), // ICACHE
+    .refill_last_o        (ic_refill_last), // ICACHE
+    .wradr_i              (ibus_adr_r), // ICACHE
+    .wrdat_i              (ibus_dat_i), // ICACHE
+    .we_i                 (ibus_ack_i), // ICACHE
     // SPR bus
-    .spr_bus_addr_i      (spr_bus_addr_i[15:0]), // ICACHE
-    .spr_bus_we_i        (spr_bus_we_i), // ICACHE
-    .spr_bus_stb_i       (spr_bus_ic_cs_r), // ICACHE
-    .spr_bus_dat_i       (spr_bus_dat_i), // ICACHE
-    .spr_bus_dat_o       (spr_bus_dat_ic_o), // ICACHE
-    .spr_bus_ack_o       (spr_bus_ack_ic_o) // ICACHE
+    .spr_bus_addr_i       (spr_bus_addr_i[15:0]), // ICACHE
+    .spr_bus_we_i         (spr_bus_we_i), // ICACHE
+    .spr_bus_stb_i        (spr_bus_ifetch_stb), // ICACHE
+    .spr_bus_dat_i        (spr_bus_dat_i), // ICACHE
+    .spr_bus_dat_o        (spr_bus_dat_ic_o), // ICACHE
+    .spr_bus_ack_o        (spr_bus_ack_ic_o) // ICACHE
   );
 
 
@@ -921,17 +859,12 @@ endgenerate
   wire immu_tlb_miss;
   wire immu_pagefault;
 
-  // Block IMMU exceptions for "next to delay slot instruction"
-  // and mispredict cases.
-  wire immu_excepts_enabled = ~flush_by_branch & ~flush_by_mispredict;
-
-  // IMMU exceptions with enable
-  assign except_itlb_miss  = immu_tlb_miss  & immu_excepts_enabled;
-  assign except_ipagefault = immu_pagefault & immu_excepts_enabled;
-  assign immu_an_except    = (immu_tlb_miss | immu_pagefault) & immu_excepts_enabled;
-
-  // advance IMMU
-  wire immu_adv = padv_s1 & ~fetch_excepts & ~flush_by_ctrl;
+  // IMMU exceptions.
+  //  # We block IMMU exceptions for
+  //    "next to delay slot instruction" and "mispredicted branch" cases.
+  assign except_itlb_miss  = immu_tlb_miss  & ~flush_by_borm;
+  assign except_ipagefault = immu_pagefault & ~flush_by_borm;
+  assign immu_an_except    = (immu_tlb_miss | immu_pagefault) & ~flush_by_borm;
 
   // IMMU unit
   mor1kx_immu_marocchino
@@ -940,14 +873,15 @@ endgenerate
     .OPTION_OPERAND_WIDTH       (OPTION_OPERAND_WIDTH),
     .OPTION_RESET_PC            (OPTION_RESET_PC),
     .OPTION_IMMU_SET_WIDTH      (OPTION_IMMU_SET_WIDTH),
-    .OPTION_IMMU_WAYS           (OPTION_IMMU_WAYS)
+    .OPTION_IMMU_WAYS           (OPTION_IMMU_WAYS),
+    .OPTION_IMMU_CLEAR_ON_INIT  (OPTION_IMMU_CLEAR_ON_INIT)
   )
   u_immu
   (
     .clk                            (clk),
     .rst                            (rst),
     // controls
-    .adv_i                          (immu_adv), // IMMU advance
+    .adv_i                          (ic_immu_adv), // IMMU advance
     .force_off_i                    (ic_immu_force_off), // drop stored "IMMU enable"
     // configuration
     .enable_i                       (immu_enable_i), // IMMU
@@ -971,7 +905,7 @@ endgenerate
     // SPR bus face
     .spr_bus_addr_i                 (spr_bus_addr_i[15:0]), // IMMU
     .spr_bus_we_i                   (spr_bus_we_i), // IMMU
-    .spr_bus_stb_i                  (spr_bus_immu_cs_r), // IMMU
+    .spr_bus_stb_i                  (spr_bus_ifetch_stb), // IMMU
     .spr_bus_dat_i                  (spr_bus_dat_i), // IMMU
     .spr_bus_dat_o                  (spr_bus_dat_immu_o), // IMMU
     .spr_bus_ack_o                  (spr_bus_ack_immu_o) // IMMU

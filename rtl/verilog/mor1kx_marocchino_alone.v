@@ -43,11 +43,13 @@ module mor1kx_marocchino_alone
   parameter OPTION_ICACHE_SET_WIDTH    =  9,
   parameter OPTION_ICACHE_WAYS         =  2,
   parameter OPTION_ICACHE_LIMIT_WIDTH  = 32,
+  parameter OPTION_ICACHE_CLEAR_ON_INIT=  0, // !!! activate for simulation only !!!
 
   // instruction mmu
   parameter FEATURE_IMMU_HW_TLB_RELOAD = "NONE",
   parameter OPTION_IMMU_SET_WIDTH      =  6,
   parameter OPTION_IMMU_WAYS           =  1,
+  parameter OPTION_IMMU_CLEAR_ON_INIT  =  0, // !!! activate for simulation only !!!
 
   parameter FEATURE_TIMER              = "ENABLED",
   parameter FEATURE_DEBUGUNIT          = "NONE",
@@ -58,7 +60,7 @@ module mor1kx_marocchino_alone
   parameter OPTION_PIC_NMI_WIDTH       =  0,
 
   parameter FEATURE_FASTCONTEXTS       = "NONE",
-  parameter OPTION_RF_CLEAR_ON_INIT    =  0,
+  parameter OPTION_RF_CLEAR_ON_INIT    =  0, // !!! activate for simulation only !!!
   parameter OPTION_RF_NUM_SHADOW_GPR   =  0,
   parameter OPTION_RF_ADDR_WIDTH       =  5,
   parameter OPTION_RF_WORDS            = 32,
@@ -264,10 +266,12 @@ module mor1kx_marocchino_alone
     .OPTION_ICACHE_SET_WIDTH          (OPTION_ICACHE_SET_WIDTH),
     .OPTION_ICACHE_WAYS               (OPTION_ICACHE_WAYS),
     .OPTION_ICACHE_LIMIT_WIDTH        (OPTION_ICACHE_LIMIT_WIDTH),
+    .OPTION_ICACHE_CLEAR_ON_INIT      (OPTION_ICACHE_CLEAR_ON_INIT),
     // instrucion mmu
     .FEATURE_IMMU_HW_TLB_RELOAD       (FEATURE_IMMU_HW_TLB_RELOAD),
     .OPTION_IMMU_SET_WIDTH            (OPTION_IMMU_SET_WIDTH),
     .OPTION_IMMU_WAYS                 (OPTION_IMMU_WAYS),
+    .OPTION_IMMU_CLEAR_ON_INIT        (OPTION_IMMU_CLEAR_ON_INIT),
     // interrupt cintroller
     .FEATURE_PIC                      (FEATURE_PIC),
     .OPTION_PIC_TRIGGER               (OPTION_PIC_TRIGGER),

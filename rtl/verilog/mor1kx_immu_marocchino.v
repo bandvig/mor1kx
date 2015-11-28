@@ -31,7 +31,8 @@ module mor1kx_immu_marocchino
   parameter OPTION_RESET_PC            = {{(OPTION_OPERAND_WIDTH-13){1'b0}},
                                           `OR1K_RESET_VECTOR,8'd0},
   parameter OPTION_IMMU_SET_WIDTH      = 6,
-  parameter OPTION_IMMU_WAYS           = 1
+  parameter OPTION_IMMU_WAYS           = 1,
+  parameter OPTION_IMMU_CLEAR_ON_INIT  = 0
 )
 (
   // clock & reset
@@ -146,7 +147,7 @@ module mor1kx_immu_marocchino
       enable_r          <= 1'b0;
       supervisor_mode_r <= 1'b0;
     end
-    else if (force_off_i) begin
+    else if (force_off_i | spr_immu_stb) begin
       enable_r          <= 1'b0;
       supervisor_mode_r <= supervisor_mode_r;
     end
@@ -284,7 +285,7 @@ endgenerate
   // match 8KB input address
   assign itlb_match_addr =
     (itlb_match_spr_cs & ~spr_bus_ack_o) ? spr_bus_addr_i[OPTION_IMMU_SET_WIDTH-1:0]          :
-    spr_bus_ack_o                        ? virt_addr_fetch_o[13+(OPTION_IMMU_SET_WIDTH-1):13] : // re-read after SPR access
+//    spr_bus_ack_o                        ? virt_addr_fetch_o[13+(OPTION_IMMU_SET_WIDTH-1):13] : // re-read after SPR access
                                            virt_addr_i[13+(OPTION_IMMU_SET_WIDTH-1):13];
   // match huge address and write command
   assign itlb_match_huge_addr = virt_addr_i[24+(OPTION_IMMU_SET_WIDTH-1):24];
@@ -296,7 +297,7 @@ endgenerate
   // translation 8KB input address
   assign itlb_trans_addr =
     (itlb_trans_spr_cs & ~spr_bus_ack_o) ? spr_bus_addr_i[OPTION_IMMU_SET_WIDTH-1:0]          :
-    spr_bus_ack_o                        ? virt_addr_fetch_o[13+(OPTION_IMMU_SET_WIDTH-1):13] : // re-read after SPR access
+//    spr_bus_ack_o                        ? virt_addr_fetch_o[13+(OPTION_IMMU_SET_WIDTH-1):13] : // re-read after SPR access
                                            virt_addr_i[13+(OPTION_IMMU_SET_WIDTH-1):13];
   // translation huge address and write command
   assign itlb_trans_huge_addr = virt_addr_i[24+(OPTION_IMMU_SET_WIDTH-1):24];
@@ -466,7 +467,7 @@ endgenerate
   //  2) SPR access. The spr-immu-stb is used because:
   //    a) before clock posedge the SPR read/write is active
   //    b) after clock posedge (spr-bus-ack-o is active) re-read is performed
-  wire ram_re = (adv_i & enable_i) | spr_immu_stb;
+  wire ram_re = (adv_i & enable_i) | (spr_immu_stb & ~spr_bus_we_i & ~spr_bus_ack_o);
 
 generate
 for (i = 0; i < OPTION_IMMU_WAYS; i=i+1) begin : itlb
@@ -475,7 +476,7 @@ for (i = 0; i < OPTION_IMMU_WAYS; i=i+1) begin : itlb
   #(
     .ADDR_WIDTH     (OPTION_IMMU_SET_WIDTH),
     .DATA_WIDTH     (OPTION_OPERAND_WIDTH),
-    .CLEAR_ON_INIT  (0)
+    .CLEAR_ON_INIT  (OPTION_IMMU_CLEAR_ON_INIT)
   )
   itlb_match_regs
   (
@@ -500,7 +501,7 @@ for (i = 0; i < OPTION_IMMU_WAYS; i=i+1) begin : itlb
   #(
     .ADDR_WIDTH     (OPTION_IMMU_SET_WIDTH),
     .DATA_WIDTH     (OPTION_OPERAND_WIDTH),
-    .CLEAR_ON_INIT  (0)
+    .CLEAR_ON_INIT  (OPTION_IMMU_CLEAR_ON_INIT)
   )
   itlb_trans_regs
   (
@@ -518,7 +519,7 @@ for (i = 0; i < OPTION_IMMU_WAYS; i=i+1) begin : itlb
     .addr_b (itlb_trans_huge_addr),
     .din_b  (itlb_trans_reload_din),
     .dout_b (itlb_trans_huge_dout[i])
-   );
+  );
 end
 endgenerate
 
