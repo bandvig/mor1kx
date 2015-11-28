@@ -139,15 +139,16 @@ module mor1kx_fetch_marocchino
   /* ICACHE related controls and signals */
 
   // ICACHE access flag (without taking exceptions into accaunt)
-  wire                        ic_access;
+  wire                            ic_access;
   // ICACHE output ready (by read or re-fill) and data
-  wire                        ic_rdy;
-  wire                        ic_ack;
-  wire [`OR1K_INSN_WIDTH-1:0] ic_dat;
+  wire                            ic_rdy;
+  wire                            ic_ack;
+  wire     [`OR1K_INSN_WIDTH-1:0] ic_dat;
   // ICACHE requests and performs refill
-  wire                        ic_refill_req;
-  wire                        ic_refill_allowed;
-  wire                        ic_refill_last;
+  wire                            ic_refill_req;
+  wire                            ic_refill_allowed;
+  wire [OPTION_OPERAND_WIDTH-1:0] next_refill_adr;
+  wire                            ic_refill_last;
 
 
   /* IBUS access state machine controls */
@@ -169,7 +170,6 @@ module mor1kx_fetch_marocchino
   reg                             ibus_req_r;
   // address for IBUS transaction
   reg  [OPTION_OPERAND_WIDTH-1:0] ibus_adr_r;
-  wire [OPTION_OPERAND_WIDTH-1:0] next_ibus_adr;
   // IBUS error processing
   wire                            except_ibus_err;  // instant|stored
 
@@ -694,11 +694,6 @@ module mor1kx_fetch_marocchino
     ((state == IMEM_REQ) & (flush_by_borm | ic_ack)) | // IBUS FSM is free
     ibus_rdy;                                          // IBUS FSM is free
 
-  // refill support
-  assign next_ibus_adr = (OPTION_ICACHE_BLOCK_WIDTH == 5) ?
-    {ibus_adr_r[31:5], ibus_adr_r[4:0] + 5'd4} : // 32 byte
-    {ibus_adr_r[31:4], ibus_adr_r[3:0] + 4'd4};  // 16 byte
-
   // state machine itself
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst) begin
@@ -739,7 +734,7 @@ module mor1kx_fetch_marocchino
         IC_REFILL: begin
           ibus_req_r <= 1'b1;
           if (ibus_ack_i) begin
-            ibus_adr_r <= next_ibus_adr;
+            ibus_adr_r <= next_refill_adr;
             if (ic_refill_last) begin
               ibus_req_r <= 1'b0;
               state      <= IDLE;
@@ -837,8 +832,8 @@ module mor1kx_fetch_marocchino
     // re-fill
     .refill_req_o         (ic_refill_req), // ICACHE
     .ic_refill_allowed_i  (ic_refill_allowed), // ICACHE
+    .next_refill_adr_o    (next_refill_adr), // ICACHE
     .refill_last_o        (ic_refill_last), // ICACHE
-    .wradr_i              (ibus_adr_r), // ICACHE
     .wrdat_i              (ibus_dat_i), // ICACHE
     .we_i                 (ibus_ack_i), // ICACHE
     // SPR bus

@@ -60,8 +60,8 @@ module mor1kx_icache_marocchino
   // re-fill
   output                                refill_req_o,
   input                                 ic_refill_allowed_i,
+  output     [OPTION_OPERAND_WIDTH-1:0] next_refill_adr_o,
   output                                refill_last_o,
-  input      [OPTION_OPERAND_WIDTH-1:0] wradr_i,
   input          [`OR1K_INSN_WIDTH-1:0] wrdat_i,
   input                                 we_i,
 
@@ -121,7 +121,7 @@ module mor1kx_icache_marocchino
   wire   invalidate = (state == INVALIDATE);
 
 
-  wire              [OPTION_OPERAND_WIDTH-1:0] next_refill_adr;
+  reg               [OPTION_OPERAND_WIDTH-1:0] curr_refill_adr;
   reg                                          refill_hit_r;
   reg [(1<<(OPTION_ICACHE_BLOCK_WIDTH-2))-1:0] refill_done;
 
@@ -245,11 +245,11 @@ module mor1kx_icache_marocchino
   end
 
 
-  assign next_refill_adr = (OPTION_ICACHE_BLOCK_WIDTH == 5) ?
-         {wradr_i[31:5], wradr_i[4:0] + 5'd4} : // 32 byte = (8 words x 32 bits/word) = (4 words x 64 bits/word)
-         {wradr_i[31:4], wradr_i[3:0] + 4'd4};  // 16 byte = (4 words x 32 bits/word) = (2 words x 64 bits/word)
+  assign next_refill_adr_o = (OPTION_ICACHE_BLOCK_WIDTH == 5) ?
+    {curr_refill_adr[31:5], curr_refill_adr[4:0] + 5'd4} : // 32 byte = (8 words x 32 bits/word) = (4 words x 64 bits/word)
+    {curr_refill_adr[31:4], curr_refill_adr[3:0] + 4'd4};  // 16 byte = (4 words x 32 bits/word) = (2 words x 64 bits/word)
 
-  assign refill_last_o = refill_done[next_refill_adr[OPTION_ICACHE_BLOCK_WIDTH-1:2]];
+  assign refill_last_o = refill_done[next_refill_adr_o[OPTION_ICACHE_BLOCK_WIDTH-1:2]];
 
   assign refill_req_o = ic_access_o & read & ~hit;
 
@@ -268,11 +268,12 @@ module mor1kx_icache_marocchino
   integer w1;
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst) begin
-      spr_bus_ack_o <= 1'b0;
-      lru_way_r     <= {OPTION_ICACHE_WAYS{1'b0}};
-      refill_hit_r  <= 1'b0;
-      refill_done   <= 0;
-      state         <= IDLE;
+      spr_bus_ack_o   <= 1'b0;
+      curr_refill_adr <= {OPTION_OPERAND_WIDTH{1'b0}};
+      lru_way_r       <= {OPTION_ICACHE_WAYS{1'b0}};
+      refill_hit_r    <= 1'b0;
+      refill_done     <= 0;
+      state           <= IDLE;
     end
     else if (fetch_excepts_i) begin
       // FETCH exceptions
@@ -305,11 +306,13 @@ module mor1kx_icache_marocchino
             // Store the LRU information for correct replacement
             // on refill. Always one when only one way.
             lru_way_r <= (OPTION_ICACHE_WAYS == 1) | lru_way;
-
+            // store tag state
             for (w1 = 0; w1 < OPTION_ICACHE_WAYS; w1 = w1 + 1) begin
               tag_way_save[w1] <= tag_way_out[w1];
             end
-
+            // 1st re-fill addrress
+            curr_refill_adr <= phys_addr_fetch_i;
+            // to re-fill
             state <= REFILL;
           end
           else if (~ic_read)
@@ -325,7 +328,8 @@ module mor1kx_icache_marocchino
             end
             else begin
               refill_hit_r <= (refill_done == 0); // 1st re-fill is requested insn
-              refill_done[wradr_i[OPTION_ICACHE_BLOCK_WIDTH-1:2]] <= 1'b1;
+              refill_done[curr_refill_adr[OPTION_ICACHE_BLOCK_WIDTH-1:2]] <= 1'b1;
+              curr_refill_adr <= next_refill_adr_o;
             end // last or regulat
           end // we
         end // RE-FILL
@@ -346,7 +350,7 @@ module mor1kx_icache_marocchino
   generate
   for (i = 0; i < OPTION_ICACHE_WAYS; i=i+1) begin : ways_ram
     // WAY-RAM input data and addresses
-    assign way_addr[i] = way_we[i] ? wradr_i[WAY_WIDTH-1:2] :
+    assign way_addr[i] = way_we[i] ? curr_refill_adr[WAY_WIDTH-1:2] : // for RE-FILL only
                                      virt_addr_i[WAY_WIDTH-1:2];
     assign way_din[i]  = wrdat_i;
 
@@ -451,7 +455,7 @@ module mor1kx_icache_marocchino
           if (refill_last_o) begin
             for (w2 = 0; w2 < OPTION_ICACHE_WAYS; w2 = w2 + 1) begin
               tag_way_in[w2] =
-                lru_way_r[w2] ? {1'b1,wradr_i[OPTION_ICACHE_LIMIT_WIDTH-1:WAY_WIDTH]} :
+                lru_way_r[w2] ? {1'b1,curr_refill_adr[OPTION_ICACHE_LIMIT_WIDTH-1:WAY_WIDTH]} :
                                 tag_way_save[w2];
             end
             tag_lru_in = next_lru_history;
@@ -493,7 +497,7 @@ module mor1kx_icache_marocchino
    */
   assign tag_windex = read       ? phys_addr_fetch_i[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH] : // at update LRU field
                       invalidate ? spr_bus_dat_i[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH]     : // at invalidate
-                                   wradr_i[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH];            // at re-fill
+                                   curr_refill_adr[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH];    // at re-fill
 
   // TAG read address
   assign tag_rindex = virt_addr_i[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH];
