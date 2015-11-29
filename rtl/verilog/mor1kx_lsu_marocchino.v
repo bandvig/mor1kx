@@ -122,7 +122,6 @@ module mor1kx_lsu_marocchino
   wire [OPTION_OPERAND_WIDTH-1:0]   lsu_sdat;
   wire                              lsu_ack;
 
-  wire                              dc_err;
   wire                              dc_ack;
   wire [31:0]                       dc_ldat;
   wire [31:0]                       dc_sdat;
@@ -960,7 +959,7 @@ endgenerate
     (lsu_store_r & (~lsu_atomic_r) & take_op_ls) |
     (dbus_atomic & dbus_we_o & (~write_done));
 
-  mor1kx_dcache
+  mor1kx_dcache_marocchino
   #(
     .OPTION_OPERAND_WIDTH       (OPTION_OPERAND_WIDTH),
     .OPTION_DCACHE_BLOCK_WIDTH  (OPTION_DCACHE_BLOCK_WIDTH),
@@ -971,38 +970,42 @@ endgenerate
   )
   u_dcache
   (
-    // Outputs
-    .refill_o                   (dc_refill), // DCACHE
-    .refill_req_o               (dc_refill_req), // DCACHE
-    .refill_done_o              (dc_refill_done), // DCACHE
-    .cpu_err_o                  (dc_err), // DCACHE
-    .cpu_ack_o                  (dc_ack), // DCACHE
-    .cpu_dat_o                  (dc_ldat), // DCACHE
-    .snoop_hit_o                (dc_snoop_hit), // DCACHE
-    .spr_bus_dat_o              (spr_bus_dat_dc_o), // DCACHE
-    .spr_bus_ack_o              (spr_bus_ack_dc_o), // DCACHE
-    // Inputs
+    // clock & reset
     .clk                        (clk), // DCACHE
     .rst                        (rst), // DCACHE
-    .dc_dbus_err_i              (dbus_err), // DCACHE
+    // configuration
     .dc_enable_i                (dc_enabled), // DCACHE
+    // exceptions
+    .dc_dbus_err_i              (dbus_err), // DCACHE
+    // Regular operation
     .dc_access_i                (dc_access), // DCACHE
-    .cpu_dat_i                  (lsu_sdat), // DCACHE
-    .cpu_adr_i                  (dc_adr), // DCACHE
-    .cpu_adr_match_i            (dc_adr_match), // DCACHE
     .cpu_req_i                  (dc_req), // DCACHE
     .cpu_we_i                   (dc_we), // DCACHE
     .cpu_bsel_i                 (dc_bsel), // DCACHE
-    .refill_allowed             (dc_refill_allowed), // DCACHE
+    .cpu_dat_i                  (lsu_sdat), // DCACHE
+    .cpu_adr_i                  (dc_adr), // DCACHE
+    .cpu_adr_match_i            (dc_adr_match), // DCACHE
+    .cpu_ack_o                  (dc_ack), // DCACHE
+    .cpu_dat_o                  (dc_ldat), // DCACHE
+    // re-fill
+    .refill_req_o               (dc_refill_req), // DCACHE
+    .refill_allowed_i           (dc_refill_allowed), // DCACHE
+    .refill_o                   (dc_refill), // DCACHE
+    .refill_done_o              (dc_refill_done), // DCACHE
     .wradr_i                    (dbus_adr), // DCACHE
     .wrdat_i                    (dbus_dat_i), // DCACHE
     .we_i                       (dbus_ack_i), // DCACHE
+    // SNOOP
     .snoop_adr_i                (snoop_adr_i[31:0]), // DCACHE
     .snoop_valid_i              (snoop_valid), // DCACHE
+    .snoop_hit_o                (dc_snoop_hit), // DCACHE
+    // SPR interface
     .spr_bus_addr_i             (spr_bus_addr_i[15:0]), // DCACHE
     .spr_bus_we_i               (spr_bus_we_i), // DCACHE
     .spr_bus_stb_i              (spr_bus_stb_i), // DCACHE
-    .spr_bus_dat_i              (spr_bus_dat_i) // DCACHE
+    .spr_bus_dat_i              (spr_bus_dat_i), // DCACHE
+    .spr_bus_dat_o              (spr_bus_dat_dc_o), // DCACHE
+    .spr_bus_ack_o              (spr_bus_ack_dc_o) // DCACHE
   );
 
   //------------------//
