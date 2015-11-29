@@ -166,10 +166,7 @@ module mor1kx_dcache_marocchino
   // This is the tag we need to write to the tag memory during refill
   wire [TAG_WIDTH-1:0]         tag_wtag;
 
-  // Access to the way memories
-  wire            [WAY_WIDTH-3:0] way_raddr[OPTION_DCACHE_WAYS-1:0];
-  wire            [WAY_WIDTH-3:0] way_waddr[OPTION_DCACHE_WAYS-1:0];
-  wire [OPTION_OPERAND_WIDTH-1:0] way_din[OPTION_DCACHE_WAYS-1:0];
+  // WAYs related
   wire [OPTION_OPERAND_WIDTH-1:0] way_dout[OPTION_DCACHE_WAYS-1:0];
   reg    [OPTION_DCACHE_WAYS-1:0] way_we;
 
@@ -236,11 +233,6 @@ module mor1kx_dcache_marocchino
   end
 
   for (i = 0; i < OPTION_DCACHE_WAYS; i=i+1) begin : ways
-    assign way_raddr[i] = cpu_adr_i[WAY_WIDTH-1:2];
-    assign way_waddr[i] = write ? cpu_adr_match_i[WAY_WIDTH-1:2] :
-                                  wradr_i[WAY_WIDTH-1:2];
-    assign way_din[i] = way_wr_dat;
-
     // Multiplex the way entries in the tag memory
     assign tag_din[(i+1)*TAGMEM_WAY_WIDTH-1:i*TAGMEM_WAY_WIDTH] = tag_way_in[i];
     assign tag_way_out[i] = tag_dout[(i+1)*TAGMEM_WAY_WIDTH-1:i*TAGMEM_WAY_WIDTH];
@@ -599,32 +591,57 @@ module mor1kx_dcache_marocchino
     end
   end
 
+
+  // write signals for Read/Write ports (*_rwp_*)
+  wire [OPTION_DCACHE_WAYS-1:0] way_rwp_we;
+  // write signals for Write-only ports (*_wp_*)
+  wire [OPTION_DCACHE_WAYS-1:0] way_wp_we;
+  
+  // WAY-RAM read address
+  wire [WAY_WIDTH-3:0] way_raddr = cpu_adr_i[WAY_WIDTH-1:2];
+  // WAY-RAM write address
+  wire [WAY_WIDTH-3:0] way_waddr = write ? cpu_adr_match_i[WAY_WIDTH-1:2] :
+                                           wradr_i[WAY_WIDTH-1:2];
+
   generate
   for (i = 0; i < OPTION_DCACHE_WAYS; i=i+1) begin : way_memories
-    mor1kx_simple_dpram_sclk
+    // write signals for Read/Write ports (*_rwp_*)
+    assign way_rwp_we[i] = way_we[i] &  (way_raddr == way_waddr);
+    // write signals for Write-only ports (*_wp_*)
+    assign way_wp_we[i]  = way_we[i] & ~(way_raddr == way_waddr);
+
+    // WAY-RAM instances
+    mor1kx_dpram_en_w1st_sclk
     #(
       .ADDR_WIDTH     (WAY_WIDTH-2),
       .DATA_WIDTH     (OPTION_OPERAND_WIDTH),
-      .ENABLE_BYPASS  (1)
+      .CLEAR_ON_INIT  (0)
     )
-    way_data_ram
+    dc_way_ram
     (
-      // Outputs
-      .dout     (way_dout[i]),
-      // Inputs
-      .clk      (clk),
-      .raddr    (way_raddr[i][WAY_WIDTH-3:0]),
-      .re       (1'b1),
-      .waddr    (way_waddr[i][WAY_WIDTH-3:0]),
-      .we       (way_we[i]),
-      .din      (way_din[i][31:0])
+      // common clock
+      .clk    (clk),
+      // port "a": Read / Write (for RW-conflict case)
+      .en_a   (1'b1),          // enable port "a"
+      .we_a   (way_rwp_we[i]), // operation is "write"
+      .addr_a (way_raddr),
+      .din_a  (way_wr_dat),
+      .dout_a (way_dout[i]),
+      // port "b": Write if no RW-conflict
+      .en_b   (way_wp_we[i]),  // enable port "b"
+      .we_b   (way_wp_we[i]),  // operation is "write"
+      .addr_b (way_waddr),
+      .din_b  (way_wr_dat),
+      .dout_b ()            // not used
     );
   end
 
   if (OPTION_DCACHE_WAYS >= 2) begin : gen_u_lru
     mor1kx_cache_lru
-    #(.NUMWAYS(OPTION_DCACHE_WAYS))
-    u_lru
+    #(
+      .NUMWAYS(OPTION_DCACHE_WAYS)
+    )
+    dc_lru
     (
       // Outputs
       .update      (next_lru_history),
@@ -635,46 +652,77 @@ module mor1kx_dcache_marocchino
       .access      (access)
     );
   end
+  else begin // single way
+    assign next_lru_history = current_lru_history;
+  end
   endgenerate
 
-  mor1kx_simple_dpram_sclk
+
+  // Read/Write port (*_rwp_*) write
+  wire tr_rwp_we = tag_we &  (tag_rindex == tag_windex);
+
+  // Write-only port (*_wp_*) enable
+  wire tr_wp_en  = tag_we & ~(tag_rindex == tag_windex);
+
+  // TAG-RAM instance
+  mor1kx_dpram_en_w1st_sclk
   #(
     .ADDR_WIDTH     (OPTION_DCACHE_SET_WIDTH),
     .DATA_WIDTH     (TAGMEM_WIDTH),
-    .ENABLE_BYPASS  (OPTION_DCACHE_SNOOP != "NONE")
+    .CLEAR_ON_INIT  (0)
   )
-  tag_ram
+  dc_tag_ram
   (
-    // Outputs
-    .dout       (tag_dout[TAGMEM_WIDTH-1:0]),
-    // Inputs
-    .clk        (clk),
-    .raddr      (tag_rindex),
-    .re         (1'b1),
-    .waddr      (tag_windex),
-    .we         (tag_we),
-    .din        (tag_din)
+    // common clock
+    .clk    (clk),
+    // port "a": Read / Write (for RW-conflict case)
+    .en_a   (1'b1),    // enable port "a"
+    .we_a   (tr_rwp_we),  // operation is "write"
+    .addr_a (tag_rindex),
+    .din_a  (tag_din),
+    .dout_a (tag_dout),
+    // port "b": Write if no RW-conflict
+    .en_b   (tr_wp_en),   // enable port "b"
+    .we_b   (tag_we),     // operation is "write"
+    .addr_b (tag_windex),
+    .din_b  (tag_din),
+    .dout_b ()            // not used
   );
 
+
   generate
-  if (OPTION_DCACHE_SNOOP != "NONE") begin
-    mor1kx_simple_dpram_sclk
+  /* verilator lint_off WIDTH */
+  if (OPTION_DCACHE_SNOOP != "NONE") begin : st_memory
+  /* verilator lint_on WIDTH */
+    // Read/Write port (*_rwp_*) write
+    wire str_rwp_we = tag_we &  (snoop_index == tag_windex);
+
+    // Write-only port (*_wp_*) enable
+    wire str_wp_en  = tag_we & ~(snoop_index == tag_windex);
+
+    // TAG-RAM instance
+    mor1kx_dpram_en_w1st_sclk
     #(
       .ADDR_WIDTH     (OPTION_DCACHE_SET_WIDTH),
       .DATA_WIDTH     (TAGMEM_WIDTH),
-      .ENABLE_BYPASS  (1)
+      .CLEAR_ON_INIT  (0)
     )
-    snoop_tag_ram
+    dc_snoop_tag_ram
     (
-      // Outputs
-      .dout     (snoop_dout[TAGMEM_WIDTH-1:0]),
-      // Inputs
-      .clk      (clk),
-      .raddr    (snoop_index),
-      .re       (1'b1),
-      .waddr    (tag_windex),
-      .we       (tag_we),
-      .din      (tag_din)
+      // common clock
+      .clk    (clk),
+      // port "a": Read / Write (for RW-conflict case)
+      .en_a   (1'b1),         // enable port "a"
+      .we_a   (str_rwp_we),   // operation is "write"
+      .addr_a (snoop_index),
+      .din_a  (tag_din),
+      .dout_a (snoop_dout),
+      // port "b": Write if no RW-conflict
+      .en_b   (str_wp_en),    // enable port "b"
+      .we_b   (tag_we),       // operation is "write"
+      .addr_b (tag_windex),
+      .din_b  (tag_din),
+      .dout_b ()              // not used
     );
   end
   endgenerate

@@ -147,7 +147,6 @@ module mor1kx_icache_marocchino
   wire   [OPTION_ICACHE_WAYS-1:0] way_en; // WAY-RAM block enable
   wire   [OPTION_ICACHE_WAYS-1:0] way_we; // WAY-RAM write command
   wire            [WAY_WIDTH-3:0] way_addr [OPTION_ICACHE_WAYS-1:0];
-  wire [OPTION_OPERAND_WIDTH-1:0] way_din  [OPTION_ICACHE_WAYS-1:0];
   wire [OPTION_OPERAND_WIDTH-1:0] way_dout [OPTION_ICACHE_WAYS-1:0];
 
   // FETCH reads ICACHE
@@ -352,7 +351,6 @@ module mor1kx_icache_marocchino
     // WAY-RAM input data and addresses
     assign way_addr[i] = way_we[i] ? curr_refill_adr[WAY_WIDTH-1:2] : // for RE-FILL only
                                      virt_addr_i[WAY_WIDTH-1:2];
-    assign way_din[i]  = wrdat_i;
 
     // WAY-RAM instance
     mor1kx_spram_en_w1st
@@ -368,9 +366,9 @@ module mor1kx_icache_marocchino
       // port
       .en   (way_en[i]),  // enable
       .we   (way_we[i]),  // operation is write
-      .addr (way_addr[i][WAY_WIDTH-3:0]),
-      .din  (way_din[i][OPTION_OPERAND_WIDTH-1:0]),
-      .dout (way_dout[i][OPTION_OPERAND_WIDTH-1:0])
+      .addr (way_addr[i]),
+      .din  (wrdat_i),
+      .dout (way_dout[i])
     );
   end // block: way_memories
   endgenerate
