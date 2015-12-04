@@ -62,7 +62,7 @@ module mor1kx_dcache_marocchino
   output                                refill_req_o,
   input                                 refill_allowed_i,
   output                                refill_o,
-  output                                refill_done_o,
+  output                                refill_last_o,
   input      [OPTION_OPERAND_WIDTH-1:0] wradr_i,
   input      [OPTION_OPERAND_WIDTH-1:0] wrdat_i,
   input                                 we_i,
@@ -129,9 +129,9 @@ module mor1kx_dcache_marocchino
   // FSM state register
   reg [4:0] state;
   // FSM state signals
-  wire      read    = (state == READ);
-  wire      write   = (state == WRITE);
-  wire      refill  = (state == REFILL);
+  wire   read      = (state == READ);
+  wire   write     = (state == WRITE);
+  assign refill_o  = (state == REFILL);
 
 
   wire                                          invalidate;
@@ -139,10 +139,8 @@ module mor1kx_dcache_marocchino
 
   wire               [OPTION_OPERAND_WIDTH-1:0] next_refill_adr;
   reg                [OPTION_OPERAND_WIDTH-1:0] way_wr_dat;
-  wire                                          refill_done;
-  wire                                          refill_hit;
-  reg  [(1<<(OPTION_DCACHE_BLOCK_WIDTH-2))-1:0] refill_valid;
-  reg  [(1<<(OPTION_DCACHE_BLOCK_WIDTH-2))-1:0] refill_valid_r;
+  reg                                           refill_hit_r;
+  reg  [(1<<(OPTION_DCACHE_BLOCK_WIDTH-2))-1:0] refill_done;
 
   // The index we read and write from tag memory
   wire [OPTION_DCACHE_SET_WIDTH-1:0] tag_rindex;
@@ -163,7 +161,7 @@ module mor1kx_dcache_marocchino
   // Whether to write to the tag memory in this cycle
   reg                          tag_we;
 
-  // This is the tag we need to write to the tag memory during refill
+  // This is the tag we need to write to the tag memory during re-fill
   wire [TAG_WIDTH-1:0]         tag_wtag;
 
   // WAYs related
@@ -217,7 +215,7 @@ module mor1kx_dcache_marocchino
   genvar                        i;
 
 
-  assign cpu_ack_o = (((read | refill) & hit & ~write_pending) | refill_hit) &
+  assign cpu_ack_o = ((read & hit & ~write_pending) | refill_hit_r) &
                      cpu_req_i & ~snoop_hit_o;
 
   assign tag_rindex = cpu_adr_i[WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH];
@@ -249,19 +247,23 @@ module mor1kx_dcache_marocchino
       assign snoop_way_hit[i] = snoop_way_out[i][TAGMEM_WAY_VALID] &
         (snoop_way_out[i][TAG_WIDTH-1:0] == snoop_tag);
     end // DCACHE snoop
+    else begin
+      assign snoop_way_hit[i] = 1'b0; // no snoop
+      assign snoop_way_out[i] = {TAGMEM_WAY_WIDTH{1'b0}}; // no snoop
+    end
   end // loop by ways
   endgenerate
 
   assign hit = |way_hit;
 
-  assign snoop_hit_o = (OPTION_DCACHE_SNOOP != "NONE") & (|snoop_way_hit) & snoop_check;
+  assign snoop_hit_o = (|snoop_way_hit) & snoop_check;
 
   integer w0;
   always @(*) begin
     cpu_dat_o = {OPTION_OPERAND_WIDTH{1'b0}};
     // Put correct way on the data port
     for (w0 = 0; w0 < OPTION_DCACHE_WAYS; w0 = w0 + 1) begin
-      if (way_hit[w0] | (refill_hit & tag_save_lru[w0])) begin
+      if (way_hit[w0] | (refill_hit_r & tag_save_lru[w0])) begin
         cpu_dat_o = way_dout[w0];
       end
     end
@@ -271,17 +273,9 @@ module mor1kx_dcache_marocchino
           {wradr_i[31:5], wradr_i[4:0] + 5'd4} : // 32 byte
           {wradr_i[31:4], wradr_i[3:0] + 4'd4};  // 16 byte
 
-  assign refill_done_o = refill_done;
-  assign refill_done = refill_valid[next_refill_adr[OPTION_DCACHE_BLOCK_WIDTH-1:2]];
-  assign refill_hit = refill_valid_r[cpu_adr_match_i[OPTION_DCACHE_BLOCK_WIDTH-1:2]] &
-    (cpu_adr_match_i[OPTION_DCACHE_LIMIT_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH] ==
-      wradr_i[OPTION_DCACHE_LIMIT_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH]) &
-    refill & ~write_pending;
+  assign refill_last_o = refill_done[next_refill_adr[OPTION_DCACHE_BLOCK_WIDTH-1:2]];
 
-
-  assign refill_o = refill;
-
-  assign refill_req_o = (read & cpu_req_i & ~hit & ~write_pending & refill_allowed_i) | refill;
+  assign refill_req_o = (read & cpu_req_i & ~hit & ~write_pending & refill_allowed_i) | refill_o;
 
   /*
    * SPR bus interface
@@ -317,18 +311,28 @@ module mor1kx_dcache_marocchino
    * so if we are busy doing something else when this signal comes
    * (i.e. refilling) we assert the write_pending signal.
    * cpu_req_i is in sync with cpu_adr_match_i, so it can be used to
-   * determined if a cache hit should cause a refill or if a write should
+   * determined if a cache hit should cause a re-fill or if a write should
    * really be executed.
    */
   integer w1;
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst) begin
-      state         <= IDLE;
-      write_pending <= 1'b0;
+      state         <= IDLE;  // on reset
+      write_pending <= 1'b0;  // on reset
+      refill_hit_r  <= 1'b0;  // on reset
+      refill_done   <= 0;     // on reset
+      snoop_check   <= 1'b0;  // on reset
+      snoop_tag     <= {TAG_WIDTH{1'b0}}; // on reset
+      snoop_windex  <= {OPTION_DCACHE_SET_WIDTH{1'b0}}; // on reset
     end
     else if(dc_dbus_err_i) begin
-      state         <= IDLE;
-      write_pending <= 1'b0;
+      state         <= IDLE;  // on exceptions
+      write_pending <= 1'b0;  // on exceptions
+      refill_hit_r  <= 1'b0;  // on exceptions
+      refill_done   <= 0;     // on exceptions
+      snoop_check   <= 1'b0;  // on exceptions
+      snoop_tag     <= {TAG_WIDTH{1'b0}}; // on exceptions
+      snoop_windex  <= {OPTION_DCACHE_SET_WIDTH{1'b0}}; // on exceptions
     end
     else begin
       if (cpu_we_i)
@@ -336,20 +340,18 @@ module mor1kx_dcache_marocchino
       else if (~cpu_req_i)
         write_pending <= 1'b0;
 
-      refill_valid_r <= refill_valid;
-
       if (snoop_valid_i) begin
         //
         // If there is a snoop event, we need to store this
         // information. This happens independent of whether we
         // have a snoop tag memory or not.
         //
-        snoop_check  <= 1;
+        snoop_check  <= 1'b1;
         snoop_windex <= snoop_index;
         snoop_tag    <= snoop_adr_i[OPTION_DCACHE_LIMIT_WIDTH-1:WAY_WIDTH];
       end
       else begin
-        snoop_check  <= 0;
+        snoop_check  <= 1'b0;
       end
 
       case (state)
@@ -373,11 +375,8 @@ module mor1kx_dcache_marocchino
         READ: begin
           if ((dc_access_i | cpu_we_i) & dc_enable_i) begin
             if (~hit & cpu_req_i & ~write_pending & refill_allowed_i) begin
-              refill_valid <= 0;
-              refill_valid_r <= 0;
-
               // Store the LRU information for correct replacement
-              // on refill. Always one when only one way.
+              // on re-fill. Always one when only one way.
               tag_save_lru <= (OPTION_DCACHE_WAYS==1) | lru;
 
               for (w1 = 0; w1 < OPTION_DCACHE_WAYS; w1 = w1 + 1) begin
@@ -399,20 +398,25 @@ module mor1kx_dcache_marocchino
         end
 
         REFILL: begin
-          if (we_i) begin
-            refill_valid[wradr_i[OPTION_DCACHE_BLOCK_WIDTH-1:2]] <= 1;
-  
-            if (refill_done)
-              state <= IDLE;
-          end
-          // Abort refill on snoop-hit
-          // TODO: only abort on snoop-hits to refill address
+          refill_hit_r <= 1'b0;
+          // Abort re-fill on snoop-hit
+          // TODO: only abort on snoop-hits to re-fill address
           if (snoop_hit_o) begin
-            refill_valid    <= 0;
-            refill_valid_r  <= 0;
-            state           <= IDLE;
+            refill_done <= 0;     // on snoop-hit
+            state       <= IDLE;  // on snoop-hit
           end
-        end
+          else if (we_i) begin
+            if (refill_last_o) begin
+              refill_done <= 0;     // on last re-fill
+              state       <= IDLE;  // on last re-fill
+            end
+            else begin
+              refill_hit_r <= (refill_done == 0); // 1st re-fill is requested insn
+              refill_done[wradr_i[OPTION_DCACHE_BLOCK_WIDTH-1:2]] <= 1'b1; // current re-fill
+              //curr_refill_adr <= next_refill_adr_o;
+            end // last or regulat
+          end // snoop-hit / we
+        end // re-fill
   
         WRITE: begin
           if ((~dc_access_i | ~cpu_req_i | ~cpu_we_i) & ~snoop_hit_o) begin
@@ -478,7 +482,7 @@ module mor1kx_dcache_marocchino
     else begin
       //
       // The tag mem is written during reads and writes to write
-      // the lru info and  during refill and invalidate.
+      // the lru info and  during re-fill and invalidate.
       //
       tag_windex =
         (read | write)        ? cpu_adr_match_i[WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH] :
@@ -525,7 +529,7 @@ module mor1kx_dcache_marocchino
             if (~cpu_bsel_i[0])
               way_wr_dat[7:0] = cpu_dat_o[7:0];
 
-            way_we = way_hit;
+            way_we = way_hit; // on WRITE
 
             tag_lru_in = next_lru_history;
 
@@ -539,13 +543,13 @@ module mor1kx_dcache_marocchino
             // Write the data to the way that is replaced (which is
             // the LRU)
             //
-            way_we = tag_save_lru;
+            way_we = tag_save_lru; // on RE-FILL
 
             // Access pattern
             access = tag_save_lru;
 
             /* Invalidate the way on the first write */
-            if (refill_valid == 0) begin
+            if (refill_done == 0) begin
               for (w2 = 0; w2 < OPTION_DCACHE_WAYS; w2 = w2 + 1) begin
                 if (tag_save_lru[w2]) begin
                   tag_way_in[w2][TAGMEM_WAY_VALID] = 1'b0;
@@ -556,11 +560,11 @@ module mor1kx_dcache_marocchino
             end
 
             //
-            // After refill update the tag memory entry of the
+            // After re-fill update the tag memory entry of the
             // filled way with the LRU history, the tag and set
             // valid to 1.
             //
-            if (refill_done) begin
+            if (refill_last_o) begin
               for (w2 = 0; w2 < OPTION_DCACHE_WAYS; w2 = w2 + 1) begin
                 tag_way_in[w2] = tag_way_save[w2];
                 if (tag_save_lru[w2]) begin
@@ -598,17 +602,20 @@ module mor1kx_dcache_marocchino
   wire [OPTION_DCACHE_WAYS-1:0] way_wp_we;
   
   // WAY-RAM read address
-  wire [WAY_WIDTH-3:0] way_raddr = cpu_adr_i[WAY_WIDTH-1:2];
+  wire [WAY_WIDTH-3:0] way_raddr [OPTION_DCACHE_WAYS-1:0];
   // WAY-RAM write address
-  wire [WAY_WIDTH-3:0] way_waddr = write ? cpu_adr_match_i[WAY_WIDTH-1:2] :
-                                           wradr_i[WAY_WIDTH-1:2];
+  wire [WAY_WIDTH-3:0] way_waddr = cpu_adr_match_i[WAY_WIDTH-1:2]; // on WRITE
 
   generate
   for (i = 0; i < OPTION_DCACHE_WAYS; i=i+1) begin : way_memories
-    // write signals for Read/Write ports (*_rwp_*)
-    assign way_rwp_we[i] = way_we[i] &  (way_raddr == way_waddr);
-    // write signals for Write-only ports (*_wp_*)
-    assign way_wp_we[i]  = way_we[i] & ~(way_raddr == way_waddr);
+    // address for Read/Write port
+    assign way_raddr[i] = (way_we[i] & refill_o) ? wradr_i[WAY_WIDTH-1:2] :
+                                                   cpu_adr_i[WAY_WIDTH-1:2];
+
+    // write signals for Read/Write port (*_rwp_*)
+    assign way_rwp_we[i] = way_we[i] & ((way_raddr[i] == way_waddr) | refill_o);
+    // write signals for Write-only port (*_wp_*)
+    assign way_wp_we[i]  = way_we[i] & ~(way_raddr[i] == way_waddr) & write;
 
     // WAY-RAM instances
     mor1kx_dpram_en_w1st_sclk
@@ -624,7 +631,7 @@ module mor1kx_dcache_marocchino
       // port "a": Read / Write (for RW-conflict case)
       .en_a   (1'b1),          // enable port "a"
       .we_a   (way_rwp_we[i]), // operation is "write"
-      .addr_a (way_raddr),
+      .addr_a (way_raddr[i]),
       .din_a  (way_wr_dat),
       .dout_a (way_dout[i]),
       // port "b": Write if no RW-conflict

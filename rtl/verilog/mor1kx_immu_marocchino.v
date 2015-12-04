@@ -223,19 +223,19 @@ module mor1kx_immu_marocchino
                                                {OPTION_OPERAND_WIDTH{1'b0}};
 
 
-generate
-for (i = 0; i < OPTION_IMMU_WAYS; i=i+1) begin : ways
-  // 8KB page hit
-  assign way_hit[i] = (itlb_match_dout[i][31:13] == virt_addr_fetch_o[31:13]) & // address hit
-                      ~(&itlb_match_huge_dout[i][1:0]) &                        // not valid huge
-                      itlb_match_dout[i][0] &                                   // valid bit
-                      enable_r;                                                 // mmu enabled
-  // Huge page hit
-  assign way_huge_hit[i] = (itlb_match_huge_dout[i][31:24] == virt_addr_fetch_o[31:24]) & // address hit
-                           itlb_match_huge_dout[i][1] & itlb_match_huge_dout[i][0] &      // valid huge
-                           enable_r;                                                      // mmu enabled
-end
-endgenerate
+  generate
+  for (i = 0; i < OPTION_IMMU_WAYS; i=i+1) begin : ways
+    // 8KB page hit
+    assign way_hit[i] = (itlb_match_dout[i][31:13] == virt_addr_fetch_o[31:13]) & // address hit
+                        ~(&itlb_match_huge_dout[i][1:0]) &                        // not valid huge
+                        itlb_match_dout[i][0] &                                   // valid bit
+                        enable_r;                                                 // mmu enabled
+    // Huge page hit
+    assign way_huge_hit[i] = (itlb_match_huge_dout[i][31:24] == virt_addr_fetch_o[31:24]) & // address hit
+                             itlb_match_huge_dout[i][1] & itlb_match_huge_dout[i][0] &      // valid huge
+                             enable_r;                                                      // mmu enabled
+  end
+  endgenerate
 
   reg [OPTION_OPERAND_WIDTH-1:0] phys_addr;
   
@@ -285,7 +285,6 @@ endgenerate
   // match 8KB input address
   assign itlb_match_addr =
     (itlb_match_spr_cs & ~spr_bus_ack_o) ? spr_bus_addr_i[OPTION_IMMU_SET_WIDTH-1:0]          :
-//    spr_bus_ack_o                        ? virt_addr_fetch_o[13+(OPTION_IMMU_SET_WIDTH-1):13] : // re-read after SPR access
                                            virt_addr_i[13+(OPTION_IMMU_SET_WIDTH-1):13];
   // match huge address and write command
   assign itlb_match_huge_addr = virt_addr_i[24+(OPTION_IMMU_SET_WIDTH-1):24];
@@ -297,7 +296,6 @@ endgenerate
   // translation 8KB input address
   assign itlb_trans_addr =
     (itlb_trans_spr_cs & ~spr_bus_ack_o) ? spr_bus_addr_i[OPTION_IMMU_SET_WIDTH-1:0]          :
-//    spr_bus_ack_o                        ? virt_addr_fetch_o[13+(OPTION_IMMU_SET_WIDTH-1):13] : // re-read after SPR access
                                            virt_addr_i[13+(OPTION_IMMU_SET_WIDTH-1):13];
   // translation huge address and write command
   assign itlb_trans_huge_addr = virt_addr_i[24+(OPTION_IMMU_SET_WIDTH-1):24];
@@ -312,215 +310,213 @@ endgenerate
                    TLB_GET_PTE         = 4'b0100,
                    TLB_READ            = 4'b1000; */
 
-generate
-/* verilator lint_off WIDTH */
-if (FEATURE_IMMU_HW_TLB_RELOAD != "NONE") begin
-/* verilator lint_on WIDTH */
-
-  initial begin
-    $display("IMMU ERROR: HW TLB reload is not implemented in MAROCCHINO");
-    $finish();
-  end
-
-  // Hardware TLB reload
-  // Compliant with the suggestions outlined in this thread:
-  // http://lists.openrisc.net/pipermail/openrisc/2013-July/001806.html
-  //
-  // PTE layout:
-  // | 31 ... 13 | 12 |  11 |   10  | 9 | 8 | 7 | 6 | 5 | 4 | 3 | 2 | 1 | 0 |
-  // |    PPN    | Reserved |PRESENT| L | X | W | U | D | A |WOM|WBC|CI |CC |
-  //
-  // Where X/W/U maps into SXE/UXE like this:
-  // X | W | U   SXE | UXE
-  // ---------   ---------
-  // 0 | x | 0 =  0  |  0
-  // 0 | x | 1 =  0  |  0
-  //    ...
-  // 1 | x | 0 =  1  |  0
-  // 1 | x | 1 =  1  |  1
-  /*
-  reg [3:0] tlb_reload_state = TLB_IDLE;
-  wire      do_reload;
-
-  assign do_reload              = enable_r & tlb_miss_o & (immucr[31:10] != 22'd0);
-  assign tlb_reload_busy_o      = (tlb_reload_state != TLB_IDLE) | do_reload;
-  assign tlb_reload_pagefault_o = tlb_reload_pagefault & ~tlb_reload_pagefault_clear_i;
-
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      tlb_reload_pagefault <= 1'b0;
-    else if(tlb_reload_pagefault_clear_i)
-      tlb_reload_pagefault <= 1'b0;
-
-    itlb_trans_reload_we  <= 1'b0;
-    itlb_trans_reload_din <= {OPTION_OPERAND_WIDTH{1'b0}};
-    itlb_match_reload_we  <= 1'b0;
-    itlb_match_reload_din <= {OPTION_OPERAND_WIDTH{1'b0}};
-
-    case (tlb_reload_state)
-      TLB_IDLE: begin
-        tlb_reload_huge  <= 1'b0;
-        tlb_reload_req_o <= 1'b0;
-        if (do_reload) begin
-          tlb_reload_req_o  <= 1'b1;
-          tlb_reload_addr_o <= {immucr[31:10],virt_addr_fetch_o[31:24],2'b00};
-          tlb_reload_state  <= TLB_GET_PTE_POINTER;
-        end
-      end // tlb reload idle
-
-      //
-      // Here we get the pointer to the PTE table, next is to fetch
-      // the actual pte from the offset in the table.
-      // The offset is calculated by:
-      // ((virt_addr_match >> PAGE_BITS) & (PTE_CNT-1)) << 2
-      // Where PAGE_BITS is 13 (8 kb page) and PTE_CNT is 2048
-      // (number of PTEs in the PTE table)
-      //
-      TLB_GET_PTE_POINTER: begin
-        tlb_reload_huge <= 0;
-        if (tlb_reload_ack_i) begin
-          if (tlb_reload_data_i[31:13] == 0) begin
-            tlb_reload_pagefault <= 1'b1;
-            tlb_reload_req_o     <= 1'b0;
-            tlb_reload_state     <= TLB_IDLE;
-          end
-          else if (tlb_reload_data_i[9]) begin
-            tlb_reload_huge  <= 1'b1;
-            tlb_reload_req_o <= 1'b0;
-            tlb_reload_state <= TLB_GET_PTE;
-          end
-          else begin
-            tlb_reload_addr_o <= {tlb_reload_data_i[31:13],virt_addr_fetch_o[23:13],2'b00};
-            tlb_reload_state  <= TLB_GET_PTE;
-          end
-        end
-      end // tlb get pointer
-
-      //
-      // Here we get the actual PTE, left to do is to translate the
-      // PTE data into our translate and match registers.
-      //
-      TLB_GET_PTE: begin
-        if (tlb_reload_ack_i) begin
+  generate
+  /* verilator lint_off WIDTH */
+  if (FEATURE_IMMU_HW_TLB_RELOAD != "NONE") begin
+  /* verilator lint_on WIDTH */
+  
+    initial begin
+      $display("IMMU ERROR: HW TLB reload is not implemented in MAROCCHINO");
+      $finish();
+    end
+  
+    // Hardware TLB reload
+    // Compliant with the suggestions outlined in this thread:
+    // http://lists.openrisc.net/pipermail/openrisc/2013-July/001806.html
+    //
+    // PTE layout:
+    // | 31 ... 13 | 12 |  11 |   10  | 9 | 8 | 7 | 6 | 5 | 4 | 3 | 2 | 1 | 0 |
+    // |    PPN    | Reserved |PRESENT| L | X | W | U | D | A |WOM|WBC|CI |CC |
+    //
+    // Where X/W/U maps into SXE/UXE like this:
+    // X | W | U   SXE | UXE
+    // ---------   ---------
+    // 0 | x | 0 =  0  |  0
+    // 0 | x | 1 =  0  |  0
+    //    ...
+    // 1 | x | 0 =  1  |  0
+    // 1 | x | 1 =  1  |  1
+    /*
+    reg [3:0] tlb_reload_state = TLB_IDLE;
+    wire      do_reload;
+  
+    assign do_reload              = enable_r & tlb_miss_o & (immucr[31:10] != 22'd0);
+    assign tlb_reload_busy_o      = (tlb_reload_state != TLB_IDLE) | do_reload;
+    assign tlb_reload_pagefault_o = tlb_reload_pagefault & ~tlb_reload_pagefault_clear_i;
+  
+    always @(posedge clk `OR_ASYNC_RST) begin
+      if (rst)
+        tlb_reload_pagefault <= 1'b0;
+      else if(tlb_reload_pagefault_clear_i)
+        tlb_reload_pagefault <= 1'b0;
+  
+      itlb_trans_reload_we  <= 1'b0;
+      itlb_trans_reload_din <= {OPTION_OPERAND_WIDTH{1'b0}};
+      itlb_match_reload_we  <= 1'b0;
+      itlb_match_reload_din <= {OPTION_OPERAND_WIDTH{1'b0}};
+  
+      case (tlb_reload_state)
+        TLB_IDLE: begin
+          tlb_reload_huge  <= 1'b0;
           tlb_reload_req_o <= 1'b0;
-          // Check PRESENT bit
-          if (~tlb_reload_data_i[10]) begin
-            tlb_reload_pagefault <= 1'b1;
-            tlb_reload_state     <= TLB_IDLE;
+          if (do_reload) begin
+            tlb_reload_req_o  <= 1'b1;
+            tlb_reload_addr_o <= {immucr[31:10],virt_addr_fetch_o[31:24],2'b00};
+            tlb_reload_state  <= TLB_GET_PTE_POINTER;
           end
-          else begin
-            // Translate register generation.
-            // PPN
-            itlb_trans_reload_din[31:13] <= tlb_reload_data_i[31:13];
-            // UXE = X & U
-            itlb_trans_reload_din[7] <= tlb_reload_data_i[8] & tlb_reload_data_i[6];
-            // SXE = X
-            itlb_trans_reload_din[6] <= tlb_reload_data_i[8];
-            // Dirty, Accessed, Weakly-Ordered-Memory, Writeback cache,
-            // Cache inhibit, Cache coherent
-            itlb_trans_reload_din[5:0] <= tlb_reload_data_i[5:0];
-            itlb_trans_reload_we       <= 1'b1;
-
-            // Match register generation.
-            // VPN
-            itlb_match_reload_din[31:13] <= virt_addr_fetch_o[31:13];
-            // PL1
-            itlb_match_reload_din[1] <= tlb_reload_huge;
-            // Valid
-            itlb_match_reload_din[0] <= 1'b1;
-            itlb_match_reload_we     <= 1'b1;
-
-            tlb_reload_state <= TLB_READ;
+        end // tlb reload idle
+  
+        //
+        // Here we get the pointer to the PTE table, next is to fetch
+        // the actual pte from the offset in the table.
+        // The offset is calculated by:
+        // ((virt_addr_match >> PAGE_BITS) & (PTE_CNT-1)) << 2
+        // Where PAGE_BITS is 13 (8 kb page) and PTE_CNT is 2048
+        // (number of PTEs in the PTE table)
+        //
+        TLB_GET_PTE_POINTER: begin
+          tlb_reload_huge <= 0;
+          if (tlb_reload_ack_i) begin
+            if (tlb_reload_data_i[31:13] == 0) begin
+              tlb_reload_pagefault <= 1'b1;
+              tlb_reload_req_o     <= 1'b0;
+              tlb_reload_state     <= TLB_IDLE;
+            end
+            else if (tlb_reload_data_i[9]) begin
+              tlb_reload_huge  <= 1'b1;
+              tlb_reload_req_o <= 1'b0;
+              tlb_reload_state <= TLB_GET_PTE;
+            end
+            else begin
+              tlb_reload_addr_o <= {tlb_reload_data_i[31:13],virt_addr_fetch_o[23:13],2'b00};
+              tlb_reload_state  <= TLB_GET_PTE;
+            end
           end
+        end // tlb get pointer
+  
+        //
+        // Here we get the actual PTE, left to do is to translate the
+        // PTE data into our translate and match registers.
+        //
+        TLB_GET_PTE: begin
+          if (tlb_reload_ack_i) begin
+            tlb_reload_req_o <= 1'b0;
+            // Check PRESENT bit
+            if (~tlb_reload_data_i[10]) begin
+              tlb_reload_pagefault <= 1'b1;
+              tlb_reload_state     <= TLB_IDLE;
+            end
+            else begin
+              // Translate register generation.
+              // PPN
+              itlb_trans_reload_din[31:13] <= tlb_reload_data_i[31:13];
+              // UXE = X & U
+              itlb_trans_reload_din[7] <= tlb_reload_data_i[8] & tlb_reload_data_i[6];
+              // SXE = X
+              itlb_trans_reload_din[6] <= tlb_reload_data_i[8];
+              // Dirty, Accessed, Weakly-Ordered-Memory, Writeback cache,
+              // Cache inhibit, Cache coherent
+              itlb_trans_reload_din[5:0] <= tlb_reload_data_i[5:0];
+              itlb_trans_reload_we       <= 1'b1;
+  
+              // Match register generation.
+              // VPN
+              itlb_match_reload_din[31:13] <= virt_addr_fetch_o[31:13];
+              // PL1
+              itlb_match_reload_din[1] <= tlb_reload_huge;
+              // Valid
+              itlb_match_reload_din[0] <= 1'b1;
+              itlb_match_reload_we     <= 1'b1;
+  
+              tlb_reload_state <= TLB_READ;
+            end
+          end
+        end // tlb get pte
+  
+        // Let the just written values propagate out on the read ports
+        TLB_READ: begin
+          tlb_reload_state <= TLB_IDLE;
         end
-      end // tlb get pte
-
-      // Let the just written values propagate out on the read ports
-      TLB_READ: begin
-        tlb_reload_state <= TLB_IDLE;
-      end
-
-      default:
-        tlb_reload_state <= TLB_IDLE;
-    endcase
-  end // @ clock
-  */
-end
-else begin // SW reload
-  assign tlb_reload_pagefault_o = 1'b0;
-  assign tlb_reload_busy_o      = 1'b0;
-  always @(posedge clk) begin
-    tlb_reload_req_o      <= 1'b0;
-    tlb_reload_addr_o     <= {OPTION_OPERAND_WIDTH{1'b0}};
-    tlb_reload_pagefault  <= 1'b0;
-    tlb_reload_huge       <= 1'b0;
-    itlb_trans_reload_we  <= 1'b0;
-    itlb_trans_reload_din <= {OPTION_OPERAND_WIDTH{1'b0}};
-    itlb_match_reload_we  <= 1'b0;
-    itlb_match_reload_din <= {OPTION_OPERAND_WIDTH{1'b0}};
+  
+        default:
+          tlb_reload_state <= TLB_IDLE;
+      endcase
+    end // @ clock
+    */
   end
-end // HW/SW reload
-endgenerate
+  else begin // SW reload
+    assign tlb_reload_pagefault_o = 1'b0;
+    assign tlb_reload_busy_o      = 1'b0;
+    always @(posedge clk) begin
+      tlb_reload_req_o      <= 1'b0;
+      tlb_reload_addr_o     <= {OPTION_OPERAND_WIDTH{1'b0}};
+      tlb_reload_pagefault  <= 1'b0;
+      tlb_reload_huge       <= 1'b0;
+      itlb_trans_reload_we  <= 1'b0;
+      itlb_trans_reload_din <= {OPTION_OPERAND_WIDTH{1'b0}};
+      itlb_match_reload_we  <= 1'b0;
+      itlb_match_reload_din <= {OPTION_OPERAND_WIDTH{1'b0}};
+    end
+  end // HW/SW reload
+  endgenerate
 
   // Enable for RAM blocks if:
   //  1) regular FETCH advance
-  //  2) SPR access. The spr-immu-stb is used because:
-  //    a) before clock posedge the SPR read/write is active
-  //    b) after clock posedge (spr-bus-ack-o is active) re-read is performed
+  //  2) SPR access
   wire ram_re = (adv_i & enable_i) | (spr_immu_stb & ~spr_bus_we_i & ~spr_bus_ack_o);
 
-generate
-for (i = 0; i < OPTION_IMMU_WAYS; i=i+1) begin : itlb
-  // ITLB match registers
-  mor1kx_dpram_en_w1st_sclk
-  #(
-    .ADDR_WIDTH     (OPTION_IMMU_SET_WIDTH),
-    .DATA_WIDTH     (OPTION_OPERAND_WIDTH),
-    .CLEAR_ON_INIT  (OPTION_IMMU_CLEAR_ON_INIT)
-  )
-  itlb_match_regs
-  (
-    // common clock
-    .clk    (clk),
-    // port "a": 8KB pages
-    .en_a   (ram_re | itlb_match_we[i]),
-    .we_a   (itlb_match_we[i]),
-    .addr_a (itlb_match_addr),
-    .din_a  (itlb_match_din),
-    .dout_a (itlb_match_dout[i]),
-    // port "b": Huge pages
-    .en_b   (ram_re | itlb_match_huge_we),
-    .we_b   (itlb_match_huge_we),
-    .addr_b (itlb_match_huge_addr),
-    .din_b  (itlb_match_reload_din),
-    .dout_b (itlb_match_huge_dout[i])
-  );
-
-  // ITLB translate registers
-  mor1kx_dpram_en_w1st_sclk
-  #(
-    .ADDR_WIDTH     (OPTION_IMMU_SET_WIDTH),
-    .DATA_WIDTH     (OPTION_OPERAND_WIDTH),
-    .CLEAR_ON_INIT  (OPTION_IMMU_CLEAR_ON_INIT)
-  )
-  itlb_trans_regs
-  (
-    // common clock
-    .clk    (clk),
-    // port "a": 8KB pages
-    .en_a   (ram_re | itlb_trans_we[i]),
-    .we_a   (itlb_trans_we[i]),
-    .addr_a (itlb_trans_addr),
-    .din_a  (itlb_trans_din),
-    .dout_a (itlb_trans_dout[i]),
-    // port "b": Huge pages
-    .en_b   (ram_re | itlb_trans_huge_we),
-    .we_b   (itlb_trans_huge_we),
-    .addr_b (itlb_trans_huge_addr),
-    .din_b  (itlb_trans_reload_din),
-    .dout_b (itlb_trans_huge_dout[i])
-  );
-end
-endgenerate
+  generate
+  for (i = 0; i < OPTION_IMMU_WAYS; i=i+1) begin : itlb
+    // ITLB match registers
+    mor1kx_dpram_en_w1st_sclk
+    #(
+      .ADDR_WIDTH     (OPTION_IMMU_SET_WIDTH),
+      .DATA_WIDTH     (OPTION_OPERAND_WIDTH),
+      .CLEAR_ON_INIT  (OPTION_IMMU_CLEAR_ON_INIT)
+    )
+    itlb_match_regs
+    (
+      // common clock
+      .clk    (clk),
+      // port "a": 8KB pages
+      .en_a   (ram_re | itlb_match_we[i]),
+      .we_a   (itlb_match_we[i]),
+      .addr_a (itlb_match_addr),
+      .din_a  (itlb_match_din),
+      .dout_a (itlb_match_dout[i]),
+      // port "b": Huge pages
+      .en_b   (ram_re | itlb_match_huge_we),
+      .we_b   (itlb_match_huge_we),
+      .addr_b (itlb_match_huge_addr),
+      .din_b  (itlb_match_reload_din),
+      .dout_b (itlb_match_huge_dout[i])
+    );
+  
+    // ITLB translate registers
+    mor1kx_dpram_en_w1st_sclk
+    #(
+      .ADDR_WIDTH     (OPTION_IMMU_SET_WIDTH),
+      .DATA_WIDTH     (OPTION_OPERAND_WIDTH),
+      .CLEAR_ON_INIT  (OPTION_IMMU_CLEAR_ON_INIT)
+    )
+    itlb_trans_regs
+    (
+      // common clock
+      .clk    (clk),
+      // port "a": 8KB pages
+      .en_a   (ram_re | itlb_trans_we[i]),
+      .we_a   (itlb_trans_we[i]),
+      .addr_a (itlb_trans_addr),
+      .din_a  (itlb_trans_din),
+      .dout_a (itlb_trans_dout[i]),
+      // port "b": Huge pages
+      .en_b   (ram_re | itlb_trans_huge_we),
+      .we_b   (itlb_trans_huge_we),
+      .addr_b (itlb_trans_huge_addr),
+      .din_b  (itlb_trans_reload_din),
+      .dout_b (itlb_trans_huge_dout[i])
+    );
+  end
+  endgenerate
 
 endmodule // mor1kx_immu_marocchino

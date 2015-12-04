@@ -126,7 +126,6 @@ module mor1kx_lsu_marocchino
   wire [31:0]                       dc_ldat;
   wire [31:0]                       dc_sdat;
   wire [31:0]                       dc_adr;
-  wire [31:0]                       dc_adr_match;
   wire                              dc_req;
   wire                              dc_we;
   wire [3:0]                        dc_bsel;
@@ -135,7 +134,7 @@ module mor1kx_lsu_marocchino
   wire                              dc_refill_allowed;
   wire                              dc_refill;
   wire                              dc_refill_req;
-  wire                              dc_refill_done;
+  wire                              dc_refill_last;
 
   reg                               dc_enable_r;
   wire                              dc_enabled;
@@ -143,8 +142,9 @@ module mor1kx_lsu_marocchino
   // DMMU
   wire                              tlb_miss;
   wire                              dmmu_pagefault;
-  wire [OPTION_OPERAND_WIDTH-1:0]   dmmu_phys_addr;
   wire                              dmmu_cache_inhibit;
+  wire   [OPTION_OPERAND_WIDTH-1:0] phys_addr;
+  wire   [OPTION_OPERAND_WIDTH-1:0] virt_addr;
 
   /* HW reload TLB related (MAROCCHINO_TODO : not implemented yet)
   wire                              tlb_reload_req;
@@ -300,7 +300,6 @@ module mor1kx_lsu_marocchino
   reg                            cmd_lwa, cmd_swa; // load/store atomic
   reg                      [1:0] cmd_length;
   reg                            cmd_zext;
-  reg [OPTION_OPERAND_WIDTH-1:0] cmd_addr; // calculated address from ALU
   reg [OPTION_OPERAND_WIDTH-1:0] cmd_rfb;  // register file B in (store operand)
   // lsu local latched commands
   always @(posedge clk `OR_ASYNC_RST) begin
@@ -343,13 +342,12 @@ module mor1kx_lsu_marocchino
     if (take_op_ls) begin
       cmd_length <= lsu_length_r;
       cmd_zext   <= lsu_zext_r;
-      cmd_addr   <= lsu_addr;
       cmd_rfb    <= lsu_b;
     end
   end // @clock
 
   // output latched address for exceptions processing
-  assign lsu_adr_o = cmd_addr;
+  assign lsu_adr_o = virt_addr;
 
   // lsu new command 1-clock mask
   reg cmd_new;
@@ -478,10 +476,10 @@ module mor1kx_lsu_marocchino
   assign except_dbus_err = dbus_err | store_buffer_err_o;
 
   // --- D-TLB miss ---
-  assign except_dtlb_miss = cmd_ls & dmmu_enable_i & tlb_miss;
+  assign except_dtlb_miss = cmd_ls & tlb_miss;
 
   // --- Page fault ---
-  assign except_dpagefault = cmd_ls & dmmu_enable_i & dmmu_pagefault;
+  assign except_dpagefault = cmd_ls & dmmu_pagefault;
 
   // --- combined exception flag (local use) ---
   wire lsu_excepts = except_dbus_err  | except_align |
@@ -497,14 +495,14 @@ module mor1kx_lsu_marocchino
   always @(*)
     case (cmd_length)
       2'b00: // byte access
-        case(cmd_addr[1:0])
+        case(virt_addr[1:0])
           2'b00: dbus_bsel = 4'b1000;
           2'b01: dbus_bsel = 4'b0100;
           2'b10: dbus_bsel = 4'b0010;
           2'b11: dbus_bsel = 4'b0001;
         endcase
       2'b01: // halfword access
-        case(cmd_addr[1])
+        case(virt_addr[1])
           1'b0: dbus_bsel = 4'b1100;
           1'b1: dbus_bsel = 4'b0011;
         endcase
@@ -515,7 +513,7 @@ module mor1kx_lsu_marocchino
   // Select part of bus for load
   reg [OPTION_OPERAND_WIDTH-1:0] dbus_dat_aligned;
   always @(*)
-    case(cmd_addr[1:0])
+    case(virt_addr[1:0])
       2'b00: dbus_dat_aligned = lsu_ldat;
       2'b01: dbus_dat_aligned = {lsu_ldat[23:0],8'd0};
       2'b10: dbus_dat_aligned = {lsu_ldat[15:0],16'd0};
@@ -576,7 +574,8 @@ module mor1kx_lsu_marocchino
   // LSU is busy
   //   MAROCCHINO_TODO: potential improvement
   //                    more pipelinization
-  assign lsu_busy_o  = op_ls | cmd_ls | lsu_msync_r | msync_busy | dc_snoop_hit;
+  assign lsu_busy_o  = op_ls | cmd_ls | lsu_msync_r | msync_busy | // LSU is busy
+                       dc_snoop_hit | dc_refill | dc_refill_r;     // LSU is busy
   // output assignement (1-clk ahead for WB-latching)
   assign lsu_valid_o = (lsu_load_rdy_stored | lsu_store_rdy_stored) & (~dc_snoop_hit);
 
@@ -638,7 +637,7 @@ module mor1kx_lsu_marocchino
 
   assign dbus_adr_o   = dbus_adr;
   assign dbus_dat_o   = dbus_dat;
-  assign dbus_burst_o = (state == DC_REFILL) & (~dc_refill_done);
+  assign dbus_burst_o = (state == DC_REFILL) & (~dc_refill_last);
 
   assign dbus_stall = lsu_excepts | pipeline_flush_i;
 
@@ -675,14 +674,14 @@ module mor1kx_lsu_marocchino
           else if (cmd_ls & (~dc_refill) & dbus_access & (~dbus_ack)) begin
             if (cmd_load) begin
               dbus_req_o  <= 1'b1;
-              dbus_adr    <= dmmu_enable_i ? dmmu_phys_addr : cmd_addr;
+              dbus_adr    <= phys_addr;
               dbus_bsel_o <= dbus_bsel;
               state       <= READ;
             end
           end
           else if (dc_refill_req) begin
             dbus_req_o <= 1'b1;
-            dbus_adr   <= dc_adr_match;
+            dbus_adr   <= phys_addr;
             state      <= DC_REFILL;
           end
         end // ~dbus-stall
@@ -692,7 +691,7 @@ module mor1kx_lsu_marocchino
         dbus_req_o <= 1'b1;
         if (dbus_ack_i) begin
           dbus_adr <= next_dbus_adr;
-          if (dc_refill_done) begin
+          if (dc_refill_last) begin
             dbus_req_o <= 1'b0;
             state      <= IDLE;
           end
@@ -770,12 +769,12 @@ module mor1kx_lsu_marocchino
              (snoop_valid & (snoop_adr_i == atomic_addr)))
       atomic_reserve <= 1'b0;
     else if (cmd_lwa & cmd_new)
-      atomic_reserve <= ~(snoop_valid & (snoop_adr_i == dc_adr_match));
+      atomic_reserve <= ~(snoop_valid & (snoop_adr_i == phys_addr));
   end // @clock
 
   always @(posedge clk)
     if (cmd_lwa & cmd_new)
-      atomic_addr <= dc_adr_match;
+      atomic_addr <= phys_addr;
 
   wire atomic_success = atomic_reserve & (dbus_adr == atomic_addr);
 
@@ -841,7 +840,7 @@ module mor1kx_lsu_marocchino
                                 store_buffer_write_pending) & (~dbus_stall) &
                                (~store_buffer_full) & (~dc_refill) & (~dc_refill_r) & (~dc_snoop_hit);
 
-  assign store_buffer_wadr = dc_adr_match;
+  assign store_buffer_wadr = phys_addr;
 
 generate
 if (FEATURE_STORE_BUFFER!="NONE") begin : store_buffer_gen
@@ -913,15 +912,7 @@ endgenerate
   assign dc_enabled = dc_enable_i & dc_enable_r;
 
 
-  assign dc_adr = take_op_ls ? lsu_addr : cmd_addr;
-
-  assign dc_adr_match = dmmu_enable_i ?
-                      `ifdef SIM_SMPL_SOC
-                        dmmu_phys_addr : cmd_addr;
-                      `else
-                        {dmmu_phys_addr[OPTION_OPERAND_WIDTH-1:2],2'b0} :
-                        {cmd_addr[OPTION_OPERAND_WIDTH-1:2],2'b0};
-                      `endif
+  assign dc_adr = take_op_ls ? lsu_addr : virt_addr;
 
   assign dc_req = cmd_ls & dc_access & (~dbus_stall) &
                   (~(dbus_atomic & dbus_we & (~atomic_reserve)));
@@ -933,25 +924,24 @@ endgenerate
   // Instance of cache //
   //-------------------//
 
-generate
-  if (OPTION_DCACHE_LIMIT_WIDTH == OPTION_OPERAND_WIDTH) begin
-    assign dc_access = cmd_store |
-                       (dc_enabled & (~(dmmu_cache_inhibit & dmmu_enable_i)));
-  end
-  else if (OPTION_DCACHE_LIMIT_WIDTH < OPTION_OPERAND_WIDTH) begin
-    assign dc_access = cmd_store |
-                       (dc_enabled &
-                        (dc_adr_match[OPTION_OPERAND_WIDTH-1:
-                                      OPTION_DCACHE_LIMIT_WIDTH] == 0) &
-                        (~(dmmu_cache_inhibit & dmmu_enable_i)));
-  end
+  wire                          dc_check_limit_width;
+
+  generate
+  // Addresses 0x8******* are treated as non-cacheble regardless DMMU's flag.
+  if (OPTION_DCACHE_LIMIT_WIDTH == OPTION_OPERAND_WIDTH)
+    assign dc_check_limit_width = 1'b1;
+  else if (OPTION_DCACHE_LIMIT_WIDTH < OPTION_OPERAND_WIDTH)
+    assign dc_check_limit_width =
+      (phys_addr[OPTION_OPERAND_WIDTH-1:OPTION_DCACHE_LIMIT_WIDTH] == 0);
   else begin
     initial begin
-      $display("ERROR: OPTION_DCACHE_LIMIT_WIDTH > OPTION_OPERAND_WIDTH");
+      $display("DCACHE ERROR: OPTION_ICACHE_LIMIT_WIDTH > OPTION_OPERAND_WIDTH");
       $finish();
     end
   end
-endgenerate
+  endgenerate
+
+  assign dc_access = cmd_store | (dc_enabled & dc_check_limit_width & ~dmmu_cache_inhibit);
 
   assign dc_bsel = dbus_bsel;
 
@@ -984,14 +974,14 @@ endgenerate
     .cpu_bsel_i                 (dc_bsel), // DCACHE
     .cpu_dat_i                  (lsu_sdat), // DCACHE
     .cpu_adr_i                  (dc_adr), // DCACHE
-    .cpu_adr_match_i            (dc_adr_match), // DCACHE
+    .cpu_adr_match_i            (phys_addr), // DCACHE
     .cpu_ack_o                  (dc_ack), // DCACHE
     .cpu_dat_o                  (dc_ldat), // DCACHE
     // re-fill
     .refill_req_o               (dc_refill_req), // DCACHE
     .refill_allowed_i           (dc_refill_allowed), // DCACHE
     .refill_o                   (dc_refill), // DCACHE
-    .refill_done_o              (dc_refill_done), // DCACHE
+    .refill_last_o              (dc_refill_last), // DCACHE
     .wradr_i                    (dbus_adr), // DCACHE
     .wrdat_i                    (dbus_dat_i), // DCACHE
     .we_i                       (dbus_ack_i), // DCACHE
@@ -1026,15 +1016,17 @@ endgenerate
     // clocks and resets
     .clk                              (clk), // DMMU
     .rst                              (rst), // DMMU
+    // pipe controls
+    .adv_i                            (take_op_ls), // DMMU
     // configuration and commands
-    //.enable_i                         (dmmu_enable), // DMMU
+    .enable_i                         (dmmu_enable), // DMMU
     .supervisor_mode_i                (supervisor_mode_i), // DMMU
     .op_store_i                       (cmd_store), // DMMU
     .op_load_i                        (cmd_load), // DMMU
     // address translation
     .virt_addr_i                      (dc_adr), // DMMU
-    .virt_addr_match_i                (cmd_addr), // DMMU
-    .phys_addr_o                      (dmmu_phys_addr), // DMMU
+    .virt_addr_cmd_o                  (virt_addr), // DMMU
+    .phys_addr_cmd_o                  (phys_addr), // DMMU
     // translation flags
     .cache_inhibit_o                  (dmmu_cache_inhibit), // DMMU
     .tlb_miss_o                       (tlb_miss), // DMMU
