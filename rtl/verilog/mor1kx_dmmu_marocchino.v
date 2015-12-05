@@ -38,6 +38,7 @@ module mor1kx_dmmu_marocchino
 
   // pipe controls
   input                                 adv_i,
+  input                                 force_off_i,
 
   // configuration
   input                                 enable_i,
@@ -104,6 +105,8 @@ module mor1kx_dmmu_marocchino
   wire                             dtlb_trans_spr_cs;
   reg                              dtlb_trans_spr_cs_r;
 
+  wire                             spr_dmmu_stb;
+
   wire                             dmmucr_spr_cs;
   reg                              dmmucr_spr_cs_r;
   reg   [OPTION_OPERAND_WIDTH-1:0] dmmucr;
@@ -138,6 +141,27 @@ module mor1kx_dmmu_marocchino
   end // @clock
 
 
+  // Stored "DMMU enable" and "Supevisor Mode" flags
+  // (for masking DMMU output flags, but not for advancing)
+  reg enable_r;
+  reg supervisor_mode_r;
+  // ---
+  always @(posedge clk `OR_ASYNC_RST) begin
+    if (rst) begin
+      enable_r          <= 1'b0;
+      supervisor_mode_r <= 1'b0;
+    end
+    else if (force_off_i | spr_dmmu_stb) begin
+      enable_r          <= 1'b0;
+      supervisor_mode_r <= supervisor_mode_r;
+    end
+    else if (adv_i) begin
+      enable_r          <= enable_i;
+      supervisor_mode_r <= supervisor_mode_i;
+    end
+  end // @ clock
+
+
   //---------------//
   // SPR interface //
   //---------------//
@@ -145,7 +169,7 @@ module mor1kx_dmmu_marocchino
   //   We don't expect R/W-collisions for SPRbus vs FETCH advance
   // because we execute l.mt(f)spr after pipeline stalling (see OMAN)
 
-  wire spr_dmmu_stb = spr_bus_stb_i & (spr_bus_addr_i[15:11] == `OR1K_SPR_DMMU_BASE);
+  assign spr_dmmu_stb = spr_bus_stb_i & (spr_bus_addr_i[15:11] == `OR1K_SPR_DMMU_BASE);
 
   // Process DMMU Control Register
   //  # DMMUCR "chip select"
@@ -208,11 +232,11 @@ module mor1kx_dmmu_marocchino
     assign way_hit[i] = (dtlb_match_dout[i][31:13] == virt_addr_cmd_o[31:13]) & // address match
                         ~(&dtlb_match_huge_dout[i][1:0]) &                      // ~ huge valid
                          dtlb_match_dout[i][0] &                                // valid bit
-                         enable_i;                                              // mmu enabled
+                         enable_r;                                              // mmu enabled
     // Huge page hit
     assign way_huge_hit[i] = (dtlb_match_huge_dout[i][31:24] == virt_addr_cmd_o[31:24]) & // address match
                              (&dtlb_match_huge_dout[i][1:0]) &                            // ~ huge valid
-                             enable_i;                                                    // mmu enabled
+                             enable_r;                                                    // mmu enabled
   end
   endgenerate
 
@@ -222,7 +246,7 @@ module mor1kx_dmmu_marocchino
   integer j;
 
   always @(*) begin
-    tlb_miss_o      = ~tlb_reload_pagefault & enable_i;
+    tlb_miss_o      = ~tlb_reload_pagefault & enable_r;
     phys_addr       = virt_addr_cmd_o[23:0];
     ure             = 1'b0;
     uwe             = 1'b0;
@@ -265,12 +289,12 @@ module mor1kx_dmmu_marocchino
     end // loop by ways
   end // always
 
-  assign pagefault_o = (supervisor_mode_i ? ((~swe & op_store_i) | (~sre & op_load_i)) :
+  assign pagefault_o = (supervisor_mode_r ? ((~swe & op_store_i) | (~sre & op_load_i)) :
                                             ((~uwe & op_store_i) | (~ure & op_load_i))) &
-                       ~tlb_reload_busy_o & enable_i;
+                       ~tlb_reload_busy_o & enable_r;
 
-  assign phys_addr_cmd_o = enable_i ?
-                      `ifdef SIM_SMPL_SOC
+  assign phys_addr_cmd_o = enable_r ?
+                      `ifdef SIM_SMPL_SOC // MAROCCHINO_TODO
                         phys_addr : virt_addr_cmd_o;
                       `else
                         {phys_addr[OPTION_OPERAND_WIDTH-1:2],2'b0} :
@@ -336,9 +360,9 @@ module mor1kx_dmmu_marocchino
     reg [3:0] tlb_reload_state = TLB_IDLE;
     wire      do_reload;
   
-    assign do_reload = enable_i & tlb_miss_o & (dmmucr[31:10] != 0) & (op_load_i | op_store_i);
+    assign do_reload = enable_r & tlb_miss_o & (dmmucr[31:10] != 0) & (op_load_i | op_store_i);
   
-    assign tlb_reload_busy_o = enable_i & (tlb_reload_state != TLB_IDLE) | do_reload;
+    assign tlb_reload_busy_o = enable_r & (tlb_reload_state != TLB_IDLE) | do_reload;
   
     assign tlb_reload_pagefault_o = tlb_reload_pagefault & ~tlb_reload_pagefault_clear_i;
   
@@ -440,7 +464,7 @@ module mor1kx_dmmu_marocchino
       endcase
   
       // Abort if enable deasserts in the middle of a reload
-      if (~enable_i | (dmmucr[31:10] == 0))
+      if (~enable_r | (dmmucr[31:10] == 0))
         tlb_reload_state <= TLB_IDLE;
     end
     */
@@ -461,6 +485,10 @@ module mor1kx_dmmu_marocchino
   end // HW/SW reload
   endgenerate
 
+  // Enable for RAM blocks if:
+  //  1) regular FETCH advance
+  //  2) SPR access
+  wire ram_re = (adv_i & enable_i) | (spr_dmmu_stb & ~spr_bus_we_i & ~spr_bus_ack_o);
 
   generate
   for (i = 0; i < OPTION_DMMU_WAYS; i=i+1) begin : dtlb
@@ -476,13 +504,13 @@ module mor1kx_dmmu_marocchino
       // common clock
       .clk    (clk),
       // port "a": 8KB pages
-      .en_a   (1'b1),
+      .en_a   (ram_re | dtlb_match_we[i]),
       .we_a   (dtlb_match_we[i]),
       .addr_a (dtlb_match_addr),
       .din_a  (dtlb_match_din),
       .dout_a (dtlb_match_dout[i]),
       // port "b": Huge pages
-      .en_b   (1'b1),
+      .en_b   (ram_re | dtlb_match_huge_we),
       .we_b   (dtlb_match_huge_we),
       .addr_b (dtlb_match_huge_addr),
       .din_b  (dtlb_match_reload_din),
@@ -500,13 +528,13 @@ module mor1kx_dmmu_marocchino
       // common clock
       .clk    (clk),
       // port "a": 8KB pages
-      .en_a   (1'b1),
+      .en_a   (ram_re | dtlb_trans_we[i]),
       .we_a   (dtlb_trans_we[i]),
       .addr_a (dtlb_trans_addr),
       .din_a  (dtlb_trans_din),
       .dout_a (dtlb_trans_dout[i]),
       // port "b": Huge pages
-      .en_b   (1'b1),
+      .en_b   (ram_re | dtlb_trans_huge_we),
       .we_b   (dtlb_trans_huge_we),
       .addr_b (dtlb_trans_huge_addr),
       .din_b  (dtlb_trans_reload_din),
