@@ -68,7 +68,6 @@ module mor1kx_cpu_marocchino
 
   parameter FEATURE_FPU    = "NONE", // ENABLED|NONE: pipeline marocchino
 
-  parameter FEATURE_STORE_BUFFER            = "ENABLED",
   parameter OPTION_STORE_BUFFER_DEPTH_WIDTH = 8,
 
   parameter FEATURE_MULTICORE      = "NONE",
@@ -695,7 +694,6 @@ module mor1kx_cpu_marocchino
     .FEATURE_DMMU_HW_TLB_RELOAD       (FEATURE_DMMU_HW_TLB_RELOAD),
     .OPTION_DMMU_SET_WIDTH            (OPTION_DMMU_SET_WIDTH),
     .OPTION_DMMU_WAYS                 (OPTION_DMMU_WAYS),
-    .FEATURE_STORE_BUFFER             (FEATURE_STORE_BUFFER),
     .OPTION_STORE_BUFFER_DEPTH_WIDTH  (OPTION_STORE_BUFFER_DEPTH_WIDTH)
   )
   u_lsu

@@ -73,7 +73,6 @@ module mor1kx_marocchino_alone
 
   parameter FEATURE_FPU                = "NONE", // ENABLED|NONE: actual for cappuccino pipeline only
 
-  parameter FEATURE_STORE_BUFFER       = "ENABLED",
   parameter OPTION_STORE_BUFFER_DEPTH_WIDTH = 8,
 
   parameter FEATURE_MULTICORE          = "NONE",
@@ -292,7 +291,6 @@ module mor1kx_marocchino_alone
     .FEATURE_PSYNC                    (FEATURE_PSYNC),
     .FEATURE_CSYNC                    (FEATURE_CSYNC),
     .FEATURE_FPU                      (FEATURE_FPU),
-    .FEATURE_STORE_BUFFER             (FEATURE_STORE_BUFFER),
     .OPTION_STORE_BUFFER_DEPTH_WIDTH  (OPTION_STORE_BUFFER_DEPTH_WIDTH)
   )
   u_cpu_marocchino

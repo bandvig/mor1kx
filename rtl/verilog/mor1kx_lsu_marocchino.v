@@ -32,7 +32,6 @@ module mor1kx_lsu_marocchino
   parameter OPTION_DMMU_SET_WIDTH      = 6,
   parameter OPTION_DMMU_WAYS           = 1,
   // store buffer
-  parameter FEATURE_STORE_BUFFER            = "ENABLED",
   parameter OPTION_STORE_BUFFER_DEPTH_WIDTH = 8
 )
 (
@@ -73,9 +72,9 @@ module mor1kx_lsu_marocchino
   output     [OPTION_OPERAND_WIDTH-1:0] spr_bus_dat_dmmu_o,
   output                                spr_bus_ack_dmmu_o,
   // interface to data bus
-  output     [OPTION_OPERAND_WIDTH-1:0] dbus_adr_o,
+  output reg [OPTION_OPERAND_WIDTH-1:0] dbus_adr_o,
   output reg                            dbus_req_o,
-  output     [OPTION_OPERAND_WIDTH-1:0] dbus_dat_o,
+  output reg [OPTION_OPERAND_WIDTH-1:0] dbus_dat_o,
   output reg                      [3:0] dbus_bsel_o,
   output                                dbus_we_o,
   output                                dbus_burst_o,
@@ -110,8 +109,6 @@ module mor1kx_lsu_marocchino
 );
 
   reg                               dbus_err;
-  reg    [OPTION_OPERAND_WIDTH-1:0] dbus_dat;
-  reg    [OPTION_OPERAND_WIDTH-1:0] dbus_adr;
   reg                               dbus_we;
   wire                              dbus_access;
   wire                              dbus_stall;
@@ -159,7 +156,6 @@ module mor1kx_lsu_marocchino
   wire                              store_buffer_full;
   wire                              store_buffer_empty;
   wire   [OPTION_OPERAND_WIDTH-1:0] store_buffer_radr;
-  wire   [OPTION_OPERAND_WIDTH-1:0] store_buffer_wadr;
   wire   [OPTION_OPERAND_WIDTH-1:0] store_buffer_dat;
   wire [OPTION_OPERAND_WIDTH/8-1:0] store_buffer_bsel;
   wire                              store_buffer_atomic;
@@ -613,33 +609,29 @@ module mor1kx_lsu_marocchino
   assign msync_busy = cmd_op_msync & (state != IDLE);
   assign msync_done = cmd_op_msync & (state == IDLE);
 
-  wire store_buffer_ack = (FEATURE_STORE_BUFFER != "NONE") ? store_buffer_write : write_done;
-
   assign dbus_access = (state == WRITE) |
                        ((state != DC_REFILL) & (cmd_store | ~dc_access));
 
   assign lsu_ack = lsu_excepts ? 1'b0 :
                    (cmd_store | (state == WRITE)) ?
-                    ((store_buffer_ack & (~cmd_atomic)) |
-                     (write_done       &   cmd_atomic)) :
+                    ((store_buffer_write & (~cmd_atomic)) |
+                     (write_done         &   cmd_atomic)) :
                     (dbus_access ? dbus_ack_i : dc_ack);
 
   assign lsu_ldat = dbus_access ? dbus_dat_i : dc_ldat;
 
 
 
-  assign dbus_adr_o   = dbus_adr;
-  assign dbus_dat_o   = dbus_dat;
   assign dbus_burst_o = (state == DC_REFILL) & (~dc_refill_last);
-
-  assign dbus_stall = lsu_excepts | pipeline_flush_i;
-
   //
   // Slightly subtle, but if there is an atomic store coming out from the
   // store buffer, and the link has been broken while it was waiting there,
   // the bus access is still performed as a (discarded) read.
   //
   assign dbus_we_o = dbus_we & ((~dbus_atomic) | atomic_reserve);
+
+
+  assign dbus_stall = lsu_excepts | pipeline_flush_i;
 
 
   // state machine
@@ -651,7 +643,7 @@ module mor1kx_lsu_marocchino
       IDLE: begin
         dbus_req_o  <= 1'b0;
         dbus_we     <= 1'b0;
-        dbus_adr    <= 0;
+        dbus_adr_o  <= 0;
         dbus_bsel_o <= 4'hf;
         dbus_atomic <= 1'b0;
         last_write  <= 1'b0;
@@ -659,17 +651,15 @@ module mor1kx_lsu_marocchino
           if (store_buffer_write | ~store_buffer_empty) begin
             state <= WRITE;
           end
-          else if (cmd_ls & ~dc_refill & dbus_access) begin
-            if (cmd_load) begin
-              dbus_req_o  <= 1'b1;
-              dbus_adr    <= phys_addr_cmd;
-              dbus_bsel_o <= dbus_bsel;
-              state       <= READ;
-            end
+          else if (cmd_load & dbus_access) begin
+            dbus_req_o  <= 1'b1;
+            dbus_adr_o  <= phys_addr_cmd;
+            dbus_bsel_o <= dbus_bsel;
+            state       <= READ;
           end
-          else if (dc_refill_req) begin
+          else if (dc_refill_req & dc_refill_allowed) begin
             dbus_req_o <= 1'b1;
-            dbus_adr   <= phys_addr_cmd;
+            dbus_adr_o <= phys_addr_cmd;
             state      <= DC_REFILL;
           end
         end // ~dbus-stall
@@ -678,7 +668,7 @@ module mor1kx_lsu_marocchino
       DC_REFILL: begin
         dbus_req_o <= 1'b1;
         if (dbus_ack_i) begin
-          dbus_adr <= next_refill_adr;
+          dbus_adr_o <= next_refill_adr;
           if (dc_refill_last) begin
             dbus_req_o <= 1'b0;
             state      <= IDLE;
@@ -702,10 +692,10 @@ module mor1kx_lsu_marocchino
         dbus_req_o <= 1'b1;
         dbus_we    <= 1'b1;
         //---
-        if ((~dbus_req_o) | (dbus_ack_i & (~last_write))) begin
+        if (~dbus_req_o | (dbus_ack_i & ~last_write)) begin
           dbus_bsel_o <= store_buffer_bsel;
-          dbus_adr    <= store_buffer_radr;
-          dbus_dat    <= store_buffer_dat;
+          dbus_adr_o  <= store_buffer_radr;
+          dbus_dat_o  <= store_buffer_dat;
           dbus_atomic <= store_buffer_atomic;
           last_write  <= store_buffer_empty;
         end
@@ -748,10 +738,10 @@ module mor1kx_lsu_marocchino
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
       atomic_reserve <= 1'b0;
-    else if (pipeline_flush_i)
+    else if (dbus_stall)
       atomic_reserve <= 1'b0;
     else if ((cmd_swa & write_done) |
-             (~cmd_atomic & store_buffer_write & (store_buffer_wadr == atomic_addr)) |
+             (~cmd_atomic & store_buffer_write & (phys_addr_cmd == atomic_addr)) |
              (snoop_valid & (snoop_adr_i == atomic_addr)))
       atomic_reserve <= 1'b0;
     else if (cmd_lwa & cmd_new)
@@ -762,7 +752,7 @@ module mor1kx_lsu_marocchino
     if (cmd_lwa & cmd_new)
       atomic_addr <= phys_addr_cmd;
 
-  wire atomic_success = atomic_reserve & (dbus_adr == atomic_addr);
+  wire atomic_success = atomic_reserve & (dbus_adr_o == atomic_addr);
 
   reg atomic_flag_set;
   reg atomic_flag_clear;
@@ -772,7 +762,7 @@ module mor1kx_lsu_marocchino
       atomic_flag_set   <= 1'b0;
       atomic_flag_clear <= 1'b0;
     end
-    else if (op_ls | lsu_excepts | pipeline_flush_i) begin
+    else if (op_ls | dbus_stall) begin
       atomic_flag_set   <= 1'b0;
       atomic_flag_clear <= 1'b0;
     end
@@ -805,9 +795,9 @@ module mor1kx_lsu_marocchino
   end // @clock
 
 
-  //--------------------//
-  // Store buffer logic //
-  //--------------------//
+  //-----------------------//
+  // Store buffer instance //
+  //-----------------------//
 
   reg dc_refill_r;
   always @(posedge clk)
@@ -816,78 +806,55 @@ module mor1kx_lsu_marocchino
   always @(posedge clk) begin
     if (rst)
       store_buffer_write_pending <= 1'b0;
-    else if (store_buffer_write | pipeline_flush_i)
+    else if (store_buffer_write | dbus_stall)
       store_buffer_write_pending <= 1'b0;
-    else if (cmd_store & cmd_new & (~dbus_stall) &
+    else if (cmd_store & cmd_new &
              (store_buffer_full | dc_refill | dc_refill_r | dc_snoop_hit))
       store_buffer_write_pending <= 1'b1;
   end // @ clock
 
-  assign store_buffer_write = ((cmd_store & cmd_new) |
-                                store_buffer_write_pending) & (~dbus_stall) &
-                               (~store_buffer_full) & (~dc_refill) & (~dc_refill_r) & (~dc_snoop_hit);
+  // "write" and "read" without exception and pipe flushing
+  assign store_buffer_write = ((cmd_store & cmd_new) | store_buffer_write_pending) &
+                              ~store_buffer_full & ~dc_refill & ~dc_refill_r & ~dc_snoop_hit;
 
-  assign store_buffer_wadr = phys_addr_cmd;
+  assign store_buffer_read = ((state == IDLE) &  store_buffer_write) |
+                             ((state == IDLE) & ~store_buffer_empty) |
+                             ((state == WRITE) &  last_write &  store_buffer_write) |
+                             ((state == WRITE) & ~last_write & (store_buffer_write  | ~store_buffer_empty) &
+                              (dbus_ack_i | ~dbus_req_o));
 
-  generate
-  /* verilator lint_off WIDTH */
-  if (FEATURE_STORE_BUFFER!="NONE") begin : store_buffer_gen
-  /* verilator lint_on WIDTH */
-    assign store_buffer_read = ((state == IDLE) &  store_buffer_write) |
-                               ((state == IDLE) & ~store_buffer_empty) |
-                               ((state == WRITE) &  last_write &  store_buffer_write) |
-                               ((state == WRITE) & ~last_write & (store_buffer_write  | ~store_buffer_empty) &
-                                (dbus_ack_i | ~dbus_req_o));
-  
-    mor1kx_store_buffer
-    #(
-      .DEPTH_WIDTH(OPTION_STORE_BUFFER_DEPTH_WIDTH),
-      .OPTION_OPERAND_WIDTH(OPTION_OPERAND_WIDTH)
-    )
-    u_store_buffer
-    (
-      .clk      (clk),
-      .rst      (rst),
-  
-      .pc_i     (ctrl_epcr_i), // STORE_BUFFER
-      .adr_i    (store_buffer_wadr), // STORE_BUFFER
-      .dat_i    (lsu_sdat), // STORE_BUFFER
-      .bsel_i   (dbus_bsel), // STORE_BUFFER
-      .atomic_i (cmd_atomic), // STORE_BUFFER
-      .write_i  (store_buffer_write), // STORE_BUFFER
-  
-      .pc_o     (store_buffer_epcr_o), // STORE_BUFFER
-      .adr_o    (store_buffer_radr), // STORE_BUFFER
-      .dat_o    (store_buffer_dat), // STORE_BUFFER
-      .bsel_o   (store_buffer_bsel), // STORE_BUFFER
-      .atomic_o (store_buffer_atomic), // STORE_BUFFER
-      .read_i   (store_buffer_read), // STORE_BUFFER
-  
-      .full_o   (store_buffer_full), // STORE_BUFFER
-      .empty_o  (store_buffer_empty) // STORE_BUFFER
-    );
-  end
-  else begin
-    assign store_buffer_epcr_o = ctrl_epcr_i;
-    assign store_buffer_radr   = store_buffer_wadr;
-    assign store_buffer_dat    = lsu_sdat;
-    assign store_buffer_bsel   = dbus_bsel;
-    assign store_buffer_empty  = 1'b1;
-    assign store_buffer_atomic = cmd_atomic;
-  
-    reg store_buffer_full_r;
-    always @(posedge clk `OR_ASYNC_RST) begin
-      if (rst)
-        store_buffer_full_r <= 1'b0;
-      else if (store_buffer_write)
-        store_buffer_full_r <= 1'b1;
-      else if (write_done)
-        store_buffer_full_r <= 1'b0;
-    end // @ clock
-  
-    assign store_buffer_full = store_buffer_full_r & (~write_done);
-  end
-  endgenerate
+  // store buffer controls with exceptions and pipe flushing
+  wire store_buffer_we = store_buffer_write & ~dbus_stall;
+  wire store_buffer_re = store_buffer_read  & ~dbus_stall;
+
+  // store buffer module
+  mor1kx_store_buffer_marocchino
+  #(
+    .DEPTH_WIDTH          (OPTION_STORE_BUFFER_DEPTH_WIDTH),
+    .OPTION_OPERAND_WIDTH (OPTION_OPERAND_WIDTH)
+  )
+  u_store_buffer
+  (
+    .clk      (clk),
+    .rst      (rst),
+
+    .pc_i     (ctrl_epcr_i), // STORE_BUFFER
+    .adr_i    (phys_addr_cmd), // STORE_BUFFER
+    .dat_i    (lsu_sdat), // STORE_BUFFER
+    .bsel_i   (dbus_bsel), // STORE_BUFFER
+    .atomic_i (cmd_atomic), // STORE_BUFFER
+    .write_i  (store_buffer_we), // STORE_BUFFER
+
+    .pc_o     (store_buffer_epcr_o), // STORE_BUFFER
+    .adr_o    (store_buffer_radr), // STORE_BUFFER
+    .dat_o    (store_buffer_dat), // STORE_BUFFER
+    .bsel_o   (store_buffer_bsel), // STORE_BUFFER
+    .atomic_o (store_buffer_atomic), // STORE_BUFFER
+    .read_i   (store_buffer_re), // STORE_BUFFER
+
+    .full_o   (store_buffer_full), // STORE_BUFFER
+    .empty_o  (store_buffer_empty) // STORE_BUFFER
+  );
 
 
 
@@ -941,7 +908,7 @@ module mor1kx_lsu_marocchino
 
   assign dc_req = cmd_ls & dc_access & ~dbus_stall & ~(dbus_atomic & dbus_we & ~atomic_reserve);
 
-  assign dc_refill_allowed = ~(cmd_store | (state == WRITE)) & ~dc_snoop_hit & ~snoop_valid;
+  assign dc_refill_allowed = ~cmd_store & (state == IDLE) & ~dc_snoop_hit & ~snoop_valid;
 
   assign dc_we =
     (lsu_store_r & (~lsu_atomic_r) & take_op_ls) |

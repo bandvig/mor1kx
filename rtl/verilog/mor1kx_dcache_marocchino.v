@@ -134,8 +134,7 @@ module mor1kx_dcache_marocchino
   assign refill_o  = (state == REFILL);
 
 
-  wire                                          invalidate;
-  reg   [WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH] invalidate_adr;
+  wire                                          invalidate_cmd;
 
   reg                [OPTION_OPERAND_WIDTH-1:0] way_wr_dat;
 
@@ -272,32 +271,28 @@ module mor1kx_dcache_marocchino
 
   assign refill_last_o = refill_done[next_refill_adr_o[OPTION_DCACHE_BLOCK_WIDTH-1:2]];
 
-  assign refill_req_o = (read & dc_req_i & ~hit & ~write_pending & refill_allowed_i) | refill_o;
+  assign refill_req_o = read & dc_req_i & ~hit & ~write_pending;
+
 
   /*
    * SPR bus interface
    */
 
-  // The SPR interface is used to invalidate the cache blocks. When
-  // an invalidation is started, the respective entry in the tag
-  // memory is cleared. When another transfer is in progress, the
-  // handling is delayed until it is possible to serve it.
-  //
-  // The invalidation is acknowledged to the SPR bus, but the cycle
-  // is terminated by the core. We therefore need to hold the
-  // invalidate acknowledgement. Meanwhile we continuously write the
-  // tag memory which is no problem.
+  // The SPR interface is used to invalidate the cache blocks.
+  // In MAROCCHINO pipeline l.mf(t)spr instructions are executed
+  // if pipeline is stalled. So, SPR transaction processing is quite simple.
 
   // Net that signals an acknowledgement
   reg invalidate_ack;
 
-   // An invalidate request is either a block flush or a block invalidate
-   assign invalidate = spr_bus_stb_i & spr_bus_we_i &
-          ((spr_bus_addr_i == `OR1K_SPR_DCBFR_ADDR) |
-           (spr_bus_addr_i == `OR1K_SPR_DCBIR_ADDR));
+  // An invalidate request is either a block flush or a block invalidate
+  assign invalidate_cmd = spr_bus_stb_i & spr_bus_we_i &
+                          ((spr_bus_addr_i == `OR1K_SPR_DCBFR_ADDR) |
+                           (spr_bus_addr_i == `OR1K_SPR_DCBIR_ADDR));
 
   // Acknowledge to the SPR bus.
   assign spr_bus_ack_o = invalidate_ack;
+
 
   /*
    * Cache FSM
@@ -322,6 +317,7 @@ module mor1kx_dcache_marocchino
       snoop_check     <= 1'b0;  // on reset
       snoop_tag       <= {TAG_WIDTH{1'b0}}; // on reset
       snoop_windex    <= {OPTION_DCACHE_SET_WIDTH{1'b0}}; // on reset
+      invalidate_ack  <= 1'b0;  // on reset
     end
     else if(dc_dbus_err_i) begin
       state         <= IDLE;  // on exceptions
@@ -354,15 +350,10 @@ module mor1kx_dcache_marocchino
 
       case (state)
         IDLE: begin
-          if (invalidate) begin
-            // If there is an invalidation request
-            //
-            // Store address in invalidate_adr that is muxed to the tag
-            // memory write address
-            invalidate_adr <= spr_bus_dat_i[WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH];
-            // Change to invalidate state that actually accesses
-            // the tag memory
-            state <= INVALIDATE;
+          // MAROCCHINO_TODO: invalidate <-> snoop event interaction
+          if (invalidate_cmd) begin
+            invalidate_ack  <= 1'b1; // idle -> inv
+            state           <= INVALIDATE;
           end
           else if (dc_we_i | write_pending)
             state <= WRITE;
@@ -372,7 +363,7 @@ module mor1kx_dcache_marocchino
 
         READ: begin
           if ((dc_access_i | dc_we_i) & dc_enable_i) begin
-            if (~hit & dc_req_i & ~write_pending & refill_allowed_i) begin
+            if (dc_req_i & ~hit & ~write_pending & refill_allowed_i) begin
               // Store the LRU information for correct replacement
               // on re-fill. Always one when only one way.
               tag_save_lru <= (OPTION_DCACHE_WAYS==1) | lru;
@@ -388,11 +379,11 @@ module mor1kx_dcache_marocchino
             else if (dc_we_i | write_pending) begin
               state <= WRITE;
             end
-            else if (invalidate) begin
+            else if (invalidate_cmd) begin
               state <= IDLE;
             end
           end
-          else if (~dc_enable_i | invalidate) begin
+          else if (~dc_enable_i | invalidate_cmd) begin
             state <= IDLE;
           end
         end
@@ -426,16 +417,8 @@ module mor1kx_dcache_marocchino
         end
   
         INVALIDATE: begin
-          if (invalidate) begin
-            // Store address in invalidate_adr that is muxed to the tag
-            // memory write address
-            invalidate_adr <= spr_bus_dat_i[WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH];
-  
-            state <= INVALIDATE;
-          end
-          else begin
-            state <= IDLE;
-          end
+          invalidate_ack <= 1'b0; // inv -> idle
+          state          <= IDLE;
         end
   
         default:
@@ -463,9 +446,6 @@ module mor1kx_dcache_marocchino
 
     way_wr_dat = wrdat_i;
 
-    // The default is (of course) not to acknowledge the invalidate
-    invalidate_ack = 1'b0;
-
     if (snoop_hit_o) begin
     // This is the write access
       tag_we = 1'b1;
@@ -486,20 +466,10 @@ module mor1kx_dcache_marocchino
       //
       tag_windex =
         (read | write)        ? phys_addr_cmd_i[WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH] :
-        (state == INVALIDATE) ? invalidate_adr :
+        (state == INVALIDATE) ? spr_bus_dat_i[WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH]   :
                                 curr_refill_adr[WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH];   // at re-fill
 
       case (state)
-        IDLE: begin
-          //
-          // When idle we can always acknowledge the invalidate as it
-          // has the highest priority in handling. When something is
-          // changed on the state machine handling above this needs
-          // to be changed.
-          //
-          invalidate_ack = 1'b1;
-        end
-
         READ: begin
           if (hit) begin
             //
@@ -579,7 +549,6 @@ module mor1kx_dcache_marocchino
         end // RE-FILL
 
         INVALIDATE: begin
-          invalidate_ack = 1'b1;
           // Lazy invalidation, invalidate everything that matches tag address
           tag_lru_in = 0;
           for (w2 = 0; w2 < OPTION_DCACHE_WAYS; w2 = w2 + 1) begin
