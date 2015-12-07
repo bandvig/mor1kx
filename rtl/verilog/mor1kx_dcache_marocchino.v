@@ -278,6 +278,8 @@ module mor1kx_dcache_marocchino
    * SPR bus interface
    */
 
+  assign spr_bus_dat_o = {OPTION_OPERAND_WIDTH{1'b0}};
+
   // The SPR interface is used to invalidate the cache blocks.
   // In MAROCCHINO pipeline l.mf(t)spr instructions are executed
   // if pipeline is stalled. So, SPR transaction processing is quite simple.

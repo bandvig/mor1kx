@@ -564,8 +564,7 @@ module mor1kx_lsu_marocchino
   // LSU is busy
   //   MAROCCHINO_TODO: potential improvement
   //                    more pipelinization
-  assign lsu_busy_o  = op_ls | cmd_ls | lsu_msync_r | msync_busy | // LSU is busy
-                       dc_snoop_hit | dc_refill | dc_refill_r;     // LSU is busy
+  assign lsu_busy_o  = op_ls | cmd_ls | lsu_msync_r | msync_busy | dc_snoop_hit | dc_refill;
   // output assignement (1-clk ahead for WB-latching)
   assign lsu_valid_o = (lsu_load_rdy_stored | lsu_store_rdy_stored) & (~dc_snoop_hit);
 
@@ -799,23 +798,18 @@ module mor1kx_lsu_marocchino
   // Store buffer instance //
   //-----------------------//
 
-  reg dc_refill_r;
-  always @(posedge clk)
-    dc_refill_r <= dc_refill;
-
   always @(posedge clk) begin
     if (rst)
       store_buffer_write_pending <= 1'b0;
     else if (store_buffer_write | dbus_stall)
       store_buffer_write_pending <= 1'b0;
-    else if (cmd_store & cmd_new &
-             (store_buffer_full | dc_refill | dc_refill_r | dc_snoop_hit))
+    else if (cmd_store & cmd_new & (store_buffer_full | dc_snoop_hit))
       store_buffer_write_pending <= 1'b1;
   end // @ clock
 
   // "write" and "read" without exception and pipe flushing
   assign store_buffer_write = ((cmd_store & cmd_new) | store_buffer_write_pending) &
-                              ~store_buffer_full & ~dc_refill & ~dc_refill_r & ~dc_snoop_hit;
+                              ~store_buffer_full & ~dc_snoop_hit;
 
   assign store_buffer_read = ((state == IDLE) &  store_buffer_write) |
                              ((state == IDLE) & ~store_buffer_empty) |

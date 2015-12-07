@@ -1033,10 +1033,8 @@ endgenerate
 
 
   // DCACHE
-  assign spr_access_ack[`OR1K_SPR_DC_BASE] = spr_bus_ack_dc_i &
-                                             spr_access[`OR1K_SPR_DC_BASE];
-  assign spr_internal_read_dat[`OR1K_SPR_DC_BASE] =
-    spr_bus_dat_dc_i & {OPTION_OPERAND_WIDTH{spr_access[`OR1K_SPR_DC_BASE]}};
+  assign spr_access_ack[`OR1K_SPR_DC_BASE]        = spr_bus_ack_dc_i;
+  assign spr_internal_read_dat[`OR1K_SPR_DC_BASE] = spr_bus_dat_dc_i;
 
 
   // ICACHE
