@@ -45,8 +45,8 @@ module mor1kx_dmmu_marocchino
   input                                 supervisor_mode_i,
 
   // commnads
-  input                                 op_store_i,
-  input                                 op_load_i,
+  input                                 cmd_store_i,
+  input                                 cmd_load_i,
 
   // address translation
   input      [OPTION_OPERAND_WIDTH-1:0] virt_addr_i,
@@ -289,8 +289,8 @@ module mor1kx_dmmu_marocchino
     end // loop by ways
   end // always
 
-  assign pagefault_o = (supervisor_mode_r ? ((~swe & op_store_i) | (~sre & op_load_i)) :
-                                            ((~uwe & op_store_i) | (~ure & op_load_i))) &
+  assign pagefault_o = (supervisor_mode_r ? ((~swe & cmd_store_i) | (~sre & cmd_load_i)) :
+                                            ((~uwe & cmd_store_i) | (~ure & cmd_load_i))) &
                        ~tlb_reload_busy_o & enable_r;
 
   assign phys_addr_cmd_o = enable_r ?
@@ -360,7 +360,7 @@ module mor1kx_dmmu_marocchino
     reg [3:0] tlb_reload_state = TLB_IDLE;
     wire      do_reload;
   
-    assign do_reload = enable_r & tlb_miss_o & (dmmucr[31:10] != 0) & (op_load_i | op_store_i);
+    assign do_reload = enable_r & tlb_miss_o & (dmmucr[31:10] != 0) & (cmd_load_i | cmd_store_i);
   
     assign tlb_reload_busy_o = enable_r & (tlb_reload_state != TLB_IDLE) | do_reload;
   

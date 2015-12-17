@@ -91,7 +91,7 @@ module mor1kx_store_buffer_marocchino
   wire rwp_we = write_i & read_i & rw_same_addr;
 
   // Write-only port (*_wp_*) controls
-  wire wp_ena = write_i & (~read_i | ~rw_same_addr);
+  wire wp_en  = write_i & (~read_i | ~rw_same_addr);
 
   // FIFO instance
   mor1kx_dpram_en_w1st_sclk
@@ -111,7 +111,7 @@ module mor1kx_store_buffer_marocchino
     .din_a  (fifo_din),
     .dout_a (fifo_dout),
     // port "b": Write if no RW-conflict
-    .en_b   (wp_ena),  // enable port "b"
+    .en_b   (wp_en),  // enable port "b"
     .we_b   (write_i), // operation is "write"
     .addr_b (write_pointer[DEPTH_WIDTH-1:0]),
     .din_b  (fifo_din),

@@ -163,10 +163,10 @@ module mor1kx_icache_marocchino
   // Register that stores the LRU way for re-fill process.
   reg  [OPTION_ICACHE_WAYS-1:0] lru_way_r;
 
+
   // The access vector to update the LRU history is the way that has
   // a hit or is refilled. It is also one-hot encoded.
-  reg  [OPTION_ICACHE_WAYS-1:0] access;
-
+  reg  [OPTION_ICACHE_WAYS-1:0] access_lru_history;
   // The current LRU history as read from tag memory and the update
   // value after we accessed it to write back to tag memory.
   wire [TAG_LRU_WIDTH_BITS-1:0] current_lru_history;
@@ -398,7 +398,7 @@ module mor1kx_icache_marocchino
       .lru_post    (),
       // Inputs
       .current     (current_lru_history),
-      .access      (access)
+      .access      (access_lru_history)
     );
   end
   else begin // single way
@@ -418,12 +418,12 @@ module mor1kx_icache_marocchino
 
     tag_we = 1'b0;
 
-    access = {(OPTION_ICACHE_WAYS){1'b0}};
+    access_lru_history = {(OPTION_ICACHE_WAYS){1'b0}};
 
     case (state)
       READ: begin
         // The LRU module gets the access information.
-        access = way_hit;
+        access_lru_history = way_hit;
         // Depending on this we update the LRU history in the tag.
         if (hit) begin
           tag_lru_in = next_lru_history;
@@ -434,7 +434,7 @@ module mor1kx_icache_marocchino
       REFILL: begin
         if (we_i) begin
           // Access pattern
-          access = lru_way_r;
+          access_lru_history = lru_way_r;
 
           /* Invalidate the way on the first write */
           if (refill_done == 0) begin

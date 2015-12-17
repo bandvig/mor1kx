@@ -1,20 +1,30 @@
-/* ****************************************************************************
-  This Source Code Form is subject to the terms of the
-  Open Hardware Description License, v. 1.0. If a copy
-  of the OHDL was not distributed with this file, You
-  can obtain one at http://juliusbaxter.net/ohdl/ohdl.txt
-
-  Description: Data bus interface for MAROCCHINO pipeline
-
-  Dbus interface request signal out synchronous
-  32-bit specific
-  Derived from mor1kx_lsu_cappuccino
-
-  Copyright (C) 2012 Julius Baxter <juliusbaxter@gmail.com>
-  Copyright (C) 2013 Stefan Kristiansson <stefan.kristiansson@saunalahti.fi>
-  Copyright (C) 2015 Andrey Bacherov <avbacherov@opencores.org>
-
-***************************************************************************** */
+////////////////////////////////////////////////////////////////////////
+//                                                                    //
+//  mor1kx_lsu_marocchino                                             //
+//                                                                    //
+//  Description: Data bus interface for MAROCCHINO pipeline           //
+//               Dbus interface request signal out synchronous        //
+//               32-bit specific                                      //
+//                                                                    //
+//               Derived from mor1kx_lsu_cappuccino                   //
+//                                                                    //
+////////////////////////////////////////////////////////////////////////
+//                                                                    //
+//   Copyright (C) 2012 Julius Baxter                                 //
+//                      juliusbaxter@gmail.com                        //
+//                                                                    //
+//   Copyright (C) 2013 Stefan Kristiansson                           //
+//                      stefan.kristiansson@saunalahti.fi             //
+//                                                                    //
+//   Copyright (C) 2015 Andrey Bacherov                               //
+//                      avbacherov@opencores.org                      //
+//                                                                    //
+//      This Source Code Form is subject to the terms of the          //
+//      Open Hardware Description License, v. 1.0. If a copy          //
+//      of the OHDL was not distributed with this file, You           //
+//      can obtain one at http://juliusbaxter.net/ohdl/ohdl.txt       //
+//                                                                    //
+////////////////////////////////////////////////////////////////////////
 
 `include "mor1kx-defines.v"
 
@@ -110,21 +120,19 @@ module mor1kx_lsu_marocchino
 
   reg                               dbus_err;
   reg                               dbus_we;
-  wire                              dbus_access;
   wire                              dbus_stall;
+  reg                               dbus_atomic;
+  wire                              dbus_swa_discard; // reservation is lost, execute empty read
+  wire                              dbus_swa_success; // l.swa is successfull
+  wire                              dbus_swa_ack;     // complete DBUS trunsaction with l.swa
 
-  wire   [OPTION_OPERAND_WIDTH-1:0] lsu_ldat;
-  wire   [OPTION_OPERAND_WIDTH-1:0] lsu_sdat;
+
+  wire   [OPTION_OPERAND_WIDTH-1:0] lsu_ldat; // formated load data
+  wire   [OPTION_OPERAND_WIDTH-1:0] lsu_sdat; // formated store data
   wire                              lsu_ack;
 
   wire                              dc_ack;
-  wire   [OPTION_OPERAND_WIDTH-1:0] dc_ldat;
-  wire   [OPTION_OPERAND_WIDTH-1:0] dc_sdat;
-  wire   [OPTION_OPERAND_WIDTH-1:0] dc_adr;
-  wire                              dc_req;
-  wire                              dc_we;
-  wire [3:0]                        dc_bsel;
-
+  wire   [OPTION_OPERAND_WIDTH-1:0] dc_dat;
   wire                              dc_access;
   wire                              dc_refill_req;
   wire                              dc_refill_allowed;
@@ -132,8 +140,6 @@ module mor1kx_lsu_marocchino
   wire   [OPTION_OPERAND_WIDTH-1:0] next_refill_adr;
   wire                              dc_refill_last;
 
-  reg                               dc_enable_r;
-  wire                              dc_enabled;
 
   // DMMU
   wire                              dmmu_cache_inhibit;
@@ -159,19 +165,15 @@ module mor1kx_lsu_marocchino
   wire   [OPTION_OPERAND_WIDTH-1:0] store_buffer_dat;
   wire [OPTION_OPERAND_WIDTH/8-1:0] store_buffer_bsel;
   wire                              store_buffer_atomic;
-  reg                               store_buffer_write_pending;
-
-  reg                               dbus_atomic;
 
   reg                               last_write;
-  reg                               write_done;
 
   // Atomic operations
   reg    [OPTION_OPERAND_WIDTH-1:0] atomic_addr;
   reg                               atomic_reserve;
 
-  wire                              snoop_valid;
-  wire                              dc_snoop_hit;
+  wire                              snoop_event;
+  wire                              snoop_hit;
 
   wire                              except_align;
   wire                              except_dbus_err;
@@ -207,7 +209,7 @@ module mor1kx_lsu_marocchino
   wire op_ls      = lsu_load_r | lsu_store_r; // latched load/store
 
   // signal to take new LSU command (less priority than flushing)
-  wire take_op_ls = op_ls & (~pipeline_flush_i) & (~except_align);
+  wire take_op_ls = op_ls & ~pipeline_flush_i & ~except_align & ~snoop_hit;
   
 
   // --- latch load/store commands ---
@@ -466,7 +468,7 @@ module mor1kx_lsu_marocchino
       store_buffer_err_o <= 1'b1;
   end // @ clock
   // --- combined bus errors ---
-  assign except_dbus_err = dbus_err | store_buffer_err_o;
+  assign except_dbus_err = dbus_err_i | dbus_err | store_buffer_err_o;
 
   // --- combined exception flag (local use) ---
   wire lsu_excepts = except_dbus_err  | except_align |
@@ -564,9 +566,9 @@ module mor1kx_lsu_marocchino
   // LSU is busy
   //   MAROCCHINO_TODO: potential improvement
   //                    more pipelinization
-  assign lsu_busy_o  = op_ls | cmd_ls | lsu_msync_r | msync_busy | dc_snoop_hit | dc_refill;
+  assign lsu_busy_o  = op_ls | cmd_ls | lsu_msync_r | msync_busy | snoop_hit | dc_refill;
   // output assignement (1-clk ahead for WB-latching)
-  assign lsu_valid_o = (lsu_load_rdy_stored | lsu_store_rdy_stored) & (~dc_snoop_hit);
+  assign lsu_valid_o = lsu_load_rdy_stored | lsu_store_rdy_stored;
 
 
   // output data (latch result of load command)
@@ -608,150 +610,170 @@ module mor1kx_lsu_marocchino
   assign msync_busy = cmd_op_msync & (state != IDLE);
   assign msync_done = cmd_op_msync & (state == IDLE);
 
-  assign dbus_access = (state == WRITE) |
-                       ((state != DC_REFILL) & (cmd_store | ~dc_access));
+  assign lsu_ack = ~lsu_excepts &
+                   (store_buffer_write & ~cmd_atomic) | (dbus_swa_ack & cmd_swa) | // for store
+                   ((state == READ) & dbus_ack_i) | dc_ack;                        // for load
 
-  assign lsu_ack = lsu_excepts ? 1'b0 :
-                   (cmd_store | (state == WRITE)) ?
-                    ((store_buffer_write & (~cmd_atomic)) |
-                     (write_done         &   cmd_atomic)) :
-                    (dbus_access ? dbus_ack_i : dc_ack);
-
-  assign lsu_ldat = dbus_access ? dbus_dat_i : dc_ldat;
+  assign lsu_ldat = dc_access ? dc_dat : dbus_dat_i;
 
 
 
-  assign dbus_burst_o = (state == DC_REFILL) & (~dc_refill_last);
+  assign dbus_burst_o = (state == DC_REFILL) & ~dc_refill_last;
   //
   // Slightly subtle, but if there is an atomic store coming out from the
   // store buffer, and the link has been broken while it was waiting there,
   // the bus access is still performed as a (discarded) read.
   //
-  assign dbus_we_o = dbus_we & ((~dbus_atomic) | atomic_reserve);
+  assign dbus_we_o = dbus_we & ~dbus_swa_discard;
 
 
   assign dbus_stall = lsu_excepts | pipeline_flush_i;
 
+  // re-filll-allowed must corresponds to refill-request position
+  // in DBUS FSM, taking into accaunnt the refill-request itself
+  // is rized with the following conditions (see DCACHE source):
+  //  # command 'load' is executing
+  //  # load address is in cachable area
+  //  # no snoop hit
+  // So, we needn't reflect these conditiona in 're-fill-allowed' answer.
+  // 're-fill-allowed' is used just to synchronyze DCACHE and DBUS
+  // transition to re-fill process.
+  assign dc_refill_allowed = (state == IDLE) & ~(store_buffer_write | ~store_buffer_empty);
 
   // state machine
-  always @(posedge clk) begin
-    // init
-    write_done      <= 1'b0;
-    // process
-    case (state)
-      IDLE: begin
-        dbus_req_o  <= 1'b0;
-        dbus_we     <= 1'b0;
-        dbus_adr_o  <= 0;
-        dbus_bsel_o <= 4'hf;
-        dbus_atomic <= 1'b0;
-        last_write  <= 1'b0;
-        if (~dbus_stall) begin
+  always @(posedge clk `OR_ASYNC_RST) begin
+    if (rst) begin
+      state       <= IDLE;
+      dbus_req_o  <= 1'b0;
+      dbus_we     <= 1'b0;
+      dbus_bsel_o <= 4'hf;
+      dbus_atomic <= 1'b0;
+      last_write  <= 1'b0;
+    end
+    else if (dbus_stall) begin
+      state       <= IDLE;
+      dbus_req_o  <= 1'b0;
+      dbus_we     <= 1'b0;
+      dbus_bsel_o <= 4'hf;
+      dbus_atomic <= 1'b0;
+      last_write  <= 1'b0;
+    end
+    else begin
+      // process
+      case (state)
+        IDLE: begin
+          dbus_adr_o  <= {OPTION_OPERAND_WIDTH{1'b0}};
+          dbus_req_o  <= 1'b0;
+          dbus_we     <= 1'b0;
+          dbus_bsel_o <= 4'hf;
+          dbus_atomic <= 1'b0;
+          last_write  <= 1'b0;
           if (store_buffer_write | ~store_buffer_empty) begin
             state <= WRITE;
           end
-          else if (cmd_load & dbus_access) begin
+          else if (cmd_load & ~dc_access) begin
             dbus_req_o  <= 1'b1;
             dbus_adr_o  <= phys_addr_cmd;
             dbus_bsel_o <= dbus_bsel;
             state       <= READ;
           end
-          else if (dc_refill_req & dc_refill_allowed) begin
+          else if (dc_refill_req) begin
             dbus_req_o <= 1'b1;
             dbus_adr_o <= phys_addr_cmd;
             state      <= DC_REFILL;
           end
-        end // ~dbus-stall
-      end // idle
-
-      DC_REFILL: begin
-        dbus_req_o <= 1'b1;
-        if (dbus_ack_i) begin
-          dbus_adr_o <= next_refill_adr;
-          if (dc_refill_last) begin
+        end // idle
+  
+        DC_REFILL: begin
+          dbus_req_o <= 1'b1;
+          if (dbus_ack_i) begin
+            dbus_adr_o <= next_refill_adr;
+            if (dc_refill_last) begin
+              dbus_req_o <= 1'b0;
+              state      <= IDLE;
+            end
+          end
+          // TODO: only abort on snoop-hits to refill address
+          if (snoop_hit) begin
             dbus_req_o <= 1'b0;
             state      <= IDLE;
           end
-        end
-        // TODO: only abort on snoop-hits to refill address
-        if (dbus_err_i | dc_snoop_hit) begin
-          dbus_req_o <= 1'b0;
-          state      <= IDLE;
-        end
-      end // dc-refill
-
-      READ: begin
-        if (dbus_err_i | dbus_ack_i) begin
-          dbus_req_o <= 1'b0;
-          state      <= IDLE;
-        end
-      end // read
-
-      WRITE: begin
-        dbus_req_o <= 1'b1;
-        dbus_we    <= 1'b1;
-        //---
-        if (~dbus_req_o | (dbus_ack_i & ~last_write)) begin
-          dbus_bsel_o <= store_buffer_bsel;
-          dbus_adr_o  <= store_buffer_radr;
-          dbus_dat_o  <= store_buffer_dat;
-          dbus_atomic <= store_buffer_atomic;
-          last_write  <= store_buffer_empty;
-        end
-        //---
-        if (store_buffer_write)
-          last_write <= 1'b0;
-        //---
-        if (dbus_err_i | (dbus_ack_i & last_write)) begin
-          dbus_req_o <= 1'b0;
-          dbus_we    <= 1'b0;
-          if (dbus_err_i | (~store_buffer_write)) begin
-            write_done <= 1'b1;
+        end // dc-refill
+  
+        READ: begin
+          if (dbus_ack_i) begin
+            dbus_req_o <= 1'b0;
             state      <= IDLE;
           end
-        end
-      end // write
-
-      default: state <= IDLE;
-    endcase
-
-    if (rst) begin
-      state       <= IDLE;
-      dbus_req_o  <= 1'b0;
-      dbus_we     <= 1'b0;
-      dbus_atomic <= 1'b0;
-      last_write  <= 1'b0;
+        end // read
+  
+        WRITE: begin
+          dbus_req_o <= 1'b1;
+          dbus_we    <= 1'b1;
+          //---
+          if (~dbus_req_o | (dbus_ack_i & ~last_write)) begin
+            dbus_bsel_o <= store_buffer_bsel;
+            dbus_adr_o  <= store_buffer_radr;
+            dbus_dat_o  <= store_buffer_dat;
+            dbus_atomic <= store_buffer_atomic;
+            last_write  <= store_buffer_empty;
+          end
+          //---
+          if (store_buffer_write)
+            last_write <= 1'b0;
+          //---
+          if (dbus_ack_i & last_write) begin
+            dbus_req_o <= 1'b0;
+            dbus_we    <= 1'b0;
+            if (~store_buffer_write)
+              state <= IDLE;
+          end
+        end // write
+  
+        default: state <= IDLE;
+      endcase
     end
   end // @ clock state machine
 
 
-  // We have to mask out our snooped bus accesses
-  assign snoop_valid = (OPTION_DCACHE_SNOOP != "NONE") &
-                       (snoop_en_i & (~((snoop_adr_i == dbus_adr_o) & dbus_ack_i)));
+  // We have to mask out our own snooped bus access
+  assign snoop_event = (snoop_en_i & ~((snoop_adr_i == dbus_adr_o) & dbus_ack_i)) &
+                       (OPTION_DCACHE_SNOOP != "NONE");
 
 
   //-------------------------//
   // Atomic operations logic //
   //-------------------------//
+  assign dbus_swa_discard = dbus_atomic & ~atomic_reserve;
+  assign dbus_swa_success = dbus_atomic &  atomic_reserve & dbus_we;
+  assign dbus_swa_ack     = dbus_atomic & dbus_we & dbus_ack_i;
 
   always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
+    if (rst) begin
       atomic_reserve <= 1'b0;
-    else if (dbus_stall)
+      atomic_addr    <= {OPTION_OPERAND_WIDTH{1'b0}};
+    end
+    else if (dbus_stall) begin
       atomic_reserve <= 1'b0;
-    else if ((cmd_swa & write_done) |
-             (~cmd_atomic & store_buffer_write & (phys_addr_cmd == atomic_addr)) |
-             (snoop_valid & (snoop_adr_i == atomic_addr)))
+      atomic_addr    <= {OPTION_OPERAND_WIDTH{1'b0}};
+    end
+    else if (dbus_swa_ack |
+             (store_buffer_write & ~cmd_atomic & (phys_addr_cmd == atomic_addr)) |
+             (snoop_event & (snoop_adr_i == atomic_addr))) begin
       atomic_reserve <= 1'b0;
-    else if (cmd_lwa & cmd_new)
-      atomic_reserve <= ~(snoop_valid & (snoop_adr_i == phys_addr_cmd));
+      atomic_addr    <= {OPTION_OPERAND_WIDTH{1'b0}};
+    end
+    else if (cmd_lwa & cmd_new) begin
+      if (snoop_event & (snoop_adr_i == phys_addr_cmd)) begin
+        atomic_reserve <= 1'b0;
+        atomic_addr    <= {OPTION_OPERAND_WIDTH{1'b0}};
+      end
+      else begin
+        atomic_reserve <= 1'b1;
+        atomic_addr    <= phys_addr_cmd;
+      end
+    end
   end // @clock
-
-  always @(posedge clk)
-    if (cmd_lwa & cmd_new)
-      atomic_addr <= phys_addr_cmd;
-
-  wire atomic_success = atomic_reserve & (dbus_adr_o == atomic_addr);
 
   reg atomic_flag_set;
   reg atomic_flag_clear;
@@ -761,13 +783,13 @@ module mor1kx_lsu_marocchino
       atomic_flag_set   <= 1'b0;
       atomic_flag_clear <= 1'b0;
     end
-    else if (op_ls | dbus_stall) begin
+    else if (take_op_ls | dbus_stall) begin
       atomic_flag_set   <= 1'b0;
       atomic_flag_clear <= 1'b0;
     end
-    else if (write_done) begin
-      atomic_flag_set   <=  atomic_success & cmd_swa;
-      atomic_flag_clear <= ~atomic_success & cmd_swa;
+    else if (dbus_swa_ack) begin
+      atomic_flag_set   <=  atomic_reserve;
+      atomic_flag_clear <= ~atomic_reserve;
     end
   end // @clock
 
@@ -798,23 +820,12 @@ module mor1kx_lsu_marocchino
   // Store buffer instance //
   //-----------------------//
 
-  always @(posedge clk) begin
-    if (rst)
-      store_buffer_write_pending <= 1'b0;
-    else if (store_buffer_write | dbus_stall)
-      store_buffer_write_pending <= 1'b0;
-    else if (cmd_store & cmd_new & (store_buffer_full | dc_snoop_hit))
-      store_buffer_write_pending <= 1'b1;
-  end // @ clock
-
   // "write" and "read" without exception and pipe flushing
-  assign store_buffer_write = ((cmd_store & cmd_new) | store_buffer_write_pending) &
-                              ~store_buffer_full & ~dc_snoop_hit;
+  assign store_buffer_write = cmd_store & ~store_buffer_full & ~snoop_hit;
 
-  assign store_buffer_read = ((state == IDLE) &  store_buffer_write) |
-                             ((state == IDLE) & ~store_buffer_empty) |
+  assign store_buffer_read = ((state == IDLE)  & (store_buffer_write | ~store_buffer_empty)) |
                              ((state == WRITE) &  last_write &  store_buffer_write) |
-                             ((state == WRITE) & ~last_write & (store_buffer_write  | ~store_buffer_empty) &
+                             ((state == WRITE) & ~last_write & (store_buffer_write | ~store_buffer_empty) &
                               (dbus_ack_i | ~dbus_req_o));
 
   // store buffer controls with exceptions and pipe flushing
@@ -868,49 +879,6 @@ module mor1kx_lsu_marocchino
   //-------------------//
   // Instance of cache //
   //-------------------//
-
-  wire dc_check_limit_width;
-
-  generate
-  // Addresses 0x8******* are treated as non-cacheble regardless DMMU's flag.
-  if (OPTION_DCACHE_LIMIT_WIDTH == OPTION_OPERAND_WIDTH)
-    assign dc_check_limit_width = 1'b1;
-  else if (OPTION_DCACHE_LIMIT_WIDTH < OPTION_OPERAND_WIDTH)
-    assign dc_check_limit_width =
-      (phys_addr_cmd[OPTION_OPERAND_WIDTH-1:OPTION_DCACHE_LIMIT_WIDTH] == 0);
-  else begin
-    initial begin
-      $display("DCACHE ERROR: OPTION_ICACHE_LIMIT_WIDTH > OPTION_OPERAND_WIDTH");
-      $finish();
-    end
-  end
-  endgenerate
-
-
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      dc_enable_r <= 1'b0;
-    else if (dc_enable_i & ~dbus_req_o)
-      dc_enable_r <= 1'b1;
-    else if (~dc_enable_i & ~dc_refill)
-      dc_enable_r <= 1'b0;
-  end // @ clock
-
-  assign dc_enabled = dc_enable_i & dc_enable_r;
-
-  assign dc_access = dc_enabled & dc_check_limit_width & ~dmmu_cache_inhibit;
-
-  assign dc_req = cmd_ls & dc_access & ~dbus_stall & ~(dbus_atomic & dbus_we & ~atomic_reserve);
-
-  assign dc_refill_allowed = ~cmd_store & (state == IDLE) & ~dc_snoop_hit & ~snoop_valid;
-
-  assign dc_we =
-    (lsu_store_r & (~lsu_atomic_r) & take_op_ls) |
-    (dbus_atomic & dbus_we_o & ~write_done);
-
-  assign dc_adr = take_op_ls ? virt_addr : virt_addr_cmd;
-
-
   mor1kx_dcache_marocchino
   #(
     .OPTION_OPERAND_WIDTH       (OPTION_OPERAND_WIDTH),
@@ -925,32 +893,45 @@ module mor1kx_lsu_marocchino
     // clock & reset
     .clk                        (clk), // DCACHE
     .rst                        (rst), // DCACHE
+    // pipe controls
+    .adv_i                      (take_op_ls), // DCACHE
+    .force_off_i                (dc_dmmu_force_off), // DCACHE
     // configuration
-    .dc_enable_i                (dc_enabled), // DCACHE
+    .enable_i                   (dc_enable_i), // DCACHE
     // exceptions
-    .dc_dbus_err_i              (dbus_err), // DCACHE
+    .dbus_stall_i               (dbus_stall), // DCACHE
+    // input commands
+    //  # for genearel load or store
+    .lsu_load_i                 (lsu_load_r), // DCACHE
+    .lsu_store_i                (lsu_store_r), // DCACHE
+    //  # for atomic store
+    .cmd_swa_i                  (cmd_swa), // DCACHE
+    .dbus_swa_discard_i         (dbus_swa_discard), // DCACHE
+    .dbus_swa_success_i         (dbus_swa_success), // DCACHE
     // Regular operation
-    .dc_access_i                (dc_access), // DCACHE
-    .dc_req_i                   (dc_req), // DCACHE
-    .dc_we_i                    (dc_we), // DCACHE
+    //  # store format and data
     .dbus_bsel_i                (dbus_bsel), // DCACHE
     .dbus_sdat_i                (lsu_sdat), // DCACHE
-    .virt_addr_i                (dc_adr), // DCACHE
+    //  # addresses and "DCHACHE inhibit" flag
+    .virt_addr_i                (virt_addr), // DCACHE
     .phys_addr_cmd_i            (phys_addr_cmd), // DCACHE
+    .dmmu_cache_inhibit_i       (dmmu_cache_inhibit), // DCACHE
+    //  # DCACHE regular answer
+    .dc_access_o                (dc_access), // DCACHE
     .dc_ack_o                   (dc_ack), // DCACHE
-    .dc_dat_o                   (dc_ldat), // DCACHE
+    .dc_dat_o                   (dc_dat), // DCACHE
     // re-fill
     .refill_req_o               (dc_refill_req), // DCACHE
     .refill_allowed_i           (dc_refill_allowed), // DCACHE
     .refill_o                   (dc_refill), // DCACHE
     .next_refill_adr_o          (next_refill_adr), // DCACHE
     .refill_last_o              (dc_refill_last), // DCACHE
-    .wrdat_i                    (dbus_dat_i), // DCACHE
-    .we_i                       (dbus_ack_i), // DCACHE
+    .dbus_dat_i                 (dbus_dat_i), // DCACHE
+    .dbus_ack_i                 (dbus_ack_i), // DCACHE
     // SNOOP
     .snoop_adr_i                (snoop_adr_i[31:0]), // DCACHE
-    .snoop_valid_i              (snoop_valid), // DCACHE
-    .snoop_hit_o                (dc_snoop_hit), // DCACHE
+    .snoop_event_i              (snoop_event), // DCACHE
+    .snoop_hit_o                (snoop_hit), // DCACHE
     // SPR interface
     .spr_bus_addr_i             (spr_bus_addr_i[15:0]), // DCACHE
     .spr_bus_we_i               (spr_bus_we_i), // DCACHE
@@ -984,8 +965,8 @@ module mor1kx_lsu_marocchino
     // configuration and commands
     .enable_i                         (dmmu_enable_i), // DMMU
     .supervisor_mode_i                (supervisor_mode_i), // DMMU
-    .op_store_i                       (cmd_store), // DMMU
-    .op_load_i                        (cmd_load), // DMMU
+    .cmd_store_i                      (cmd_store), // DMMU
+    .cmd_load_i                       (cmd_load), // DMMU
     // address translation
     .virt_addr_i                      (virt_addr), // DMMU
     .virt_addr_cmd_o                  (virt_addr_cmd), // DMMU

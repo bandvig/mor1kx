@@ -1,24 +1,30 @@
-/* ****************************************************************************
-  This Source Code Form is subject to the terms of the
-  Open Hardware Description License, v. 1.0. If a copy
-  of the OHDL was not distributed with this file, You
-  can obtain one at http://juliusbaxter.net/ohdl/ohdl.txt
-
-  Description: Top level for stand alone mor1kx with MAROCCHINO pipeline.
-               Based on mor1kx.v with removing AVALON bus and
-               use exactly mor1kx_cpu_marocchino excluding instances of other
-               variants of pipeline.
-
-  Copyright (C) 2012 Authors
-
-  Author(s): Julius Baxter <juliusbaxter@gmail.com>
-             Stefan Kristiansson <stefan.kristiansson@saunalahti.fi>
-
-  Copyright (C) 2015 Authors
-
-  Author(s): Andrey Bacherov <avbacherov@opencores.org>
-
-***************************************************************************** */
+////////////////////////////////////////////////////////////////////////
+//                                                                    //
+//  mor1kx_marocchino_alone                                           //
+//                                                                    //
+//  Description: Top level for stand alone mor1kx with                //
+//               MAROCCHINO pipeline.                                 //
+//               Based on mor1kx.v with removed AVALON bus and        //
+//               use exactly mor1kx_cpu_marocchino excluding          //
+//               instances of other variants of pipeline.             //
+//                                                                    //
+////////////////////////////////////////////////////////////////////////
+//                                                                    //
+//   Copyright (C) 2012 Julius Baxter                                 //
+//                      juliusbaxter@gmail.com                        //
+//                                                                    //
+//                      Stefan Kristiansson                           //
+//                      stefan.kristiansson@saunalahti.fi             //
+//                                                                    //
+//   Copyright (C) 2015 Andrey Bacherov                               //
+//                      avbacherov@opencores.org                      //
+//                                                                    //
+//      This Source Code Form is subject to the terms of the          //
+//      Open Hardware Description License, v. 1.0. If a copy          //
+//      of the OHDL was not distributed with this file, You           //
+//      can obtain one at http://juliusbaxter.net/ohdl/ohdl.txt       //
+//                                                                    //
+////////////////////////////////////////////////////////////////////////
 
 `include "mor1kx-defines.v"
 
