@@ -146,7 +146,7 @@ module mor1kx_fetch_marocchino
   wire     [`OR1K_INSN_WIDTH-1:0] ic_dat;
   // ICACHE requests and performs refill
   wire                            ic_refill_req;
-  wire                            ic_refill_allowed;
+  reg                             ic_refill_allowed; // combinatorial
   wire [OPTION_OPERAND_WIDTH-1:0] next_refill_adr;
   wire                            ic_refill_last;
 
@@ -694,6 +694,23 @@ module mor1kx_fetch_marocchino
     ((state == IMEM_REQ) & (flush_by_borm | ic_ack)) | // IBUS FSM is free
     ibus_rdy;                                          // IBUS FSM is free
 
+
+  // ICACHE re-fill-allowed corresponds to refill-request position in IBUS FSM
+  always @(*) begin
+    case (state)
+      IMEM_REQ: begin
+        if (fetch_excepts | flush_by_ctrl | flush_by_borm | ic_ack | ~ic_access)  // for re-fill allowed
+          ic_refill_allowed = 1'b0;
+        else if (ic_refill_req)
+          ic_refill_allowed = 1'b1;
+        else
+          ic_refill_allowed = 1'b0;
+      end
+      default: ic_refill_allowed = 1'b0;
+    endcase
+  end // always
+
+
   // state machine itself
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst) begin
@@ -795,8 +812,6 @@ module mor1kx_fetch_marocchino
   //-------------------//
   // Instance of cache //
   //-------------------//
-
-  assign ic_refill_allowed = (state == IMEM_REQ) & ~flush_by_borm & ~flush_by_ctrl;
 
   // mask ICACHE ack with memory request flag
   assign ic_rdy = ((state == IMEM_REQ) | (state == IC_REFILL)) & ic_ack;

@@ -76,7 +76,7 @@ module mor1kx_dcache_marocchino
   // re-fill
   output                                refill_req_o,
   input                                 refill_allowed_i,
-  output                                refill_o,
+  output                                dc_refill_o,
   output     [OPTION_OPERAND_WIDTH-1:0] next_refill_adr_o,
   output                                refill_last_o,
   input      [OPTION_OPERAND_WIDTH-1:0] dbus_dat_i,
@@ -136,18 +136,18 @@ module mor1kx_dcache_marocchino
 
 
   // States
-  localparam IDLE       = 5'b00001;
-  localparam READ       = 5'b00010;
-  localparam WRITE      = 5'b00100;
-  localparam REFILL     = 5'b01000;
-  localparam INVALIDATE = 5'b10000;
+  localparam  [4:0] DC_IDLE       = 5'b00001,
+                    DC_READ       = 5'b00010,
+                    DC_WRITE      = 5'b00100,
+                    DC_REFILL     = 5'b01000,
+                    DC_INVALIDATE = 5'b10000;
   // FSM state register
-  reg [4:0] state;
+  reg [4:0] dc_state;
   // FSM state signals
-  wire   read       = (state == READ);
-  wire   write      = (state == WRITE);
-  assign refill_o   = (state == REFILL);
-  wire   invalidate = (state == INVALIDATE);
+  wire   dc_read       = (dc_state == DC_READ);
+  wire   dc_write      = (dc_state == DC_WRITE);
+  assign dc_refill_o   = (dc_state == DC_REFILL);
+  wire   dc_invalidate = (dc_state == DC_INVALIDATE);
 
 
   wire                                          invalidate_cmd;
@@ -184,7 +184,7 @@ module mor1kx_dcache_marocchino
   wire   [OPTION_DCACHE_WAYS-1:0] way_re; // Read signals per way
 
   // Does any way hit?
-  wire                          hit;
+  wire                          dc_hit;
   wire [OPTION_DCACHE_WAYS-1:0] way_hit;
 
   // This is the least recently used value before access the memory.
@@ -249,29 +249,21 @@ module mor1kx_dcache_marocchino
   endgenerate
 
 
-
-  // Update DCACHE enable/disable
-  reg enable_r;
-  // ---
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      enable_r <= 1'b0;
-    else if (force_off_i) // DCAHCE -> idle
-      enable_r <= 1'b0;
-    else if (adv_i)
-      enable_r <= enable_i;
-  end // @ clock
-
-
-
-  assign dc_access_o = enable_r & dc_check_limit_width & ~dmmu_cache_inhibit_i;
+  //
+  //   If DCACHE is in state read/write/refill it automatically means that
+  // DCACHE is enabled (see try_load and try_store).
+  //
+  //   So, locally we use short variant of dc-access
+  wire   dc_access   = dc_check_limit_width & ~dmmu_cache_inhibit_i;
+  //   While for output the full variant is used
+  assign dc_access_o = (dc_read | dc_write | dc_refill_o) & dc_access;
 
   // if requested data were fetched befire snoop-hit, it is valid
-  assign dc_ack_o = (dc_access_o & read & hit & ~snoop_hit_o) | refill_hit_r;
+  assign dc_ack_o = (dc_access & dc_read & dc_hit & ~snoop_hit_o) | refill_hit_r;
 
   // re-fill reqest is allowed only after completion snoop-processing
   // see refill-allowed in LSU
-  assign refill_req_o = dc_access_o & read & ~hit & ~snoop_hit_o;
+  assign refill_req_o = dc_access & dc_read & ~dc_hit & ~snoop_hit_o;
 
 
 
@@ -306,7 +298,7 @@ module mor1kx_dcache_marocchino
   end // loop by ways
   endgenerate
 
-  assign hit = |way_hit;
+  assign dc_hit = |way_hit;
 
   assign snoop_hit_o = (|snoop_way_hit) & snoop_check;
 
@@ -346,7 +338,7 @@ module mor1kx_dcache_marocchino
                            (spr_bus_addr_i == `OR1K_SPR_DCBIR_ADDR));
 
   // do invalidate
-  assign invalidate_ack = invalidate & ~snoop_hit_o;
+  assign invalidate_ack = dc_invalidate & ~snoop_hit_o;
 
   // Acknowledge to the SPR bus.
   assign spr_bus_ack_o = invalidate_ack;
@@ -372,7 +364,7 @@ module mor1kx_dcache_marocchino
 
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst) begin
-      state               <= IDLE;  // on reset
+      dc_state            <= DC_IDLE;  // on reset
       curr_refill_adr     <= {OPTION_OPERAND_WIDTH{1'b0}};  // on reset
       refill_hit_r        <= 1'b0;  // on reset
       refill_hit_was_r    <= 1'b0;  // on reset
@@ -382,7 +374,7 @@ module mor1kx_dcache_marocchino
       snoop_windex        <= {OPTION_DCACHE_SET_WIDTH{1'b0}}; // on reset
     end
     else if(dbus_stall_i) begin
-      state               <= IDLE;  // on exceptions
+      dc_state            <= DC_IDLE;  // on exceptions
       refill_hit_r        <= 1'b0;  // on exceptions
       refill_hit_was_r    <= 1'b0;  // on exceptions
       refill_done         <= 0;     // on exceptions
@@ -407,21 +399,21 @@ module mor1kx_dcache_marocchino
       end
 
       // states switching
-      case (state)
-        IDLE: begin
+      case (dc_state)
+        DC_IDLE: begin
           if (invalidate_cmd)
-            state <= INVALIDATE;
+            dc_state <= DC_INVALIDATE;
           else if (try_load)
-            state <= READ;
+            dc_state <= DC_READ;
           else if (try_store)
-            state <= WRITE;
+            dc_state <= DC_WRITE;
         end
 
-        READ: begin
+        DC_READ: begin
           if (snoop_hit_o)
-            state <= READ;
-          else if (dc_access_o) begin
-            if (~hit) begin // re-fill request
+            dc_state <= DC_READ;
+          else if (dc_access) begin
+            if (~dc_hit) begin // re-fill request
               if (refill_allowed_i) begin
                 // Store the LRU information for correct replacement
                 // on re-fill. Always one when only one way.
@@ -434,59 +426,59 @@ module mor1kx_dcache_marocchino
                 curr_refill_adr  <= phys_addr_cmd_i;
                 refill_hit_was_r <= 1'b0; // read -> re-fill
                 // to RE-FILL
-                state <= REFILL;
+                dc_state <= DC_REFILL;
               end // re-fill allowed
             end // no hit
             else if (try_store) // dc-access & load-hit & new-command-is-store
-              state <= WRITE;
+              dc_state <= DC_WRITE;
             else if (~try_load)
-              state <= IDLE;
+              dc_state <= DC_IDLE;
           end
           else if (try_store) // not-dc-access
-            state <= WRITE;
+            dc_state <= DC_WRITE;
           else if (~try_load)
-            state <= IDLE;
+            dc_state <= DC_IDLE;
         end
 
-        WRITE: begin
+        DC_WRITE: begin
           if (snoop_hit_o)
-            state <= WRITE;
-          else if (dc_access_o) begin
-            if (hit) begin
+            dc_state <= DC_WRITE;
+          else if (dc_access) begin
+            if (dc_hit) begin
               if (cmd_swa_i) begin
                 if (dbus_swa_discard_i | dbus_swa_success_i)
-                  state <= IDLE;
+                  dc_state <= DC_IDLE;
               end
               else if (try_load) // dc-access & store-hit & new-command-is-load
-                state <= READ;
+                dc_state <= DC_READ;
               else if (~try_store)
-                state <= IDLE;
+                dc_state <= DC_IDLE;
             end // hit
             else if (try_load) // dc-access & ~store-hit & new-command-is-load
-              state <= READ;
+              dc_state <= DC_READ;
             else if (~try_store)
-              state <= IDLE;
+              dc_state <= DC_IDLE;
           end
           else if (try_load) // ~dc-access
-            state <= READ;
+            dc_state <= DC_READ;
           else if (~try_store)
-            state <= IDLE;
+            dc_state <= DC_IDLE;
         end
 
-        REFILL: begin
+        DC_REFILL: begin
           refill_hit_r <= 1'b0;
           // Abort re-fill on snoop-hit
           // TODO: only abort on snoop-hits to re-fill address
           if (snoop_hit_o) begin
             refill_hit_was_r <= 1'b0;  // on snoop-hit during re-fill
             refill_done      <= 0;     // on snoop-hit during re-fill
-            state            <= refill_hit_was_r ? IDLE : READ;  // on snoop-hit during re-fill
+            dc_state         <= refill_hit_was_r ? DC_IDLE : DC_READ;  // on snoop-hit during re-fill
           end
           else if (dbus_ack_i) begin
             if (refill_last_o) begin
               refill_hit_was_r <= 1'b0;  // on last re-fill
               refill_done      <= 0;     // on last re-fill
-              state            <= IDLE;  // on last re-fill
+              dc_state         <= DC_IDLE;  // on last re-fill
             end
             else begin
               refill_hit_r     <= (refill_done == 0); // 1st re-fill is requested insn
@@ -497,13 +489,13 @@ module mor1kx_dcache_marocchino
           end // snoop-hit / we
         end // re-fill
 
-        INVALIDATE: begin
+        DC_INVALIDATE: begin
           if (~snoop_hit_o) // wait till snoop-inv completion
-            state <= IDLE;
+            dc_state <= DC_IDLE;
         end
 
         default:
-          state <= IDLE;
+          dc_state <= DC_IDLE;
       endcase
     end
   end
@@ -513,10 +505,6 @@ module mor1kx_dcache_marocchino
   // This is the combinational part of the state machine that
   // interfaces the tag and way memories.
   //
-
-  // Prepare do-write for write state
-  //  # we use it to mask write signals
-  wire do_write = ~cmd_swa_i | dbus_swa_success_i;
 
   integer w2;
   always @(*) begin
@@ -540,11 +528,11 @@ module mor1kx_dcache_marocchino
       end
     end
     else begin
-      case (state)
-        READ: begin
+      case (dc_state)
+        DC_READ: begin
           tag_windex = phys_addr_cmd_i[WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH]; // on read (LRU history update)
           // ---
-          if (dc_access_o & hit & ~dbus_stall_i) begin // on read-hit
+          if (dc_access & dc_hit & ~dbus_stall_i) begin // on read-hit
             // We got a hit. The LRU module gets the access
             // information. Depending on this we update the LRU
             // history in the tag.
@@ -556,11 +544,11 @@ module mor1kx_dcache_marocchino
           end
         end
 
-        WRITE: begin
+        DC_WRITE: begin
           tag_windex = phys_addr_cmd_i[WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH]; // on write
           way_wr_dat = dbus_sdat_i; // on write
           // ---
-          if (dc_access_o & hit & (~cmd_swa_i | dbus_swa_success_i) & ~dbus_stall_i) begin // on write-hit
+          if (dc_access & dc_hit & (~cmd_swa_i | dbus_swa_success_i) & ~dbus_stall_i) begin // on write-hit
             // Mux cache output with write data
             if (~dbus_bsel_i[3]) way_wr_dat[31:24] = dc_dat_o[31:24];
             if (~dbus_bsel_i[2]) way_wr_dat[23:16] = dc_dat_o[23:16];
@@ -575,7 +563,7 @@ module mor1kx_dcache_marocchino
           end
         end
 
-        REFILL: begin
+        DC_REFILL: begin
           tag_windex = curr_refill_adr[WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH]; // on re-fill
           way_wr_dat = dbus_dat_i; // on re-fill
           // ---
@@ -618,7 +606,7 @@ module mor1kx_dcache_marocchino
           end // no exceptions, no pipe flushing
         end // RE-FILL
 
-        INVALIDATE: begin
+        DC_INVALIDATE: begin
           //
           // Lazy invalidation, invalidate everything that matches tag address
           //  # Pay attention we needn't to take into accaunt exceptions or
@@ -649,10 +637,10 @@ module mor1kx_dcache_marocchino
 
   // On re-fill we force using RW-port to provide correct read-hit
   // WAY-RAM read address
-  wire [WAY_WIDTH-3:0] way_raddr = refill_o ? curr_refill_adr[WAY_WIDTH-1:2] :
+  wire [WAY_WIDTH-3:0] way_raddr = dc_refill_o ? curr_refill_adr[WAY_WIDTH-1:2] :
                                               virt_addr_i[WAY_WIDTH-1:2];
   // WAY-RAM write address
-  wire [WAY_WIDTH-3:0] way_waddr = refill_o ? curr_refill_adr[WAY_WIDTH-1:2] :
+  wire [WAY_WIDTH-3:0] way_waddr = dc_refill_o ? curr_refill_adr[WAY_WIDTH-1:2] :
                                               phys_addr_cmd_i[WAY_WIDTH-1:2];
   // support RW-conflict detection
   wire way_rw_same_addr = (way_raddr == way_waddr);
@@ -662,7 +650,7 @@ module mor1kx_dcache_marocchino
     // each way RAM read and write
     //  # on re-fill we force using RW-port
     //    to provide correct read-hit
-    assign way_re[i] = try_load | try_store | (way_we[i] & refill_o);
+    assign way_re[i] = try_load | try_store | (way_we[i] & dc_refill_o);
 
     // Read / Write port (*_rwp_*) controls
     assign way_rwp_we[i] = way_we[i] & way_re[i] & way_rw_same_addr;
@@ -771,7 +759,7 @@ module mor1kx_dcache_marocchino
     //  # we force snoop invalidation through RW-port
     //    to provide snoop-hit off
     wire str_re = (snoop_event_i & ~snoop_check) | snoop_hit_o;
-    wire str_we = invalidate | snoop_hit_o;
+    wire str_we = dc_invalidate | snoop_hit_o;
 
     // address for Read/Write port
     //  # for soop-hit case tag-windex is equal to snoop-windex

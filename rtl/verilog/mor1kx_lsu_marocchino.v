@@ -135,7 +135,7 @@ module mor1kx_lsu_marocchino
   wire   [OPTION_OPERAND_WIDTH-1:0] dc_dat;
   wire                              dc_access;
   wire                              dc_refill_req;
-  wire                              dc_refill_allowed;
+  reg                               dc_refill_allowed; // combinatorial
   wire                              dc_refill;
   wire   [OPTION_OPERAND_WIDTH-1:0] next_refill_adr;
   wire                              dc_refill_last;
@@ -629,16 +629,24 @@ module mor1kx_lsu_marocchino
 
   assign dbus_stall = lsu_excepts | pipeline_flush_i;
 
-  // re-filll-allowed must corresponds to refill-request position
-  // in DBUS FSM, taking into accaunnt the refill-request itself
-  // is rized with the following conditions (see DCACHE source):
-  //  # command 'load' is executing
-  //  # load address is in cachable area
-  //  # no snoop hit
-  // So, we needn't reflect these conditiona in 're-fill-allowed' answer.
-  // 're-fill-allowed' is used just to synchronyze DCACHE and DBUS
-  // transition to re-fill process.
-  assign dc_refill_allowed = (state == IDLE) & ~(store_buffer_write | ~store_buffer_empty);
+  // re-filll-allowed corresponds to refill-request position in DBUS FSM
+  always @(*) begin
+    if (dbus_stall)
+      dc_refill_allowed = 1'b0;
+    else begin
+      case (state)
+        IDLE: begin
+          if (store_buffer_write | ~store_buffer_empty | (cmd_load & ~dc_access)) // for re-fill allowed
+            dc_refill_allowed = 1'b0;
+          else if (dc_refill_req)
+            dc_refill_allowed = 1'b1;
+          else
+            dc_refill_allowed = 1'b0;
+        end
+        default: dc_refill_allowed = 1'b0;
+      endcase
+    end
+  end // always
 
   // state machine
   always @(posedge clk `OR_ASYNC_RST) begin
@@ -923,7 +931,7 @@ module mor1kx_lsu_marocchino
     // re-fill
     .refill_req_o               (dc_refill_req), // DCACHE
     .refill_allowed_i           (dc_refill_allowed), // DCACHE
-    .refill_o                   (dc_refill), // DCACHE
+    .dc_refill_o                (dc_refill), // DCACHE
     .next_refill_adr_o          (next_refill_adr), // DCACHE
     .refill_last_o              (dc_refill_last), // DCACHE
     .dbus_dat_i                 (dbus_dat_i), // DCACHE

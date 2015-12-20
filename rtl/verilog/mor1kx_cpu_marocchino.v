@@ -112,7 +112,7 @@ module mor1kx_cpu_marocchino
   output                            du_stall_o,
 
   output reg                        traceport_exec_valid_o,
-  output reg [31:0]                 traceport_exec_pc_o,
+  output reg                 [31:0] traceport_exec_pc_o,
   output reg [`OR1K_INSN_WIDTH-1:0] traceport_exec_insn_o,
   output [OPTION_OPERAND_WIDTH-1:0] traceport_exec_wbdata_o,
   output [OPTION_RF_ADDR_WIDTH-1:0] traceport_exec_wbreg_o,
@@ -859,6 +859,7 @@ module mor1kx_cpu_marocchino
     //           for external (timer/ethernet/uart/etc) interrupts
     .dcod_op_lsu_store_i        (dcod_op_lsu_store), // OMAN
     .dcod_op_mtspr_i            (dcod_op_mtspr), // OMAN
+    .dcod_op_msync_i            (dcod_op_msync), // OMAN
     //  part #4: for MF(T)SPR processing
     .dcod_op_mfspr_i            (dcod_op_mfspr), // OMAN
 

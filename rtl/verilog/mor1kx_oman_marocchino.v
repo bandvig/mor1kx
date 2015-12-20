@@ -69,6 +69,7 @@ module mor1kx_oman_marocchino
   //           for external (timer/ethernet/uart/etc) interrupts
   input                                 dcod_op_lsu_store_i,
   input                                 dcod_op_mtspr_i,
+  input                                 dcod_op_msync_i,
   //  part #4: for MF(T)SPR processing
   input                                 dcod_op_mfspr_i,
 
@@ -170,7 +171,11 @@ module mor1kx_oman_marocchino
 
   // Flag that istruction is restrartable.
   // Instructions which are not restartable:
-  //     "invalid" (empty FETCH result),
+  //     "invalid" (empty FETCH result)
+  //     "store" - they are buffered and couldn't be removed from buffer
+  //               till execution completion
+  //     l.msync - it forces LSU to report "busy" till completion of
+  //               all previously issued loads and stores
   //     l.mtspr (change internal CPU control registers)
   //     l.rfe (cause return from exception process with serious
   //            changing CPU state).
@@ -180,8 +185,7 @@ module mor1kx_oman_marocchino
   // The reason for this is that we need the rfe to reach WB stage
   // so it will cause the branch. It will clear itself by the
   // pipeline_flush_i that the rfe will generate.
-  //   MAROCCHINO_TODO: think about l.msync and store
-  wire interrupts_en = ~dcod_op_mtspr_i & ~dcod_op_rfe_i & ~dcod_op_lsu_store_i;
+  wire interrupts_en = ~(dcod_op_lsu_store_i | dcod_op_mtspr_i | dcod_op_msync_i | dcod_op_rfe_i);
 
 
   // Combine FETCH related exceptions
@@ -322,7 +326,7 @@ module mor1kx_oman_marocchino
     (dcod_op_div_i & (div_busy_i | (div_valid_i & ~ocbo00[OCBT_OP_DIV_POS]))) |
     (dcod_op_mul_i & mul_valid_i & ~ocbo00[OCBT_OP_MUL_POS]) |
     (dcod_op_fp32_arith_i & (fp32_arith_busy_i | (fp32_arith_valid_i & ~ocbo00[OCBT_OP_FP32_POS]))) |
-    (dcod_op_ls_i & (lsu_busy_i | (lsu_valid_i & ~ocbo00[OCBT_OP_LS_POS])));
+    ((dcod_op_ls_i | dcod_op_msync_i) & (lsu_busy_i | lsu_excepts_i | (lsu_valid_i & ~ocbo00[OCBT_OP_LS_POS])));
 
   //  stall if OCB is full
   wire stall_by_ocb_full = ocb_full & exec_waiting;
