@@ -373,15 +373,6 @@ module mor1kx_dcache_marocchino
       snoop_tag           <= {TAG_WIDTH{1'b0}}; // on reset
       snoop_windex        <= {OPTION_DCACHE_SET_WIDTH{1'b0}}; // on reset
     end
-    else if(dbus_stall_i) begin
-      dc_state            <= DC_IDLE;  // on exceptions
-      refill_hit_r        <= 1'b0;  // on exceptions
-      refill_hit_was_r    <= 1'b0;  // on exceptions
-      refill_done         <= 0;     // on exceptions
-      snoop_check         <= 1'b0;  // on exceptions
-      snoop_tag           <= {TAG_WIDTH{1'b0}}; // on exceptions
-      snoop_windex        <= {OPTION_DCACHE_SET_WIDTH{1'b0}}; // on exceptions
-    end
     else begin
       // snoop processing
       if (snoop_event_i) begin
@@ -401,7 +392,9 @@ module mor1kx_dcache_marocchino
       // states switching
       case (dc_state)
         DC_IDLE: begin
-          if (invalidate_cmd)
+          if (dbus_stall_i)
+            dc_state <= DC_IDLE;
+          else if (invalidate_cmd)
             dc_state <= DC_INVALIDATE;
           else if (try_load)
             dc_state <= DC_READ;
@@ -410,7 +403,9 @@ module mor1kx_dcache_marocchino
         end
 
         DC_READ: begin
-          if (snoop_hit_o)
+          if (dbus_stall_i)
+            dc_state <= DC_IDLE;
+          else if (snoop_hit_o)
             dc_state <= DC_READ;
           else if (dc_access) begin
             if (~dc_hit) begin // re-fill request
@@ -441,7 +436,9 @@ module mor1kx_dcache_marocchino
         end
 
         DC_WRITE: begin
-          if (snoop_hit_o)
+          if (dbus_stall_i)
+            dc_state <= DC_IDLE;
+          else if (snoop_hit_o)
             dc_state <= DC_WRITE;
           else if (dc_access) begin
             if (dc_hit) begin
@@ -467,9 +464,14 @@ module mor1kx_dcache_marocchino
 
         DC_REFILL: begin
           refill_hit_r <= 1'b0;
+          if (dbus_stall_i) begin
+            refill_hit_was_r <= 1'b0;     // on exceptions or flush during re-fill
+            refill_done      <= 0;        // on exceptions or flush during re-fill
+            dc_state         <= DC_IDLE;
+          end
           // Abort re-fill on snoop-hit
           // TODO: only abort on snoop-hits to re-fill address
-          if (snoop_hit_o) begin
+          else if (snoop_hit_o) begin
             refill_hit_was_r <= 1'b0;  // on snoop-hit during re-fill
             refill_done      <= 0;     // on snoop-hit during re-fill
             dc_state         <= refill_hit_was_r ? DC_IDLE : DC_READ;  // on snoop-hit during re-fill

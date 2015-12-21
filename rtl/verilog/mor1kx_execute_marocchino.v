@@ -325,8 +325,8 @@ module mor1kx_execute_marocchino
         // clocks, resets and other controls
         .clk                    (clk),
         .rst                    (rst),
-        .flush_i                (pipeline_flush_i),   // flush pipe
-        .padv_wb_i              (padv_wb_i),          // cmp. advance output latches
+        .flush_i                (pipeline_flush_i),   // fp32-cmp flush pipe
+        .padv_wb_i              (padv_wb_i),          // fp32-cmp. advance output latches
         .grant_wb_to_1clk_i     (grant_wb_to_1clk_i), // fp32-cmp
         // command
         .fpu_op_is_comp_i       (op_fp32_cmp_r[`OR1K_FPUOP_WIDTH-1]), // fp32-cmp
@@ -335,9 +335,9 @@ module mor1kx_execute_marocchino
         .rfa_i                  (alu_1clk_a), // fp32-cmp
         .rfb_i                  (alu_1clk_b), // fp32-cmp
         // outputs
-        .wb_fp32_flag_set_o     (wb_fp32_flag_set_o),   // comparison result
-        .wb_fp32_flag_clear_o   (wb_fp32_flag_clear_o), // comparison result
-        .wb_fp32_cmp_fpcsr_o    (wb_fp32_cmp_fpcsr_o)   // comparison exceptions
+        .wb_fp32_flag_set_o     (wb_fp32_flag_set_o),   // fp32-cmp  result
+        .wb_fp32_flag_clear_o   (wb_fp32_flag_clear_o), // fp32-cmp  result
+        .wb_fp32_cmp_fpcsr_o    (wb_fp32_cmp_fpcsr_o)   // fp32-cmp  exceptions
       );
     end
     else begin :  alu_fp32_cmp_none
@@ -465,6 +465,10 @@ module mor1kx_execute_marocchino
   //    that namely RF-WB is processed
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst) begin
+      wb_alu_1clk_result <= {EXEDW{1'b0}};
+      wb_alu_1clk_rdy    <= 1'b0;
+    end
+    else if (pipeline_flush_i) begin
       wb_alu_1clk_result <= {EXEDW{1'b0}};
       wb_alu_1clk_rdy    <= 1'b0;
     end
@@ -644,6 +648,10 @@ module mor1kx_execute_marocchino
       wb_mul_result <= {EXEDW{1'b0}};
       wb_mul_rdy    <= 1'b0;
     end
+    else if (pipeline_flush_i) begin
+      wb_mul_result <= {EXEDW{1'b0}};
+      wb_mul_rdy    <= 1'b0;
+    end
     else if (padv_wb_i) begin
       if (grant_wb_to_mul_i) begin
         wb_mul_result <= mul_s3t_sum;
@@ -814,6 +822,10 @@ module mor1kx_execute_marocchino
   // ---
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst) begin
+      wb_div_result <= {EXEDW{1'b0}};
+      wb_div_rdy    <= 1'b0;
+    end
+    else if (pipeline_flush_i) begin
       wb_div_result <= {EXEDW{1'b0}};
       wb_div_rdy    <= 1'b0;
     end

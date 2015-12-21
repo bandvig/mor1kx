@@ -579,6 +579,8 @@ endgenerate // FPU related: FPCSR and exceptions
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
       last_branch_insn_pc <= {OPTION_OPERAND_WIDTH{1'b0}};
+    else if (pipeline_flush_o)
+      last_branch_insn_pc <= last_branch_insn_pc;
     else if (padv_wb_o & op_branch_r)
       last_branch_insn_pc <= pc_branch_r;
   end // @clock
@@ -1006,6 +1008,10 @@ endgenerate
   // MFSPR data and flag for WB_MUX
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst) begin
+      wb_mfspr_rdy_o <= 1'b0;
+      wb_mfspr_dat_o <= {OPTION_OPERAND_WIDTH{1'b0}};
+    end
+    else if (pipeline_flush_o) begin
       wb_mfspr_rdy_o <= 1'b0;
       wb_mfspr_dat_o <= {OPTION_OPERAND_WIDTH{1'b0}};
     end
