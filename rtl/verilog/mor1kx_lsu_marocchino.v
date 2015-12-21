@@ -139,14 +139,17 @@ module mor1kx_lsu_marocchino
 
   // Input register for DBUS/DCACHE access stage
   //  # load/store
-  reg                            cmd_load;
-  reg                            cmd_store;
-  reg                            cmd_atomic;
-  reg                            cmd_ls;
-  reg                            cmd_lwa, cmd_swa; // load/store atomic
+  reg                            cmd_load_r;  // either atomic or not
+  reg                            cmd_lwa_r;   // exactly load linked
+  reg                            cmd_store_r; // not (!!!) atomic
+  reg                            cmd_swa_r;   // atomic only
   reg                      [1:0] cmd_length;
   reg                            cmd_zext;
   reg [OPTION_OPERAND_WIDTH-1:0] cmd_rfb;  // register file B in (store operand)
+  //  # special support for store conditional execution
+  reg                               cmd_swa_buffered_r; // l.swa has been put into store buffer
+  //  # l.msync
+  reg                               cmd_msync_r;
 
 
   // DBUS FSM
@@ -165,26 +168,13 @@ module mor1kx_lsu_marocchino
   wire                              dbus_swa_discard; // reservation is lost, execute empty read
   wire                              dbus_swa_success; // l.swa is successfull
   wire                              dbus_swa_ack;     // complete DBUS trunsaction with l.swa
-
-
-  wire   [OPTION_OPERAND_WIDTH-1:0] lsu_ldat; // formated load data
-  wire   [OPTION_OPERAND_WIDTH-1:0] lsu_sdat; // formated store data
-
-  wire                              dc_ack;
-  wire   [OPTION_OPERAND_WIDTH-1:0] dc_dat;
-  wire                              dc_access;
-  wire                              dc_refill_req;
-  reg                               dc_refill_allowed; // combinatorial
-  wire                              dc_refill;
-  wire   [OPTION_OPERAND_WIDTH-1:0] next_refill_adr;
-  wire                              dc_refill_last;
+  reg                               last_write;
 
 
   // DMMU
   wire                              dmmu_cache_inhibit;
   wire   [OPTION_OPERAND_WIDTH-1:0] phys_addr_cmd;
   wire   [OPTION_OPERAND_WIDTH-1:0] virt_addr_cmd;
-
   /* HW reload TLB related (MAROCCHINO_TODO : not implemented yet)
   wire                              tlb_reload_req;
   wire                              tlb_reload_busy;
@@ -194,6 +184,18 @@ module mor1kx_lsu_marocchino
   reg [OPTION_OPERAND_WIDTH-1:0]    tlb_reload_data;
   wire                              tlb_reload_pagefault_clear;
   reg                               tlb_reload_done; */
+
+
+  // DCACHE
+  wire                              dc_ack;
+  wire   [OPTION_OPERAND_WIDTH-1:0] dc_dat;
+  wire                              dc_access;
+  wire                              dc_refill_req;
+  reg                               dc_refill_allowed; // combinatorial
+  wire                              dc_refill;
+  wire   [OPTION_OPERAND_WIDTH-1:0] next_refill_adr;
+  wire                              dc_refill_last;
+
 
   // Store buffer
   wire                              store_buffer_write;
@@ -205,28 +207,32 @@ module mor1kx_lsu_marocchino
   wire [OPTION_OPERAND_WIDTH/8-1:0] store_buffer_bsel;
   wire                              store_buffer_atomic;
 
-  reg                               last_write;
-
   // Atomic operations
   reg    [OPTION_OPERAND_WIDTH-1:0] atomic_addr;
   reg                               atomic_reserve;
 
+  // Snoop (for multicore SoC)
   wire                              snoop_event;
   wire                              snoop_hit;
 
+  // Exceptions
   wire                              except_align;
   wire                              except_dbus_err;
   wire                              except_dtlb_miss;
   wire                              except_dpagefault;
   wire                              lsu_excepts; // local use
 
+  // load/store data
+  wire   [OPTION_OPERAND_WIDTH-1:0] lsu_ldat; // formated load data
+  wire   [OPTION_OPERAND_WIDTH-1:0] lsu_sdat; // formated store data
+
   // LSU pipe controls
-  wire                              msync_busy; // busy due to memory sync. proceedings
-  wire                              msync_done;
   //  # report on command execution
+  wire                              lsu_ack_load;
+  wire                              lsu_ack_store;
+  wire                              lsu_ack_swa;
   reg                               lsu_load_rdy_stored;
   reg                               lsu_store_rdy_stored;
-  wire                              lsu_ack;
 
 
 
@@ -234,35 +240,43 @@ module mor1kx_lsu_marocchino
   // LSU pipe controls //
   //-------------------//
 
-  // load/store
-  wire dcod_op_ls = dcod_op_lsu_load_i | dcod_op_lsu_store_i; // input is load/store
+  // Alias for load/store in address computation stage
   wire op_ls      = lsu_load_r | lsu_store_r; // latched load/store
 
   // signal to take new LSU command (less priority than flushing)
   wire take_op_ls = op_ls & ~pipeline_flush_i & ~except_align & ~snoop_hit;
 
+  // exceptions or pipe flushing
+  assign dbus_stall = lsu_excepts | pipeline_flush_i;
+
+  // A load/store in DBUS/DCACHE access stage
+  wire cmd_ls = cmd_load_r | cmd_store_r | cmd_swa_r;
+
   // LSU is busy
   //   MAROCCHINO_TODO: potential improvement
-  //                    more pipelinization
-  assign lsu_busy_o  = op_ls | cmd_ls | lsu_msync_r | msync_busy | snoop_hit | dc_refill;
+  //                    with more pipelinization
+  assign lsu_busy_o = op_ls | cmd_ls | cmd_swa_buffered_r | cmd_msync_r | // LSU busy
+                      snoop_hit | (state == READ) | dc_refill;            // LSU busy
+
+  // report on command execution
+  //  # load completion
+  assign lsu_ack_load  = (((state == READ) & dbus_ack_i) | dc_ack) & cmd_load_r;
+  //  # store completion
+  assign lsu_ack_store = store_buffer_write & cmd_store_r;
+  assign lsu_ack_swa   = dbus_swa_ack & cmd_swa_buffered_r;
+
   // output assignement (1-clk ahead for WB-latching)
   assign lsu_valid_o = lsu_load_rdy_stored | lsu_store_rdy_stored;
 
-
-  // Stall until the store buffer is empty
-  assign msync_busy = cmd_op_msync & (state != IDLE);
-  assign msync_done = cmd_op_msync & (state == IDLE);
-
-  assign lsu_ack = (store_buffer_write & ~cmd_atomic) | (dbus_swa_ack & cmd_swa) | // for store
-                   ((state == READ) & dbus_ack_i) | dc_ack;                        // for load
-
-  assign dbus_stall = lsu_excepts | pipeline_flush_i;
 
 
   //---------------------------//
   // Address computation stage //
   //---------------------------//
-  
+
+  // advance LSU's input latches
+  wire padv_lsu_input = padv_decode_i & (dcod_op_lsu_load_i | dcod_op_lsu_store_i);
+
   // --- latch load/store commands ---
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst) begin
@@ -270,12 +284,12 @@ module mor1kx_lsu_marocchino
       lsu_store_r  <= 1'b0;
       lsu_atomic_r <= 1'b0;
     end
-    else if (pipeline_flush_i) begin
+    else if (dbus_stall) begin
       lsu_load_r   <= 1'b0;
       lsu_store_r  <= 1'b0;
       lsu_atomic_r <= 1'b0;
     end
-    else if (padv_decode_i & dcod_op_ls) begin
+    else if (padv_lsu_input) begin
       lsu_load_r   <= dcod_op_lsu_load_i;
       lsu_store_r  <= dcod_op_lsu_store_i;
       lsu_atomic_r <= dcod_op_lsu_atomic_i;
@@ -289,7 +303,7 @@ module mor1kx_lsu_marocchino
 
   // --- latch various load/store attributes and address offset ---
   always @(posedge clk) begin
-    if (padv_decode_i & dcod_op_ls) begin
+    if (padv_lsu_input) begin
       lsu_imm16_r  <= dcod_imm16_i;
       lsu_length_r <= dcod_lsu_length_i;
       lsu_zext_r   <= dcod_lsu_zext_i;
@@ -302,11 +316,11 @@ module mor1kx_lsu_marocchino
       lsu_fwd_wb_a_r <= 1'b0;
       lsu_fwd_wb_b_r <= 1'b0;
     end
-    else if (pipeline_flush_i) begin
+    else if (dbus_stall) begin
       lsu_fwd_wb_a_r <= 1'b0;
       lsu_fwd_wb_b_r <= 1'b0;
     end
-    else if (padv_decode_i & dcod_op_ls) begin
+    else if (padv_lsu_input) begin
       lsu_fwd_wb_a_r <= exe2dec_hazard_a_i;
       lsu_fwd_wb_b_r <= exe2dec_hazard_b_i; 
     end
@@ -318,7 +332,7 @@ module mor1kx_lsu_marocchino
 
   // --- opernands ---
   always @(posedge clk) begin
-    if (padv_decode_i & dcod_op_ls) begin
+    if (padv_lsu_input) begin
       lsu_a_r <= dcod_rfa_i;
       lsu_b_r <= dcod_rfb_i;
     end
@@ -344,36 +358,51 @@ module mor1kx_lsu_marocchino
   // lsu local latched commands
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst) begin
-      cmd_load   <= 1'b0;
-      cmd_store  <= 1'b0;
-      cmd_atomic <= 1'b0;
-      cmd_ls     <= 1'b0;
-      cmd_lwa    <= 1'b0;
-      cmd_swa    <= 1'b0;
+      cmd_load_r   <= 1'b0;
+      cmd_lwa_r    <= 1'b0;
+      cmd_store_r  <= 1'b0;
     end
     else if (dbus_stall) begin
-      cmd_load   <= 1'b0;
-      cmd_store  <= 1'b0;
-      cmd_atomic <= 1'b0;
-      cmd_ls     <= 1'b0;
-      cmd_lwa    <= 1'b0;
-      cmd_swa    <= 1'b0;
+      cmd_load_r   <= 1'b0;
+      cmd_lwa_r    <= 1'b0;
+      cmd_store_r  <= 1'b0;
     end
     else if (take_op_ls) begin
-      cmd_load   <= lsu_load_r;
-      cmd_store  <= lsu_store_r;
-      cmd_atomic <= lsu_atomic_r;
-      cmd_ls     <= op_ls;
-      cmd_lwa    <= lsu_load_r  & lsu_atomic_r;
-      cmd_swa    <= lsu_store_r & lsu_atomic_r;
+      cmd_load_r   <= lsu_load_r;
+      cmd_lwa_r    <= lsu_load_r  &  lsu_atomic_r;
+      cmd_store_r  <= lsu_store_r & ~lsu_atomic_r;
     end
-    else if (lsu_ack) begin
-      cmd_load   <= 1'b0;
-      cmd_store  <= 1'b0;
-      cmd_atomic <= 1'b0;
-      cmd_ls     <= 1'b0;
-      cmd_lwa    <= 1'b0;
-      cmd_swa    <= 1'b0;
+    else begin
+      if (lsu_ack_load) begin
+        cmd_load_r   <= 1'b0;
+        cmd_lwa_r    <= 1'b0;
+      end
+      if (lsu_ack_store)
+        cmd_store_r  <= 1'b0;
+    end
+  end // @clock
+
+  // special support for store conditional execution
+  always @(posedge clk `OR_ASYNC_RST) begin
+    if (rst) begin
+      cmd_swa_r          <= 1'b0;
+      cmd_swa_buffered_r <= 1'b0;
+    end
+    else if (dbus_stall) begin
+      cmd_swa_r          <= 1'b0;
+      cmd_swa_buffered_r <= 1'b0;
+    end
+    else if (take_op_ls) begin
+      cmd_swa_r          <= lsu_store_r & lsu_atomic_r;
+      cmd_swa_buffered_r <= 1'b0;
+    end
+    else if (cmd_swa_r & store_buffer_write) begin
+      cmd_swa_r          <= 1'b0;
+      cmd_swa_buffered_r <= 1'b1;
+    end
+    else if (lsu_ack_swa) begin
+      cmd_swa_r          <= 1'b0;
+      cmd_swa_buffered_r <= 1'b0;
     end
   end // @clock
 
@@ -389,41 +418,56 @@ module mor1kx_lsu_marocchino
   // output latched address for exceptions processing
   assign lsu_adr_o = virt_addr_cmd;
 
-  // lsu new command 1-clock mask
-  reg cmd_new;
+  // l.msync to generate msync-stall
+  //  # deassert MSYNC
+  wire cmd_msync_deassert = cmd_msync_r & (state == IDLE) & // deassert MSYNC
+                            ~cmd_ls & store_buffer_empty;   // deassert MSYNC
+  // ---
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
-      cmd_new <= 1'b0;
-    else
-      cmd_new <= take_op_ls;
+      cmd_msync_r <= 1'b0;
+    else if (padv_decode_i & dcod_op_msync_i)
+      cmd_msync_r <= 1'b1;
+    else if (cmd_msync_deassert)
+      cmd_msync_r <= 1'b0;
   end // @clock
 
-  // l.msync to generate msync-stall
-  reg  lsu_msync_r;
-  // ---
+
+
+  //----------------//
+  // LSU exceptions //
+  //----------------//
+
+  // --- align ---
+  wire align_err_word  = |virt_addr[1:0];
+  wire align_err_short = virt_addr[0];
+
+  assign except_align = op_ls &
+                        (((lsu_length_r == 2'b10) & align_err_word) |
+                         ((lsu_length_r == 2'b01) & align_err_short));
+
+
+  // --- write bus error: clarification just for CTRL ---
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
-      lsu_msync_r <= 1'b0;
+      store_buffer_err_o <= 1'b0;
     else if (pipeline_flush_i)
-      lsu_msync_r <= 1'b0;
-    else if (dcod_op_msync_i)
-      lsu_msync_r <= 1'b1;
-    else
-      lsu_msync_r <= 1'b0;
-  end // @clock
-  // ---
-  reg  cmd_op_msync;
-  // ---
+      store_buffer_err_o <= 1'b0;
+    else if (dbus_err_i & dbus_we_o)
+      store_buffer_err_o <= 1'b1;
+  end // @ clock
+  // --- any bus error ---
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
-      cmd_op_msync <= 1'b0;
+      dbus_err <= 1'b0;
     else if (pipeline_flush_i)
-      cmd_op_msync <= 1'b0;
-    else if (lsu_msync_r)
-      cmd_op_msync <= 1'b1;
-    else if (msync_done)
-      cmd_op_msync <= 1'b0;
-  end // @clock
+      dbus_err <= 1'b0;
+    else if (dbus_err_i)
+      dbus_err <= 1'b1;
+  end // @ clock
+  // --- combined bus errors ---
+  assign except_dbus_err = dbus_err_i | dbus_err;
+
 
   // registers for temporary exception storing
   reg lsu_except_dbus_r;
@@ -455,9 +499,12 @@ module mor1kx_lsu_marocchino
         lsu_except_dpagefault_r <= 1'b1;
     end
   end // @clock
+  
   // output assignement
-  assign lsu_excepts_o = lsu_except_dbus_r      | lsu_except_align_r |
-                         lsu_except_dtlb_miss_r | lsu_except_dpagefault_r;
+  assign lsu_excepts_o = lsu_except_dbus_r | lsu_except_align_r | lsu_except_dtlb_miss_r | lsu_except_dpagefault_r;
+
+  // --- combined exception flag (local use) ---
+  assign lsu_excepts = except_dbus_err | except_align | except_dtlb_miss | except_dpagefault;
 
   // WB latches for LSU EXCEPTIONS
   always @(posedge clk `OR_ASYNC_RST) begin
@@ -480,43 +527,6 @@ module mor1kx_lsu_marocchino
       wb_except_align_o      <= lsu_except_align_r;
     end
   end // @clock
-
-  //----------------------//
-  // Exceptions detection //
-  //----------------------//
-
-  // --- align ---
-  wire align_err_word  = |virt_addr[1:0];
-  wire align_err_short = virt_addr[0];
-
-  assign except_align = op_ls &
-                        (((lsu_length_r == 2'b10) & align_err_word) |
-                         ((lsu_length_r == 2'b01) & align_err_short));
-
-
-  // --- any bus error ---
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      dbus_err <= 1'b0;
-    else if (pipeline_flush_i)
-      dbus_err <= 1'b0;
-    else if (dbus_err_i)
-      dbus_err <= 1'b1;
-  end // @ clock
-  // --- write bus error ---
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      store_buffer_err_o <= 1'b0;
-    else if (pipeline_flush_i)
-      store_buffer_err_o <= 1'b0;
-    else if (dbus_err_i & dbus_we_o)
-      store_buffer_err_o <= 1'b1;
-  end // @ clock
-  // --- combined bus errors ---
-  assign except_dbus_err = dbus_err_i | dbus_err | store_buffer_err_o;
-
-  // --- combined exception flag (local use) ---
-  assign lsu_excepts = except_dbus_err  | except_align | except_dtlb_miss | except_dpagefault;
 
 
 
@@ -573,9 +583,9 @@ module mor1kx_lsu_marocchino
     end
     else begin
       if (~lsu_load_rdy_stored)
-        lsu_load_rdy_stored  <= lsu_ack & cmd_load;
+        lsu_load_rdy_stored  <= lsu_ack_load;
       if (~lsu_store_rdy_stored)
-        lsu_store_rdy_stored <= lsu_ack & cmd_store;
+        lsu_store_rdy_stored <= lsu_ack_store | lsu_ack_swa;
     end
   end // @clock
 
@@ -587,7 +597,7 @@ module mor1kx_lsu_marocchino
       lsu_result_r <= {OPTION_OPERAND_WIDTH{1'b0}};
     else if (dbus_stall)
       lsu_result_r <= lsu_result_r;
-    else if (cmd_load & lsu_ack)
+    else if (lsu_ack_load)
       lsu_result_r <= dbus_dat_extended;
   end // @ clock
 
@@ -674,7 +684,7 @@ module mor1kx_lsu_marocchino
     else begin
       case (state)
         IDLE: begin
-          if (store_buffer_write | ~store_buffer_empty | (cmd_load & ~dc_access)) // for re-fill allowed
+          if (store_buffer_write | ~store_buffer_empty | (cmd_load_r & ~dc_access)) // for re-fill allowed
             dc_refill_allowed = 1'b0;
           else if (dc_refill_req)
             dc_refill_allowed = 1'b1;
@@ -717,7 +727,7 @@ module mor1kx_lsu_marocchino
           if (store_buffer_write | ~store_buffer_empty) begin
             state <= WRITE;
           end
-          else if (cmd_load & ~dc_access) begin
+          else if (cmd_load_r & ~dc_access) begin
             dbus_req_o  <= 1'b1;
             dbus_adr_o  <= phys_addr_cmd;
             dbus_bsel_o <= dbus_bsel;
@@ -791,30 +801,28 @@ module mor1kx_lsu_marocchino
   // Atomic operations logic //
   //-------------------------//
   assign dbus_swa_discard = dbus_atomic & ~atomic_reserve;
-  assign dbus_swa_success = dbus_atomic &  atomic_reserve & dbus_we;
+  // ---
   assign dbus_swa_ack     = dbus_atomic & dbus_we & dbus_ack_i;
+  // ---
+  assign dbus_swa_success = dbus_swa_ack & atomic_reserve;
 
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst) begin
       atomic_reserve <= 1'b0;
       atomic_addr    <= {OPTION_OPERAND_WIDTH{1'b0}};
     end
-    else if (dbus_stall) begin
-      atomic_reserve <= 1'b0;
-      atomic_addr    <= {OPTION_OPERAND_WIDTH{1'b0}};
-    end
-    else if (dbus_swa_ack |
-             (store_buffer_write & ~cmd_atomic & (phys_addr_cmd == atomic_addr)) |
+    else if (dbus_stall | dbus_swa_ack |
+             (store_buffer_write & cmd_store_r & (phys_addr_cmd == atomic_addr)) |
              (snoop_event & (snoop_adr_i == atomic_addr))) begin
       atomic_reserve <= 1'b0;
       atomic_addr    <= {OPTION_OPERAND_WIDTH{1'b0}};
     end
-    else if (cmd_lwa & cmd_new) begin
+    else if (cmd_lwa_r) begin
       if (snoop_event & (snoop_adr_i == phys_addr_cmd)) begin
         atomic_reserve <= 1'b0;
         atomic_addr    <= {OPTION_OPERAND_WIDTH{1'b0}};
       end
-      else begin
+      else if (lsu_ack_load) begin
         atomic_reserve <= 1'b1;
         atomic_addr    <= phys_addr_cmd;
       end
@@ -867,7 +875,7 @@ module mor1kx_lsu_marocchino
   //-----------------------//
 
   // "write" and "read" without exception and pipe flushing
-  assign store_buffer_write = cmd_store & ~store_buffer_full & ~snoop_hit;
+  assign store_buffer_write = (cmd_store_r | cmd_swa_r) & ~store_buffer_full & ~snoop_hit;
 
   assign store_buffer_read = ((state == IDLE)  & (store_buffer_write | ~store_buffer_empty)) |
                              ((state == WRITE) &  last_write &  store_buffer_write) |
@@ -893,7 +901,7 @@ module mor1kx_lsu_marocchino
     .adr_i    (phys_addr_cmd), // STORE_BUFFER
     .dat_i    (lsu_sdat), // STORE_BUFFER
     .bsel_i   (dbus_bsel), // STORE_BUFFER
-    .atomic_i (cmd_atomic), // STORE_BUFFER
+    .atomic_i (cmd_swa_r), // STORE_BUFFER
     .write_i  (store_buffer_we), // STORE_BUFFER
 
     .pc_o     (store_buffer_epcr_o), // STORE_BUFFER
@@ -909,22 +917,12 @@ module mor1kx_lsu_marocchino
 
 
 
-  //-------------------------------//
-  // DCACHE & DMMU common controls //
-  //-------------------------------//
-
-  wire dmmu_an_except = except_dtlb_miss | except_dpagefault;
-
-  // Force switching DCACHE/DMMU off in case of DMMU-generated exceptions
-  // We use pipeline-flush-i here because LSU is anycase stopped by
-  // DMMU's exceptions
-  wire dc_dmmu_force_off = dmmu_an_except & pipeline_flush_i;
-  
-
-
   //-------------------//
   // Instance of cache //
   //-------------------//
+
+  wire dc_store_allowed = lsu_ack_store | dbus_swa_success;
+
   mor1kx_dcache_marocchino
   #(
     .OPTION_OPERAND_WIDTH       (OPTION_OPERAND_WIDTH),
@@ -941,7 +939,6 @@ module mor1kx_lsu_marocchino
     .rst                        (rst), // DCACHE
     // pipe controls
     .adv_i                      (take_op_ls), // DCACHE
-    .force_off_i                (dc_dmmu_force_off), // DCACHE
     // configuration
     .enable_i                   (dc_enable_i), // DCACHE
     // exceptions
@@ -950,14 +947,7 @@ module mor1kx_lsu_marocchino
     //  # for genearel load or store
     .lsu_load_i                 (lsu_load_r), // DCACHE
     .lsu_store_i                (lsu_store_r), // DCACHE
-    //  # for atomic store
-    .cmd_swa_i                  (cmd_swa), // DCACHE
-    .dbus_swa_discard_i         (dbus_swa_discard), // DCACHE
-    .dbus_swa_success_i         (dbus_swa_success), // DCACHE
     // Regular operation
-    //  # store format and data
-    .dbus_bsel_i                (dbus_bsel), // DCACHE
-    .dbus_sdat_i                (lsu_sdat), // DCACHE
     //  # addresses and "DCHACHE inhibit" flag
     .virt_addr_i                (virt_addr), // DCACHE
     .phys_addr_cmd_i            (phys_addr_cmd), // DCACHE
@@ -966,6 +956,11 @@ module mor1kx_lsu_marocchino
     .dc_access_o                (dc_access), // DCACHE
     .dc_ack_o                   (dc_ack), // DCACHE
     .dc_dat_o                   (dc_dat), // DCACHE
+    //  # STORE format / store data / do|cancel storing
+    .dbus_bsel_i                (dbus_bsel), // DCACHE
+    .dbus_sdat_i                (lsu_sdat), // DCACHE
+    .dc_store_allowed_i         (dc_store_allowed), // DCACHE
+    .dbus_swa_discard_i         (dbus_swa_discard), // DCACHE
     // re-fill
     .refill_req_o               (dc_refill_req), // DCACHE
     .refill_allowed_i           (dc_refill_allowed), // DCACHE
@@ -993,6 +988,9 @@ module mor1kx_lsu_marocchino
   // Instance of DMMU //
   //------------------//
 
+  // Force switching DMMU off in case of DMMU-generated exceptions
+  wire dmmu_force_off = (except_dtlb_miss | except_dpagefault) & pipeline_flush_i;
+
   mor1kx_dmmu_marocchino
   #(
     .FEATURE_DMMU_HW_TLB_RELOAD (FEATURE_DMMU_HW_TLB_RELOAD),
@@ -1007,12 +1005,12 @@ module mor1kx_lsu_marocchino
     .rst                              (rst), // DMMU
     // pipe controls
     .adv_i                            (take_op_ls), // DMMU
-    .force_off_i                      (dc_dmmu_force_off), // DMMU
+    .force_off_i                      (dmmu_force_off), // DMMU
     // configuration and commands
     .enable_i                         (dmmu_enable_i), // DMMU
     .supervisor_mode_i                (supervisor_mode_i), // DMMU
-    .cmd_store_i                      (cmd_store), // DMMU
-    .cmd_load_i                       (cmd_load), // DMMU
+    .cmd_store_i                      (cmd_store_r | cmd_swa_r), // DMMU
+    .cmd_load_i                       (cmd_load_r), // DMMU
     // address translation
     .virt_addr_i                      (virt_addr), // DMMU
     .virt_addr_cmd_o                  (virt_addr_cmd), // DMMU

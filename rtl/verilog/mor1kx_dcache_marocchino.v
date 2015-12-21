@@ -43,7 +43,6 @@ module mor1kx_dcache_marocchino
 
   // pipe controls
   input                                 adv_i,
-  input                                 force_off_i,
 
   // configuration
   input                                 enable_i,
@@ -55,15 +54,8 @@ module mor1kx_dcache_marocchino
   //  # for genearel load or store
   input                                 lsu_load_i,
   input                                 lsu_store_i,
-  //  # for atomic store
-  input                                 cmd_swa_i,
-  input                                 dbus_swa_discard_i,
-  input                                 dbus_swa_success_i,
 
   // Regular operation
-  //  # store format and data
-  input                           [3:0] dbus_bsel_i,
-  input      [OPTION_OPERAND_WIDTH-1:0] dbus_sdat_i,
   //  # addresses and "DCHACHE inhibit" flag
   input      [OPTION_OPERAND_WIDTH-1:0] virt_addr_i,
   input      [OPTION_OPERAND_WIDTH-1:0] phys_addr_cmd_i,
@@ -72,6 +64,11 @@ module mor1kx_dcache_marocchino
   output                                dc_access_o,
   output                                dc_ack_o,
   output reg [OPTION_OPERAND_WIDTH-1:0] dc_dat_o,
+  //  # STORE format / store data / do|cancel storing
+  input                           [3:0] dbus_bsel_i,
+  input      [OPTION_OPERAND_WIDTH-1:0] dbus_sdat_i,
+  input                                 dc_store_allowed_i,
+  input                                 dbus_swa_discard_i,
 
   // re-fill
   output                                refill_req_o,
@@ -440,21 +437,13 @@ module mor1kx_dcache_marocchino
             dc_state <= DC_IDLE;
           else if (snoop_hit_o)
             dc_state <= DC_WRITE;
-          else if (dc_access) begin
-            if (dc_hit) begin
-              if (cmd_swa_i) begin
-                if (dbus_swa_discard_i | dbus_swa_success_i)
-                  dc_state <= DC_IDLE;
-              end
-              else if (try_load) // dc-access & store-hit & new-command-is-load
+          else if (dc_access & dc_hit) begin
+            if (dc_store_allowed_i | dbus_swa_discard_i) begin
+              if (try_load)
                 dc_state <= DC_READ;
               else if (~try_store)
                 dc_state <= DC_IDLE;
-            end // hit
-            else if (try_load) // dc-access & ~store-hit & new-command-is-load
-              dc_state <= DC_READ;
-            else if (~try_store)
-              dc_state <= DC_IDLE;
+            end // store-hit & (do store OR diascard l.swa)
           end
           else if (try_load) // ~dc-access
             dc_state <= DC_READ;
@@ -550,7 +539,7 @@ module mor1kx_dcache_marocchino
           tag_windex = phys_addr_cmd_i[WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH]; // on write
           way_wr_dat = dbus_sdat_i; // on write
           // ---
-          if (dc_access & dc_hit & (~cmd_swa_i | dbus_swa_success_i) & ~dbus_stall_i) begin // on write-hit
+          if (dc_access & dc_hit & dc_store_allowed_i & ~dbus_stall_i) begin // on write-hit
             // Mux cache output with write data
             if (~dbus_bsel_i[3]) way_wr_dat[31:24] = dc_dat_o[31:24];
             if (~dbus_bsel_i[2]) way_wr_dat[23:16] = dc_dat_o[23:16];
@@ -569,43 +558,41 @@ module mor1kx_dcache_marocchino
           tag_windex = curr_refill_adr[WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH]; // on re-fill
           way_wr_dat = dbus_dat_i; // on re-fill
           // ---
-          if (~dbus_stall_i) begin // on re-fill
-            if (dbus_ack_i) begin
-              //
-              // Write the data to the way that is replaced
-              // (which is the LRU)
-              //
-              way_we = tag_save_lru; // on RE-FILL
-              // Access pattern
-              access_lru_history = tag_save_lru;
-              // Invalidate the way on the first write
-              if (refill_done == 0) begin
-                for (w2 = 0; w2 < OPTION_DCACHE_WAYS; w2 = w2 + 1) begin
-                  if (tag_save_lru[w2]) begin
-                    tag_way_in[w2][TAGMEM_WAY_VALID] = 1'b0;
-                  end
+          if (dbus_ack_i & ~dbus_stall_i) begin // on re-fill
+            //
+            // Write the data to the way that is replaced
+            // (which is the LRU)
+            //
+            way_we = tag_save_lru; // on RE-FILL
+            // Access pattern
+            access_lru_history = tag_save_lru;
+            // Invalidate the way on the first write
+            if (refill_done == 0) begin
+              for (w2 = 0; w2 < OPTION_DCACHE_WAYS; w2 = w2 + 1) begin
+                if (tag_save_lru[w2]) begin
+                  tag_way_in[w2][TAGMEM_WAY_VALID] = 1'b0;
                 end
-                // ---
-                tag_we = 1'b1;
               end
-              //
-              // After re-fill update the tag memory entry of the
-              // filled way with the LRU history, the tag and set
-              // valid to 1.
-              //
-              if (refill_last_o) begin
-                for (w2 = 0; w2 < OPTION_DCACHE_WAYS; w2 = w2 + 1) begin
-                  tag_way_in[w2] = tag_way_save[w2];
-                  if (tag_save_lru[w2]) begin
-                    tag_way_in[w2] = { 1'b1, curr_refill_adr[OPTION_DCACHE_LIMIT_WIDTH-1:WAY_WIDTH] };
-                  end
+              // ---
+              tag_we = 1'b1;
+            end
+            //
+            // After re-fill update the tag memory entry of the
+            // filled way with the LRU history, the tag and set
+            // valid to 1.
+            //
+            if (refill_last_o) begin
+              for (w2 = 0; w2 < OPTION_DCACHE_WAYS; w2 = w2 + 1) begin
+                tag_way_in[w2] = tag_way_save[w2];
+                if (tag_save_lru[w2]) begin
+                  tag_way_in[w2] = { 1'b1, curr_refill_adr[OPTION_DCACHE_LIMIT_WIDTH-1:WAY_WIDTH] };
                 end
-                tag_lru_in = next_lru_history;
-                // ---
-                tag_we = 1'b1;
               end
-            end // write
-          end // no exceptions, no pipe flushing
+              tag_lru_in = next_lru_history;
+              // ---
+              tag_we = 1'b1;
+            end
+          end // write & no exceptions & no pipe flushing
         end // RE-FILL
 
         DC_INVALIDATE: begin
