@@ -231,8 +231,8 @@ module mor1kx_lsu_marocchino
   wire                              lsu_ack_load;
   wire                              lsu_ack_store;
   wire                              lsu_ack_swa;
-  reg                               lsu_load_rdy_stored;
-  reg                               lsu_store_rdy_stored;
+  reg                               lsu_ack_load_pending;
+  reg                               lsu_ack_store_pending;
 
 
 
@@ -266,7 +266,7 @@ module mor1kx_lsu_marocchino
   assign lsu_ack_swa   = dbus_swa_ack & cmd_swa_buffered_r;
 
   // output assignement (1-clk ahead for WB-latching)
-  assign lsu_valid_o = lsu_load_rdy_stored | lsu_store_rdy_stored;
+  assign lsu_valid_o = lsu_ack_load_pending | lsu_ack_store_pending;
 
 
 
@@ -311,22 +311,29 @@ module mor1kx_lsu_marocchino
   end // @clock
 
   // --- latch forwarding flags ---
+  // new LSU input
+  reg lsu_new_input_r;
+  // ---
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst) begin
-      lsu_fwd_wb_a_r <= 1'b0;
-      lsu_fwd_wb_b_r <= 1'b0;
+      lsu_fwd_wb_a_r  <= 1'b0;
+      lsu_fwd_wb_b_r  <= 1'b0;
+      lsu_new_input_r <= 1'b0;
     end
     else if (dbus_stall) begin
-      lsu_fwd_wb_a_r <= 1'b0;
-      lsu_fwd_wb_b_r <= 1'b0;
+      lsu_fwd_wb_a_r  <= 1'b0;
+      lsu_fwd_wb_b_r  <= 1'b0;
+      lsu_new_input_r <= 1'b0;
     end
     else if (padv_lsu_input) begin
-      lsu_fwd_wb_a_r <= exe2dec_hazard_a_i;
-      lsu_fwd_wb_b_r <= exe2dec_hazard_b_i; 
+      lsu_fwd_wb_a_r  <= exe2dec_hazard_a_i;
+      lsu_fwd_wb_b_r  <= exe2dec_hazard_b_i; 
+      lsu_new_input_r <= 1'b1;
     end
-    else if (take_op_ls) begin
-      lsu_fwd_wb_a_r <= 1'b0;
-      lsu_fwd_wb_b_r <= 1'b0;
+    else if (lsu_new_input_r) begin // complete forwarding from WB
+      lsu_fwd_wb_a_r  <= 1'b0;
+      lsu_fwd_wb_b_r  <= 1'b0;
+      lsu_new_input_r <= 1'b0;
     end
   end // @clock
 
@@ -336,7 +343,7 @@ module mor1kx_lsu_marocchino
       lsu_a_r <= dcod_rfa_i;
       lsu_b_r <= dcod_rfb_i;
     end
-    else if (take_op_ls) begin
+    else if (lsu_new_input_r) begin // complete forwarding from WB
       lsu_a_r <= lsu_a;
       lsu_b_r <= lsu_b;
     end
@@ -570,22 +577,18 @@ module mor1kx_lsu_marocchino
   // 
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst) begin
-      lsu_load_rdy_stored  <= 1'b0;
-      lsu_store_rdy_stored <= 1'b0;
+      lsu_ack_load_pending  <= 1'b0;
+      lsu_ack_store_pending <= 1'b0;
     end
-    else if (dbus_stall) begin
-      lsu_load_rdy_stored  <= 1'b0;
-      lsu_store_rdy_stored <= 1'b0;
-    end
-    else if (padv_wb_i & grant_wb_to_lsu_i) begin
-      lsu_load_rdy_stored  <= 1'b0;
-      lsu_store_rdy_stored <= 1'b0;
+    else if (dbus_stall | (padv_wb_i & grant_wb_to_lsu_i)) begin
+      lsu_ack_load_pending  <= 1'b0;
+      lsu_ack_store_pending <= 1'b0;
     end
     else begin
-      if (~lsu_load_rdy_stored)
-        lsu_load_rdy_stored  <= lsu_ack_load;
-      if (~lsu_store_rdy_stored)
-        lsu_store_rdy_stored <= lsu_ack_store | lsu_ack_swa;
+      if (~lsu_ack_load_pending)
+        lsu_ack_load_pending  <= lsu_ack_load;
+      if (~lsu_ack_store_pending)
+        lsu_ack_store_pending <= lsu_ack_store | lsu_ack_swa;
     end
   end // @clock
 
@@ -613,7 +616,7 @@ module mor1kx_lsu_marocchino
       wb_lsu_rdy_o <= 1'b0;
     else if (padv_wb_i) begin
       if (grant_wb_to_lsu_i)
-        wb_lsu_rdy_o <= (lsu_load_rdy_stored ? 1'b1 : wb_lsu_rdy_o);
+        wb_lsu_rdy_o <= (lsu_ack_load_pending ? 1'b1 : wb_lsu_rdy_o);
       else  if (do_rf_wb_i) // another unit is granted with guarantee
         wb_lsu_rdy_o <= 1'b0;
     end
@@ -837,7 +840,7 @@ module mor1kx_lsu_marocchino
       atomic_flag_set   <= 1'b0;
       atomic_flag_clear <= 1'b0;
     end
-    else if (take_op_ls | dbus_stall) begin
+    else if (dbus_stall | (padv_wb_i & grant_wb_to_lsu_i)) begin
       atomic_flag_set   <= 1'b0;
       atomic_flag_clear <= 1'b0;
     end
