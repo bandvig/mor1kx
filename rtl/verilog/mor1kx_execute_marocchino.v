@@ -230,24 +230,30 @@ module mor1kx_execute_marocchino
   reg  [EXEDW-1:0] alu_1clk_b_r;        // latched from decode
   reg              alu_1clk_fwd_wb_b_r; // use WB result
   wire [EXEDW-1:0] alu_1clk_b;          // with forwarding from WB
+  // new MUL input
+  reg              alu_1clk_new_insn_r;
   // !!! pay attention that B-operand related hazard is
   // !!! overriden already in OMAN if immediate is used
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst) begin
       alu_1clk_fwd_wb_a_r <= 1'b0;
       alu_1clk_fwd_wb_b_r <= 1'b0;
+      alu_1clk_new_insn_r <= 1'b0;
     end
     else if (pipeline_flush_i) begin
       alu_1clk_fwd_wb_a_r <= 1'b0;
       alu_1clk_fwd_wb_b_r <= 1'b0;
+      alu_1clk_new_insn_r <= 1'b0;
     end
     else if (padv_decode_i & dcod_op_1clk_i) begin
       alu_1clk_fwd_wb_a_r <= exe2dec_hazard_a_i;
       alu_1clk_fwd_wb_b_r <= exe2dec_hazard_b_i;
+      alu_1clk_new_insn_r <= 1'b1;
     end
-    else if (exec_op_1clk_o) begin
+    else if (alu_1clk_new_insn_r) begin // complete forwarding from WB
       alu_1clk_fwd_wb_a_r <= 1'b0;
       alu_1clk_fwd_wb_b_r <= 1'b0;
+      alu_1clk_new_insn_r <= 1'b0;
     end
   end // @clock
   // ---
@@ -256,7 +262,7 @@ module mor1kx_execute_marocchino
       alu_1clk_a_r <= dcod_rfa_i;
       alu_1clk_b_r <= dcod_rfb_i;
     end
-    else if (exec_op_1clk_o) begin
+    else if (alu_1clk_new_insn_r) begin // complete forwarding from WB
       alu_1clk_a_r <= alu_1clk_a;
       alu_1clk_b_r <= alu_1clk_b;
     end
@@ -552,24 +558,30 @@ module mor1kx_execute_marocchino
   reg [EXEDW-1:0]  mul_b_r;        // latched from decode
   reg              mul_fwd_wb_b_r; // use WB result
   wire [EXEDW-1:0] mul_b;          // with forwarding from WB
+  // new MUL input
+  reg              mul_new_insn_r;
   // !!! pay attention that B-operand related hazard is
   // !!! overriden already in OMAN if immediate is used
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst) begin
       mul_fwd_wb_a_r <= 1'b0;
       mul_fwd_wb_b_r <= 1'b0;
+      mul_new_insn_r <= 1'b0;
     end
     else if (pipeline_flush_i) begin
       mul_fwd_wb_a_r <= 1'b0;
       mul_fwd_wb_b_r <= 1'b0;
+      mul_new_insn_r <= 1'b0;
     end
     else if (padv_decode_i & dcod_op_mul_i) begin
       mul_fwd_wb_a_r <= exe2dec_hazard_a_i;
       mul_fwd_wb_b_r <= exe2dec_hazard_b_i;
+      mul_new_insn_r <= 1'b1;
     end
-    else if (op_mul_r) begin
+    else if (mul_new_insn_r) begin // complete forwarding from WB
       mul_fwd_wb_a_r <= 1'b0;
       mul_fwd_wb_b_r <= 1'b0;
+      mul_new_insn_r <= 1'b0;
     end
   end // @clock
   // ---
@@ -578,7 +590,7 @@ module mor1kx_execute_marocchino
       mul_a_r <= dcod_rfa_i;
       mul_b_r <= dcod_rfb_i;
     end
-    else if (op_mul_r & ~mul_adv) begin
+    else if (mul_new_insn_r) begin // complete forwarding from WB
       mul_a_r <= mul_a;
       mul_b_r <= mul_b;
     end
@@ -709,23 +721,29 @@ module mor1kx_execute_marocchino
   reg [EXEDW-1:0]  div_b_r;        // latched from decode
   reg              div_fwd_wb_b_r; // use WB result
   wire [EXEDW-1:0] div_b;          // with forwarding from WB
+  // new DIV input
+  reg              div_new_insn_r;
   // ---
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst) begin
       div_fwd_wb_a_r <= 1'b0;
       div_fwd_wb_b_r <= 1'b0;
+      div_new_insn_r <= 1'b0;
     end
     else if (pipeline_flush_i) begin
       div_fwd_wb_a_r <= 1'b0;
       div_fwd_wb_b_r <= 1'b0;
+      div_new_insn_r <= 1'b0;
     end
     else if (padv_decode_i & dcod_op_div_i) begin
       div_fwd_wb_a_r <= exe2dec_hazard_a_i;
       div_fwd_wb_b_r <= exe2dec_hazard_b_i;
+      div_new_insn_r <= 1'b1;
     end
-    else if (op_div_r) begin
+    else if (div_new_insn_r) begin // complete forwarding from WB
       div_fwd_wb_a_r <= 1'b0;
       div_fwd_wb_b_r <= 1'b0;
+      div_new_insn_r <= 1'b0;
     end
   end // @clock
   // ---
@@ -734,7 +752,7 @@ module mor1kx_execute_marocchino
       div_a_r <= dcod_rfa_i;
       div_b_r <= dcod_rfb_i; // opposite to multiply, no IMM as operand
     end
-    else if (op_div_r) begin
+    else if (div_new_insn_r) begin // complete forwarding from WB
       div_a_r <= div_a;
       div_b_r <= div_b;
     end
@@ -875,24 +893,30 @@ module mor1kx_execute_marocchino
       reg  [EXEDW-1:0] fp32_arith_b_r;        // latched from decode
       reg              fp32_arith_fwd_wb_b_r; // use WB result
       wire [EXEDW-1:0] fp32_arith_b;          // with forwarding from WB
+      // new FP-32 arith input
+      reg              fp32_arith_new_insn_r;
       // !!! pay attention that B-operand related hazard is
       // !!! overriden already in OMAN if immediate is used
       always @(posedge clk `OR_ASYNC_RST) begin
         if (rst) begin
           fp32_arith_fwd_wb_a_r <= 1'b0;
           fp32_arith_fwd_wb_b_r <= 1'b0;
+          fp32_arith_new_insn_r <= 1'b0;
         end
         else if (pipeline_flush_i) begin
           fp32_arith_fwd_wb_a_r <= 1'b0;
           fp32_arith_fwd_wb_b_r <= 1'b0;
+          fp32_arith_new_insn_r <= 1'b0;
         end
         else if (padv_decode_i & dcod_op_fp32_arith_i[`OR1K_FPUOP_WIDTH-1]) begin
           fp32_arith_fwd_wb_a_r <= exe2dec_hazard_a_i;
           fp32_arith_fwd_wb_b_r <= exe2dec_hazard_b_i;
+          fp32_arith_new_insn_r <= 1'b1;
         end
-        else if (op_fp32_arith_r[`OR1K_FPUOP_WIDTH-1]) begin
+        else if (fp32_arith_new_insn_r) begin // complete forwarding from WB
           fp32_arith_fwd_wb_a_r <= 1'b0;
           fp32_arith_fwd_wb_b_r <= 1'b0;
+          fp32_arith_new_insn_r <= 1'b0;
         end
       end // @clock
       // ---
@@ -901,7 +925,7 @@ module mor1kx_execute_marocchino
           fp32_arith_a_r <= dcod_rfa_i;
           fp32_arith_b_r <= dcod_rfb_i;
         end
-        else if (op_fp32_arith_r[`OR1K_FPUOP_WIDTH-1]) begin
+        else if (fp32_arith_new_insn_r) begin // complete forwarding from WB
           fp32_arith_a_r <= fp32_arith_a;
           fp32_arith_b_r <= fp32_arith_b;
         end
