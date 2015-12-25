@@ -702,7 +702,7 @@ module mor1kx_decode_marocchino
   // Which instructions writes comparison flag?
   assign dcod_flag_wb_o = dcod_op_setflag_o |
                           dcod_op_fp32_cmp_o[(`OR1K_FPUOP_WIDTH-1)] |
-                          dcod_op_lsu_atomic_o;
+                          (opc_insn == `OR1K_OPCODE_SWA);
 
   // Which instructions require comparison flag?
   assign dcod_flag_req_o = dcod_op_cmov_o | dcod_op_brcond; // l.cmov and correct mispredict detection

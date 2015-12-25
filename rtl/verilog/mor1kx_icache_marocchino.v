@@ -333,8 +333,14 @@ module mor1kx_icache_marocchino
           end // we
         end // RE-FILL
 
-        default:
-          state <= IDLE;
+        default: begin
+          spr_bus_ack_o   <= 1'b0;
+          curr_refill_adr <= {OPTION_OPERAND_WIDTH{1'b0}};
+          lru_way_r       <= {OPTION_ICACHE_WAYS{1'b0}};
+          refill_hit_r    <= 1'b0;
+          refill_done     <= 0;
+          state           <= IDLE;
+        end
       endcase
     end // reset / regular update
   end // @ clock

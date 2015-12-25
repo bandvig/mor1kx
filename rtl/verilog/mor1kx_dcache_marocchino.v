@@ -369,6 +369,10 @@ module mor1kx_dcache_marocchino
       snoop_check         <= 1'b0;  // on reset
       snoop_tag           <= {TAG_WIDTH{1'b0}}; // on reset
       snoop_windex        <= {OPTION_DCACHE_SET_WIDTH{1'b0}}; // on reset
+      tag_save_lru        <= {OPTION_DCACHE_WAYS{1'b0}};
+      for (w1 = 0; w1 < OPTION_DCACHE_WAYS; w1 = w1 + 1) begin
+        tag_way_save[w1] <= {TAGMEM_WAY_WIDTH{1'b0}};
+      end
     end
     else begin
       // snoop processing
@@ -409,7 +413,7 @@ module mor1kx_dcache_marocchino
               if (refill_allowed_i) begin
                 // Store the LRU information for correct replacement
                 // on re-fill. Always one when only one way.
-                tag_save_lru <= (OPTION_DCACHE_WAYS==1) | lru;
+                tag_save_lru <= (OPTION_DCACHE_WAYS == 1) | lru;
                 // store tag state
                 for (w1 = 0; w1 < OPTION_DCACHE_WAYS; w1 = w1 + 1) begin
                   tag_way_save[w1] <= tag_way_out[w1];
@@ -485,8 +489,20 @@ module mor1kx_dcache_marocchino
             dc_state <= DC_IDLE;
         end
 
-        default:
-          dc_state <= DC_IDLE;
+        default: begin
+          dc_state            <= DC_IDLE;
+          curr_refill_adr     <= {OPTION_OPERAND_WIDTH{1'b0}};  // on reset
+          refill_hit_r        <= 1'b0;  // on reset
+          refill_hit_was_r    <= 1'b0;  // on reset
+          refill_done         <= 0;     // on reset
+          snoop_check         <= 1'b0;  // on reset
+          snoop_tag           <= {TAG_WIDTH{1'b0}}; // on reset
+          snoop_windex        <= {OPTION_DCACHE_SET_WIDTH{1'b0}}; // on reset
+          tag_save_lru        <= {OPTION_DCACHE_WAYS{1'b0}};
+          for (w1 = 0; w1 < OPTION_DCACHE_WAYS; w1 = w1 + 1) begin
+            tag_way_save[w1] <= {TAGMEM_WAY_WIDTH{1'b0}};
+          end
+        end
       endcase
     end
   end
@@ -509,6 +525,9 @@ module mor1kx_dcache_marocchino
     way_we = {OPTION_DCACHE_WAYS{1'b0}};
 
     access_lru_history = {OPTION_DCACHE_WAYS{1'b0}};
+
+    tag_windex = phys_addr_cmd_i[WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH]; // by default
+    way_wr_dat = dbus_sdat_i; // by default
 
     if (snoop_hit_o) begin
       // This is the write access

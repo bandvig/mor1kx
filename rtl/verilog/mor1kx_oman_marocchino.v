@@ -207,7 +207,7 @@ module mor1kx_oman_marocchino
                   dcod_delay_slot_i, // istruction is in delay slot
                   // unit that must be granted for WB
                   dcod_op_rfe_i,     // l.rfe
-                  dcod_op_lsu_atomic_i,
+                  (dcod_op_lsu_store_i & dcod_op_lsu_atomic_i), // l.swa affects flag
                   dcod_op_ls_i,      // load / store (we need it for pushing LSU exceptions)
                   dcod_op_fp32_arith_i,
                   dcod_op_mul_i,
@@ -326,10 +326,7 @@ module mor1kx_oman_marocchino
     (dcod_op_div_i & (div_busy_i | (div_valid_i & ~ocbo00[OCBT_OP_DIV_POS]))) |
     (dcod_op_mul_i & mul_valid_i & ~ocbo00[OCBT_OP_MUL_POS]) |
     (dcod_op_fp32_arith_i & (fp32_arith_busy_i | (fp32_arith_valid_i & ~ocbo00[OCBT_OP_FP32_POS]))) |
-    ((dcod_op_ls_i | dcod_op_msync_i) & (lsu_busy_i | lsu_excepts_i | (lsu_valid_i & ~ocbo00[OCBT_OP_LS_POS])));
-
-  //  stall if OCB is full
-  wire stall_by_ocb_full = ocb_full & exec_waiting;
+    ((dcod_op_ls_i | dcod_op_msync_i) & (lsu_busy_i | (lsu_valid_or_excepts & ~ocbo00[OCBT_OP_LS_POS])));
 
   //  stall by operand A hazard
   //    hazard has occured inside OCB
@@ -355,7 +352,7 @@ module mor1kx_oman_marocchino
      (ocbo02[OCBT_RF_WB_POS] & (ocbo02[OCBT_RFD_ADR_MSB:OCBT_RFD_ADR_LSB] == dcod_rfb_adr_i)) |
      (ocbo01[OCBT_RF_WB_POS] & (ocbo01[OCBT_RFD_ADR_MSB:OCBT_RFD_ADR_LSB] == dcod_rfb_adr_i)));
   //    combine with DECODE-to-EXECUTE hazard
-  wire stall_by_hazard_b = ocb_hazard_b | (exe2dec_hazard_b_o & exec_waiting);
+  wire stall_by_hazard_b = ocb_hazard_b | (exe2dec_hazard_b_o & (exec_waiting | dcod_op_jr_i));
 
   //  stall by comparison flag hazard
   //    hazard has occured inside OCB
@@ -386,7 +383,7 @@ module mor1kx_oman_marocchino
   wire stall_by_mXspr = (dcod_op_mtspr_i | dcod_op_mfspr_i) & ~ocb_empty;
 
   // combine stalls to decode-valid flag
-  assign dcod_valid_o = ~stall_by_hazard_u & ~stall_by_ocb_full &
+  assign dcod_valid_o = ~stall_by_hazard_u & ~ocb_full          &
                         ~stall_by_hazard_a & ~stall_by_hazard_b &
                         ~stall_by_flag     & ~stall_by_carry    &
                         ~stall_by_mXspr;
@@ -438,7 +435,7 @@ module mor1kx_oman_marocchino
 
   // address of destination register & PC
   always @(posedge clk) begin
-    if (padv_wb_i & (~pipeline_flush_i)) begin
+    if (padv_wb_i & ~pipeline_flush_i) begin
       wb_rfd_adr_o <= exec_rfd_adr;
       pc_wb_o      <= ocbo00[OCBT_PC_MSB:OCBT_PC_LSB];
     end

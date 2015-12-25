@@ -38,7 +38,7 @@ module mor1kx_dmmu_marocchino
 
   // pipe controls
   input                                 adv_i,
-  input                                 force_off_i,
+  input                                 pipeline_flush_i,
 
   // configuration
   input                                 enable_i,
@@ -151,7 +151,7 @@ module mor1kx_dmmu_marocchino
       enable_r          <= 1'b0;
       supervisor_mode_r <= 1'b0;
     end
-    else if (force_off_i | spr_dmmu_stb) begin
+    else if (pipeline_flush_i | spr_dmmu_stb) begin
       enable_r          <= 1'b0;
       supervisor_mode_r <= supervisor_mode_r;
     end
