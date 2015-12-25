@@ -256,10 +256,9 @@ module mor1kx_lsu_marocchino
   wire cmd_ls = cmd_load_r | cmd_store_r | cmd_swa_r | cmd_swa_buffered_r;
 
   // LSU is busy
-  //   MAROCCHINO_TODO: potential improvement
-  //                    with more pipelinization
-  assign lsu_busy_o = op_ls | cmd_ls | cmd_msync_r |            // LSU busy
-                      snoop_hit | (state == READ) | dc_refill;  // LSU busy
+  //   MAROCCHINO_TODO: potential improvement with more pipelinization
+  assign lsu_busy_o = op_ls | cmd_ls | cmd_msync_r |  // LSU busy
+                      snoop_hit | dc_refill;          // LSU busy
 
   // report on command execution
   //  # load completion
@@ -704,21 +703,16 @@ module mor1kx_lsu_marocchino
 
   // re-filll-allowed corresponds to refill-request position in DBUS FSM
   always @(*) begin
-    if (dbus_stall)
-      dc_refill_allowed = 1'b0;
-    else begin
-      case (state)
-        IDLE: begin
-          if (store_buffer_write | ~store_buffer_empty | (cmd_load_r & ~dc_access)) // for re-fill allowed
-            dc_refill_allowed = 1'b0;
-          else if (dc_refill_req)
-            dc_refill_allowed = 1'b1;
-          else
-            dc_refill_allowed = 1'b0;
-        end
-        default: dc_refill_allowed = 1'b0;
-      endcase
-    end
+    dc_refill_allowed = 1'b0;
+    case (state)
+      IDLE: begin
+        if (store_buffer_write | ~store_buffer_empty) // for re-fill allowed
+          dc_refill_allowed = 1'b0;
+        else if (dc_refill_req) // it automatically means (l.load & dc-access)
+          dc_refill_allowed = 1'b1;
+      end
+      default:;
+    endcase
   end // always
 
   // state machine
