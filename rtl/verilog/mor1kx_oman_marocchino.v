@@ -375,12 +375,12 @@ module mor1kx_oman_marocchino
   wire stall_by_carry = dcod_carry_req_i & (ocb_carry | carry_waiting);
 
   //  stall by:
-  //    a) MF(T)SPR in decode till and OCB become empty, see here
-  //    b) till completion MF(T)SPR, see CTRL
+  //    a) MF(T)SPR in decode till and OCB become empty or LSU insn completion (see here)
+  //    b) till completion MF(T)SPR (see CTRL)
   //       this completion generates padv-wb,
   //       in next turn padv-wb cleans up OCB and restores
   //       instructions issue
-  wire stall_by_mXspr = (dcod_op_mtspr_i | dcod_op_mfspr_i) & ~ocb_empty;
+  wire stall_by_mXspr = (dcod_op_mtspr_i | dcod_op_mfspr_i) & (~ocb_empty | lsu_busy_i);
 
   // combine stalls to decode-valid flag
   assign dcod_valid_o = ~stall_by_hazard_u & ~ocb_full          &
