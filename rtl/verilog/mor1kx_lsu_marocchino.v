@@ -171,7 +171,6 @@ module mor1kx_lsu_marocchino
   wire                              dbus_swa_success; // l.swa is successfull
   wire                              dbus_swa_ack;     // complete DBUS trunsaction with l.swa
   reg                               last_write;
-  reg                               buf_read_en; // enable for reading next value from store buffer
 
 
   // DMMU
@@ -725,7 +724,6 @@ module mor1kx_lsu_marocchino
       dbus_bsel_o <= 4'hf;
       dbus_atomic <= 1'b0;
       last_write  <= 1'b0;
-      buf_read_en <= 1'b0;
     end
     else if (dbus_stall) begin
       state       <= IDLE;
@@ -734,7 +732,6 @@ module mor1kx_lsu_marocchino
       dbus_bsel_o <= 4'hf;
       dbus_atomic <= 1'b0;
       last_write  <= 1'b0;
-      buf_read_en <= 1'b0;
     end
     else begin
       // process
@@ -795,7 +792,6 @@ module mor1kx_lsu_marocchino
         end // read
   
         WRITE: begin
-          buf_read_en <= 1'b0;
           dbus_req_o  <= 1'b1;
           dbus_we     <= 1'b1;
           //---
@@ -820,7 +816,6 @@ module mor1kx_lsu_marocchino
               dbus_dat_o  <= store_buffer_dat;
               dbus_atomic <= store_buffer_atomic;
               last_write  <= store_buffer_empty;
-              buf_read_en <= 1'b1;
             end
           end // bus ack
           else if (store_buffer_write) // new store command while waiting bus ack
@@ -850,8 +845,8 @@ module mor1kx_lsu_marocchino
   assign store_buffer_write = (cmd_store_r | cmd_swa_r) & ~store_buffer_full & ~snoop_hit;
 
   assign store_buffer_read = ((state == IDLE)  & (store_buffer_write | ~store_buffer_empty)) |
-                             ((state == WRITE) &  last_write & store_buffer_write) |
-                             ((state == WRITE) & ~last_write & buf_read_en);
+                             ((state == WRITE) &  last_write &  store_buffer_write) |
+                             ((state == WRITE) & ~last_write & ~store_buffer_empty & dbus_ack_i);
 
   // store buffer controls with exceptions and pipe flushing
   wire store_buffer_we = store_buffer_write & ~dbus_stall;
