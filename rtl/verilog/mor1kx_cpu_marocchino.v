@@ -229,6 +229,8 @@ module mor1kx_cpu_marocchino
   wire                            exec_op_brcond;
   wire                            exec_predicted_flag;
   wire [OPTION_OPERAND_WIDTH-1:0] exec_mispredict_target;
+  //  ## drop mispredict flag by drop ecex-op-brcond
+  wire                            mispredict_taken;
 
 
 
@@ -395,7 +397,6 @@ module mor1kx_cpu_marocchino
 
     // pipeline control
     .padv_fetch_i                     (padv_fetch), // FETCH
-    .padv_decode_i                    (padv_decode), // FETCH
     .dcod_bubble_i                    (dcod_bubble), // FETCH
     .pipeline_flush_i                 (pipeline_flush), // FETCH
 
@@ -430,6 +431,7 @@ module mor1kx_cpu_marocchino
     .dcod_branch_target_i             (dcod_branch_target), // FETCH
     .branch_mispredict_i              (branch_mispredict), // FETCH
     .exec_mispredict_target_i         (exec_mispredict_target), // FETCH
+    .mispredict_taken_o               (mispredict_taken), // FETCH
 
     // exception/rfe control transfer
     .ctrl_branch_exception_i          (ctrl_branch_exception), // FETCH
@@ -506,6 +508,7 @@ module mor1kx_cpu_marocchino
     .dcod_rfb_i                       (dcod_rfb), // DECODE & DECODE->EXE
     .dcod_branch_o                    (dcod_branch), // DECODE & DECODE->EXE
     .dcod_branch_target_o             (dcod_branch_target), // DECODE & DECODE->EXE
+    .mispredict_taken_i               (mispredict_taken), // DECODE & DECODE->EXE
     .predicted_flag_i                 (predicted_flag), // DECODE & DECODE->EXE
     .exec_op_brcond_o                 (exec_op_brcond), // DECODE & DECODE->EXE
     .exec_predicted_flag_o            (exec_predicted_flag), // DECODE & DECODE->EXE

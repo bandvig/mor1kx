@@ -171,6 +171,7 @@ module mor1kx_lsu_marocchino
   wire                              dbus_swa_success; // l.swa is successfull
   wire                              dbus_swa_ack;     // complete DBUS trunsaction with l.swa
   reg                               last_write;
+  reg                               buf_read_en; // enable for reading next value from store buffer
 
 
   // DMMU
@@ -724,6 +725,7 @@ module mor1kx_lsu_marocchino
       dbus_bsel_o <= 4'hf;
       dbus_atomic <= 1'b0;
       last_write  <= 1'b0;
+      buf_read_en <= 1'b0;
     end
     else if (dbus_stall) begin
       state       <= IDLE;
@@ -732,6 +734,7 @@ module mor1kx_lsu_marocchino
       dbus_bsel_o <= 4'hf;
       dbus_atomic <= 1'b0;
       last_write  <= 1'b0;
+      buf_read_en <= 1'b0;
     end
     else begin
       // process
@@ -745,6 +748,15 @@ module mor1kx_lsu_marocchino
           last_write  <= 1'b0;
           if (store_buffer_write | ~store_buffer_empty) begin
             state <= WRITE;
+            if (store_buffer_empty) begin   // 1-st write in buffer
+              dbus_req_o  <= 1'b1;          // 1-st write in buffer
+              dbus_we     <= 1'b1;          // 1-st write in buffer
+              dbus_bsel_o <= dbus_bsel;     // 1-st write in buffer
+              dbus_adr_o  <= phys_addr_cmd; // 1-st write in buffer
+              dbus_dat_o  <= lsu_sdat;      // 1-st write in buffer
+              dbus_atomic <= cmd_swa_r;     // 1-st write in buffer
+              last_write  <= 1'b1;          // 1-st write in buffer
+            end
           end
           else if (cmd_load_r & ~dc_access) begin
             dbus_req_o  <= 1'b1;
@@ -783,27 +795,37 @@ module mor1kx_lsu_marocchino
         end // read
   
         WRITE: begin
-          dbus_req_o <= 1'b1;
-          dbus_we    <= 1'b1;
+          buf_read_en <= 1'b0;
+          dbus_req_o  <= 1'b1;
+          dbus_we     <= 1'b1;
           //---
-          if (~dbus_req_o | (dbus_ack_i & ~last_write)) begin
-            dbus_bsel_o <= store_buffer_bsel;
-            dbus_adr_o  <= store_buffer_radr;
-            dbus_dat_o  <= store_buffer_dat;
-            dbus_atomic <= store_buffer_atomic;
-            last_write  <= store_buffer_empty;
-          end
-          //---
-          if (store_buffer_write)
+          if (dbus_ack_i) begin
+            if (last_write) begin
+              if (store_buffer_write) begin
+                dbus_bsel_o <= dbus_bsel;     // last write overlapped by new store command
+                dbus_adr_o  <= phys_addr_cmd; // last write overlapped by new store command
+                dbus_dat_o  <= lsu_sdat;      // last write overlapped by new store command
+                dbus_atomic <= cmd_swa_r;     // last write overlapped by new store command
+                last_write  <= 1'b1;          // last write overlapped by new store command
+              end
+              else begin
+                dbus_req_o <= 1'b0;
+                dbus_we    <= 1'b0;
+                state      <= IDLE;
+              end
+            end
+            else begin // not last
+              dbus_bsel_o <= store_buffer_bsel;
+              dbus_adr_o  <= store_buffer_radr;
+              dbus_dat_o  <= store_buffer_dat;
+              dbus_atomic <= store_buffer_atomic;
+              last_write  <= store_buffer_empty;
+              buf_read_en <= 1'b1;
+            end
+          end // bus ack
+          else if (store_buffer_write) // new store command while waiting bus ack
             last_write <= 1'b0;
-          //---
-          if (dbus_ack_i & last_write) begin
-            dbus_req_o <= 1'b0;
-            dbus_we    <= 1'b0;
-            if (~store_buffer_write)
-              state <= IDLE;
-          end
-        end // write
+        end // write-state
   
         default: begin
           state       <= IDLE;
@@ -817,6 +839,52 @@ module mor1kx_lsu_marocchino
       endcase
     end
   end // @ clock state machine
+
+
+
+  //-----------------------//
+  // Store buffer instance //
+  //-----------------------//
+
+  // "write" and "read" without exception and pipe flushing
+  assign store_buffer_write = (cmd_store_r | cmd_swa_r) & ~store_buffer_full & ~snoop_hit;
+
+  assign store_buffer_read = ((state == IDLE)  & (store_buffer_write | ~store_buffer_empty)) |
+                             ((state == WRITE) &  last_write & store_buffer_write) |
+                             ((state == WRITE) & ~last_write & buf_read_en);
+
+  // store buffer controls with exceptions and pipe flushing
+  wire store_buffer_we = store_buffer_write & ~dbus_stall;
+  wire store_buffer_re = store_buffer_read  & ~dbus_stall;
+
+  // store buffer module
+  mor1kx_store_buffer_marocchino
+  #(
+    .DEPTH_WIDTH          (OPTION_STORE_BUFFER_DEPTH_WIDTH),
+    .OPTION_OPERAND_WIDTH (OPTION_OPERAND_WIDTH)
+  )
+  u_store_buffer
+  (
+    .clk      (clk),
+    .rst      (rst),
+
+    .pc_i     (ctrl_epcr_i), // STORE_BUFFER
+    .adr_i    (phys_addr_cmd), // STORE_BUFFER
+    .dat_i    (lsu_sdat), // STORE_BUFFER
+    .bsel_i   (dbus_bsel), // STORE_BUFFER
+    .atomic_i (cmd_swa_r), // STORE_BUFFER
+    .write_i  (store_buffer_we), // STORE_BUFFER
+
+    .pc_o     (store_buffer_epcr_o), // STORE_BUFFER
+    .adr_o    (store_buffer_radr), // STORE_BUFFER
+    .dat_o    (store_buffer_dat), // STORE_BUFFER
+    .bsel_o   (store_buffer_bsel), // STORE_BUFFER
+    .atomic_o (store_buffer_atomic), // STORE_BUFFER
+    .read_i   (store_buffer_re), // STORE_BUFFER
+
+    .full_o   (store_buffer_full), // STORE_BUFFER
+    .empty_o  (store_buffer_empty) // STORE_BUFFER
+  );
 
 
   // We have to mask out our own snooped bus access
@@ -896,52 +964,6 @@ module mor1kx_lsu_marocchino
       end
     end
   end // @clock
-
-
-  //-----------------------//
-  // Store buffer instance //
-  //-----------------------//
-
-  // "write" and "read" without exception and pipe flushing
-  assign store_buffer_write = (cmd_store_r | cmd_swa_r) & ~store_buffer_full & ~snoop_hit;
-
-  assign store_buffer_read = ((state == IDLE)  & (store_buffer_write | ~store_buffer_empty)) |
-                             ((state == WRITE) &  last_write &  store_buffer_write) |
-                             ((state == WRITE) & ~last_write & (store_buffer_write | ~store_buffer_empty) &
-                              (dbus_ack_i | ~dbus_req_o));
-
-  // store buffer controls with exceptions and pipe flushing
-  wire store_buffer_we = store_buffer_write & ~dbus_stall;
-  wire store_buffer_re = store_buffer_read  & ~dbus_stall;
-
-  // store buffer module
-  mor1kx_store_buffer_marocchino
-  #(
-    .DEPTH_WIDTH          (OPTION_STORE_BUFFER_DEPTH_WIDTH),
-    .OPTION_OPERAND_WIDTH (OPTION_OPERAND_WIDTH)
-  )
-  u_store_buffer
-  (
-    .clk      (clk),
-    .rst      (rst),
-
-    .pc_i     (ctrl_epcr_i), // STORE_BUFFER
-    .adr_i    (phys_addr_cmd), // STORE_BUFFER
-    .dat_i    (lsu_sdat), // STORE_BUFFER
-    .bsel_i   (dbus_bsel), // STORE_BUFFER
-    .atomic_i (cmd_swa_r), // STORE_BUFFER
-    .write_i  (store_buffer_we), // STORE_BUFFER
-
-    .pc_o     (store_buffer_epcr_o), // STORE_BUFFER
-    .adr_o    (store_buffer_radr), // STORE_BUFFER
-    .dat_o    (store_buffer_dat), // STORE_BUFFER
-    .bsel_o   (store_buffer_bsel), // STORE_BUFFER
-    .atomic_o (store_buffer_atomic), // STORE_BUFFER
-    .read_i   (store_buffer_re), // STORE_BUFFER
-
-    .full_o   (store_buffer_full), // STORE_BUFFER
-    .empty_o  (store_buffer_empty) // STORE_BUFFER
-  );
 
 
 

@@ -313,7 +313,7 @@ module mor1kx_ctrl_marocchino
   //-------------------------------------//
 
   // to FETCH: exceptions/rfe command and appropriate address
-  assign ctrl_branch_exception_o = (exception_r | doing_rfe_r) & ~fetch_exception_taken_i;
+  assign ctrl_branch_exception_o = exception_r | doing_rfe_r;
 
   assign ctrl_branch_except_pc_o = exception_r ? exception_pc_addr : spr_epcr;
 

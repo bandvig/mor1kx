@@ -86,6 +86,7 @@ module mor1kx_decode_marocchino
   output                                dcod_branch_o,
   output     [OPTION_OPERAND_WIDTH-1:0] dcod_branch_target_o,
   // Branch prediction signals
+  input                                 mispredict_taken_i,
   input                                 predicted_flag_i,
   output reg                            exec_op_brcond_o,
   output reg                            exec_predicted_flag_o,
@@ -687,7 +688,7 @@ module mor1kx_decode_marocchino
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
       exec_op_brcond_o <= 1'b0;
-    else if (pipeline_flush_i)
+    else if (mispredict_taken_i | pipeline_flush_i)
       exec_op_brcond_o <= 1'b0;
     else if (padv_decode_i)
       exec_op_brcond_o <= dcod_op_brcond;
