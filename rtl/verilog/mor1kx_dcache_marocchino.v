@@ -73,7 +73,6 @@ module mor1kx_dcache_marocchino
   // re-fill
   output                                refill_req_o,
   input                                 refill_allowed_i,
-  output                                dc_refill_o,
   output     [OPTION_OPERAND_WIDTH-1:0] next_refill_adr_o,
   output                                refill_last_o,
   input      [OPTION_OPERAND_WIDTH-1:0] dbus_dat_i,
@@ -141,10 +140,10 @@ module mor1kx_dcache_marocchino
   // FSM state register
   reg [4:0] dc_state;
   // FSM state signals
-  wire   dc_read       = (dc_state == DC_READ);
-  wire   dc_write      = (dc_state == DC_WRITE);
-  assign dc_refill_o   = (dc_state == DC_REFILL);
-  wire   dc_invalidate = (dc_state == DC_INVALIDATE);
+  wire dc_read       = (dc_state == DC_READ);
+  wire dc_write      = (dc_state == DC_WRITE);
+  wire dc_refill     = (dc_state == DC_REFILL);
+  wire dc_invalidate = (dc_state == DC_INVALIDATE);
 
 
   wire                                          invalidate_cmd;
@@ -253,7 +252,7 @@ module mor1kx_dcache_marocchino
   //   So, locally we use short variant of dc-access
   wire   dc_access   = dc_check_limit_width & ~dmmu_cache_inhibit_i;
   //   While for output the full variant is used
-  assign dc_access_o = (dc_read | dc_write | dc_refill_o) & dc_access;
+  assign dc_access_o = (dc_read | dc_write | dc_refill) & dc_access;
 
   // if requested data were fetched befire snoop-hit, it is valid
   assign dc_ack_o = (dc_access & dc_read & dc_hit & ~snoop_hit_o) | refill_hit_r;
@@ -645,11 +644,11 @@ module mor1kx_dcache_marocchino
 
   // On re-fill we force using RW-port to provide correct read-hit
   // WAY-RAM read address
-  wire [WAY_WIDTH-3:0] way_raddr = dc_refill_o ? curr_refill_adr[WAY_WIDTH-1:2] :
-                                              virt_addr_i[WAY_WIDTH-1:2];
+  wire [WAY_WIDTH-3:0] way_raddr = dc_refill ? curr_refill_adr[WAY_WIDTH-1:2] :
+                                               virt_addr_i[WAY_WIDTH-1:2];
   // WAY-RAM write address
-  wire [WAY_WIDTH-3:0] way_waddr = dc_refill_o ? curr_refill_adr[WAY_WIDTH-1:2] :
-                                              phys_addr_cmd_i[WAY_WIDTH-1:2];
+  wire [WAY_WIDTH-3:0] way_waddr = dc_refill ? curr_refill_adr[WAY_WIDTH-1:2] :
+                                               phys_addr_cmd_i[WAY_WIDTH-1:2];
   // support RW-conflict detection
   wire way_rw_same_addr = (way_raddr == way_waddr);
 
@@ -658,7 +657,7 @@ module mor1kx_dcache_marocchino
     // each way RAM read and write
     //  # on re-fill we force using RW-port
     //    to provide correct read-hit
-    assign way_re[i] = try_load | try_store | (way_we[i] & dc_refill_o);
+    assign way_re[i] = try_load | try_store | (way_we[i] & dc_refill);
 
     // Read / Write port (*_rwp_*) controls
     assign way_rwp_we[i] = way_we[i] & way_re[i] & way_rw_same_addr;

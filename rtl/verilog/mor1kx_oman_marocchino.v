@@ -400,6 +400,12 @@ module mor1kx_oman_marocchino
   assign dcod_bubble_o = ((ocb_hazard_b | exe2dec_hazard_b_o) & dcod_op_jr_i) | dcod_op_rfe_i | dcod_an_except;
 
 
+  // For debug with  simulatiom
+`ifdef SIM_SMPL_SOC // MAROCCHINO_TODO
+  wire [OPTION_OPERAND_WIDTH-1:0] pc_exec = ocbo00[OCBT_PC_MSB:OCBT_PC_LSB];
+`endif
+
+
   // WB-request (1-clock to prevent extra writes in RF)
   // Enable external interrupts (1-clock length by default)
   always @(posedge clk `OR_ASYNC_RST) begin

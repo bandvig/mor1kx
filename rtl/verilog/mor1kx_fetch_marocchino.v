@@ -595,11 +595,15 @@ module mor1kx_fetch_marocchino
   // to DECODE: actual program counter
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
-      pc_decode_o <= {OPTION_OPERAND_WIDTH{1'b0}};
+      pc_decode_o <= {OPTION_OPERAND_WIDTH{1'b0}}; // reset
     else if (flush_by_ctrl)
-      pc_decode_o <= pc_decode_o;
-    else if (padv_fetch_i & (~flush_by_mispredict_s3 | s3t_excepts | s2o_ds))
-      pc_decode_o <= s2o_pc;
+      pc_decode_o <= {OPTION_OPERAND_WIDTH{1'b0}}; // flush
+    else if (padv_fetch_i) begin
+      if (s3t_insn | s3t_excepts)
+        pc_decode_o <= s2o_pc; // valid instruction or exception
+      else
+        pc_decode_o <= {OPTION_OPERAND_WIDTH{1'b0}}; // invalid instruction
+    end
   end // @ clock
 
   // to DECODE: instruction valid flag

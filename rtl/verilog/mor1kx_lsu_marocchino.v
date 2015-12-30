@@ -28,8 +28,6 @@
 
 `include "mor1kx-defines.v"
 
-//`define FAST_WB
-
 module mor1kx_lsu_marocchino
 #(
   // data cache
@@ -194,7 +192,6 @@ module mor1kx_lsu_marocchino
   wire                              dc_access;
   wire                              dc_refill_req;
   reg                               dc_refill_allowed; // combinatorial
-  wire                              dc_refill;
   wire   [OPTION_OPERAND_WIDTH-1:0] next_refill_adr;
   wire                              dc_refill_last;
 
@@ -236,6 +233,9 @@ module mor1kx_lsu_marocchino
   //wire                              lsu_ack;        // combined
   reg                               lsu_ack_load_pending;
   reg                               lsu_ack_store_pending;
+  //  # busy of various stages
+  wire                              lsu_busy_dc; // DCACHE/DBUS access stage busy
+  wire                              lsu_busy_wb; // Result is waiting WB access
 
 
 
@@ -247,7 +247,7 @@ module mor1kx_lsu_marocchino
   wire op_ls      = lsu_load_r | lsu_store_r; // latched load/store
 
   // signal to take new LSU command (less priority than flushing)
-  wire take_op_ls = op_ls & ~snoop_hit;
+  wire take_op_ls = op_ls & ~snoop_hit & ~(lsu_busy_dc | lsu_busy_wb);
 
   // exceptions or pipe flushing
   assign dbus_stall = lsu_excepts | pipeline_flush_i;
@@ -256,9 +256,12 @@ module mor1kx_lsu_marocchino
   wire cmd_ls = cmd_load_r | cmd_store_r | cmd_swa_r | cmd_swa_buffered_r;
 
   // LSU is busy
+  //  # DCACHE/DBUS access stage busy
+  assign lsu_busy_dc = cmd_ls | cmd_msync_r | snoop_hit | (state == DC_REFILL);
+  //  # Result is waiting WB access
+  assign lsu_busy_wb = (lsu_ack_load_pending | lsu_ack_store_pending) & ~grant_wb_to_lsu_i; 
   //   MAROCCHINO_TODO: potential improvement with more pipelinization
-  assign lsu_busy_o = op_ls | cmd_ls | cmd_msync_r |  // LSU busy
-                      snoop_hit | dc_refill;          // LSU busy
+  assign lsu_busy_o = op_ls & (lsu_busy_dc | lsu_busy_wb);
 
   // report on command execution
   //  # load completion
@@ -270,11 +273,7 @@ module mor1kx_lsu_marocchino
   //assign lsu_ack       = lsu_ack_load | lsu_ack_store | lsu_ack_swa;
 
   // output assignement (1-clk ahead for WB-latching)
-`ifdef FAST_WB
-  assign lsu_valid_o = lsu_ack_load_pending | lsu_ack_store_pending | lsu_ack_load;
-`else
   assign lsu_valid_o = lsu_ack_load_pending | lsu_ack_store_pending;
-`endif
 
 
 
@@ -629,11 +628,7 @@ module mor1kx_lsu_marocchino
       wb_lsu_rdy_o <= 1'b0;
     else if (padv_wb_i) begin
       if (grant_wb_to_lsu_i)
-      `ifdef FAST_WB
-        wb_lsu_rdy_o <= lsu_ack_load_pending | lsu_ack_load | wb_lsu_rdy_o;
-      `else
         wb_lsu_rdy_o <= lsu_ack_load_pending | wb_lsu_rdy_o;
-      `endif
       else  if (do_rf_wb_i) // another unit is granted with guarantee
         wb_lsu_rdy_o <= 1'b0;
     end
@@ -646,11 +641,7 @@ module mor1kx_lsu_marocchino
     else if (pipeline_flush_i)
       wb_lsu_result_o <= {OPTION_OPERAND_WIDTH{1'b0}};
     else if (padv_wb_i & grant_wb_to_lsu_i)
-    `ifdef FAST_WB
-      wb_lsu_result_o <= lsu_ack_load ? dbus_dat_extended : lsu_result_r;
-    `else
       wb_lsu_result_o <= lsu_result_r;
-    `endif
   end // @ clock
 
 
@@ -719,6 +710,8 @@ module mor1kx_lsu_marocchino
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst) begin
       state       <= IDLE;
+      dbus_adr_o  <= {OPTION_OPERAND_WIDTH{1'b0}};
+      dbus_dat_o  <= {OPTION_OPERAND_WIDTH{1'b0}};
       dbus_req_o  <= 1'b0;
       dbus_we     <= 1'b0;
       dbus_bsel_o <= 4'hf;
@@ -727,6 +720,11 @@ module mor1kx_lsu_marocchino
     end
     else if (dbus_stall) begin
       state       <= IDLE;
+      // MAROCCHINO_TODO: I had to comment the next two
+      //                  lines to be able to run Linux
+      //                  by U-BOOT
+      //dbus_adr_o  <= {OPTION_OPERAND_WIDTH{1'b0}};
+      //dbus_dat_o  <= {OPTION_OPERAND_WIDTH{1'b0}};
       dbus_req_o  <= 1'b0;
       dbus_we     <= 1'b0;
       dbus_bsel_o <= 4'hf;
@@ -737,23 +735,29 @@ module mor1kx_lsu_marocchino
       // process
       case (state)
         IDLE: begin
-          dbus_adr_o  <= {OPTION_OPERAND_WIDTH{1'b0}};
           dbus_req_o  <= 1'b0;
           dbus_we     <= 1'b0;
           dbus_bsel_o <= 4'hf;
           dbus_atomic <= 1'b0;
           last_write  <= 1'b0;
           if (store_buffer_write | ~store_buffer_empty) begin
-            state <= WRITE;
+            dbus_req_o  <= 1'b1;
+            dbus_we     <= 1'b1;
             if (store_buffer_empty) begin   // 1-st write in buffer
-              dbus_req_o  <= 1'b1;          // 1-st write in buffer
-              dbus_we     <= 1'b1;          // 1-st write in buffer
               dbus_bsel_o <= dbus_bsel;     // 1-st write in buffer
               dbus_adr_o  <= phys_addr_cmd; // 1-st write in buffer
               dbus_dat_o  <= lsu_sdat;      // 1-st write in buffer
               dbus_atomic <= cmd_swa_r;     // 1-st write in buffer
               last_write  <= 1'b1;          // 1-st write in buffer
             end
+            else begin
+              dbus_bsel_o <= store_buffer_bsel;   // idle -> write
+              dbus_adr_o  <= store_buffer_radr;   // idle -> write
+              dbus_dat_o  <= store_buffer_dat;    // idle -> write
+              dbus_atomic <= store_buffer_atomic; // idle -> write
+              last_write  <= store_buffer_empty;  // idle -> write
+            end
+            state <= WRITE;
           end
           else if (cmd_load_r & ~dc_access) begin
             dbus_req_o  <= 1'b1;
@@ -773,21 +777,27 @@ module mor1kx_lsu_marocchino
           if (dbus_ack_i) begin
             dbus_adr_o <= next_refill_adr;
             if (dc_refill_last) begin
-              dbus_req_o <= 1'b0;
-              state      <= IDLE;
+              dbus_req_o  <= 1'b0;
+              dbus_adr_o  <= {OPTION_OPERAND_WIDTH{1'b0}};
+              dbus_dat_o  <= {OPTION_OPERAND_WIDTH{1'b0}};
+              state       <= IDLE;
             end
           end
           // TODO: only abort on snoop-hits to refill address
           if (snoop_hit) begin
-            dbus_req_o <= 1'b0;
-            state      <= IDLE;
+            dbus_req_o  <= 1'b0;
+            dbus_adr_o  <= {OPTION_OPERAND_WIDTH{1'b0}};
+            dbus_dat_o  <= {OPTION_OPERAND_WIDTH{1'b0}};
+            state       <= IDLE;
           end
         end // dc-refill
   
         READ: begin
           if (dbus_ack_i) begin
-            dbus_req_o <= 1'b0;
-            state      <= IDLE;
+            dbus_req_o  <= 1'b0;
+            dbus_adr_o  <= {OPTION_OPERAND_WIDTH{1'b0}};
+            dbus_dat_o  <= {OPTION_OPERAND_WIDTH{1'b0}};
+            state       <= IDLE;
           end
         end // read
   
@@ -805,17 +815,19 @@ module mor1kx_lsu_marocchino
                 last_write  <= 1'b1;          // last write overlapped by new store command
               end
               else begin
-                dbus_req_o <= 1'b0;
-                dbus_we    <= 1'b0;
-                state      <= IDLE;
+                dbus_req_o  <= 1'b0;
+                dbus_we     <= 1'b0;
+                dbus_adr_o  <= {OPTION_OPERAND_WIDTH{1'b0}};
+                dbus_dat_o  <= {OPTION_OPERAND_WIDTH{1'b0}};
+                state       <= IDLE;
               end
             end
             else begin // not last
-              dbus_bsel_o <= store_buffer_bsel;
-              dbus_adr_o  <= store_buffer_radr;
-              dbus_dat_o  <= store_buffer_dat;
-              dbus_atomic <= store_buffer_atomic;
-              last_write  <= store_buffer_empty;
+              dbus_bsel_o <= store_buffer_bsel;   // continous write
+              dbus_adr_o  <= store_buffer_radr;   // continous write
+              dbus_dat_o  <= store_buffer_dat;    // continous write
+              dbus_atomic <= store_buffer_atomic; // continous write
+              last_write  <= store_buffer_empty;  // continous write
             end
           end // bus ack
           else if (store_buffer_write) // new store command while waiting bus ack
@@ -825,6 +837,7 @@ module mor1kx_lsu_marocchino
         default: begin
           state       <= IDLE;
           dbus_adr_o  <= {OPTION_OPERAND_WIDTH{1'b0}};
+          dbus_dat_o  <= {OPTION_OPERAND_WIDTH{1'b0}};
           dbus_req_o  <= 1'b0;
           dbus_we     <= 1'b0;
           dbus_bsel_o <= 4'hf;
@@ -1009,7 +1022,6 @@ module mor1kx_lsu_marocchino
     // re-fill
     .refill_req_o               (dc_refill_req), // DCACHE
     .refill_allowed_i           (dc_refill_allowed), // DCACHE
-    .dc_refill_o                (dc_refill), // DCACHE
     .next_refill_adr_o          (next_refill_adr), // DCACHE
     .refill_last_o              (dc_refill_last), // DCACHE
     .dbus_dat_i                 (dbus_dat_i), // DCACHE

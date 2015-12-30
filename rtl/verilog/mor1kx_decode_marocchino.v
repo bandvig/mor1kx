@@ -158,8 +158,6 @@ module mor1kx_decode_marocchino
   wire [OPTION_OPERAND_WIDTH-1:0] imm_high;
   wire                            imm_high_sel;
 
-  wire dcod_op_jb_imm; // l.j  | l.jal  | l.bnf | l.bf : jumps or contitional branches to immediate
-
   // Insn opcode
   wire [`OR1K_OPCODE_WIDTH-1:0]  opc_insn = dcod_insn_i[`OR1K_OPCODE_SELECT];
   wire [`OR1K_ALU_OPC_WIDTH-1:0] opc_alu  = dcod_insn_i[`OR1K_ALU_OPC_SELECT];
@@ -654,15 +652,12 @@ module mor1kx_decode_marocchino
                          (opc_insn == `OR1K_OPCODE_JAL);
 
   // conditional branches
-  assign dcod_op_bf_o     = (opc_insn == `OR1K_OPCODE_BF)  & (~pipeline_flush_i);
-  assign dcod_op_bnf_o    = (opc_insn == `OR1K_OPCODE_BNF) & (~pipeline_flush_i);
+  assign dcod_op_bf_o     = (opc_insn == `OR1K_OPCODE_BF);
+  assign dcod_op_bnf_o    = (opc_insn == `OR1K_OPCODE_BNF);
 
   // jumps or contitional branches to immediate
-  assign dcod_op_jb_imm = (opc_insn < `OR1K_OPCODE_NOP); // l.j  | l.jal  | l.bnf | l.bf
-
-  wire branch_to_imm = dcod_op_jb_imm &
-                       // l.j/l.jal  or  l.bf/bnf and flag is right
-                       (~(|opc_insn[2:1]) | (opc_insn[2] == predicted_flag_i));
+  wire branch_to_imm = (opc_insn == `OR1K_OPCODE_J) | (opc_insn == `OR1K_OPCODE_JAL) |
+                       (dcod_op_bf_o & predicted_flag_i) | (dcod_op_bnf_o & ~predicted_flag_i);
 
   wire [OPTION_OPERAND_WIDTH-1:0] branch_to_imm_target =
     pc_decode_i +
@@ -682,8 +677,6 @@ module mor1kx_decode_marocchino
 
 
   // For mispredict detection
-  //  # for conditional branches only
-  wire dcod_op_brcond = dcod_op_bf_o | dcod_op_bnf_o;
   //  # latch "branch is conditional" flag
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
@@ -691,11 +684,11 @@ module mor1kx_decode_marocchino
     else if (mispredict_taken_i | pipeline_flush_i)
       exec_op_brcond_o <= 1'b0;
     else if (padv_decode_i)
-      exec_op_brcond_o <= dcod_op_brcond;
+      exec_op_brcond_o <= (dcod_op_bf_o | dcod_op_bnf_o);
   end // @clock
   //  # latch predicted flag and mispredicted target
   always @(posedge clk) begin
-    if (padv_decode_i & dcod_op_brcond) begin
+    if (padv_decode_i & (dcod_op_bf_o | dcod_op_bnf_o)) begin
       exec_mispredict_target_o <= dcod_mispredict_target;
       exec_predicted_flag_o    <= predicted_flag_i;
     end
@@ -715,7 +708,9 @@ module mor1kx_decode_marocchino
                           (opc_insn == `OR1K_OPCODE_SWA);
 
   // Which instructions require comparison flag?
-  assign dcod_flag_req_o = dcod_op_cmov_o | dcod_op_brcond; // l.cmov and correct mispredict detection
+  //  # l.cmov
+  //  # conditional branches for mispredict detection in EXECUTE
+  assign dcod_flag_req_o = dcod_op_cmov_o | dcod_op_bf_o | dcod_op_bnf_o;
 
   // Which instruction writes carry flag?
   assign dcod_carry_wb_o = dcod_op_add_o | dcod_op_div_o;
