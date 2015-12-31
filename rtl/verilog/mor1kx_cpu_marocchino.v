@@ -205,7 +205,7 @@ module mor1kx_cpu_marocchino
   wire                            exe2dec_hazard_b;
 
   wire                            dcod_op_jr;
-  wire                            dcod_bubble;
+  wire                            stall_fetch;
 
   wire                            dcod_op_branch;
 
@@ -328,9 +328,11 @@ module mor1kx_cpu_marocchino
 
   // pipeline controls from CTRL to units
   wire padv_fetch;
+  wire clean_fetch;
   wire padv_decode;
   wire padv_wb;
   wire pipeline_flush;
+
 
   // Exceptions: reported from FETCH to OMAN
   wire dcod_except_ibus_err;
@@ -397,7 +399,8 @@ module mor1kx_cpu_marocchino
 
     // pipeline control
     .padv_fetch_i                     (padv_fetch), // FETCH
-    .dcod_bubble_i                    (dcod_bubble), // FETCH
+    .clean_fetch_i                    (clean_fetch), // FETCH
+    .stall_fetch_i                    (stall_fetch), // FETCH
     .pipeline_flush_i                 (pipeline_flush), // FETCH
 
     // configuration
@@ -889,7 +892,7 @@ module mor1kx_cpu_marocchino
     .dcod_except_trap_i         (dcod_except_trap), // OMAN
 
     // EXECUTE-to-DECODE hazards
-    .dcod_bubble_o              (dcod_bubble), // OMAN
+    .stall_fetch_o              (stall_fetch), // OMAN
     .exe2dec_hazard_a_o         (exe2dec_hazard_a), // OMAN
     .exe2dec_hazard_b_o         (exe2dec_hazard_b), // OMAN
 
@@ -970,12 +973,13 @@ module mor1kx_cpu_marocchino
 
     // Inputs / Outputs for pipeline control signals
     .dcod_insn_valid_i                (dcod_insn_valid), // CTRL
-    .dcod_bubble_i                    (dcod_bubble), // CTRL
+    .stall_fetch_i                    (stall_fetch), // CTRL
     .dcod_valid_i                     (dcod_valid), // CTRL
     .exec_valid_i                     (exec_valid), // CTRL
     .do_rf_wb_i                       (do_rf_wb), // CTRL (MFSPR support)
     .pipeline_flush_o                 (pipeline_flush), // CTRL
     .padv_fetch_o                     (padv_fetch), // CTRL
+    .clean_fetch_o                    (clean_fetch), // CTRL
     .padv_decode_o                    (padv_decode), // CTRL
     .padv_wb_o                        (padv_wb), // CTRL
 

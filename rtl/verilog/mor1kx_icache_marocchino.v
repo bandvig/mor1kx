@@ -42,8 +42,7 @@ module mor1kx_icache_marocchino
   input                                 rst,
 
   // controls
-  input                                 adv_i,        // advance
-  input                                 force_off_i,  // drop stored "IMMU enable"
+  input                                 adv_i, // advance
   input                                 fetch_excepts_i,
 
   // configuration
@@ -117,8 +116,8 @@ module mor1kx_icache_marocchino
   // FSM state pointer
   reg [3:0] state;
   // Particular state indicators
-  wire   read       = (state == READ);
-  wire   invalidate = (state == INVALIDATE);
+  wire ic_read       = (state == READ);
+  wire ic_invalidate = (state == INVALIDATE);
 
 
   reg               [OPTION_OPERAND_WIDTH-1:0] curr_refill_adr;
@@ -150,7 +149,7 @@ module mor1kx_icache_marocchino
   wire [OPTION_OPERAND_WIDTH-1:0] way_dout [OPTION_ICACHE_WAYS-1:0];
 
   // FETCH reads ICACHE
-  wire                          ic_read;
+  wire                          ic_try;
 
   // Does any way hit?
   wire                          ic_check_limit_width;
@@ -175,6 +174,9 @@ module mor1kx_icache_marocchino
   genvar i;
 
 
+  // FETCH reads ICACHE
+  assign ic_try = adv_i & enable_i;
+
 
   generate
   //   Hack? Work around IMMU?
@@ -194,19 +196,6 @@ module mor1kx_icache_marocchino
   endgenerate
 
 
-  // Update ICACHE enable/disable
-  reg enable_r;
-  // ---
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      enable_r <= 1'b0;
-    else if (force_off_i) // ICAHCE -> idle
-      enable_r <= 1'b0;
-    else if (adv_i)
-      enable_r <= enable_i;
-  end // @ clock
-
-
   // detect per-way hit
   generate
   for (i = 0; i < OPTION_ICACHE_WAYS; i=i+1) begin : ways_out
@@ -224,12 +213,23 @@ module mor1kx_icache_marocchino
   // read success
   assign hit = |way_hit;
 
-  // ICACHE access
-  assign ic_access_o = enable_r & ic_check_limit_width & ~immu_cache_inhibit_i;
+  //
+  //   If ICACHE is in state read/refill it automatically means that
+  // ICACHE is enabled (see ic_try).
+  //
+  //   So, locally we use short variant of dc-access
+  wire   ic_access   = ic_check_limit_width & ~immu_cache_inhibit_i;
+  //   While for output the full variant is used
+  assign ic_access_o = ic_read & ic_access;
 
   // MAROCCHINO_TODO: potential improvement.
-  // Allowing (out of the cache line being refilled) accesses during refill.
-  assign ic_ack_o = (ic_access_o & read & hit) | refill_hit_r;
+  //                  Combine re-fill with fetching next instructions
+  //                  for appropriate addresses.
+  assign ic_ack_o = (ic_access & ic_read & hit) | refill_hit_r;
+
+  // RE-FILL request
+  assign refill_req_o = ic_access & ic_read & ~hit;
+
 
   // read result if success
   integer w0;
@@ -250,7 +250,6 @@ module mor1kx_icache_marocchino
 
   assign refill_last_o = refill_done[next_refill_adr_o[OPTION_ICACHE_BLOCK_WIDTH-1:2]];
 
-  assign refill_req_o = ic_access_o & read & ~hit;
 
   // SPR bus interface
   //  # detect SPR request to ICACHE
@@ -258,8 +257,6 @@ module mor1kx_icache_marocchino
   //  # data output
   assign spr_bus_dat_o = {OPTION_OPERAND_WIDTH{1'b0}};
 
-  // FETCH reads ICACHE
-  assign ic_read = adv_i & enable_i;
 
   //-----------//
   // Cache FSM //
@@ -283,7 +280,7 @@ module mor1kx_icache_marocchino
     end
     else if (spr_bus_ic_stb) begin
       // SPR transaction
-      if (invalidate) begin
+      if (ic_invalidate) begin
         spr_bus_ack_o <= 1'b0;
         state         <= IDLE;
       end
@@ -296,25 +293,31 @@ module mor1kx_icache_marocchino
       // states
       case (state)
         IDLE: begin
-          if (ic_read)
+          if (ic_try)
             state <= READ;
         end
 
         READ: begin
-          if (ic_access_o & ~hit & ic_refill_allowed_i) begin
-            // Store the LRU information for correct replacement
-            // on refill. Always one when only one way.
-            lru_way_r <= (OPTION_ICACHE_WAYS == 1) | lru_way;
-            // store tag state
-            for (w1 = 0; w1 < OPTION_ICACHE_WAYS; w1 = w1 + 1) begin
-              tag_way_save[w1] <= tag_way_out[w1];
+          if (ic_access) begin
+            if (~hit) begin
+              if (ic_refill_allowed_i) begin
+                // Store the LRU information for correct replacement
+                // on refill. Always one when only one way.
+                lru_way_r <= (OPTION_ICACHE_WAYS == 1) | lru_way;
+                // store tag state
+                for (w1 = 0; w1 < OPTION_ICACHE_WAYS; w1 = w1 + 1) begin
+                  tag_way_save[w1] <= tag_way_out[w1];
+                end
+                // 1st re-fill addrress
+                curr_refill_adr <= phys_addr_fetch_i;
+                // to re-fill
+                state <= REFILL;
+              end
             end
-            // 1st re-fill addrress
-            curr_refill_adr <= phys_addr_fetch_i;
-            // to re-fill
-            state <= REFILL;
+            else if (~ic_try) // ICACHE hit
+              state <= IDLE;
           end
-          else if (~ic_read)
+          else if (~ic_try) // not ICACHE access
             state <= IDLE;
         end
 
@@ -350,7 +353,7 @@ module mor1kx_icache_marocchino
   assign way_we = {OPTION_ICACHE_WAYS{we_i}} & lru_way_r;
 
   // WAY-RAM enable
-  assign way_en = {OPTION_ICACHE_WAYS{ic_read}} | way_we;
+  assign way_en = {OPTION_ICACHE_WAYS{ic_try}} | way_we;
 
   generate
   for (i = 0; i < OPTION_ICACHE_WAYS; i=i+1) begin : ways_ram
@@ -428,10 +431,12 @@ module mor1kx_icache_marocchino
 
     case (state)
       READ: begin
-        // The LRU module gets the access information.
-        access_lru_history = way_hit;
-        // Depending on this we update the LRU history in the tag.
-        if (hit) begin
+        if (ic_access & hit) begin
+          // We got a hit. The LRU module gets the access
+          // information. Depending on this we update the LRU
+          // history in the tag.
+          access_lru_history = way_hit;
+          // Depending on this we update the LRU history in the tag.
           tag_lru_in = next_lru_history;
           tag_we     = 1'b1;
         end
@@ -441,18 +446,15 @@ module mor1kx_icache_marocchino
         if (we_i) begin
           // Access pattern
           access_lru_history = lru_way_r;
-
-          /* Invalidate the way on the first write */
+          // Invalidate the way on the first write
           if (refill_done == 0) begin
             for (w2 = 0; w2 < OPTION_ICACHE_WAYS; w2 = w2 + 1) begin
               if (lru_way_r[w2]) begin
                 tag_way_in[w2][TAGMEM_WAY_VALID] = 1'b0;
               end
             end
-
             tag_we = 1'b1;
           end
-
           // After refill update the tag memory entry of the
           // filled way with the LRU history, the tag and set
           // valid to 1.
@@ -463,8 +465,7 @@ module mor1kx_icache_marocchino
                                 tag_way_save[w2];
             end
             tag_lru_in = next_lru_history;
-
-            tag_we = 1'b1;
+            tag_we     = 1'b1;
           end
         end
       end
@@ -475,7 +476,6 @@ module mor1kx_icache_marocchino
         for (w2 = 0; w2 < OPTION_ICACHE_WAYS; w2 = w2 + 1) begin
           tag_way_in[w2] = 0;
         end
-
         tag_we = 1'b1;
       end
 
@@ -499,9 +499,9 @@ module mor1kx_icache_marocchino
    * The tag mem is written during reads to write the LRU info
    * and during refill and invalidate
    */
-  assign tag_windex = read       ? phys_addr_fetch_i[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH] : // at update LRU field
-                      invalidate ? spr_bus_dat_i[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH]     : // at invalidate
-                                   curr_refill_adr[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH];    // at re-fill
+  assign tag_windex = ic_read       ? phys_addr_fetch_i[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH] : // at update LRU field
+                      ic_invalidate ? spr_bus_dat_i[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH]     : // at invalidate
+                                      curr_refill_adr[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH];    // at re-fill
 
   // TAG read address
   assign tag_rindex = virt_addr_i[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH];
@@ -510,7 +510,7 @@ module mor1kx_icache_marocchino
   wire tr_rwp_we = tag_we & (tag_rindex == tag_windex);
 
   // Write-only port (*_wp_*) enable
-  wire tr_wp_en = tag_we & (~(tag_rindex == tag_windex) | ~ic_read);
+  wire tr_wp_en = tag_we & (~(tag_rindex == tag_windex) | ~ic_try);
 
   // TAG-RAM instance
   mor1kx_dpram_en_w1st_sclk
@@ -524,7 +524,7 @@ module mor1kx_icache_marocchino
     // common clock
     .clk    (clk),
     // port "a": Read / Write (for RW-conflict case)
-    .en_a   (ic_read),    // enable port "a"
+    .en_a   (ic_try),     // enable port "a"
     .we_a   (tr_rwp_we),  // operation is "write"
     .addr_a (tag_rindex),
     .din_a  (tag_din),

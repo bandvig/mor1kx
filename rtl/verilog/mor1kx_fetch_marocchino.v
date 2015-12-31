@@ -54,7 +54,8 @@ module mor1kx_fetch_marocchino
 
   // pipeline control
   input                                 padv_fetch_i,
-  input                                 dcod_bubble_i,
+  input                                 clean_fetch_i,
+  input                                 stall_fetch_i,
   input                                 pipeline_flush_i,
 
   // configuration
@@ -141,7 +142,6 @@ module mor1kx_fetch_marocchino
   // ICACHE access flag (without taking exceptions into accaunt)
   wire                            ic_access;
   // ICACHE output ready (by read or re-fill) and data
-  wire                            ic_rdy;
   wire                            ic_ack;
   wire     [`OR1K_INSN_WIDTH-1:0] ic_dat;
   // ICACHE requests and performs refill
@@ -313,7 +313,7 @@ module mor1kx_fetch_marocchino
       branch_stored        <= 1'b0;
       branch_target_stored <= branch_target_stored;
     end
-    else if (dcod_take_branch_i & ~dcod_bubble_i & ~branch_stored) begin
+    else if (dcod_take_branch_i & ~stall_fetch_i & ~branch_stored) begin
       branch_stored        <= 1'b1;
       branch_target_stored <= dcod_branch_target_i;
     end
@@ -372,7 +372,7 @@ module mor1kx_fetch_marocchino
   // IBUS/ICACHE <-> FETCH's pipe interface //
   //----------------------------------------//
 
-  wire imem_rdy = ic_rdy | ibus_rdy;
+  wire imem_rdy = ic_ack | ibus_rdy;
 
   // ACKs and DATA stored till nearest advance
   always @(posedge clk `OR_ASYNC_RST) begin
@@ -394,7 +394,7 @@ module mor1kx_fetch_marocchino
     end
     else if (imem_rdy) begin
       // ACKs
-      imem_ic_ack_stored   <= ic_rdy;
+      imem_ic_ack_stored   <= ic_ack;
       imem_ibus_ack_stored <= ibus_rdy;
       // DATA
       imem_ic_dat_stored   <= ic_dat;
@@ -431,7 +431,7 @@ module mor1kx_fetch_marocchino
   wire s2t_ack_enable = ~(flush_by_branch | flush_by_mispredict_s2) & ~fetch_excepts;
 
   // masked ACKs
-  wire s2t_ic_ack_instant   = ic_rdy               & s2t_ack_enable;
+  wire s2t_ic_ack_instant   = ic_ack               & s2t_ack_enable;
   wire s2t_ibus_ack_instant = ibus_rdy             & s2t_ack_enable;
   wire s2t_ic_ack_stored    = imem_ic_ack_stored   & s2t_ack_enable;
   wire s2t_ibus_ack_stored  = imem_ibus_ack_stored & s2t_ack_enable;
@@ -571,7 +571,7 @@ module mor1kx_fetch_marocchino
       dcod_op_branch_o  <= 1'b0;
       dcod_delay_slot_o <= 1'b0;
     end
-    else if (flush_by_ctrl) begin
+    else if (flush_by_ctrl | clean_fetch_i) begin
       dcod_op_branch_o  <= 1'b0;
       dcod_delay_slot_o <= 1'b0;
     end
@@ -586,7 +586,7 @@ module mor1kx_fetch_marocchino
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
       dcod_insn_o <= {`OR1K_OPCODE_NOP,26'd0};
-    else if (flush_by_ctrl)
+    else if (flush_by_ctrl | clean_fetch_i)
       dcod_insn_o <= {`OR1K_OPCODE_NOP,26'd0};
     else if (padv_fetch_i)
       dcod_insn_o <= s3t_insn_mux;
@@ -596,7 +596,7 @@ module mor1kx_fetch_marocchino
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
       pc_decode_o <= {OPTION_OPERAND_WIDTH{1'b0}}; // reset
-    else if (flush_by_ctrl)
+    else if (flush_by_ctrl | clean_fetch_i)
       pc_decode_o <= {OPTION_OPERAND_WIDTH{1'b0}}; // flush
     else if (padv_fetch_i) begin
       if (s3t_insn | s3t_excepts)
@@ -610,7 +610,7 @@ module mor1kx_fetch_marocchino
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
       dcod_insn_valid_o <= 1'b0;
-    else if (flush_by_ctrl)
+    else if (flush_by_ctrl | clean_fetch_i)
       dcod_insn_valid_o <= 1'b0;
     else if (padv_fetch_i)
       dcod_insn_valid_o <= s3t_insn | s3t_excepts;
@@ -623,7 +623,7 @@ module mor1kx_fetch_marocchino
       dcod_except_itlb_miss_o  <= 1'b0;
       dcod_except_ipagefault_o <= 1'b0;
     end
-    else if (flush_by_ctrl) begin
+    else if (flush_by_ctrl | clean_fetch_i) begin
       dcod_except_ibus_err_o   <= 1'b0;
       dcod_except_itlb_miss_o  <= 1'b0;
       dcod_except_ipagefault_o <= 1'b0;
@@ -701,7 +701,7 @@ module mor1kx_fetch_marocchino
     ic_refill_allowed = 1'b0;
     case (state)
       IMEM_REQ: begin
-        if (fetch_excepts | flush_by_ctrl | flush_by_branch | flush_by_mispredict_s2)  // for re-fill allowed
+        if (padv_s1 | fetch_excepts | flush_by_ctrl)  // for re-fill allowed
           ic_refill_allowed = 1'b0;
         else if (ic_refill_req) // automatically means (ic-access & ~ic-ack)
           ic_refill_allowed = 1'b1;
@@ -731,7 +731,7 @@ module mor1kx_fetch_marocchino
           if (fetch_excepts | flush_by_ctrl) begin
             state <= IDLE;
           end
-          else if (flush_by_branch | flush_by_mispredict_s2 | ic_ack) begin
+          else if (padv_s1) begin
             state <= IMEM_REQ;
           end
           else if (~ic_access) begin
@@ -813,9 +813,6 @@ module mor1kx_fetch_marocchino
   // Instance of cache //
   //-------------------//
 
-  // mask ICACHE ack with memory request flag
-  assign ic_rdy = ((state == IMEM_REQ) | (state == IC_REFILL)) & ic_ack;
-
   // ICACHE module
   mor1kx_icache_marocchino
   #(
@@ -833,7 +830,6 @@ module mor1kx_fetch_marocchino
     .rst                  (rst),
     // controls
     .adv_i                (ic_immu_adv), // ICACHE advance
-    .force_off_i          (ic_immu_force_off), // ICACHE: drop stored "ICACHE enable"
     .fetch_excepts_i      (fetch_excepts), // ICACHE
     // configuration
     .enable_i             (ic_enable_i), // ICACHE

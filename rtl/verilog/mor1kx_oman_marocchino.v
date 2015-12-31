@@ -96,7 +96,7 @@ module mor1kx_oman_marocchino
   input                                 dcod_except_trap_i,
 
   // EXECUTE-to-DECODE hazards
-  output                                dcod_bubble_o,
+  output                                stall_fetch_o,
   output                                exe2dec_hazard_a_o,
   output                                exe2dec_hazard_b_o,
 
@@ -389,15 +389,17 @@ module mor1kx_oman_marocchino
                         ~stall_by_mXspr;
 
 
-  //   Bubble is just used to block FETCH advance (CTRL).
+  //   Stall FETCH advance (CTRL).
   //   Detect the situation where there is a jump to register in decode
   // stage and an instruction in execute stage that will write to that
   // register.
-  //   A bubble is also inserted when an rfe instruction is in decode stage,
-  // the main purpose of this is to stall fetch while the rfe is propagating
+  //   We also stall FETCH when an l.rfe/ecxeptions are in decode stage.
+  // The main purpose of this is waiting till l.rfe/exceptions propagate
   // up to WB stage.
-  //   By DECODE exceptions (FETCH exceptions block it in FETCH itself)
-  assign dcod_bubble_o = ((ocb_hazard_b | exe2dec_hazard_b_o) & dcod_op_jr_i) | dcod_op_rfe_i | dcod_an_except;
+  //   And the final reason to stop FETCH is l.mf(t)spr execution.
+  assign stall_fetch_o = ((ocb_hazard_b | exe2dec_hazard_b_o) & dcod_op_jr_i) | // stall FETCH
+                         dcod_op_rfe_i | dcod_an_except |                       // stall FETCH
+                         dcod_op_mtspr_i | dcod_op_mfspr_i;                     // stall FETCH
 
 
   // For debug with  simulatiom
