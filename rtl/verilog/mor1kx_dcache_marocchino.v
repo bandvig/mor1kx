@@ -48,7 +48,8 @@ module mor1kx_dcache_marocchino
   input                                 enable_i,
 
   // exceptions
-  input                                 dbus_stall_i,
+  input                                 cancel_cmd_i,
+  input                                 except_dbus_err_i,
 
   // input commands
   //  # for genearel load or store
@@ -392,9 +393,7 @@ module mor1kx_dcache_marocchino
       // states switching
       case (dc_state)
         DC_IDLE: begin
-          if (dbus_stall_i)
-            dc_state <= DC_IDLE;
-          else if (invalidate_cmd)
+          if (invalidate_cmd)
             dc_state <= DC_INVALIDATE;
           else if (try_load)
             dc_state <= DC_READ;
@@ -403,7 +402,7 @@ module mor1kx_dcache_marocchino
         end
 
         DC_READ: begin
-          if (dbus_stall_i)
+          if (cancel_cmd_i) // abort read
             dc_state <= DC_IDLE;
           else if (snoop_hit_o)
             dc_state <= DC_READ;
@@ -436,7 +435,7 @@ module mor1kx_dcache_marocchino
         end
 
         DC_WRITE: begin
-          if (dbus_stall_i)
+          if (cancel_cmd_i | except_dbus_err_i) // abort write
             dc_state <= DC_IDLE;
           else if (snoop_hit_o)
             dc_state <= DC_WRITE;
@@ -456,10 +455,10 @@ module mor1kx_dcache_marocchino
 
         DC_REFILL: begin
           refill_hit_r <= 1'b0;
-          if (dbus_stall_i) begin
-            refill_hit_was_r <= 1'b0;     // on exceptions or flush during re-fill
-            refill_done      <= 0;        // on exceptions or flush during re-fill
-            dc_state         <= DC_IDLE;
+          if (except_dbus_err_i) begin    // abort re-fill
+            refill_hit_was_r <= 1'b0;     // on dbus error during re-fill
+            refill_done      <= 0;        // on dbus error  during re-fill
+            dc_state         <= DC_IDLE;  // on dbus error  during re-fill
           end
           // Abort re-fill on snoop-hit
           // TODO: only abort on snoop-hits to re-fill address
@@ -541,7 +540,7 @@ module mor1kx_dcache_marocchino
         DC_READ: begin
           tag_windex = phys_addr_cmd_i[WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH]; // on read (LRU history update)
           // ---
-          if (dc_access & dc_hit & ~dbus_stall_i) begin // on read-hit
+          if (dc_access & dc_hit & ~cancel_cmd_i) begin // on read-hit
             // We got a hit. The LRU module gets the access
             // information. Depending on this we update the LRU
             // history in the tag.
@@ -557,7 +556,7 @@ module mor1kx_dcache_marocchino
           tag_windex = phys_addr_cmd_i[WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH]; // on write
           way_wr_dat = dbus_sdat_i; // on write
           // ---
-          if (dc_access & dc_hit & dc_store_allowed_i & ~dbus_stall_i) begin // on write-hit
+          if (dc_access & dc_hit & dc_store_allowed_i & ~(cancel_cmd_i | except_dbus_err_i)) begin // on write-hit
             // Mux cache output with write data
             if (~dbus_bsel_i[3]) way_wr_dat[31:24] = dc_dat_o[31:24];
             if (~dbus_bsel_i[2]) way_wr_dat[23:16] = dc_dat_o[23:16];
@@ -576,7 +575,7 @@ module mor1kx_dcache_marocchino
           tag_windex = curr_refill_adr[WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH]; // on re-fill
           way_wr_dat = dbus_dat_i; // on re-fill
           // ---
-          if (dbus_ack_i & ~dbus_stall_i) begin // on re-fill
+          if (dbus_ack_i) begin // on re-fill
             //
             // Write the data to the way that is replaced
             // (which is the LRU)

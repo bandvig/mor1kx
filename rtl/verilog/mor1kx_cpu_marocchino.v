@@ -176,12 +176,12 @@ module mor1kx_cpu_marocchino
 
   wire [OPTION_OPERAND_WIDTH-1:0] wb_result;
 
-  wire [OPTION_OPERAND_WIDTH-1:0] wb_lsu_result; // to WB_MUX
-  wire                            wb_lsu_rdy; // to WB_MUX
+  wire [OPTION_OPERAND_WIDTH-1:0] wb_lsu_result;  // to WB_MUX
+  wire                            wb_lsu_rdy;     // to WB_MUX
 
   wire                            dcod_valid;
   wire                            exec_valid;
-  wire                            lsu_valid;
+  wire                            lsu_valid;   // result ready or exceptions
 
 
   wire [OPTION_OPERAND_WIDTH-1:0] dcod_rfa;
@@ -343,8 +343,6 @@ module mor1kx_cpu_marocchino
   wire dcod_except_illegal;
   wire dcod_except_syscall;
   wire dcod_except_trap;
-  // Exceptions: reported by LSU
-  wire lsu_excepts;
   // Exceptions: latched by WB latches for processing in CONTROL-unit
   wire wb_except_ibus_err;
   wire wb_except_ipagefault;
@@ -757,10 +755,9 @@ module mor1kx_cpu_marocchino
     .store_buffer_epcr_o              (store_buffer_epcr), // LSU
     .store_buffer_err_o               (store_buffer_err), // LSU
     .ctrl_epcr_i                      (ctrl_epcr), // LSU
-    .lsu_excepts_o                    (lsu_excepts), // LSU
     // Outputs
     .lsu_busy_o                       (lsu_busy), // LSU
-    .lsu_valid_o                      (lsu_valid), // LSU
+    .lsu_valid_o                      (lsu_valid), // LSU: result ready or exceptions
     .lsu_adr_o                        (lsu_adr), // LSU
     .wb_lsu_result_o                  (wb_lsu_result), // LSU
     .wb_lsu_rdy_o                     (wb_lsu_rdy), // LSU
@@ -879,8 +876,7 @@ module mor1kx_cpu_marocchino
     .div_valid_i                (div_valid), // OMAN
     .mul_valid_i                (mul_valid), // OMAN
     .fp32_arith_valid_i         (fp32_arith_valid), // OMAN
-    .lsu_valid_i                (lsu_valid), // OMAN
-    .lsu_excepts_i              (lsu_excepts), // OMAN
+    .lsu_valid_i                (lsu_valid), // OMAN: result ready or exceptions
 
     // FETCH & DECODE exceptions
     .dcod_except_ibus_err_i     (dcod_except_ibus_err), // OMAN

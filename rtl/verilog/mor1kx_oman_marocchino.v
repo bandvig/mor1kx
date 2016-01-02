@@ -84,7 +84,6 @@ module mor1kx_oman_marocchino
   input                                 mul_valid_i,
   input                                 fp32_arith_valid_i,
   input                                 lsu_valid_i,
-  input                                 lsu_excepts_i,
 
   // FETCH & DECODE exceptions
   input                                 dcod_except_ibus_err_i,
@@ -291,10 +290,6 @@ module mor1kx_oman_marocchino
   assign exe2dec_hazard_b_o = exec_rf_wb & dcod_rfb_req_i & (exec_rfd_adr == dcod_rfb_adr_i);
 
 
-  // auxiliaries
-  wire lsu_valid_or_excepts = lsu_valid_i | lsu_excepts_i;
-
-
   //   An execute module is ready and granted access to WB
   //   Instructions l.mf(t)spr have got guaranted WB access because
   // no any new instruction is issued into execution till
@@ -307,7 +302,7 @@ module mor1kx_oman_marocchino
                         (div_valid_i & ocbo00[OCBT_OP_DIV_POS]) |
                         (mul_valid_i & ocbo00[OCBT_OP_MUL_POS]) |
                         (fp32_arith_valid_i & ocbo00[OCBT_OP_FP32_POS]) |
-                        (lsu_valid_or_excepts & ocbo00[OCBT_OP_LS_POS]) |
+                        (lsu_valid_i & ocbo00[OCBT_OP_LS_POS]) |
                         ocbo00[OCBT_OP_PASS_EXEC_POS] | // also includes l.rfe in the sense
                         ocbo00[OCBT_FD_AN_EXCEPT_POS];
 
@@ -316,7 +311,7 @@ module mor1kx_oman_marocchino
   wire exec_waiting = (~div_valid_i & ocbo00[OCBT_OP_DIV_POS]) |
                       (~mul_valid_i & ocbo00[OCBT_OP_MUL_POS]) |
                       (~fp32_arith_valid_i & ocbo00[OCBT_OP_FP32_POS]) |
-                      (~lsu_valid_or_excepts & ocbo00[OCBT_OP_LS_POS]);
+                      (~lsu_valid_i & ocbo00[OCBT_OP_LS_POS]);
 
   // DECODE stall components
   //  stall by unit usage hazard
@@ -326,7 +321,7 @@ module mor1kx_oman_marocchino
     (dcod_op_div_i & (div_busy_i | (div_valid_i & ~ocbo00[OCBT_OP_DIV_POS]))) |
     (dcod_op_mul_i & mul_valid_i & ~ocbo00[OCBT_OP_MUL_POS]) |
     (dcod_op_fp32_arith_i & (fp32_arith_busy_i | (fp32_arith_valid_i & ~ocbo00[OCBT_OP_FP32_POS]))) |
-    ((dcod_op_ls_i | dcod_op_msync_i) & (lsu_busy_i | (lsu_valid_or_excepts & ~ocbo00[OCBT_OP_LS_POS])));
+    ((dcod_op_ls_i | dcod_op_msync_i) & (lsu_busy_i | (lsu_valid_i & ~ocbo00[OCBT_OP_LS_POS])));
 
   //  stall by operand A hazard
   //    hazard has occured inside OCB
@@ -360,7 +355,7 @@ module mor1kx_oman_marocchino
                   ocbo04[OCBT_FLAG_WB_POS] | ocbo03[OCBT_FLAG_WB_POS] | ocbo02[OCBT_FLAG_WB_POS] |
                   ocbo01[OCBT_FLAG_WB_POS];
   //    waiting completion of atomic instruction (others WB-flag instructions are 1-clk)
-  wire flag_waiting = ~lsu_valid_or_excepts & ocbo00[OCBT_OP_LSU_ATOMIC_POS];
+  wire flag_waiting = ~lsu_valid_i & ocbo00[OCBT_OP_LSU_ATOMIC_POS];
   //    combine with DECODE-to-EXECUTE hazard
   wire stall_by_flag = dcod_flag_req_i & (ocb_flag | flag_waiting);
 

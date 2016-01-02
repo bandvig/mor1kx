@@ -38,15 +38,15 @@ module mor1kx_dmmu_marocchino
 
   // pipe controls
   input                                 adv_i,
-  input                                 pipeline_flush_i,
+  input                                 force_off_i,
 
   // configuration
   input                                 enable_i,
   input                                 supervisor_mode_i,
 
   // commnads
-  input                                 cmd_store_i,
-  input                                 cmd_load_i,
+  input                                 lsu_store_i,
+  input                                 lsu_load_i,
 
   // address translation
   input      [OPTION_OPERAND_WIDTH-1:0] virt_addr_i,
@@ -145,19 +145,26 @@ module mor1kx_dmmu_marocchino
   // (for masking DMMU output flags, but not for advancing)
   reg enable_r;
   reg supervisor_mode_r;
+  reg cmd_store_r, cmd_load_r;
   // ---
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst) begin
       enable_r          <= 1'b0;
       supervisor_mode_r <= 1'b0;
+      cmd_store_r       <= 1'b0;
+      cmd_load_r        <= 1'b0;
     end
-    else if (pipeline_flush_i | spr_dmmu_stb) begin
+    else if (force_off_i | spr_dmmu_stb) begin
       enable_r          <= 1'b0;
       supervisor_mode_r <= supervisor_mode_r;
+      cmd_store_r       <= 1'b0;
+      cmd_load_r        <= 1'b0;
     end
     else if (adv_i) begin
       enable_r          <= enable_i;
       supervisor_mode_r <= supervisor_mode_i;
+      cmd_store_r       <= lsu_store_i;
+      cmd_load_r        <= lsu_load_i;
     end
   end // @ clock
 
@@ -289,8 +296,8 @@ module mor1kx_dmmu_marocchino
     end // loop by ways
   end // always
 
-  assign pagefault_o = (supervisor_mode_r ? ((~swe & cmd_store_i) | (~sre & cmd_load_i)) :
-                                            ((~uwe & cmd_store_i) | (~ure & cmd_load_i))) &
+  assign pagefault_o = (supervisor_mode_r ? ((~swe & cmd_store_r) | (~sre & cmd_load_r)) :
+                                            ((~uwe & cmd_store_r) | (~ure & cmd_load_r))) &
                        ~tlb_reload_busy_o & enable_r;
 
   assign phys_addr_cmd_o = enable_r ?
@@ -360,7 +367,7 @@ module mor1kx_dmmu_marocchino
     reg [3:0] tlb_reload_state = TLB_IDLE;
     wire      do_reload;
   
-    assign do_reload = enable_r & tlb_miss_o & (dmmucr[31:10] != 0) & (cmd_load_i | cmd_store_i);
+    assign do_reload = enable_r & tlb_miss_o & (dmmucr[31:10] != 0) & (cmd_load_r | cmd_store_r);
   
     assign tlb_reload_busy_o = enable_r & (tlb_reload_state != TLB_IDLE) | do_reload;
   

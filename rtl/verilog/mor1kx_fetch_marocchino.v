@@ -803,11 +803,6 @@ module mor1kx_fetch_marocchino
   // advance ICACHE/IMMU
   wire ic_immu_adv = padv_s1 & ~flush_by_ctrl;
 
-  // Force switching ICACHE/IMMU off in case of IMMU-generated exceptions
-  // We use pipeline-flush-i here because FETCH is anycase stopped by
-  // IMMU's exceptions
-  wire ic_immu_force_off = immu_an_except & pipeline_flush_i;
-
 
   //-------------------//
   // Instance of cache //
@@ -872,7 +867,12 @@ module mor1kx_fetch_marocchino
   assign except_ipagefault = immu_pagefault & ~(flush_by_branch | flush_by_mispredict_s2);
   assign immu_an_except    = (immu_tlb_miss | immu_pagefault) & ~(flush_by_branch | flush_by_mispredict_s2);
 
-  // IMMU unit
+  // Force switching IMMU off in case of IMMU-generated exceptions
+  // We use pipeline-flush-i here because FETCH is anycase stopped by
+  // IMMU's exceptions
+  wire immu_force_off = immu_an_except & pipeline_flush_i;
+
+  // IMMU
   mor1kx_immu_marocchino
   #(
     .FEATURE_IMMU_HW_TLB_RELOAD (FEATURE_IMMU_HW_TLB_RELOAD),
@@ -888,7 +888,7 @@ module mor1kx_fetch_marocchino
     .rst                            (rst),
     // controls
     .adv_i                          (ic_immu_adv), // IMMU advance
-    .force_off_i                    (ic_immu_force_off), // drop stored "IMMU enable"
+    .force_off_i                    (immu_force_off), // drop stored "IMMU enable"
     // configuration
     .enable_i                       (immu_enable_i), // IMMU
     .supervisor_mode_i              (supervisor_mode_i), // IMMU
