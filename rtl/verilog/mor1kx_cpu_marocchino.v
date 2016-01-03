@@ -785,7 +785,6 @@ module mor1kx_cpu_marocchino
     .clk                              (clk),
     .rst                              (rst),
     // pipeline control signals
-    .padv_decode_i                    (padv_decode), // RF
     .pipeline_flush_i                 (pipeline_flush), // RF
     // SPR bus
     .spr_bus_addr_i                   (spr_bus_addr_o[15:0]), // RF

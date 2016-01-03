@@ -44,6 +44,7 @@ module mor1kx_icache_marocchino
   // controls
   input                                 adv_i, // advance
   input                                 fetch_excepts_i,
+  input                                 flush_by_ctrl_i,
 
   // configuration
   input                                 enable_i,
@@ -293,12 +294,14 @@ module mor1kx_icache_marocchino
       // states
       case (state)
         IDLE: begin
-          if (ic_try)
+          if (ic_try & ~flush_by_ctrl_i)
             state <= READ;
         end
 
         READ: begin
-          if (ic_access) begin
+          if (flush_by_ctrl_i)
+            state <= IDLE;
+          else if (ic_access) begin
             if (~hit) begin
               if (ic_refill_allowed_i) begin
                 // Store the LRU information for correct replacement
@@ -431,7 +434,7 @@ module mor1kx_icache_marocchino
 
     case (state)
       READ: begin
-        if (ic_access & hit) begin
+        if (ic_access & hit & ~(fetch_excepts_i | flush_by_ctrl_i)) begin
           // We got a hit. The LRU module gets the access
           // information. Depending on this we update the LRU
           // history in the tag.
@@ -443,7 +446,7 @@ module mor1kx_icache_marocchino
       end
 
       REFILL: begin
-        if (we_i) begin
+        if (we_i & ~fetch_excepts_i) begin
           // Access pattern
           access_lru_history = lru_way_r;
           // Invalidate the way on the first write
@@ -479,8 +482,7 @@ module mor1kx_icache_marocchino
         tag_we = 1'b1;
       end
 
-      default: begin
-      end
+      default:;
     endcase
   end // always
 

@@ -343,8 +343,10 @@ module mor1kx_ctrl_marocchino
   end // @ clock
 
 
-  always @(posedge clk) begin
-    if (exception_re)
+  always @(posedge clk `OR_ASYNC_RST) begin
+    if (rst)
+      exception_pc_addr <= {19'd0,`OR1K_RESET_VECTOR,8'd0};
+    else if (exception_re) begin
       casez({except_itlb_miss_i,
              except_ipagefault_i,
              except_ibus_err_i,
@@ -378,6 +380,7 @@ module mor1kx_ctrl_marocchino
         //15'b00000000000001:
         default:             exception_pc_addr <= spr_evbar | {19'd0,`OR1K_TT_VECTOR,8'd0};
       endcase // casex (...
+    end
   end // @ clock
 
 

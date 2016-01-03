@@ -713,11 +713,11 @@ module mor1kx_lsu_marocchino
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst) begin
       // DBUS controls
-      dbus_adr_o  <= {OPTION_OPERAND_WIDTH{1'b0}}; // reset
-      dbus_dat_o  <= {OPTION_OPERAND_WIDTH{1'b0}}; // reset
       dbus_req_o  <= 1'b0; // reset
       dbus_we     <= 1'b0; // reset
       dbus_bsel_o <= 4'hf; // reset
+      dbus_adr_o  <= {OPTION_OPERAND_WIDTH{1'b0}}; // reset
+      dbus_dat_o  <= {OPTION_OPERAND_WIDTH{1'b0}}; // reset
       dbus_atomic <= 1'b0; // reset
       last_write  <= 1'b0; // reset
       // Flushing control
@@ -727,11 +727,11 @@ module mor1kx_lsu_marocchino
     end
     else if (except_dbus_err) begin
       // DBUS controls
-      dbus_adr_o  <= {OPTION_OPERAND_WIDTH{1'b0}}; // bus error
-      dbus_dat_o  <= {OPTION_OPERAND_WIDTH{1'b0}}; // bus error
       dbus_req_o  <= 1'b0; // bus error
       dbus_we     <= 1'b0; // bus error
       dbus_bsel_o <= 4'hf; // bus error
+      dbus_adr_o  <= {OPTION_OPERAND_WIDTH{1'b0}}; // bus error
+      dbus_dat_o  <= {OPTION_OPERAND_WIDTH{1'b0}}; // bus error
       dbus_atomic <= 1'b0; // bus error
       last_write  <= 1'b0; // bus error
       // Flushing control
@@ -743,13 +743,40 @@ module mor1kx_lsu_marocchino
       // process
       case (state)
         IDLE: begin
+          // DBUS controls
+          dbus_req_o  <= 1'b0; // idle default
+          dbus_we     <= 1'b0; // idle default
+          dbus_bsel_o <= 4'hf; // idle default
+          dbus_adr_o  <= {OPTION_OPERAND_WIDTH{1'b0}}; // idle default
+          dbus_dat_o  <= {OPTION_OPERAND_WIDTH{1'b0}}; // idle default
+          dbus_atomic <= 1'b0; // idle default
+          last_write  <= 1'b0; // idle default
+          // Flushing control
+          flush_r     <= 1'b0; // idle default
+          // DBUS FSM state
+          state       <= IDLE; // idle default
+          // ---
           if ((take_op_ls & ~pipeline_flush_i) | ~store_buffer_empty) // IBUS goes to memory request or keep idling
             state <= DMEM_REQ;
         end
 
         DMEM_REQ: begin
-          if (cancel_cmd)
-            state <= IDLE; // cancelling new command
+          // DBUS controls
+          dbus_req_o  <= 1'b0; // imem req default
+          dbus_we     <= 1'b0; // imem req default
+          dbus_bsel_o <= 4'hf; // imem req default
+          dbus_adr_o  <= {OPTION_OPERAND_WIDTH{1'b0}}; // imem req default
+          dbus_dat_o  <= {OPTION_OPERAND_WIDTH{1'b0}}; // imem req default
+          dbus_atomic <= 1'b0; // imem req default
+          last_write  <= 1'b0; // imem req default
+          // Flushing control
+          flush_r     <= 1'b0; // imem req default
+          // DBUS FSM state
+          state       <= DMEM_REQ; // imem req default
+          // ---
+          if (cancel_cmd) begin
+            state  <= IDLE; // imem req -> cancel cmd
+          end
           else if (store_buffer_write | ~store_buffer_empty) begin
             dbus_req_o  <= 1'b1;
             dbus_we     <= 1'b1;
@@ -788,17 +815,20 @@ module mor1kx_lsu_marocchino
         end // idle
 
         DC_REFILL: begin
-          dbus_req_o  <= 1'b1;
-          dbus_we     <= 1'b0;
-          dbus_bsel_o <= 4'hf;
-          // ack
+          // DBUS controls
+          dbus_req_o  <= 1'b1;        // re-fill default
+          dbus_adr_o  <= dbus_adr_o;  // re-fill default
+          // Flushing control
+          flush_r     <= flush_r;     // re-fill default
+          // DBUS FSM state
+          state       <= DC_REFILL;   // re-fill default
+          // ---
           if (dbus_ack_i) begin
             dbus_adr_o <= next_refill_adr;
             if (dc_refill_last) begin
               // DBUS controls
               dbus_req_o  <= 1'b0;
               dbus_adr_o  <= {OPTION_OPERAND_WIDTH{1'b0}};
-              dbus_dat_o  <= {OPTION_OPERAND_WIDTH{1'b0}};
               // Flushing control
               flush_r     <= 1'b0; // re-fill complete
               // DBUS FSM state
@@ -821,15 +851,20 @@ module mor1kx_lsu_marocchino
         end // dc-refill
 
         READ: begin
-          dbus_req_o  <= 1'b1;
-          dbus_we     <= 1'b0;
-          dbus_bsel_o <= dbus_bsel;
-          // ack
+          // DBUS controls
+          dbus_req_o  <= 1'b1;        // read default
+          dbus_bsel_o <= dbus_bsel_o; // read default
+          dbus_adr_o  <= dbus_adr_o;  // read default
+          // Flushing control
+          flush_r     <= flush_r;     // read default
+          // DBUS FSM state
+          state       <= READ;        // read default
+          // ---
           if (dbus_ack_i) begin
             // DBUS controls
             dbus_req_o  <= 1'b0;
+            dbus_bsel_o <= 4'hf;
             dbus_adr_o  <= {OPTION_OPERAND_WIDTH{1'b0}};
-            dbus_dat_o  <= {OPTION_OPERAND_WIDTH{1'b0}};
             // Flushing control
             flush_r     <= 1'b0; // DBUS read complete
             // DBUS FSM state
@@ -840,8 +875,18 @@ module mor1kx_lsu_marocchino
         end // read
 
         WRITE: begin
-          dbus_req_o  <= 1'b1;
-          dbus_we     <= 1'b1;
+          // DBUS controls
+          dbus_req_o  <= 1'b1;        // write default
+          dbus_we     <= 1'b1;        // write default
+          dbus_bsel_o <= dbus_bsel_o; // write default
+          dbus_adr_o  <= dbus_adr_o;  // write default
+          dbus_dat_o  <= dbus_dat_o;  // write default
+          dbus_atomic <= dbus_atomic; // write default
+          last_write  <= last_write;  // write default
+          // Flushing control
+          flush_r     <= flush_r;     // write default
+          // DBUS FSM state
+          state       <= WRITE;       // write default
           //---
           if (dbus_ack_i) begin
             if (last_write) begin
@@ -855,6 +900,7 @@ module mor1kx_lsu_marocchino
               else begin
                 dbus_req_o  <= 1'b0;
                 dbus_we     <= 1'b0;
+                dbus_bsel_o <= 4'hf;
                 dbus_adr_o  <= {OPTION_OPERAND_WIDTH{1'b0}};
                 dbus_dat_o  <= {OPTION_OPERAND_WIDTH{1'b0}};
                 dbus_atomic <= 1'b0;
@@ -878,20 +924,7 @@ module mor1kx_lsu_marocchino
           end
         end // write-state
 
-        default: begin
-          // DBUS controls
-          dbus_adr_o  <= {OPTION_OPERAND_WIDTH{1'b0}}; // by default
-          dbus_dat_o  <= {OPTION_OPERAND_WIDTH{1'b0}}; // by default
-          dbus_req_o  <= 1'b0; // by default
-          dbus_we     <= 1'b0; // by default
-          dbus_bsel_o <= 4'hf; // by default
-          dbus_atomic <= 1'b0; // by default
-          last_write  <= 1'b0; // by default
-          // Flushing control
-          flush_r     <= 1'b0; // by default
-          // DBUS FSM state
-          state       <= IDLE; // by default
-        end
+        default:;
       endcase
     end
   end // @ clock state machine

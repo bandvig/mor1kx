@@ -241,7 +241,7 @@ module mor1kx_immu_marocchino
   
   always @(*) begin
     tlb_miss_o        = ~tlb_reload_pagefault & ~spr_immu_stb & enable_r;
-    phys_addr         = virt_addr_fetch_o[23:0];
+    phys_addr         = virt_addr_fetch_o;
     sxe               = 1'b0;
     uxe               = 1'b0;
     cache_inhibit_o   = 1'b0;
@@ -279,7 +279,7 @@ module mor1kx_immu_marocchino
 
   assign pagefault_o = (supervisor_mode_r ? ~sxe : ~uxe) & ~tlb_reload_busy_o & ~spr_immu_stb & enable_r;
 
-  assign phys_addr_fetch_o = enable_r ? phys_addr : virt_addr_fetch_o;
+  assign phys_addr_fetch_o = phys_addr;
 
 
   // match 8KB input address
