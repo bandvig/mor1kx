@@ -149,11 +149,15 @@ module mor1kx_immu_marocchino
     end
     else if (force_off_i | spr_immu_stb) begin
       enable_r          <= 1'b0;
-      supervisor_mode_r <= supervisor_mode_r;
+      supervisor_mode_r <= 1'b0;
     end
     else if (adv_i) begin
       enable_r          <= enable_i;
       supervisor_mode_r <= supervisor_mode_i;
+    end
+    else if (enable_r & ~enable_i) begin
+      enable_r          <= 1'b0;
+      supervisor_mode_r <= 1'b0;
     end
   end // @ clock
 

@@ -154,7 +154,7 @@ module mor1kx_dmmu_marocchino
     end
     else if (cancel_cmd_i | spr_dmmu_stb) begin
       enable_r          <= 1'b0;
-      supervisor_mode_r <= supervisor_mode_r;
+      supervisor_mode_r <= 1'b0;
       cmd_store_r       <= 1'b0;
       cmd_load_r        <= 1'b0;
     end
@@ -163,6 +163,12 @@ module mor1kx_dmmu_marocchino
       supervisor_mode_r <= supervisor_mode_i;
       cmd_store_r       <= lsu_store_i;
       cmd_load_r        <= lsu_load_i;
+    end
+    else if (enable_r & ~enable_i) begin
+      enable_r          <= 1'b0;
+      supervisor_mode_r <= 1'b0;
+      cmd_store_r       <= 1'b0;
+      cmd_load_r        <= 1'b0;
     end
   end // @ clock
 
