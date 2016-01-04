@@ -42,7 +42,7 @@ module mor1kx_dcache_marocchino
   input                                 rst,
 
   // pipe controls
-  input                                 adv_i,
+  input                                 lsu_takes_ls_i,
 
   // configuration
   input                                 enable_i,
@@ -248,7 +248,7 @@ module mor1kx_dcache_marocchino
 
   //
   //   If DCACHE is in state read/write/refill it automatically means that
-  // DCACHE is enabled (see try_load and try_store).
+  // DCACHE is enabled (see lsu_takes_load and lsu_takes_store).
   //
   //   So, locally we use short variant of dc-access
   wire   dc_access   = dc_check_limit_width & ~dmmu_cache_inhibit_i;
@@ -347,10 +347,10 @@ module mor1kx_dcache_marocchino
    */
 
   // try load
-  wire try_load  = lsu_load_i & adv_i & enable_i;
+  wire lsu_takes_load  = lsu_load_i & lsu_takes_ls_i & enable_i;
 
   // try store
-  wire try_store = lsu_store_i & adv_i & enable_i;
+  wire lsu_takes_store = lsu_store_i & lsu_takes_ls_i & enable_i;
 
 
   /*
@@ -393,11 +393,13 @@ module mor1kx_dcache_marocchino
       // states switching
       case (dc_state)
         DC_IDLE: begin
-          if (invalidate_cmd)
+          if (cancel_cmd_i | except_dbus_err_i) // keep idle, overcome advance commands
+            dc_state <= DC_IDLE;
+          else if (invalidate_cmd)
             dc_state <= DC_INVALIDATE;
-          else if (try_load)
+          else if (lsu_takes_load)
             dc_state <= DC_READ;
-          else if (try_store)
+          else if (lsu_takes_store)
             dc_state <= DC_WRITE;
         end
 
@@ -423,14 +425,14 @@ module mor1kx_dcache_marocchino
                 dc_state <= DC_REFILL;
               end // re-fill allowed
             end // no hit
-            else if (try_store) // dc-access & load-hit & new-command-is-store
+            else if (lsu_takes_store) // dc-access & load-hit & new-command-is-store
               dc_state <= DC_WRITE;
-            else if (~try_load)
+            else if (~lsu_takes_load)
               dc_state <= DC_IDLE;
           end
-          else if (try_store) // not-dc-access
+          else if (lsu_takes_store) // not-dc-access
             dc_state <= DC_WRITE;
-          else if (~try_load)
+          else if (~lsu_takes_load)
             dc_state <= DC_IDLE;
         end
 
@@ -441,15 +443,15 @@ module mor1kx_dcache_marocchino
             dc_state <= DC_WRITE;
           else if (dc_access & dc_hit) begin
             if (dc_store_allowed_i | dbus_swa_discard_i) begin
-              if (try_load)
+              if (lsu_takes_load)
                 dc_state <= DC_READ;
-              else if (~try_store)
+              else if (~lsu_takes_store)
                 dc_state <= DC_IDLE;
             end // store-hit & (do store OR diascard l.swa)
           end
-          else if (try_load) // ~dc-access
+          else if (lsu_takes_load) // ~dc-access
             dc_state <= DC_READ;
-          else if (~try_store)
+          else if (~lsu_takes_store)
             dc_state <= DC_IDLE;
         end
 
@@ -575,12 +577,12 @@ module mor1kx_dcache_marocchino
           tag_windex = curr_refill_adr[WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH]; // on re-fill
           way_wr_dat = dbus_dat_i; // on re-fill
           // ---
-          if (dbus_ack_i) begin // on re-fill
+          if (dbus_ack_i & ~except_dbus_err_i) begin // on re-fill
             //
             // Write the data to the way that is replaced
             // (which is the LRU)
             //
-            way_we = tag_save_lru; // on RE-FILL
+            way_we = tag_save_lru; // on re-fill
             // Access pattern
             access_lru_history = tag_save_lru;
             // Invalidate the way on the first write
@@ -654,9 +656,9 @@ module mor1kx_dcache_marocchino
   generate
   for (i = 0; i < OPTION_DCACHE_WAYS; i=i+1) begin : way_memories
     // each way RAM read and write
-    //  # on re-fill we force using RW-port
-    //    to provide correct read-hit
-    assign way_re[i] = try_load | try_store | (way_we[i] & dc_refill);
+    //  # on re-fill we force using RW-port to provide correct read-hit
+    //  # pay attention that way-we already blocked by exceptions
+    assign way_re[i] = ((lsu_takes_load | lsu_takes_store) & ~(cancel_cmd_i | except_dbus_err_i)) | (way_we[i] & dc_refill);
 
     // Read / Write port (*_rwp_*) controls
     assign way_rwp_we[i] = way_we[i] & way_re[i] & way_rw_same_addr;
@@ -722,7 +724,7 @@ module mor1kx_dcache_marocchino
   wire tr_rw_same_addr = (tag_rindex == tag_windex);
 
   // TAG-RAM read
-  wire tr_re = try_load | try_store;
+  wire tr_re = ((lsu_takes_load | lsu_takes_store) & ~(cancel_cmd_i | except_dbus_err_i));
 
   // Read/Write port (*_rwp_*) write
   wire tr_rwp_we = tag_we & tr_re & tr_rw_same_addr;

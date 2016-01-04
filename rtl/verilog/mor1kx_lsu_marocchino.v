@@ -147,6 +147,8 @@ module mor1kx_lsu_marocchino
   reg                      [1:0] cmd_length;
   reg                            cmd_zext;
   reg [OPTION_OPERAND_WIDTH-1:0] cmd_rfb;  // register file B in (store operand)
+  //  # latched virtual address
+  reg [OPTION_OPERAND_WIDTH-1:0] virt_addr_cmd;
   //  # l.msync
   reg                            cmd_msync_r;
 
@@ -172,7 +174,6 @@ module mor1kx_lsu_marocchino
   // DMMU
   wire                              dmmu_cache_inhibit;
   wire   [OPTION_OPERAND_WIDTH-1:0] phys_addr_cmd;
-  wire   [OPTION_OPERAND_WIDTH-1:0] virt_addr_cmd;
   /* HW reload TLB related (MAROCCHINO_TODO : not implemented yet)
   wire                              tlb_reload_req;
   wire                              tlb_reload_busy;
@@ -257,7 +258,7 @@ module mor1kx_lsu_marocchino
   wire op_ls      = lsu_load_r | lsu_store_r; // latched load/store
 
   // signal to take new LSU command (less priority than flushing)
-  wire take_op_ls = op_ls & ~snoop_hit & ~(lsu_busy_dc | lsu_busy_wb);
+  wire lsu_takes_ls = op_ls & ~snoop_hit & ~(lsu_busy_dc | lsu_busy_wb);
 
 
   // report on command execution
@@ -333,7 +334,7 @@ module mor1kx_lsu_marocchino
       lsu_length_r <= dcod_lsu_length_i;
       lsu_zext_r   <= dcod_lsu_zext_i;
     end
-    else if (take_op_ls) begin
+    else if (lsu_takes_ls) begin
       // commands
       lsu_load_r   <= 1'b0;
       lsu_store_r  <= 1'b0;
@@ -399,7 +400,7 @@ module mor1kx_lsu_marocchino
       cmd_load_r   <= 1'b0;
       cmd_lwa_r    <= 1'b0;
     end
-    else if (take_op_ls) begin
+    else if (lsu_takes_ls) begin
       cmd_load_r   <= lsu_load_r;
       cmd_lwa_r    <= lsu_load_r & lsu_atomic_r;
     end
@@ -415,7 +416,7 @@ module mor1kx_lsu_marocchino
       cmd_store_r  <= 1'b0;
     else if (cancel_cmd | except_dbus_err)
       cmd_store_r  <= 1'b0;
-    else if (take_op_ls)
+    else if (lsu_takes_ls)
       cmd_store_r  <= lsu_store_r & ~lsu_atomic_r;
     else if (lsu_ack_store)
       cmd_store_r  <= 1'b0;
@@ -427,7 +428,7 @@ module mor1kx_lsu_marocchino
       cmd_swa_r <= 1'b0;
     else if (cancel_cmd | except_dbus_err)
       cmd_swa_r <= 1'b0;
-    else if (take_op_ls)
+    else if (lsu_takes_ls)
       cmd_swa_r <= lsu_store_r & lsu_atomic_r;
     else if (lsu_ack_swa)
       cmd_swa_r <= 1'b0;
@@ -445,11 +446,19 @@ module mor1kx_lsu_marocchino
       cmd_zext   <= 1'b0;
       cmd_rfb    <= {OPTION_OPERAND_WIDTH{1'b0}};
     end
-    else if (take_op_ls) begin
+    else if (lsu_takes_ls) begin
       cmd_length <= lsu_length_r;
       cmd_zext   <= lsu_zext_r;
       cmd_rfb    <= lsu_b;
     end
+  end // @clock
+
+  // lsu local latched additional parameters
+  always @(posedge clk `OR_ASYNC_RST) begin
+    if (rst)
+      virt_addr_cmd <= {OPTION_OPERAND_WIDTH{1'b0}};
+    else if (lsu_takes_ls & ~(cancel_cmd | except_dbus_err))
+      virt_addr_cmd <= virt_addr;
   end // @clock
 
   // l.msync to generate msync-stall
@@ -756,7 +765,7 @@ module mor1kx_lsu_marocchino
           // DBUS FSM state
           state       <= IDLE; // idle default
           // ---
-          if ((take_op_ls & ~pipeline_flush_i) | ~store_buffer_empty) // IBUS goes to memory request or keep idling
+          if ((lsu_takes_ls & ~pipeline_flush_i) | ~store_buffer_empty) // IBUS goes to memory request or keep idling
             state <= DMEM_REQ;
         end
 
@@ -810,7 +819,7 @@ module mor1kx_lsu_marocchino
             dbus_bsel_o <= 4'hf;
             state       <= DC_REFILL;
           end
-          else if (~take_op_ls) // no new memory request
+          else if (~lsu_takes_ls) // no new memory request
             state <= IDLE;      // no new memory request
         end // idle
 
@@ -1065,10 +1074,6 @@ module mor1kx_lsu_marocchino
 
 
 
-  // advance ICACHE/IMMU
-  wire dc_dmmu_adv = take_op_ls & ~pipeline_flush_i;
-
-
 
   //-------------------//
   // Instance of cache //
@@ -1091,7 +1096,7 @@ module mor1kx_lsu_marocchino
     .clk                        (clk), // DCACHE
     .rst                        (rst), // DCACHE
     // pipe controls
-    .adv_i                      (dc_dmmu_adv), // DCACHE
+    .lsu_takes_ls_i             (lsu_takes_ls), // DCACHE
     // configuration
     .enable_i                   (dc_enable_i), // DCACHE
     // exceptions
@@ -1141,12 +1146,6 @@ module mor1kx_lsu_marocchino
   // Instance of DMMU //
   //------------------//
 
-  // Force switching DMMU off in case of DMMU-generated exceptions
-  // We use pipeline-flush-i here because LSU is anycase stopped by
-  // DMMU's exceptions
-  wire dmmu_force_off = (except_dtlb_miss | except_dpagefault) & pipeline_flush_i;
-
-  // DMMU
   mor1kx_dmmu_marocchino
   #(
     .FEATURE_DMMU_HW_TLB_RELOAD (FEATURE_DMMU_HW_TLB_RELOAD),
@@ -1160,8 +1159,10 @@ module mor1kx_lsu_marocchino
     .clk                              (clk), // DMMU
     .rst                              (rst), // DMMU
     // pipe controls
-    .adv_i                            (dc_dmmu_adv), // DMMU
-    .force_off_i                      (dmmu_force_off), // DMMU
+    .lsu_takes_ls_i                   (lsu_takes_ls), // DMMU
+    // exceptions
+    .cancel_cmd_i                     (cancel_cmd), // DMMU
+    .except_dbus_err_i                (except_dbus_err), // DMMU
     // configuration and commands
     .enable_i                         (dmmu_enable_i), // DMMU
     .supervisor_mode_i                (supervisor_mode_i), // DMMU
@@ -1169,7 +1170,7 @@ module mor1kx_lsu_marocchino
     .lsu_load_i                       (lsu_load_r), // DMMU
     // address translation
     .virt_addr_i                      (virt_addr), // DMMU
-    .virt_addr_cmd_o                  (virt_addr_cmd), // DMMU
+    .virt_addr_cmd_i                  (virt_addr_cmd), // DMMU
     .phys_addr_cmd_o                  (phys_addr_cmd), // DMMU
     // translation flags
     .cache_inhibit_o                  (dmmu_cache_inhibit), // DMMU
