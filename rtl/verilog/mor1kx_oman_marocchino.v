@@ -375,7 +375,7 @@ module mor1kx_oman_marocchino
   //       this completion generates padv-wb,
   //       in next turn padv-wb cleans up OCB and restores
   //       instructions issue
-  wire stall_by_mXspr = (dcod_op_mtspr_i | dcod_op_mfspr_i) & (~ocb_empty | lsu_busy_i);
+  wire stall_by_mXspr = (dcod_op_mtspr_i | dcod_op_mfspr_i) & ~ocb_empty;
 
   // combine stalls to decode-valid flag
   assign dcod_valid_o = ~stall_by_hazard_u & ~ocb_full          &

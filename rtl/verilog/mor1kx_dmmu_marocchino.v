@@ -38,10 +38,10 @@ module mor1kx_dmmu_marocchino
 
   // pipe controls
   input                                 lsu_takes_ls_i,
+  input                                 pipeline_flush_i,
 
   // exceptions
-  input                                 cancel_cmd_i,
-  input                                 except_dbus_err_i,
+  input                                 lsu_excepts_any_i,
 
   // configuration
   input                                 enable_i,
@@ -136,7 +136,7 @@ module mor1kx_dmmu_marocchino
 
 
   // DMMU advances
-  wire padv_dmmu = lsu_takes_ls_i & enable_i & ~(cancel_cmd_i | except_dbus_err_i); // advance DMMU
+  wire padv_dmmu = lsu_takes_ls_i & enable_i & ~(lsu_excepts_any_i | pipeline_flush_i); // advance DMMU
 
 
   // Stored "DMMU enable" and "Supevisor Mode" flags
@@ -152,23 +152,25 @@ module mor1kx_dmmu_marocchino
       cmd_store_r       <= 1'b0;
       cmd_load_r        <= 1'b0;
     end
-    else if (cancel_cmd_i | spr_dmmu_stb) begin
+    else if (lsu_excepts_any_i | pipeline_flush_i | spr_dmmu_stb) begin
       enable_r          <= 1'b0;
       supervisor_mode_r <= 1'b0;
       cmd_store_r       <= 1'b0;
       cmd_load_r        <= 1'b0;
     end
-    else if (padv_dmmu) begin
-      enable_r          <= 1'b1;
-      supervisor_mode_r <= supervisor_mode_i;
-      cmd_store_r       <= lsu_store_i;
-      cmd_load_r        <= lsu_load_i;
-    end
-    else if (enable_r & ~enable_i) begin
-      enable_r          <= 1'b0;
-      supervisor_mode_r <= 1'b0;
-      cmd_store_r       <= 1'b0;
-      cmd_load_r        <= 1'b0;
+    else if (lsu_takes_ls_i) begin
+      if (enable_i) begin
+        enable_r          <= 1'b1;
+        supervisor_mode_r <= supervisor_mode_i;
+        cmd_store_r       <= lsu_store_i;
+        cmd_load_r        <= lsu_load_i;
+      end
+      else begin
+        enable_r          <= 1'b0;
+        supervisor_mode_r <= 1'b0;
+        cmd_store_r       <= 1'b0;
+        cmd_load_r        <= 1'b0;
+      end
     end
   end // @ clock
 
@@ -177,7 +179,7 @@ module mor1kx_dmmu_marocchino
   // SPR interface //
   //---------------//
 
-  //   We don't expect R/W-collisions for SPRbus vs FETCH advance
+  //   We don't expect R/W-collisions for SPRbus vs LSU advance
   // because we execute l.mt(f)spr after pipeline stalling (see OMAN)
 
   assign spr_dmmu_stb = spr_bus_stb_i & (spr_bus_addr_i[15:11] == `OR1K_SPR_DMMU_BASE);

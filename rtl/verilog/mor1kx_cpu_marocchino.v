@@ -241,7 +241,6 @@ module mor1kx_cpu_marocchino
   wire                      [1:0] dcod_lsu_length;
   wire                            dcod_lsu_zext;
   wire                            dcod_op_msync;
-  wire [OPTION_OPERAND_WIDTH-1:0] lsu_adr;
   wire                            lsu_busy;
   wire                            grant_wb_to_lsu;
 
@@ -355,6 +354,7 @@ module mor1kx_cpu_marocchino
   wire wb_except_dpagefault;
   wire wb_except_dtlb_miss;
   wire wb_except_align;
+  wire [OPTION_OPERAND_WIDTH-1:0] wb_lsu_except_addr;
   // flag to enabel/disable exterlal interrupts processing
   //  depending on the fact is instructions restartable or not
   wire wb_interrupts_en;
@@ -758,13 +758,13 @@ module mor1kx_cpu_marocchino
     // Outputs
     .lsu_busy_o                       (lsu_busy), // LSU
     .lsu_valid_o                      (lsu_valid), // LSU: result ready or exceptions
-    .lsu_adr_o                        (lsu_adr), // LSU
     .wb_lsu_result_o                  (wb_lsu_result), // LSU
     .wb_lsu_rdy_o                     (wb_lsu_rdy), // LSU
     .wb_except_dbus_o                 (wb_except_dbus), // LSU
     .wb_except_dpagefault_o           (wb_except_dpagefault), // LSU
     .wb_except_dtlb_miss_o            (wb_except_dtlb_miss), // LSU
     .wb_except_align_o                (wb_except_align), // LSU
+    .wb_lsu_except_addr_o             (wb_lsu_except_addr), // LSU
     .wb_atomic_flag_set_o             (wb_atomic_flag_set), // LSU
     .wb_atomic_flag_clear_o           (wb_atomic_flag_clear) // LSU
   );
@@ -1055,7 +1055,7 @@ module mor1kx_cpu_marocchino
     .wb_fp32_arith_fpcsr_i            (wb_fp32_arith_fpcsr), // CTRL
     .wb_fp32_cmp_fpcsr_i              (wb_fp32_cmp_fpcsr), // CTRL
     //  # Excepion processing auxiliaries
-    .lsu_adr_i                        (lsu_adr), // CTRL
+    .wb_lsu_except_addr_i             (wb_lsu_except_addr), // CTRL
     .store_buffer_epcr_i              (store_buffer_epcr), // CTRL
     .store_buffer_err_i               (store_buffer_err), // CTRL
     .ctrl_epcr_o                      (ctrl_epcr), // CTRL

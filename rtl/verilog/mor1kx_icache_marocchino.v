@@ -446,9 +446,7 @@ module mor1kx_icache_marocchino
       end
 
       REFILL: begin
-        if (we_i & ~fetch_excepts_i) begin
-          // Access pattern
-          access_lru_history = lru_way_r;
+        if (we_i) begin
           // Invalidate the way on the first write
           if (refill_done == 0) begin
             for (w2 = 0; w2 < OPTION_ICACHE_WAYS; w2 = w2 + 1) begin
@@ -467,8 +465,9 @@ module mor1kx_icache_marocchino
                 lru_way_r[w2] ? {1'b1,curr_refill_adr[OPTION_ICACHE_LIMIT_WIDTH-1:WAY_WIDTH]} :
                                 tag_way_save[w2];
             end
-            tag_lru_in = next_lru_history;
-            tag_we     = 1'b1;
+            access_lru_history = lru_way_r;
+            tag_lru_in         = next_lru_history;
+            tag_we             = 1'b1;
           end
         end
       end

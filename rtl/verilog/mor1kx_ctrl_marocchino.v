@@ -164,7 +164,7 @@ module mor1kx_ctrl_marocchino
   input         [`OR1K_FPCSR_WIDTH-1:0] wb_fp32_arith_fpcsr_i,
   input         [`OR1K_FPCSR_WIDTH-1:0] wb_fp32_cmp_fpcsr_i,
   //  # Excepion processing auxiliaries
-  input      [OPTION_OPERAND_WIDTH-1:0] lsu_adr_i,
+  input      [OPTION_OPERAND_WIDTH-1:0] wb_lsu_except_addr_i,
   //    ## Exception PC input coming from the store buffer
   input      [OPTION_OPERAND_WIDTH-1:0] store_buffer_epcr_i,
   input                                 store_buffer_err_i,
@@ -628,7 +628,7 @@ endgenerate // FPU related: FPCSR and exceptions
       if (except_ibus_err_i | except_itlb_miss_i | except_ipagefault_i)
         spr_eear <= pc_wb_i;
       else
-        spr_eear <= lsu_adr_i;
+        spr_eear <= wb_lsu_except_addr_i;
     end
   end // @ clock
 

@@ -43,12 +43,13 @@ module mor1kx_dcache_marocchino
 
   // pipe controls
   input                                 lsu_takes_ls_i,
+  input                                 pipeline_flush_i,
 
   // configuration
   input                                 enable_i,
 
   // exceptions
-  input                                 cancel_cmd_i,
+  input                                 lsu_excepts_any_i,
   input                                 except_dbus_err_i,
 
   // input commands
@@ -59,6 +60,7 @@ module mor1kx_dcache_marocchino
   // Regular operation
   //  # addresses and "DCHACHE inhibit" flag
   input      [OPTION_OPERAND_WIDTH-1:0] virt_addr_i,
+  input      [OPTION_OPERAND_WIDTH-1:0] virt_addr_cmd_i,
   input      [OPTION_OPERAND_WIDTH-1:0] phys_addr_cmd_i,
   input                                 dmmu_cache_inhibit_i,
   //  # DCACHE regular answer
@@ -72,8 +74,8 @@ module mor1kx_dcache_marocchino
   input                                 dbus_swa_discard_i,
 
   // re-fill
-  output                                refill_req_o,
-  input                                 refill_allowed_i,
+  output                                dc_refill_req_o,
+  input                                 dc_refill_allowed_i,
   output     [OPTION_OPERAND_WIDTH-1:0] next_refill_adr_o,
   output                                refill_last_o,
   input      [OPTION_OPERAND_WIDTH-1:0] dbus_dat_i,
@@ -260,7 +262,7 @@ module mor1kx_dcache_marocchino
 
   // re-fill reqest is allowed only after completion snoop-processing
   // see refill-allowed in LSU
-  assign refill_req_o = dc_access & dc_read & ~dc_hit & ~snoop_hit_o;
+  assign dc_refill_req_o = dc_access & dc_read & ~dc_hit & ~snoop_hit_o;
 
 
 
@@ -278,8 +280,7 @@ module mor1kx_dcache_marocchino
 
     // compare stored tag with incoming tag and check valid bit
     assign way_hit[i] = tag_way_out[i][TAGMEM_WAY_VALID] &
-      (tag_way_out[i][TAG_WIDTH-1:0] ==
-       phys_addr_cmd_i[OPTION_DCACHE_LIMIT_WIDTH-1:WAY_WIDTH]);
+      (tag_way_out[i][TAG_WIDTH-1:0] == phys_addr_cmd_i[OPTION_DCACHE_LIMIT_WIDTH-1:WAY_WIDTH]); // hit detection
 
     // The same for the snoop tag memory
     if (OPTION_DCACHE_SNOOP != "NONE") begin
@@ -347,10 +348,14 @@ module mor1kx_dcache_marocchino
    */
 
   // try load
-  wire lsu_takes_load  = lsu_load_i & lsu_takes_ls_i & enable_i;
+  wire lsu_takes_load  = lsu_load_i  & lsu_takes_ls_i & enable_i;
 
   // try store
   wire lsu_takes_store = lsu_store_i & lsu_takes_ls_i & enable_i;
+
+  // force idle state
+  wire dc_force_idle   = lsu_excepts_any_i | pipeline_flush_i;
+
 
 
   /*
@@ -393,7 +398,7 @@ module mor1kx_dcache_marocchino
       // states switching
       case (dc_state)
         DC_IDLE: begin
-          if (cancel_cmd_i | except_dbus_err_i) // keep idle, overcome advance commands
+          if (dc_force_idle) // keep idle (overcome advance commands)
             dc_state <= DC_IDLE;
           else if (invalidate_cmd)
             dc_state <= DC_INVALIDATE;
@@ -404,13 +409,13 @@ module mor1kx_dcache_marocchino
         end
 
         DC_READ: begin
-          if (cancel_cmd_i) // abort read
+          if (dc_force_idle) // abort read access
             dc_state <= DC_IDLE;
           else if (snoop_hit_o)
             dc_state <= DC_READ;
           else if (dc_access) begin
             if (~dc_hit) begin // re-fill request
-              if (refill_allowed_i) begin
+              if (dc_refill_allowed_i) begin
                 // Store the LRU information for correct replacement
                 // on re-fill. Always one when only one way.
                 tag_save_lru <= (OPTION_DCACHE_WAYS == 1) | lru;
@@ -419,8 +424,8 @@ module mor1kx_dcache_marocchino
                   tag_way_save[w1] <= tag_way_out[w1];
                 end
                 // 1st re-fill addrress
-                curr_refill_adr  <= phys_addr_cmd_i;
-                refill_hit_was_r <= 1'b0; // read -> re-fill
+                curr_refill_adr  <= phys_addr_cmd_i;  // read -> re-fill
+                refill_hit_was_r <= 1'b0;             // read -> re-fill
                 // to RE-FILL
                 dc_state <= DC_REFILL;
               end // re-fill allowed
@@ -437,7 +442,7 @@ module mor1kx_dcache_marocchino
         end
 
         DC_WRITE: begin
-          if (cancel_cmd_i | except_dbus_err_i) // abort write
+          if (dc_force_idle) // abort write access
             dc_state <= DC_IDLE;
           else if (snoop_hit_o)
             dc_state <= DC_WRITE;
@@ -526,7 +531,10 @@ module mor1kx_dcache_marocchino
 
     access_lru_history = {OPTION_DCACHE_WAYS{1'b0}};
 
-    tag_windex = phys_addr_cmd_i[WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH]; // by default
+    //  # As way size is equal to page one we able to use ether
+    //    physical or virtual indexing. We use virual indexing because
+    //    it isn't changed by DMMU on/off.
+    tag_windex = virt_addr_cmd_i[WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH]; // by default
     way_wr_dat = dbus_sdat_i; // by default
 
     if (snoop_hit_o) begin
@@ -540,9 +548,12 @@ module mor1kx_dcache_marocchino
     else begin
       case (dc_state)
         DC_READ: begin
-          tag_windex = phys_addr_cmd_i[WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH]; // on read (LRU history update)
-          // ---
-          if (dc_access & dc_hit & ~cancel_cmd_i) begin // on read-hit
+          if (dc_access & dc_hit & ~dc_force_idle) begin // on read-hit
+            // tag write address
+            //  # As way size is equal to page one we able to use ether
+            //    physical or virtual indexing. We use virual indexing because
+            //    it isn't changed by DMMU on/off.
+            tag_windex = virt_addr_cmd_i[WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH]; // on read (LRU history update)
             // We got a hit. The LRU module gets the access
             // information. Depending on this we update the LRU
             // history in the tag.
@@ -555,10 +566,13 @@ module mor1kx_dcache_marocchino
         end
 
         DC_WRITE: begin
-          tag_windex = phys_addr_cmd_i[WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH]; // on write
-          way_wr_dat = dbus_sdat_i; // on write
-          // ---
-          if (dc_access & dc_hit & dc_store_allowed_i & ~(cancel_cmd_i | except_dbus_err_i)) begin // on write-hit
+          if (dc_access & dc_hit & dc_store_allowed_i & ~dc_force_idle) begin // on write-hit
+            // write addresses
+            //  # As way size is equal to page one we able to use ether
+            //    physical or virtual indexing. We use virual indexing because
+            //    it isn't changed by DMMU on/off.
+            tag_windex = virt_addr_cmd_i[WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH]; // on write-hit
+            way_wr_dat = dbus_sdat_i;                                            // on write-hit
             // Mux cache output with write data
             if (~dbus_bsel_i[3]) way_wr_dat[31:24] = dc_dat_o[31:24];
             if (~dbus_bsel_i[2]) way_wr_dat[23:16] = dc_dat_o[23:16];
@@ -574,17 +588,15 @@ module mor1kx_dcache_marocchino
         end
 
         DC_REFILL: begin
-          tag_windex = curr_refill_adr[WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH]; // on re-fill
-          way_wr_dat = dbus_dat_i; // on re-fill
-          // ---
           if (dbus_ack_i & ~except_dbus_err_i) begin // on re-fill
+            // write addresses
+            tag_windex = curr_refill_adr[WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH]; // on re-fill
+            way_wr_dat = dbus_dat_i;                                             // on re-fill
             //
             // Write the data to the way that is replaced
             // (which is the LRU)
             //
             way_we = tag_save_lru; // on re-fill
-            // Access pattern
-            access_lru_history = tag_save_lru;
             // Invalidate the way on the first write
             if (refill_done == 0) begin
               for (w2 = 0; w2 < OPTION_DCACHE_WAYS; w2 = w2 + 1) begin
@@ -607,12 +619,13 @@ module mor1kx_dcache_marocchino
                   tag_way_in[w2] = { 1'b1, curr_refill_adr[OPTION_DCACHE_LIMIT_WIDTH-1:WAY_WIDTH] };
                 end
               end
-              tag_lru_in = next_lru_history;
+              access_lru_history = tag_save_lru;
+              tag_lru_in         = next_lru_history;
               // ---
               tag_we = 1'b1;
             end
           end // write & no exceptions & no pipe flushing
-        end // RE-FILL
+        end // re-fill
 
         DC_INVALIDATE: begin
           //
@@ -637,6 +650,9 @@ module mor1kx_dcache_marocchino
   end
 
 
+  // RAM blocks read enable (WAYS & TAG common part)
+  wire ram_re = (lsu_takes_ls_i & enable_i) & ~dc_force_idle;
+
 
   // Read / Write port (*_rwp_*) controls
   wire [OPTION_DCACHE_WAYS-1:0] way_rwp_we;
@@ -648,8 +664,11 @@ module mor1kx_dcache_marocchino
   wire [WAY_WIDTH-3:0] way_raddr = dc_refill ? curr_refill_adr[WAY_WIDTH-1:2] :
                                                virt_addr_i[WAY_WIDTH-1:2];
   // WAY-RAM write address
+  //  # As way size is equal to page one we able to use ether
+  //    physical or virtual indexing. We use virual indexing because
+  //    it isn't changed by DMMU on/off.
   wire [WAY_WIDTH-3:0] way_waddr = dc_refill ? curr_refill_adr[WAY_WIDTH-1:2] :
-                                               phys_addr_cmd_i[WAY_WIDTH-1:2];
+                                               virt_addr_cmd_i[WAY_WIDTH-1:2];
   // support RW-conflict detection
   wire way_rw_same_addr = (way_raddr == way_waddr);
 
@@ -658,7 +677,7 @@ module mor1kx_dcache_marocchino
     // each way RAM read and write
     //  # on re-fill we force using RW-port to provide correct read-hit
     //  # pay attention that way-we already blocked by exceptions
-    assign way_re[i] = ((lsu_takes_load | lsu_takes_store) & ~(cancel_cmd_i | except_dbus_err_i)) | (way_we[i] & dc_refill);
+    assign way_re[i] = ram_re | (way_we[i] & dc_refill);
 
     // Read / Write port (*_rwp_*) controls
     assign way_rwp_we[i] = way_we[i] & way_re[i] & way_rw_same_addr;
@@ -723,14 +742,11 @@ module mor1kx_dcache_marocchino
   // TAG-RAM same address for read and write
   wire tr_rw_same_addr = (tag_rindex == tag_windex);
 
-  // TAG-RAM read
-  wire tr_re = ((lsu_takes_load | lsu_takes_store) & ~(cancel_cmd_i | except_dbus_err_i));
-
   // Read/Write port (*_rwp_*) write
-  wire tr_rwp_we = tag_we & tr_re & tr_rw_same_addr;
+  wire tr_rwp_we = tag_we & ram_re & tr_rw_same_addr;
 
   // Write-only port (*_wp_*) enable
-  wire tr_wp_en  = tag_we & (~tr_re | ~tr_rw_same_addr);
+  wire tr_wp_en  = tag_we & (~ram_re | ~tr_rw_same_addr);
 
   // TAG-RAM instance
   mor1kx_dpram_en_w1st_sclk
@@ -744,7 +760,7 @@ module mor1kx_dcache_marocchino
     // common clock
     .clk    (clk),
     // port "a": Read / Write (for RW-conflict case)
-    .en_a   (tr_re),      // enable port "a"
+    .en_a   (ram_re),     // enable port "a"
     .we_a   (tr_rwp_we),  // operation is "write"
     .addr_a (tag_rindex),
     .din_a  (tag_din),
