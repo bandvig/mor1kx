@@ -89,7 +89,7 @@ module mor1kx_fetch_marocchino
   input      [OPTION_OPERAND_WIDTH-1:0] dcod_branch_target_i,
   input                                 branch_mispredict_i,
   input      [OPTION_OPERAND_WIDTH-1:0] exec_mispredict_target_i,
-  output reg                            mispredict_taken_o,
+  output                                mispredict_deassert_o,
   // exception/rfe control transfer
   input                                 ctrl_branch_exception_i,
   input      [OPTION_OPERAND_WIDTH-1:0] ctrl_branch_except_pc_i,
@@ -119,6 +119,8 @@ module mor1kx_fetch_marocchino
        s??o_name - "S"tage number "??", "O"utput
        s??t_name - "S"tage number "??", "T"emporary (internally)
   */
+
+  localparam IFOOW = OPTION_OPERAND_WIDTH; // short name
 
   /* MMU related controls and signals */
 
@@ -199,7 +201,7 @@ module mor1kx_fetch_marocchino
   //   It is also play role of virtual address store to use
   // in cases of ICACHE miss, stalling due to exceptions
   // or till IBUS answer and restart fetching after SPR transaction.
-  wire [OPTION_OPERAND_WIDTH-1:0] virt_addr_fetch;
+  reg  [OPTION_OPERAND_WIDTH-1:0] virt_addr_fetch;
 
   // Physical address (after translation in IMMU)
   wire [OPTION_OPERAND_WIDTH-1:0] phys_addr_fetch;
@@ -262,13 +264,14 @@ module mor1kx_fetch_marocchino
   // store mispredict flag and target if stage #1 is busy
   reg                            mispredict_stored;
   reg [OPTION_OPERAND_WIDTH-1:0] mispredict_target_stored;
+  reg                            mispredict_taken_r;
   // ---
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst) begin
       mispredict_stored        <= 1'b0;
       mispredict_target_stored <= OPTION_RESET_PC;
     end
-    else if ((padv_s1 & ~take_ds) | mispredict_taken_o | flush_by_ctrl) begin
+    else if ((padv_s1 & ~take_ds) | mispredict_taken_r | flush_by_ctrl) begin
       mispredict_stored        <= 1'b0;
       mispredict_target_stored <= mispredict_target_stored;
     end
@@ -280,18 +283,20 @@ module mor1kx_fetch_marocchino
   // ---
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
-      mispredict_taken_o <= 1'b0;
+      mispredict_taken_r <= 1'b0;
     // mispedict flag will be cleaned by taken (see DECODE)
-    else if (mispredict_taken_o | flush_by_ctrl)
-      mispredict_taken_o <= 1'b0;
+    else if (mispredict_taken_r | flush_by_ctrl)
+      mispredict_taken_r <= 1'b0;
     // take mispredict
     else if (padv_s1 & ~take_ds & branch_mispredict_i)
-      mispredict_taken_o <= 1'b1;
+      mispredict_taken_r <= 1'b1;
   end // @ clock
   // flush some registers in stage #2 if mispredict branch processing
-  assign flush_by_mispredict_s2 = ((branch_mispredict_i & ~mispredict_taken_o) | mispredict_stored) & ~fetching_ds;
+  assign flush_by_mispredict_s2 = ((branch_mispredict_i & ~mispredict_taken_r) | mispredict_stored) & ~fetching_ds;
   // flush some registers in stage #3 if mispredict branch processing
-  assign flush_by_mispredict_s3 = ((branch_mispredict_i & ~mispredict_taken_o) | mispredict_stored);
+  assign flush_by_mispredict_s3 = ((branch_mispredict_i & ~mispredict_taken_r) | mispredict_stored);
+  // drop mispredict flag in EXECUTE
+  assign mispredict_deassert_o  = mispredict_taken_r | mispredict_stored;
 
 
   // store branch flag and target if stage #1 is busy
@@ -332,17 +337,26 @@ module mor1kx_fetch_marocchino
   wire [OPTION_OPERAND_WIDTH-1:0] s1t_pc_next = virt_addr_fetch + 4;
 
   // Select the PC for next fetch
-  wire [OPTION_OPERAND_WIDTH-1:0] s1t_pc_mux =
+  wire [OPTION_OPERAND_WIDTH-1:0] virt_addr =
     // Debug (MAROCCHINO_TODO)
     du_restart_i                                         ? du_restart_pc_i :
     // padv-s1 and neither exceptions nor pipeline flush
     (ctrl_branch_exception_i & ~fetch_exception_taken_o) ? ctrl_branch_except_pc_i :
     take_ds                                              ? s1t_pc_next :
-    (branch_mispredict_i & ~mispredict_taken_o)          ? exec_mispredict_target_i :
+    (branch_mispredict_i & ~mispredict_taken_r)          ? exec_mispredict_target_i :
     mispredict_stored                                    ? mispredict_target_stored :
     dcod_take_branch_i                                   ? dcod_branch_target_i :
     branch_stored                                        ? branch_target_stored :
                                                            s1t_pc_next;
+
+
+  // ICACHE/IMMU match address store register
+  always @(posedge clk `OR_ASYNC_RST) begin
+    if (rst)
+      virt_addr_fetch <= OPTION_RESET_PC - 4; // will be restored on 1st advance
+    else if (padv_s1 & ~flush_by_ctrl)
+      virt_addr_fetch <= virt_addr;
+  end // @ clock
 
 
   /****************************************/
@@ -697,19 +711,14 @@ module mor1kx_fetch_marocchino
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst) begin
       ibus_req_o <= 1'b0; // by reset
-      ibus_adr_o <= {OPTION_OPERAND_WIDTH{1'b0}}; // by reset
+      ibus_adr_o <= {IFOOW{1'b0}}; // by reset
       state      <= IDLE; // by reset
-    end
-    else if (fetch_excepts) begin
-      ibus_req_o <= 1'b0; // by exceptions
-      ibus_adr_o <= {OPTION_OPERAND_WIDTH{1'b0}}; // by exceptions
-      state      <= IDLE; // by exceptions
     end
     else begin
       case (state)
         IDLE: begin
           ibus_req_o <= 1'b0; // idle defaults
-          ibus_adr_o <= {OPTION_OPERAND_WIDTH{1'b0}}; // idle defaults
+          ibus_adr_o <= {IFOOW{1'b0}}; // idle defaults
           state      <= IDLE; // idle defaults
           // ---
           if (padv_s1 & ~flush_by_ctrl)
@@ -718,7 +727,7 @@ module mor1kx_fetch_marocchino
       
         IMEM_REQ: begin
           ibus_req_o <= 1'b0; // imem req defaults
-          ibus_adr_o <= {OPTION_OPERAND_WIDTH{1'b0}}; // imem req defaults
+          ibus_adr_o <= {IFOOW{1'b0}}; // imem req defaults
           state      <= IMEM_REQ; // imem req defaults
           // ---
           if (fetch_excepts | flush_by_ctrl) begin
@@ -727,15 +736,15 @@ module mor1kx_fetch_marocchino
           else if (padv_s1) begin
             state <= IMEM_REQ;
           end
-          else if (~ic_access) begin
-            ibus_req_o <= 1'b1;
-            ibus_adr_o <= phys_addr_fetch;
-            state      <= IBUS_READ;
-          end
           else if (ic_refill_req) begin
             ibus_req_o <= 1'b1;
             ibus_adr_o <= phys_addr_fetch;
             state      <= IC_REFILL;
+          end
+          else if (~ic_access) begin
+            ibus_req_o <= 1'b1;
+            ibus_adr_o <= phys_addr_fetch;
+            state      <= IBUS_READ;
           end
           else
             state <= IDLE;
@@ -750,9 +759,16 @@ module mor1kx_fetch_marocchino
             ibus_adr_o <= next_refill_adr;
             if (ic_refill_last) begin
               ibus_req_o <= 1'b0;
-              ibus_adr_o <= {OPTION_OPERAND_WIDTH{1'b0}};
+              ibus_adr_o <= {IFOOW{1'b0}};
               state      <= IDLE;
             end
+          end
+          // ---
+          if (ibus_err_i) begin
+            ibus_req_o <= 1'b0;           // bus error during re-fill
+            ibus_adr_o <= {IFOOW{1'b0}};  // bus error during re-fill
+            //flush_r    <= 1'b0;           // bus error during re-fill
+            state      <= IDLE;           // bus error during re-fill
           end
         end // ic-refill
   
@@ -763,11 +779,18 @@ module mor1kx_fetch_marocchino
           // ---
           if (ibus_ack_i) begin
             ibus_req_o <= 1'b0;
-            ibus_adr_o <= {OPTION_OPERAND_WIDTH{1'b0}};
+            ibus_adr_o <= {IFOOW{1'b0}};
             if (padv_s1 & ~flush_by_ctrl) // IBUS READ -> IMEM REQUEST
               state <= IMEM_REQ;          // IBUS READ -> IMEM REQUEST
             else
               state <= IDLE; // IBUS READ -> IDLE
+          end
+          // ---
+          if (ibus_err_i) begin
+            ibus_req_o <= 1'b0;           // bus error during read
+            ibus_adr_o <= {IFOOW{1'b0}};  // bus error during read
+            //flush_r    <= 1'b0;           // bus error during read
+            state      <= IDLE;           // bus error during read
           end
         end // read
   
@@ -817,7 +840,7 @@ module mor1kx_fetch_marocchino
     // configuration
     .enable_i             (ic_enable_i), // ICACHE
     // regular requests in/out
-    .virt_addr_i          (s1t_pc_mux), // ICACHE
+    .virt_addr_i          (virt_addr), // ICACHE
     .phys_addr_fetch_i    (phys_addr_fetch), // ICACHE
     .immu_cache_inhibit_i (immu_cache_inhibit), // ICACHE
     .ic_access_o          (ic_access), // ICACHE
@@ -884,8 +907,8 @@ module mor1kx_fetch_marocchino
     .enable_i                       (immu_enable_i), // IMMU
     .supervisor_mode_i              (supervisor_mode_i), // IMMU
     // address translation
-    .virt_addr_i                    (s1t_pc_mux), // IMMU
-    .virt_addr_fetch_o              (virt_addr_fetch), // IMMU
+    .virt_addr_i                    (virt_addr), // IMMU
+    .virt_addr_fetch_i              (virt_addr_fetch), // IMMU
     .phys_addr_fetch_o              (phys_addr_fetch), // IMMU
     // flags
     .cache_inhibit_o                (immu_cache_inhibit), // IMMU

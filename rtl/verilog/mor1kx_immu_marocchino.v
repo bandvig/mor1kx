@@ -49,7 +49,7 @@ module mor1kx_immu_marocchino
 
   // address translation
   input      [OPTION_OPERAND_WIDTH-1:0] virt_addr_i,
-  output reg [OPTION_OPERAND_WIDTH-1:0] virt_addr_fetch_o,
+  input      [OPTION_OPERAND_WIDTH-1:0] virt_addr_fetch_i,
   output     [OPTION_OPERAND_WIDTH-1:0] phys_addr_fetch_o,
 
   // flags
@@ -128,15 +128,6 @@ module mor1kx_immu_marocchino
   integer                          j;
 
 
-  // ICACHE/IMMU match address store register
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      virt_addr_fetch_o <= OPTION_RESET_PC - 4; // will be restored on 1st advance
-    else if (adv_i)
-      virt_addr_fetch_o <= virt_addr_i;
-  end // @ clock
-
-
   // Stored "IMMU enable" and "Supevisor Mode" flags
   // (for masking IMMU output flags, but not for advancing)
   reg enable_r;
@@ -152,12 +143,14 @@ module mor1kx_immu_marocchino
       supervisor_mode_r <= 1'b0;
     end
     else if (adv_i) begin
-      enable_r          <= enable_i;
-      supervisor_mode_r <= supervisor_mode_i;
-    end
-    else if (enable_r & ~enable_i) begin
-      enable_r          <= 1'b0;
-      supervisor_mode_r <= 1'b0;
+      if (enable_i) begin
+        enable_r          <= 1'b1;
+        supervisor_mode_r <= supervisor_mode_i;
+      end
+      else begin
+        enable_r          <= 1'b0;
+        supervisor_mode_r <= 1'b0;
+      end
     end
   end // @ clock
 
@@ -230,12 +223,12 @@ module mor1kx_immu_marocchino
   generate
   for (i = 0; i < OPTION_IMMU_WAYS; i=i+1) begin : ways
     // 8KB page hit
-    assign way_hit[i] = (itlb_match_dout[i][31:13] == virt_addr_fetch_o[31:13]) & // address hit
+    assign way_hit[i] = (itlb_match_dout[i][31:13] == virt_addr_fetch_i[31:13]) & // address hit
                         ~(&itlb_match_huge_dout[i][1:0]) &                        // not valid huge
                         itlb_match_dout[i][0] &                                   // valid bit
                         enable_r;                                                 // mmu enabled
     // Huge page hit
-    assign way_huge_hit[i] = (itlb_match_huge_dout[i][31:24] == virt_addr_fetch_o[31:24]) & // address hit
+    assign way_huge_hit[i] = (itlb_match_huge_dout[i][31:24] == virt_addr_fetch_i[31:24]) & // address hit
                              itlb_match_huge_dout[i][1] & itlb_match_huge_dout[i][0] &      // valid huge
                              enable_r;                                                      // mmu enabled
   end
@@ -244,8 +237,8 @@ module mor1kx_immu_marocchino
   reg [OPTION_OPERAND_WIDTH-1:0] phys_addr;
   
   always @(*) begin
-    tlb_miss_o        = ~tlb_reload_pagefault & ~spr_immu_stb & enable_r;
-    phys_addr         = virt_addr_fetch_o;
+    tlb_miss_o        = ~tlb_reload_pagefault & enable_r;
+    phys_addr         = virt_addr_fetch_i;
     sxe               = 1'b0;
     uxe               = 1'b0;
     cache_inhibit_o   = 1'b0;
@@ -255,13 +248,13 @@ module mor1kx_immu_marocchino
         tlb_miss_o = 1'b0;
 
       if (way_huge_hit[j]) begin
-        phys_addr         = {itlb_trans_huge_dout[j][31:24], virt_addr_fetch_o[23:0]};
+        phys_addr         = {itlb_trans_huge_dout[j][31:24], virt_addr_fetch_i[23:0]};
         sxe               = itlb_trans_huge_dout[j][6];
         uxe               = itlb_trans_huge_dout[j][7];
         cache_inhibit_o   = itlb_trans_huge_dout[j][1];
       end
       else if (way_hit[j])begin
-        phys_addr         = {itlb_trans_dout[j][31:13], virt_addr_fetch_o[12:0]};
+        phys_addr         = {itlb_trans_dout[j][31:13], virt_addr_fetch_i[12:0]};
         sxe               = itlb_trans_dout[j][6];
         uxe               = itlb_trans_dout[j][7];
         cache_inhibit_o   = itlb_trans_dout[j][1];
@@ -281,7 +274,7 @@ module mor1kx_immu_marocchino
     end
   end // loop by ways
 
-  assign pagefault_o = (supervisor_mode_r ? ~sxe : ~uxe) & ~tlb_reload_busy_o & ~spr_immu_stb & enable_r;
+  assign pagefault_o = (supervisor_mode_r ? ~sxe : ~uxe) & ~tlb_reload_busy_o & enable_r;
 
   assign phys_addr_fetch_o = phys_addr;
 
@@ -365,7 +358,7 @@ module mor1kx_immu_marocchino
           tlb_reload_req_o <= 1'b0;
           if (do_reload) begin
             tlb_reload_req_o  <= 1'b1;
-            tlb_reload_addr_o <= {immucr[31:10],virt_addr_fetch_o[31:24],2'b00};
+            tlb_reload_addr_o <= {immucr[31:10],virt_addr_fetch_i[31:24],2'b00};
             tlb_reload_state  <= TLB_GET_PTE_POINTER;
           end
         end // tlb reload idle
@@ -392,7 +385,7 @@ module mor1kx_immu_marocchino
               tlb_reload_state <= TLB_GET_PTE;
             end
             else begin
-              tlb_reload_addr_o <= {tlb_reload_data_i[31:13],virt_addr_fetch_o[23:13],2'b00};
+              tlb_reload_addr_o <= {tlb_reload_data_i[31:13],virt_addr_fetch_i[23:13],2'b00};
               tlb_reload_state  <= TLB_GET_PTE;
             end
           end
@@ -425,7 +418,7 @@ module mor1kx_immu_marocchino
   
               // Match register generation.
               // VPN
-              itlb_match_reload_din[31:13] <= virt_addr_fetch_o[31:13];
+              itlb_match_reload_din[31:13] <= virt_addr_fetch_i[31:13];
               // PL1
               itlb_match_reload_din[1] <= tlb_reload_huge;
               // Valid
