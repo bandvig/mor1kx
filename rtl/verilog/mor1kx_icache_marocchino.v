@@ -41,10 +41,12 @@ module mor1kx_icache_marocchino
   input                                 clk,
   input                                 rst,
 
-  // controls
-  input                                 adv_i, // advance
-  input                                 fetch_excepts_i,
+  // pipe controls
+  input                                 padv_s1_i,
   input                                 flush_by_ctrl_i,
+  // fetch exceptions
+  input                                 fetch_excepts_i,
+  input                                 ibus_err_i,
 
   // configuration
   input                                 enable_i,
@@ -62,8 +64,8 @@ module mor1kx_icache_marocchino
   input                                 ic_refill_allowed_i,
   output     [OPTION_OPERAND_WIDTH-1:0] next_refill_adr_o,
   output                                refill_last_o,
-  input          [`OR1K_INSN_WIDTH-1:0] wrdat_i,
-  input                                 we_i,
+  input          [`OR1K_INSN_WIDTH-1:0] ibus_dat_i,
+  input                                 ibus_ack_i,
 
   // SPR interface
   input                          [15:0] spr_bus_addr_i,
@@ -149,8 +151,11 @@ module mor1kx_icache_marocchino
   wire            [WAY_WIDTH-3:0] way_addr [OPTION_ICACHE_WAYS-1:0];
   wire [OPTION_OPERAND_WIDTH-1:0] way_dout [OPTION_ICACHE_WAYS-1:0];
 
-  // FETCH reads ICACHE
-  wire                          ic_try;
+  // FETCH reads ICACHE (doesn't include exceptions or flushing control)
+  wire                          ic_fsm_adv;
+
+  // RAM block read access (includes exceptions or flushing control)
+  wire                          ic_ram_re;
 
   // Does any way hit?
   wire                          ic_check_limit_width;
@@ -175,8 +180,11 @@ module mor1kx_icache_marocchino
   genvar i;
 
 
-  // FETCH reads ICACHE
-  assign ic_try = adv_i & enable_i;
+  // FETCH reads ICACHE (doesn't include exceptions or flushing control)
+  assign ic_fsm_adv = padv_s1_i & enable_i;
+
+  // RAM block read access (includes exceptions or flushing control)
+  assign ic_ram_re  = ic_fsm_adv & ~(fetch_excepts_i | flush_by_ctrl_i);
 
 
   generate
@@ -216,7 +224,7 @@ module mor1kx_icache_marocchino
 
   //
   //   If ICACHE is in state read/refill it automatically means that
-  // ICACHE is enabled (see ic_try).
+  // ICACHE is enabled (see ic_fsm_adv).
   //
   //   So, locally we use short variant of dc-access
   wire   ic_access   = ic_check_limit_width & ~immu_cache_inhibit_i;
@@ -267,17 +275,10 @@ module mor1kx_icache_marocchino
     if (rst) begin
       spr_bus_ack_o   <= 1'b0;
       curr_refill_adr <= {OPTION_OPERAND_WIDTH{1'b0}};
-      lru_way_r       <= {OPTION_ICACHE_WAYS{1'b0}};
+      lru_way_r       <= {OPTION_ICACHE_WAYS{1'b0}};    // reset
       refill_hit_r    <= 1'b0;
       refill_done     <= 0;
       state           <= IDLE;
-    end
-    else if (fetch_excepts_i) begin
-      // FETCH exceptions
-      lru_way_r     <= {OPTION_ICACHE_WAYS{1'b0}};
-      refill_hit_r  <= 1'b0;
-      refill_done   <= 0;
-      state         <= IDLE;
     end
     else if (spr_bus_ic_stb) begin
       // SPR transaction
@@ -294,19 +295,21 @@ module mor1kx_icache_marocchino
       // states
       case (state)
         IDLE: begin
-          if (ic_try & ~flush_by_ctrl_i)
+          if (fetch_excepts_i | flush_by_ctrl_i) // ICACHE FSM keeps IDLE
+            state <= IDLE;
+          else if (ic_fsm_adv)
             state <= READ;
         end
 
         READ: begin
-          if (flush_by_ctrl_i)
+          if (fetch_excepts_i | flush_by_ctrl_i)
             state <= IDLE;
           else if (ic_access) begin
             if (~hit) begin
               if (ic_refill_allowed_i) begin
                 // Store the LRU information for correct replacement
                 // on refill. Always one when only one way.
-                lru_way_r <= (OPTION_ICACHE_WAYS == 1) | lru_way;
+                lru_way_r <= (OPTION_ICACHE_WAYS == 1) | lru_way; // to re-fill
                 // store tag state
                 for (w1 = 0; w1 < OPTION_ICACHE_WAYS; w1 = w1 + 1) begin
                   tag_way_save[w1] <= tag_way_out[w1];
@@ -317,18 +320,21 @@ module mor1kx_icache_marocchino
                 state <= REFILL;
               end
             end
-            else if (~ic_try) // ICACHE hit
+            else if (~ic_fsm_adv) // ICACHE hit
               state <= IDLE;
           end
-          else if (~ic_try) // not ICACHE access
+          else if (~ic_fsm_adv) // not ICACHE access
             state <= IDLE;
         end
 
         REFILL: begin
           refill_hit_r <= 1'b0;
-          if (we_i) begin
+          // In according with WISHBONE-B3 rule 3.45:
+          // "SLAVE MUST NOT assert more than one of ACK, ERR or RTY"
+          if (ibus_ack_i) begin
             if (refill_last_o) begin
               refill_done <= 0;
+              lru_way_r   <= {OPTION_ICACHE_WAYS{1'b0}}; // last re-fill
               state       <= IDLE;
             end
             else begin
@@ -336,13 +342,18 @@ module mor1kx_icache_marocchino
               refill_done[curr_refill_adr[OPTION_ICACHE_BLOCK_WIDTH-1:2]] <= 1'b1;
               curr_refill_adr <= next_refill_adr_o;
             end // last or regulat
-          end // we
+          end // IBUS ACK
+          else if (ibus_err_i) begin // during re-fill
+            refill_done <= 0;
+            lru_way_r   <= {OPTION_ICACHE_WAYS{1'b0}}; // IBUS error during re-fill
+            state       <= IDLE;
+          end
         end // RE-FILL
 
         default: begin
           spr_bus_ack_o   <= 1'b0;
           curr_refill_adr <= {OPTION_OPERAND_WIDTH{1'b0}};
-          lru_way_r       <= {OPTION_ICACHE_WAYS{1'b0}};
+          lru_way_r       <= {OPTION_ICACHE_WAYS{1'b0}};    // default
           refill_hit_r    <= 1'b0;
           refill_done     <= 0;
           state           <= IDLE;
@@ -353,10 +364,10 @@ module mor1kx_icache_marocchino
 
 
   // WAY-RAM write signal (for RE-FILL only)
-  assign way_we = {OPTION_ICACHE_WAYS{we_i}} & lru_way_r;
+  assign way_we = {OPTION_ICACHE_WAYS{ibus_ack_i}} & lru_way_r;
 
   // WAY-RAM enable
-  assign way_en = {OPTION_ICACHE_WAYS{ic_try}} | way_we;
+  assign way_en = {OPTION_ICACHE_WAYS{ic_ram_re}} | way_we;
 
   generate
   for (i = 0; i < OPTION_ICACHE_WAYS; i=i+1) begin : ways_ram
@@ -379,7 +390,7 @@ module mor1kx_icache_marocchino
       .en   (way_en[i]),  // enable
       .we   (way_we[i]),  // operation is write
       .addr (way_addr[i]),
-      .din  (wrdat_i),
+      .din  (ibus_dat_i),
       .dout (way_dout[i])
     );
   end // block: way_memories
@@ -446,7 +457,9 @@ module mor1kx_icache_marocchino
       end
 
       REFILL: begin
-        if (we_i) begin
+        // In according with WISHBONE-B3 rule 3.45:
+        // "SLAVE MUST NOT assert more than one of ACK, ERR or RTY"
+        if (ibus_ack_i) begin
           // Invalidate the way on the first write
           if (refill_done == 0) begin
             for (w2 = 0; w2 < OPTION_ICACHE_WAYS; w2 = w2 + 1) begin
@@ -507,11 +520,14 @@ module mor1kx_icache_marocchino
   // TAG read address
   assign tag_rindex = virt_addr_i[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH];
 
+  // Read/Write into same address
+  wire tag_rw_same_addr = (tag_rindex == tag_windex);
+
   // Read/Write port (*_rwp_*) write
-  wire tr_rwp_we = tag_we & (tag_rindex == tag_windex);
+  wire tr_rwp_we = tag_we & ic_ram_re & tag_rw_same_addr;
 
   // Write-only port (*_wp_*) enable
-  wire tr_wp_en = tag_we & (~(tag_rindex == tag_windex) | ~ic_try);
+  wire tr_wp_en = tag_we & (~ic_ram_re | ~tag_rw_same_addr);
 
   // TAG-RAM instance
   mor1kx_dpram_en_w1st_sclk
@@ -525,14 +541,14 @@ module mor1kx_icache_marocchino
     // common clock
     .clk    (clk),
     // port "a": Read / Write (for RW-conflict case)
-    .en_a   (ic_try),     // enable port "a"
-    .we_a   (tr_rwp_we),  // operation is "write"
+    .en_a   (ic_ram_re),  // TAG-RAM: enable port "a"
+    .we_a   (tr_rwp_we),  // TAG-RAM: operation is "write"
     .addr_a (tag_rindex),
     .din_a  (tag_din),
     .dout_a (tag_dout),
     // port "b": Write if no RW-conflict
-    .en_b   (tr_wp_en),   // enable port "b"
-    .we_b   (tag_we),     // operation is "write"
+    .en_b   (tr_wp_en),   // TAG-RAM: enable port "b"
+    .we_b   (tag_we),     // TAG-RAM: operation is "write"
     .addr_b (tag_windex),
     .din_b  (tag_din),
     .dout_b ()            // not used
