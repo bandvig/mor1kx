@@ -26,7 +26,7 @@
 
 module mor1kx_store_buffer_marocchino
 #(
-  parameter DEPTH_WIDTH          =  4,
+  parameter DEPTH_WIDTH          =  4, // 16 taps
   parameter OPTION_OPERAND_WIDTH = 32
 )
 (

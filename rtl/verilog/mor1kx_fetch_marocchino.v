@@ -165,12 +165,12 @@ module mor1kx_fetch_marocchino
   // IBUS FSM statuses
   wire                            ibus_fsm_free;
   // IBUS access state machine
-  localparam                [3:0] IDLE       = 4'b0001,
-                                  IMEM_REQ   = 4'b0010,
-                                  IBUS_READ  = 4'b0100,
-                                  IC_REFILL  = 4'b1000;
+  localparam                [3:0] IBUS_IDLE       = 4'b0001,
+                                  IMEM_REQ        = 4'b0010,
+                                  IBUS_READ       = 4'b0100,
+                                  IBUS_IC_REFILL  = 4'b1000;
   //
-  reg                       [3:0] state;
+  reg                       [3:0] ibus_state;
   // IBUS error processing
   wire                            ibus_err_instant; // error reported "just now"
   wire                            except_ibus_err;  // masked by stage #2 flushing (see later)
@@ -641,21 +641,21 @@ module mor1kx_fetch_marocchino
 
   // IBUS output ready (no bus error case)
   // !!! should follows appropriate FSM condition,
-  assign ibus_ack = (state == IBUS_READ) & ibus_ack_i;
+  assign ibus_ack = (ibus_state == IBUS_READ) & ibus_ack_i;
 
   // IBUS FSM status is stop
   // !!! should follows appropriate FSM condition,
   //     but without taking into account exceptions
   assign ibus_fsm_free =
-    (state == IDLE) |                                        // IBUS FSM is free
-    ((state == IMEM_REQ) & (flush_by_borm_ds_s2 | ic_ack)) | // IBUS FSM is free
-    ibus_ack;                                                // IBUS FSM is free
+    (ibus_state == IBUS_IDLE) |                                   // IBUS FSM is free
+    ((ibus_state == IMEM_REQ) & (flush_by_borm_ds_s2 | ic_ack)) | // IBUS FSM is free
+    ibus_ack;                                                     // IBUS FSM is free
 
 
   // ICACHE re-fill-allowed corresponds to refill-request position in IBUS FSM
   always @(*) begin
     ic_refill_allowed = 1'b0;
-    case (state)
+    case (ibus_state)
       IMEM_REQ: begin
         if (fetch_excepts | flush_by_ctrl |       // re-fill isn't allowed due to exceptions/flushing
             (padv_fetch_i & flush_by_borm_ds_s2)) // re-fill isn't allowed due to flushing by branch or mispredict (eq. padv_s1)
@@ -673,83 +673,83 @@ module mor1kx_fetch_marocchino
     if (rst) begin
       ibus_req_o <= 1'b0;           // by reset
       ibus_adr_o <= {IFOOW{1'b0}};  // by reset
-      state      <= IDLE;           // by reset
+      ibus_state <= IBUS_IDLE;      // by reset
     end
     else begin
-      case (state)
-        IDLE: begin
+      case (ibus_state)
+        IBUS_IDLE: begin
           ibus_req_o <= 1'b0;           // idle defaults
           ibus_adr_o <= {IFOOW{1'b0}};  // idle defaults
-          state      <= IDLE;           // idle defaults
+          ibus_state <= IBUS_IDLE;      // idle defaults
           // ---
           if (padv_fetch_i & ~flush_by_ctrl) // eq. padv_s1 (in IDLE state of IBUS FSM)
-            state <= IMEM_REQ;
+            ibus_state <= IMEM_REQ;
         end
       
         IMEM_REQ: begin
           ibus_req_o <= 1'b0;           // imem req defaults
           ibus_adr_o <= {IFOOW{1'b0}};  // imem req defaults
-          state      <= IMEM_REQ;       // imem req defaults
+          ibus_state <= IMEM_REQ;       // imem req defaults
           // ---
           if (fetch_excepts | flush_by_ctrl) begin
-            state <= IDLE;
+            ibus_state <= IBUS_IDLE;
           end
           else if (padv_fetch_i & (flush_by_borm_ds_s2 | ic_ack)) begin // eq. padv_s1 (in IMEM-REQ state of IBUS FSM)
-            state <= IMEM_REQ;
+            ibus_state <= IMEM_REQ;
           end
           else if (ic_refill_req) begin
             ibus_req_o <= 1'b1;
             ibus_adr_o <= phys_addr_fetch;
-            state      <= IC_REFILL;
+            ibus_state <= IBUS_IC_REFILL;
           end
           else if (~ic_access) begin
             ibus_req_o <= 1'b1;
             ibus_adr_o <= phys_addr_fetch;
-            state      <= IBUS_READ;
+            ibus_state <= IBUS_READ;
           end
           else
-            state <= IDLE;
+            ibus_state <= IBUS_IDLE;
         end
   
-        IC_REFILL: begin
-          ibus_req_o <= 1'b1;       // re-fill defaults
-          ibus_adr_o <= ibus_adr_o; // re-fill defaults
-          state      <= IC_REFILL;  // re-fill defaults
+        IBUS_IC_REFILL: begin
+          ibus_req_o <= 1'b1;           // re-fill defaults
+          ibus_adr_o <= ibus_adr_o;     // re-fill defaults
+          ibus_state <= IBUS_IC_REFILL; // re-fill defaults
           // ---
           if (ibus_ack_i) begin
             ibus_adr_o <= next_refill_adr;
             if (ic_refill_last) begin
               ibus_req_o <= 1'b0;
               ibus_adr_o <= {IFOOW{1'b0}};
-              state      <= IDLE;
+              ibus_state <= IBUS_IDLE;
             end
           end
           else if (ibus_err_i) begin
             ibus_req_o <= 1'b0;           // bus error during re-fill
             ibus_adr_o <= {IFOOW{1'b0}};  // bus error during re-fill
             //flush_r    <= 1'b0;           // bus error during re-fill
-            state      <= IDLE;           // bus error during re-fill
+            ibus_state <= IBUS_IDLE;      // bus error during re-fill
           end
         end // ic-refill
   
         IBUS_READ: begin
           ibus_req_o <= 1'b1;       // read defaults
           ibus_adr_o <= ibus_adr_o; // read defaults
-          state      <= IBUS_READ;  // read defaults
+          ibus_state <= IBUS_READ;  // read defaults
           // ---
           if (ibus_ack_i) begin
             ibus_req_o <= 1'b0;
             ibus_adr_o <= {IFOOW{1'b0}};
             if (padv_fetch_i & ~flush_by_ctrl)  // IBUS READ -> IMEM REQUEST (eq. padv_s1)
-              state <= IMEM_REQ;                // IBUS READ -> IMEM REQUEST
+              ibus_state <= IMEM_REQ;                // IBUS READ -> IMEM REQUEST
             else
-              state <= IDLE; // IBUS READ -> IDLE
+              ibus_state <= IBUS_IDLE; // IBUS READ -> IDLE
           end
           else if (ibus_err_i) begin
             ibus_req_o <= 1'b0;           // bus error during read
             ibus_adr_o <= {IFOOW{1'b0}};  // bus error during read
             //flush_r    <= 1'b0;           // bus error during read
-            state      <= IDLE;           // bus error during read
+            ibus_state <= IBUS_IDLE;           // bus error during read
           end
         end // read
   
@@ -759,7 +759,7 @@ module mor1kx_fetch_marocchino
   end // @ clock
 
   // And burst mode
-  assign ibus_burst_o = (state == IC_REFILL) & ~ic_refill_last;
+  assign ibus_burst_o = (ibus_state == IBUS_IC_REFILL) & ~ic_refill_last;
 
 
   //---------------//
@@ -769,7 +769,7 @@ module mor1kx_fetch_marocchino
   //   For MAROCCHINO SPR access means that pipeline is stalled till ACK.
   // So, no padv-*. We only delay SPR access command till IBUS transaction
   // completion.
-  wire spr_bus_ifetch_stb = spr_bus_stb_i & (state == IDLE);
+  wire spr_bus_ifetch_stb = spr_bus_stb_i & (ibus_state == IBUS_IDLE);
 
 
 

@@ -50,7 +50,7 @@ module mor1kx_dcache_marocchino
 
   // exceptions
   input                                 lsu_excepts_any_i,
-  input                                 except_dbus_err_i,
+  input                                 dbus_err_instant_i,
 
   // input commands
   //  # for genearel load or store
@@ -373,8 +373,8 @@ module mor1kx_dcache_marocchino
       refill_done         <= 0;     // on reset
       snoop_check         <= 1'b0;  // on reset
       snoop_tag           <= {TAG_WIDTH{1'b0}}; // on reset
-      snoop_windex        <= {OPTION_DCACHE_SET_WIDTH{1'b0}}; // on reset
-      tag_save_lru        <= {OPTION_DCACHE_WAYS{1'b0}};
+      snoop_windex        <= {OPTION_DCACHE_SET_WIDTH{1'b0}};
+      tag_save_lru        <= {OPTION_DCACHE_WAYS{1'b0}}; // on reset
       for (w1 = 0; w1 < OPTION_DCACHE_WAYS; w1 = w1 + 1) begin
         tag_way_save[w1] <= {TAGMEM_WAY_WIDTH{1'b0}};
       end
@@ -418,7 +418,7 @@ module mor1kx_dcache_marocchino
               if (dc_refill_allowed_i) begin
                 // Store the LRU information for correct replacement
                 // on re-fill. Always one when only one way.
-                tag_save_lru <= (OPTION_DCACHE_WAYS == 1) | lru;
+                tag_save_lru <= (OPTION_DCACHE_WAYS == 1) | lru;  // read -> re-fill
                 // store tag state
                 for (w1 = 0; w1 < OPTION_DCACHE_WAYS; w1 = w1 + 1) begin
                   tag_way_save[w1] <= tag_way_out[w1];
@@ -462,14 +462,11 @@ module mor1kx_dcache_marocchino
 
         DC_REFILL: begin
           refill_hit_r <= 1'b0;
-          if (except_dbus_err_i) begin    // abort re-fill
-            refill_hit_was_r <= 1'b0;     // on dbus error during re-fill
-            refill_done      <= 0;        // on dbus error  during re-fill
-            dc_state         <= DC_IDLE;  // on dbus error  during re-fill
-          end
-          // Abort re-fill on snoop-hit
-          // TODO: only abort on snoop-hits to re-fill address
-          else if (snoop_hit_o) begin
+          // 1) Abort re-fill on snoop-hit
+          //    TODO: only abort on snoop-hits to re-fill address
+          // 2) In according with WISHBONE-B3 rule 3.45:
+          //    "SLAVE MUST NOT assert more than one of ACK, ERR or RTY"
+          if (snoop_hit_o) begin
             refill_hit_was_r <= 1'b0;  // on snoop-hit during re-fill
             refill_done      <= 0;     // on snoop-hit during re-fill
             dc_state         <= refill_hit_was_r ? DC_IDLE : DC_READ;  // on snoop-hit during re-fill
@@ -478,6 +475,7 @@ module mor1kx_dcache_marocchino
             if (refill_last_o) begin
               refill_hit_was_r <= 1'b0;  // on last re-fill
               refill_done      <= 0;     // on last re-fill
+              tag_save_lru     <= {OPTION_DCACHE_WAYS{1'b0}}; // on last re-fill
               dc_state         <= DC_IDLE;  // on last re-fill
             end
             else begin
@@ -486,7 +484,13 @@ module mor1kx_dcache_marocchino
               refill_done[curr_refill_adr[OPTION_DCACHE_BLOCK_WIDTH-1:2]] <= 1'b1; // current re-fill
               curr_refill_adr <= next_refill_adr_o;
             end // last or regulat
-          end // snoop-hit / we
+          end // snoop-hit / dbus-ack
+          else if (dbus_err_instant_i) begin  // abort re-fill
+            refill_hit_was_r <= 1'b0;     // on dbus error during re-fill
+            refill_done      <= 0;        // on dbus error during re-fill
+            tag_save_lru     <= {OPTION_DCACHE_WAYS{1'b0}}; // on dbus error during re-fill
+            dc_state         <= DC_IDLE;  // on dbus error during re-fill
+          end
         end // re-fill
 
         DC_INVALIDATE: begin
@@ -495,15 +499,15 @@ module mor1kx_dcache_marocchino
         end
 
         default: begin
-          dc_state            <= DC_IDLE;
-          curr_refill_adr     <= {OPTION_OPERAND_WIDTH{1'b0}};  // on reset
-          refill_hit_r        <= 1'b0;  // on reset
-          refill_hit_was_r    <= 1'b0;  // on reset
-          refill_done         <= 0;     // on reset
-          snoop_check         <= 1'b0;  // on reset
-          snoop_tag           <= {TAG_WIDTH{1'b0}}; // on reset
-          snoop_windex        <= {OPTION_DCACHE_SET_WIDTH{1'b0}}; // on reset
-          tag_save_lru        <= {OPTION_DCACHE_WAYS{1'b0}};
+          dc_state            <= DC_IDLE;  // on default
+          curr_refill_adr     <= {OPTION_OPERAND_WIDTH{1'b0}};  // on default
+          refill_hit_r        <= 1'b0;  // on default
+          refill_hit_was_r    <= 1'b0;  // on default
+          refill_done         <= 0;     // on default
+          snoop_check         <= 1'b0;  // on default
+          snoop_tag           <= {TAG_WIDTH{1'b0}}; // on default
+          snoop_windex        <= {OPTION_DCACHE_SET_WIDTH{1'b0}}; // on default
+          tag_save_lru        <= {OPTION_DCACHE_WAYS{1'b0}}; // on default
           for (w1 = 0; w1 < OPTION_DCACHE_WAYS; w1 = w1 + 1) begin
             tag_way_save[w1] <= {TAGMEM_WAY_WIDTH{1'b0}};
           end
@@ -588,7 +592,9 @@ module mor1kx_dcache_marocchino
         end
 
         DC_REFILL: begin
-          if (dbus_ack_i & ~except_dbus_err_i) begin // on re-fill
+          // In according with WISHBONE-B3 rule 3.45:
+          // "SLAVE MUST NOT assert more than one of ACK, ERR or RTY"
+          if (dbus_ack_i) begin // on re-fill
             // write addresses
             tag_windex = curr_refill_adr[WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH]; // on re-fill
             way_wr_dat = dbus_dat_i;                                             // on re-fill

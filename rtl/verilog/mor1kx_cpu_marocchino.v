@@ -68,7 +68,7 @@ module mor1kx_cpu_marocchino
 
   parameter FEATURE_FPU    = "NONE", // ENABLED|NONE: pipeline marocchino
 
-  parameter OPTION_STORE_BUFFER_DEPTH_WIDTH = 8,
+  parameter OPTION_STORE_BUFFER_DEPTH_WIDTH = 4, // 16 taps
 
   parameter FEATURE_MULTICORE      = "NONE",
 

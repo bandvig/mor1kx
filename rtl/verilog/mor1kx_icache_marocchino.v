@@ -73,7 +73,7 @@ module mor1kx_icache_marocchino
   input                                 spr_bus_stb_i,
   input      [OPTION_OPERAND_WIDTH-1:0] spr_bus_dat_i,
   output     [OPTION_OPERAND_WIDTH-1:0] spr_bus_dat_o,
-  output reg                            spr_bus_ack_o
+  output                                spr_bus_ack_o
 );
 
   // Address space in bytes for a way
@@ -112,15 +112,15 @@ module mor1kx_icache_marocchino
 
 
   // States
-  localparam IDLE         = 4'b0001;
-  localparam READ         = 4'b0010;
-  localparam REFILL       = 4'b0100;
-  localparam INVALIDATE   = 4'b1000;
+  localparam IC_IDLE         = 4'b0001;
+  localparam IC_READ         = 4'b0010;
+  localparam IC_REFILL       = 4'b0100;
+  localparam IC_INVALIDATE   = 4'b1000;
   // FSM state pointer
-  reg [3:0] state;
+  reg [3:0] ic_state;
   // Particular state indicators
-  wire ic_read       = (state == READ);
-  wire ic_invalidate = (state == INVALIDATE);
+  wire ic_read       = (ic_state == IC_READ);
+  wire ic_invalidate = (ic_state == IC_INVALIDATE);
 
 
   reg               [OPTION_OPERAND_WIDTH-1:0] curr_refill_adr;
@@ -263,6 +263,8 @@ module mor1kx_icache_marocchino
   // SPR bus interface
   //  # detect SPR request to ICACHE
   wire spr_bus_ic_stb = spr_bus_stb_i & spr_bus_we_i & (spr_bus_addr_i == `OR1K_SPR_ICBIR_ADDR);
+  //  # SPR ACK
+  assign spr_bus_ack_o = ic_invalidate;
   //  # data output
   assign spr_bus_dat_o = {OPTION_OPERAND_WIDTH{1'b0}};
 
@@ -273,37 +275,27 @@ module mor1kx_icache_marocchino
   integer w1;
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst) begin
-      spr_bus_ack_o   <= 1'b0;
       curr_refill_adr <= {OPTION_OPERAND_WIDTH{1'b0}};
       lru_way_r       <= {OPTION_ICACHE_WAYS{1'b0}};    // reset
       refill_hit_r    <= 1'b0;
       refill_done     <= 0;
-      state           <= IDLE;
-    end
-    else if (spr_bus_ic_stb) begin
-      // SPR transaction
-      if (ic_invalidate) begin
-        spr_bus_ack_o <= 1'b0;
-        state         <= IDLE;
-      end
-      else begin
-        spr_bus_ack_o <= 1'b1;
-        state         <= INVALIDATE;
-      end
+      ic_state        <= IC_IDLE;
     end
     else begin
       // states
-      case (state)
-        IDLE: begin
-          if (fetch_excepts_i | flush_by_ctrl_i) // ICACHE FSM keeps IDLE
-            state <= IDLE;
+      case (ic_state)
+        IC_IDLE: begin
+          if (fetch_excepts_i | flush_by_ctrl_i) // ICACHE FSM keeps idle
+            ic_state <= IC_IDLE;
+          else if (spr_bus_ic_stb)
+            ic_state <= IC_INVALIDATE;
           else if (ic_fsm_adv)
-            state <= READ;
+            ic_state <= IC_READ;
         end
 
-        READ: begin
+        IC_READ: begin
           if (fetch_excepts_i | flush_by_ctrl_i)
-            state <= IDLE;
+            ic_state <= IC_IDLE;
           else if (ic_access) begin
             if (~hit) begin
               if (ic_refill_allowed_i) begin
@@ -317,17 +309,17 @@ module mor1kx_icache_marocchino
                 // 1st re-fill addrress
                 curr_refill_adr <= phys_addr_fetch_i;
                 // to re-fill
-                state <= REFILL;
+                ic_state <= IC_REFILL;
               end
             end
             else if (~ic_fsm_adv) // ICACHE hit
-              state <= IDLE;
+              ic_state <= IC_IDLE;
           end
           else if (~ic_fsm_adv) // not ICACHE access
-            state <= IDLE;
+            ic_state <= IC_IDLE;
         end
 
-        REFILL: begin
+        IC_REFILL: begin
           refill_hit_r <= 1'b0;
           // In according with WISHBONE-B3 rule 3.45:
           // "SLAVE MUST NOT assert more than one of ACK, ERR or RTY"
@@ -335,7 +327,7 @@ module mor1kx_icache_marocchino
             if (refill_last_o) begin
               refill_done <= 0;
               lru_way_r   <= {OPTION_ICACHE_WAYS{1'b0}}; // last re-fill
-              state       <= IDLE;
+              ic_state    <= IC_IDLE;
             end
             else begin
               refill_hit_r <= (refill_done == 0); // 1st re-fill is requested insn
@@ -346,17 +338,20 @@ module mor1kx_icache_marocchino
           else if (ibus_err_i) begin // during re-fill
             refill_done <= 0;
             lru_way_r   <= {OPTION_ICACHE_WAYS{1'b0}}; // IBUS error during re-fill
-            state       <= IDLE;
+            ic_state    <= IC_IDLE;
           end
         end // RE-FILL
 
+        IC_INVALIDATE: begin
+          ic_state <= IC_IDLE; // invalidate
+        end
+
         default: begin
-          spr_bus_ack_o   <= 1'b0;
           curr_refill_adr <= {OPTION_OPERAND_WIDTH{1'b0}};
           lru_way_r       <= {OPTION_ICACHE_WAYS{1'b0}};    // default
           refill_hit_r    <= 1'b0;
           refill_done     <= 0;
-          state           <= IDLE;
+          ic_state        <= IC_IDLE;
         end
       endcase
     end // reset / regular update
@@ -443,8 +438,8 @@ module mor1kx_icache_marocchino
 
     access_lru_history = {(OPTION_ICACHE_WAYS){1'b0}};
 
-    case (state)
-      READ: begin
+    case (ic_state)
+      IC_READ: begin
         if (ic_access & hit & ~(fetch_excepts_i | flush_by_ctrl_i)) begin
           // We got a hit. The LRU module gets the access
           // information. Depending on this we update the LRU
@@ -456,7 +451,7 @@ module mor1kx_icache_marocchino
         end
       end
 
-      REFILL: begin
+      IC_REFILL: begin
         // In according with WISHBONE-B3 rule 3.45:
         // "SLAVE MUST NOT assert more than one of ACK, ERR or RTY"
         if (ibus_ack_i) begin
@@ -485,7 +480,7 @@ module mor1kx_icache_marocchino
         end
       end
 
-      INVALIDATE: begin
+      IC_INVALIDATE: begin
         // Lazy invalidation, invalidate everything that matches tag address
         tag_lru_in = 0;
         for (w2 = 0; w2 < OPTION_ICACHE_WAYS; w2 = w2 + 1) begin

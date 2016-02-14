@@ -135,8 +135,12 @@ module mor1kx_dmmu_marocchino
   genvar                           i;
 
 
-  // DMMU advances
-  wire padv_dmmu = lsu_takes_ls_i & enable_i & ~(lsu_excepts_any_i | pipeline_flush_i); // advance DMMU
+  // Enable for RAM blocks if:
+  //  1) regular LSU advance
+  //     (we don't care about exceptions here, because 
+  //      we force local enable-r OFF if an exception is asserted)
+  //  2) SPR access
+  wire ram_re = (lsu_takes_ls_i & enable_i) | (spr_dmmu_stb & ~spr_bus_we_i & ~spr_bus_ack_o);
 
 
   // Stored "DMMU enable" and "Supevisor Mode" flags
@@ -494,10 +498,6 @@ module mor1kx_dmmu_marocchino
   end // HW/SW reload
   endgenerate
 
-  // Enable for RAM blocks if:
-  //  1) regular FETCH advance
-  //  2) SPR access
-  wire ram_re = padv_dmmu | (spr_dmmu_stb & ~spr_bus_we_i & ~spr_bus_ack_o);
 
   generate
   for (i = 0; i < OPTION_DMMU_WAYS; i=i+1) begin : dtlb
