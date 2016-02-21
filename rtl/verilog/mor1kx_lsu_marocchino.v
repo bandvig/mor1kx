@@ -28,8 +28,6 @@
 
 `include "mor1kx-defines.v"
 
-//`define PIPE_WR
-
 module mor1kx_lsu_marocchino
 #(
   // data cache
@@ -287,7 +285,9 @@ module mor1kx_lsu_marocchino
   //   The signal couldn't be raised if lsu-excepts-wb is asserted because
   //   (a) lsu-load-r and lsu-store-r already cleaned by lsu-excepts-any
   //   (b) LSU reports busy by asserting lsu-busy-o, so no new command could arrive
-  wire lsu_takes_ls = (lsu_load_r | lsu_store_r) & ~(lsu_busy_mem | lsu_busy_wb);
+  wire lsu_takes_load  = lsu_load_r  & ~(lsu_busy_mem | lsu_busy_wb); // for DCACHE mostly
+  wire lsu_takes_store = lsu_store_r & ~(lsu_busy_mem | lsu_busy_wb); // for DCACHE mostly
+  wire lsu_takes_ls    = lsu_takes_load | lsu_takes_store;
 
 
   // report on command execution
@@ -296,22 +296,14 @@ module mor1kx_lsu_marocchino
   assign lsu_busy_load  = cmd_load_r & ~((((state == READ) & dbus_ack_i) | dc_ack) & grant_wb_to_lsu_i);
   //  # store completion
   assign lsu_ack_store  = sbuf_write; // it already includes cmd_store_r
-  assign lsu_ack_swa    = cmd_swa_r   & dbus_swa_ack;
-`ifdef PIPE_WR
-  assign lsu_busy_store = (cmd_store_r & ~(sbuf_write & grant_wb_to_lsu_i)) | // waiting store completion
+  assign lsu_ack_swa    = cmd_swa_r & dbus_swa_ack;
+  assign lsu_busy_store = (cmd_store_r & ~(sbuf_write & grant_wb_to_lsu_i)) |   // waiting store completion
                           (cmd_swa_r   & ~(dbus_swa_ack & grant_wb_to_lsu_i));  // waiting store completion
-`else
-  assign lsu_busy_store = cmd_store_r | cmd_swa_r;
-`endif
 
 
   // output assignement (1-clk ahead for WB-latching)
   assign lsu_valid_o = lsu_ack_load_pending  | lsu_ack_load  |               // LSU result ready or exceptions
-                      `ifdef PIPE_WR
                        lsu_ack_store_pending | lsu_ack_store | lsu_ack_swa | // LSU result ready or exceptions
-                      `else
-                       lsu_ack_store_pending | 
-                      `endif
                        lsu_excepts_wb;                                       // LSU result ready or exceptions
 
 
@@ -551,7 +543,7 @@ module mor1kx_lsu_marocchino
     else if (flush_by_ctrl)  // prenent store buffer  DBUS error report
       store_buffer_err_o <= 1'b0;
     else if (~store_buffer_err_o)
-      store_buffer_err_o <= dbus_req_o & dbus_err_i & dbus_we;
+      store_buffer_err_o <= dbus_err_instant & dbus_we;
   end // @ clock
 
   // --- align error detection ---
@@ -595,7 +587,7 @@ module mor1kx_lsu_marocchino
       if (except_dpagefault)
         lsu_except_dpagefault_r <= 1'b1;
       // exception virtual address
-      if (lsu_excepts_any) // latch exception virtual address
+      if (lsu_excepts_any & ~lsu_excepts_wb) // latch exception virtual address
         lsu_except_addr_r       <= virt_addr_cmd;
     end
   end // @clock
@@ -618,10 +610,10 @@ module mor1kx_lsu_marocchino
     end
     else if (padv_wb_i & grant_wb_to_lsu_i) begin
       wb_except_dbus_o       <= lsu_except_dbus_r       | dbus_err_instant;
-      wb_except_dpagefault_o <= lsu_except_dpagefault_r | except_align;
+      wb_except_dpagefault_o <= lsu_except_dpagefault_r | except_dpagefault;
       wb_except_dtlb_miss_o  <= lsu_except_dtlb_miss_r  | except_dtlb_miss;
-      wb_except_align_o      <= lsu_except_align_r      | except_dpagefault;
-      wb_lsu_except_addr_o   <= lsu_excepts_any ? virt_addr_cmd : lsu_except_addr_r;
+      wb_except_align_o      <= lsu_except_align_r      | except_align;
+      wb_lsu_except_addr_o   <= lsu_excepts_wb ? lsu_except_addr_r : virt_addr_cmd;
     end
   end // @clock
 
@@ -671,9 +663,8 @@ module mor1kx_lsu_marocchino
       lsu_ack_store_pending <= 1'b0;
       lsu_result_r          <= {LSUOOW{1'b0}};
     end
-    else if ((padv_wb_i & grant_wb_to_lsu_i)   |  // prevent LSU's pending ACKs
-             lsu_excepts_any  | lsu_excepts_wb |  // prevent LSU's pending ACKs
-             flush_by_ctrl) begin                 // prevent LSU's pending ACKs
+    else if ((padv_wb_i & grant_wb_to_lsu_i) |        // prevent LSU's pending ACKs
+             lsu_excepts_any | flush_by_ctrl) begin   // prevent LSU's pending ACKs
       lsu_ack_load_pending  <= 1'b0;
       lsu_ack_store_pending <= 1'b0;
       lsu_result_r          <= lsu_result_r;
@@ -700,13 +691,13 @@ module mor1kx_lsu_marocchino
       wb_lsu_rdy_o    <= 1'b0;
       wb_lsu_result_o <= {LSUOOW{1'b0}};
     end
-    else if (pipeline_flush_i) begin // drop LSU's WB-ready flag
+    else if (flush_by_ctrl) begin // drop LSU's WB-ready flag
       wb_lsu_rdy_o    <= 1'b0;
       wb_lsu_result_o <= {LSUOOW{1'b0}};
     end
     else if (padv_wb_i) begin
       if (grant_wb_to_lsu_i) begin
-        if (lsu_excepts_any | lsu_excepts_wb | flush_r) begin // drop LSU's WB-ready flag
+        if (lsu_excepts_any | lsu_excepts_wb) begin // drop LSU's WB-ready flag
           wb_lsu_rdy_o    <= 1'b0;
           wb_lsu_result_o <= {LSUOOW{1'b0}};
         end
@@ -1071,9 +1062,8 @@ module mor1kx_lsu_marocchino
       atomic_flag_set   <= 1'b0;
       atomic_flag_clear <= 1'b0;
     end
-    else if ((padv_wb_i & grant_wb_to_lsu_i)   |  // prevent set/clear atomic flag pending
-             lsu_excepts_any  | lsu_excepts_wb |  // prevent set/clear atomic flag pending
-             flush_by_ctrl) begin                 // prevent set/clear atomic flag pending
+    else if ((padv_wb_i & grant_wb_to_lsu_i) |      // prevent set/clear atomic flag pending
+             lsu_excepts_any | flush_by_ctrl) begin // prevent set/clear atomic flag pending
       atomic_flag_set   <= 1'b0;
       atomic_flag_clear <= 1'b0;
     end
@@ -1089,12 +1079,12 @@ module mor1kx_lsu_marocchino
       wb_atomic_flag_set_o   <= 1'b0;
       wb_atomic_flag_clear_o <= 1'b0;
     end
-    else if (pipeline_flush_i) begin // drop WB atomic flags
+    else if (flush_by_ctrl) begin // drop WB atomic flags
       wb_atomic_flag_set_o   <= 1'b0;
       wb_atomic_flag_clear_o <= 1'b0;
     end
     else if (padv_wb_i) begin
-      if (grant_wb_to_lsu_i & ~(lsu_excepts_any | lsu_excepts_wb | flush_r)) begin // conditions for WB atomic flags
+      if (grant_wb_to_lsu_i & ~(lsu_excepts_any | lsu_excepts_wb)) begin // conditions for WB atomic flags
         wb_atomic_flag_set_o   <= dbus_swa_success | atomic_flag_set;
         wb_atomic_flag_clear_o <= dbus_swa_fail    | atomic_flag_clear;
       end
@@ -1138,7 +1128,8 @@ module mor1kx_lsu_marocchino
     .clk                        (clk), // DCACHE
     .rst                        (rst), // DCACHE
     // pipe controls
-    .lsu_takes_ls_i             (lsu_takes_ls), // DCACHE
+    .lsu_takes_load_i           (lsu_takes_load), // DCACHE
+    .lsu_takes_store_i          (lsu_takes_store), // DCACHE
     .pipeline_flush_i           (pipeline_flush_i), // DCACHE
     // configuration
     .enable_i                   (dc_enable_i), // DCACHE

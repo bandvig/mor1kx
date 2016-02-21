@@ -81,10 +81,9 @@ module mor1kx_decode_marocchino
   output                                dcod_op_bf_o, // to BRANCH PREDICTION
   output                                dcod_op_bnf_o, // to BRANCH PREDICTION
   output                          [9:0] dcod_immjbr_upper_o, // to BRANCH PREDICTION : Upper 10 bits of immediate for jumps and branches
-  output                                dcod_take_branch_o, // to FETCH
   input      [OPTION_OPERAND_WIDTH-1:0] dcod_rfb_i,
-  output                                dcod_branch_o,
-  output     [OPTION_OPERAND_WIDTH-1:0] dcod_branch_target_o,
+  output                                dcod_do_branch_o,
+  output     [OPTION_OPERAND_WIDTH-1:0] dcod_do_branch_target_o,
   // Branch prediction signals
   input                                 mispredict_deassert_i,
   input                                 predicted_flag_i,
@@ -660,14 +659,7 @@ module mor1kx_decode_marocchino
                        (dcod_op_bf_o & predicted_flag_i) | (dcod_op_bnf_o & ~predicted_flag_i);
 
   wire [OPTION_OPERAND_WIDTH-1:0] branch_to_imm_target =
-    pc_decode_i +
-    {{4{dcod_immjbr_upper_o[9]}},dcod_immjbr_upper_o,dcod_imm16_o,2'b00};
-
-  assign dcod_branch_target_o = branch_to_imm ? branch_to_imm_target : dcod_rfb_i;
-
-  // exception on wrong branch target
-  assign dcod_branch_o = branch_to_imm | (dcod_op_jr_o & ~exe2dec_hazard_b_i);
-  assign dcod_except_ibus_align_o = dcod_branch_o & (|dcod_branch_target_o[1:0]);
+    pc_decode_i + {{4{dcod_immjbr_upper_o[9]}},dcod_immjbr_upper_o,dcod_imm16_o,2'b00};
 
 
   wire [OPTION_OPERAND_WIDTH-1:0] dcod_mispredict_target =
@@ -694,8 +686,15 @@ module mor1kx_decode_marocchino
     end
   end
 
-  // take branch flag for FETCH
-  assign dcod_take_branch_o = branch_to_imm | dcod_op_jr_o;
+  // take branch flag / target / align exception
+  //  # take branch flag
+  assign dcod_do_branch_o         = branch_to_imm | dcod_op_jr_o;
+  //  # take branch target
+  assign dcod_do_branch_target_o  = branch_to_imm ? branch_to_imm_target : dcod_rfb_i;
+  //  # take branch align exception
+  assign dcod_except_ibus_align_o = branch_to_imm ? (|branch_to_imm_target[1:0]) :
+                                    dcod_op_jr_o  ? ((|dcod_rfb_i[1:0]) & ~exe2dec_hazard_b_i) :
+                                                    1'b0;
 
   // Register file addresses
   assign dcod_rfa_adr_o = dcod_insn_i[`OR1K_RA_SELECT];

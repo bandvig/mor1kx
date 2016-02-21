@@ -219,10 +219,9 @@ module mor1kx_cpu_marocchino
   // branching
   wire                            dcod_op_bf;
   wire                            dcod_op_bnf;
-  wire                            dcod_take_branch; // DECODE->FETCH (marocchino)
-  wire                            dcod_branch;
+  wire                            dcod_do_branch;
   wire [9:0]                      dcod_immjbr_upper;
-  wire [OPTION_OPERAND_WIDTH-1:0] dcod_branch_target;
+  wire [OPTION_OPERAND_WIDTH-1:0] dcod_do_branch_target;
   wire                            branch_mispredict;
   wire                            predicted_flag;
   //  ## for detect misprediction
@@ -428,8 +427,8 @@ module mor1kx_cpu_marocchino
     .ibus_burst_o                     (ibus_burst_o), // FETCH
 
     // branch/jump control transfer
-    .dcod_take_branch_i               (dcod_take_branch), // FETCH
-    .dcod_branch_target_i             (dcod_branch_target), // FETCH
+    .dcod_do_branch_i                 (dcod_do_branch), // FETCH
+    .dcod_do_branch_target_i          (dcod_do_branch_target), // FETCH
     .branch_mispredict_i              (branch_mispredict), // FETCH
     .exec_mispredict_target_i         (exec_mispredict_target), // FETCH
     .mispredict_deassert_o            (mispredict_deassert), // FETCH
@@ -505,10 +504,9 @@ module mor1kx_cpu_marocchino
     .dcod_op_bf_o                     (dcod_op_bf), // DECODE & DECODE->EXE (not latched, to BRANCH PREDICTION)
     .dcod_op_bnf_o                    (dcod_op_bnf), // DECODE & DECODE->EXE (not latched, to BRANCH PREDICTION)
     .dcod_immjbr_upper_o              (dcod_immjbr_upper), // DECODE & DECODE->EXE (not latched, to BRANCH PREDICTION)
-    .dcod_take_branch_o               (dcod_take_branch), // DECODE & DECODE->EXE (not latched, to FETCH)
     .dcod_rfb_i                       (dcod_rfb), // DECODE & DECODE->EXE
-    .dcod_branch_o                    (dcod_branch), // DECODE & DECODE->EXE
-    .dcod_branch_target_o             (dcod_branch_target), // DECODE & DECODE->EXE
+    .dcod_do_branch_o                 (dcod_do_branch), // DECODE & DECODE->EXE
+    .dcod_do_branch_target_o          (dcod_do_branch_target), // DECODE & DECODE->EXE
     .mispredict_deassert_i            (mispredict_deassert), // DECODE & DECODE->EXE
     .predicted_flag_i                 (predicted_flag), // DECODE & DECODE->EXE
     .exec_op_brcond_o                 (exec_op_brcond), // DECODE & DECODE->EXE
@@ -990,8 +988,8 @@ module mor1kx_cpu_marocchino
     .wb_mfspr_dat_o                   (wb_mfspr_dat), // CTRL: for WB_MUX
 
     // Track branch address for exception processing support
-    .dcod_branch_i                    (dcod_branch), // CTRL
-    .dcod_branch_target_i             (dcod_branch_target), // CTRL
+    .dcod_do_branch_i                 (dcod_do_branch), // CTRL
+    .dcod_do_branch_target_i          (dcod_do_branch_target), // CTRL
     .branch_mispredict_i              (branch_mispredict), // CTRL
     .exec_mispredict_target_i         (exec_mispredict_target), // CTRL
     .dcod_op_branch_i                 (dcod_op_branch), // CTRL

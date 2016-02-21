@@ -42,7 +42,8 @@ module mor1kx_dcache_marocchino
   input                                 rst,
 
   // pipe controls
-  input                                 lsu_takes_ls_i,
+  input                                 lsu_takes_load_i,
+  input                                 lsu_takes_store_i,
   input                                 pipeline_flush_i,
 
   // configuration
@@ -250,7 +251,7 @@ module mor1kx_dcache_marocchino
 
   //
   //   If DCACHE is in state read/write/refill it automatically means that
-  // DCACHE is enabled (see lsu_takes_load and lsu_takes_store).
+  // DCACHE is enabled (see dc_takes_load and dc_takes_store).
   //
   //   So, locally we use short variant of dc-access
   wire   dc_access   = dc_check_limit_width & ~dmmu_cache_inhibit_i;
@@ -348,13 +349,13 @@ module mor1kx_dcache_marocchino
    */
 
   // try load
-  wire lsu_takes_load  = lsu_load_i  & lsu_takes_ls_i & enable_i;
+  wire dc_takes_load  = lsu_takes_load_i  & enable_i;
 
   // try store
-  wire lsu_takes_store = lsu_store_i & lsu_takes_ls_i & enable_i;
+  wire dc_takes_store = lsu_takes_store_i & enable_i;
 
   // force idle state
-  wire dc_force_idle   = lsu_excepts_any_i | pipeline_flush_i;
+  wire dc_force_idle  = lsu_excepts_any_i | pipeline_flush_i;
 
 
 
@@ -402,9 +403,9 @@ module mor1kx_dcache_marocchino
             dc_state <= DC_IDLE;
           else if (invalidate_cmd)
             dc_state <= DC_INVALIDATE;
-          else if (lsu_takes_load)
+          else if (dc_takes_load)
             dc_state <= DC_READ;
-          else if (lsu_takes_store)
+          else if (dc_takes_store)
             dc_state <= DC_WRITE;
         end
 
@@ -430,14 +431,14 @@ module mor1kx_dcache_marocchino
                 dc_state <= DC_REFILL;
               end // re-fill allowed
             end // no hit
-            else if (lsu_takes_store) // dc-access & load-hit & new-command-is-store
+            else if (dc_takes_store) // dc-access & load-hit & new-command-is-store
               dc_state <= DC_WRITE;
-            else if (~lsu_takes_load)
+            else if (~dc_takes_load)
               dc_state <= DC_IDLE;
           end
-          else if (lsu_takes_store) // not-dc-access
+          else if (dc_takes_store) // not-dc-access
             dc_state <= DC_WRITE;
-          else if (~lsu_takes_load)
+          else if (~dc_takes_load)
             dc_state <= DC_IDLE;
         end
 
@@ -448,15 +449,15 @@ module mor1kx_dcache_marocchino
             dc_state <= DC_WRITE;
           else if (dc_access & dc_hit) begin
             if (dc_store_allowed_i | dbus_swa_discard_i) begin
-              if (lsu_takes_load)
+              if (dc_takes_load)
                 dc_state <= DC_READ;
-              else if (~lsu_takes_store)
+              else if (~dc_takes_store)
                 dc_state <= DC_IDLE;
             end // store-hit & (do store OR diascard l.swa)
           end
-          else if (lsu_takes_load) // ~dc-access
+          else if (dc_takes_load) // ~dc-access
             dc_state <= DC_READ;
-          else if (~lsu_takes_store)
+          else if (~dc_takes_store)
             dc_state <= DC_IDLE;
         end
 
@@ -657,7 +658,7 @@ module mor1kx_dcache_marocchino
 
 
   // RAM blocks read enable (WAYS & TAG common part)
-  wire ram_re = (lsu_takes_ls_i & enable_i) & ~dc_force_idle;
+  wire ram_re = (lsu_takes_load_i | lsu_takes_store_i) & enable_i & ~dc_force_idle;
 
 
   // Read / Write port (*_rwp_*) controls

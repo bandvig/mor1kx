@@ -98,8 +98,8 @@ module mor1kx_ctrl_marocchino
   output reg [OPTION_OPERAND_WIDTH-1:0] wb_mfspr_dat_o,
 
   // Track branch address for exception processing support
-  input                                 dcod_branch_i,
-  input      [OPTION_OPERAND_WIDTH-1:0] dcod_branch_target_i,
+  input                                 dcod_do_branch_i,
+  input      [OPTION_OPERAND_WIDTH-1:0] dcod_do_branch_target_i,
   input                                 branch_mispredict_i,
   input      [OPTION_OPERAND_WIDTH-1:0] exec_mispredict_target_i,
   input                                 dcod_op_branch_i,
@@ -651,8 +651,8 @@ endgenerate // FPU related: FPCSR and exceptions
       last_branch_target_pc <= last_branch_target_pc; // keep state on pipeline flush
     else if (padv_wb_o & branch_mispredict_i)
       last_branch_target_pc <= exec_mispredict_target_i;
-    else if (padv_decode_o & dcod_branch_i)
-      last_branch_target_pc <= dcod_branch_target_i;
+    else if (padv_decode_o & dcod_do_branch_i)
+      last_branch_target_pc <= dcod_do_branch_target_i;
   end // @ clock
 
   // Generate the NPC for SPR accesses
@@ -1225,7 +1225,7 @@ if (FEATURE_DEBUGUNIT != "NONE") begin : du
     else if (du_npc_written)
       branch_step <= 0;
     else if (stepping & pstep[2])
-      branch_step <= {branch_step[0], dcod_branch_i};
+      branch_step <= {branch_step[0], dcod_do_branch_i};
     else if ((~stepping) & wb_new_result) // DU
       branch_step <= {branch_step[0], wb_delay_slot_i};// DU
   end // @ clock

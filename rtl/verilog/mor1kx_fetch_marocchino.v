@@ -85,8 +85,8 @@ module mor1kx_fetch_marocchino
   output                                ibus_burst_o,
 
   // branch/jump control transfer
-  input                                 dcod_take_branch_i,
-  input      [OPTION_OPERAND_WIDTH-1:0] dcod_branch_target_i,
+  input                                 dcod_do_branch_i,
+  input      [OPTION_OPERAND_WIDTH-1:0] dcod_do_branch_target_i,
   input                                 branch_mispredict_i,
   input      [OPTION_OPERAND_WIDTH-1:0] exec_mispredict_target_i,
   output                                mispredict_deassert_o,
@@ -230,7 +230,7 @@ module mor1kx_fetch_marocchino
       ibus_err_r <= 1'b0;
     else if (flush_by_borm_ds_s2 | flush_by_ctrl)
       ibus_err_r <= 1'b0;
-    else if (ibus_err_instant)
+    else if (ibus_err_instant) // IBUS error pending
       ibus_err_r <= 1'b1;
   end // @ clock
   // IBUS error stored and masked by branch or "mispredicted branch" cases.
@@ -348,13 +348,13 @@ module mor1kx_fetch_marocchino
       branch_stored        <= 1'b0;           // take stored branch or flush by pipe-flushing
       branch_target_stored <= {IFOOW{1'b0}};  // take stored branch or flush by pipe-flushing
     end
-    else if (dcod_take_branch_i & ~stall_fetch_i & ~branch_stored) begin
+    else if (dcod_do_branch_i & ~stall_fetch_i & ~branch_stored) begin
       branch_stored        <= 1'b1;
-      branch_target_stored <= dcod_branch_target_i;
+      branch_target_stored <= dcod_do_branch_target_i;
     end
   end // @ clock
   // flush some registers if branch processing
-  wire flush_by_branch = dcod_take_branch_i | branch_stored;
+  wire flush_by_branch = dcod_do_branch_i | branch_stored;
 
 
   // combined: by-branch OR by-mispredict and takes into accaunt fetching delay slot flag
@@ -387,7 +387,7 @@ module mor1kx_fetch_marocchino
     take_ds                                              ? s1t_pc_next :
     (branch_mispredict_i & ~mispredict_taken_r)          ? exec_mispredict_target_i :
     mispredict_stored                                    ? mispredict_target_stored :
-    dcod_take_branch_i                                   ? dcod_branch_target_i :
+    dcod_do_branch_i                                     ? dcod_do_branch_target_i :
     branch_stored                                        ? branch_target_stored :
                                                            s1t_pc_next;
 
@@ -653,12 +653,13 @@ module mor1kx_fetch_marocchino
 
 
   // ICACHE re-fill-allowed corresponds to refill-request position in IBUS FSM
+  // !!! exceptions and flushing are already taken into accaunt in ICACHE,
+  //     so we don't use them here
   always @(*) begin
     ic_refill_allowed = 1'b0;
     case (ibus_state)
       IMEM_REQ: begin
-        if (fetch_excepts | flush_by_ctrl |       // re-fill isn't allowed due to exceptions/flushing
-            (padv_fetch_i & flush_by_borm_ds_s2)) // re-fill isn't allowed due to flushing by branch or mispredict (eq. padv_s1)
+        if (padv_fetch_i & flush_by_borm_ds_s2) // re-fill isn't allowed due to flushing by branch or mispredict (eq. padv_s1)
           ic_refill_allowed = 1'b0;
         else if (ic_refill_req) // automatically means (ic-access & ~ic-ack)
           ic_refill_allowed = 1'b1;
@@ -674,6 +675,11 @@ module mor1kx_fetch_marocchino
       ibus_req_o <= 1'b0;           // by reset
       ibus_adr_o <= {IFOOW{1'b0}};  // by reset
       ibus_state <= IBUS_IDLE;      // by reset
+    end
+    else if (ibus_err_instant) begin // IBUS FSM
+      ibus_req_o <= 1'b0;            // by IBUS error
+      ibus_adr_o <= {IFOOW{1'b0}};   // by IBUS error
+      ibus_state <= IBUS_IDLE;       // by IBUS error
     end
     else begin
       case (ibus_state)
@@ -724,12 +730,6 @@ module mor1kx_fetch_marocchino
               ibus_state <= IBUS_IDLE;
             end
           end
-          else if (ibus_err_i) begin
-            ibus_req_o <= 1'b0;           // bus error during re-fill
-            ibus_adr_o <= {IFOOW{1'b0}};  // bus error during re-fill
-            //flush_r    <= 1'b0;           // bus error during re-fill
-            ibus_state <= IBUS_IDLE;      // bus error during re-fill
-          end
         end // ic-refill
   
         IBUS_READ: begin
@@ -741,15 +741,9 @@ module mor1kx_fetch_marocchino
             ibus_req_o <= 1'b0;
             ibus_adr_o <= {IFOOW{1'b0}};
             if (padv_fetch_i & ~flush_by_ctrl)  // IBUS READ -> IMEM REQUEST (eq. padv_s1)
-              ibus_state <= IMEM_REQ;                // IBUS READ -> IMEM REQUEST
+              ibus_state <= IMEM_REQ;           // IBUS READ -> IMEM REQUEST
             else
               ibus_state <= IBUS_IDLE; // IBUS READ -> IDLE
-          end
-          else if (ibus_err_i) begin
-            ibus_req_o <= 1'b0;           // bus error during read
-            ibus_adr_o <= {IFOOW{1'b0}};  // bus error during read
-            //flush_r    <= 1'b0;           // bus error during read
-            ibus_state <= IBUS_IDLE;           // bus error during read
           end
         end // read
   
@@ -797,7 +791,7 @@ module mor1kx_fetch_marocchino
     .flush_by_ctrl_i      (flush_by_ctrl), // ICACHE
     // fetch exceptions
     .fetch_excepts_i      (fetch_excepts), // ICACHE
-    .ibus_err_i           (ibus_err_i), // ICACHE
+    .ibus_err_i           (ibus_err_i), // ICACHE: cancel re-fill
     // configuration
     .enable_i             (ic_enable_i), // ICACHE
     // regular requests in/out
