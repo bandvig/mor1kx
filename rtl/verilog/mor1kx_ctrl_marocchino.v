@@ -102,7 +102,7 @@ module mor1kx_ctrl_marocchino
   input      [OPTION_OPERAND_WIDTH-1:0] dcod_do_branch_target_i,
   input                                 branch_mispredict_i,
   input      [OPTION_OPERAND_WIDTH-1:0] exec_mispredict_target_i,
-  input                                 dcod_op_branch_i,
+  input                                 dcod_jump_or_branch_i,
   input      [OPTION_OPERAND_WIDTH-1:0] pc_decode_i,
 
   // Debug Unit related
@@ -565,23 +565,23 @@ endgenerate // FPU related: FPCSR and exceptions
   // Exception PC
   //  # PC of last branch insn
   //   ## 1st store flag of any branch instruction
-  reg dcod_op_branch_r;
+  reg dcod_jump_or_branch_r;
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
-      dcod_op_branch_r <= 1'b0;
+      dcod_jump_or_branch_r <= 1'b0;
     else if (pipeline_flush_o)
-      dcod_op_branch_r <= 1'b0;
+      dcod_jump_or_branch_r <= 1'b0;
     else if (padv_decode_o)
-      dcod_op_branch_r <= dcod_op_branch_i;
+      dcod_jump_or_branch_r <= dcod_jump_or_branch_i;
     else if (padv_wb_o)
-      dcod_op_branch_r <= 1'b0;
+      dcod_jump_or_branch_r <= 1'b0;
   end // @clock
   //   ## and store the branch's PC
   reg [OPTION_OPERAND_WIDTH-1:0] pc_branch_r;
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
       pc_branch_r <= {OPTION_OPERAND_WIDTH{1'b0}};
-    else if (padv_decode_o & dcod_op_branch_i)
+    else if (padv_decode_o & dcod_jump_or_branch_i)
       pc_branch_r <= pc_decode_i;
   end // @clock
   //   ## 2nd store address of a branch instruction
@@ -591,7 +591,7 @@ endgenerate // FPU related: FPCSR and exceptions
       last_branch_insn_pc <= {OPTION_OPERAND_WIDTH{1'b0}};
     else if (pipeline_flush_o)
       last_branch_insn_pc <= last_branch_insn_pc;
-    else if (padv_wb_o & dcod_op_branch_r)
+    else if (padv_wb_o & dcod_jump_or_branch_r)
       last_branch_insn_pc <= pc_branch_r;
   end // @clock
 

@@ -78,6 +78,7 @@ module mor1kx_decode_marocchino
   output                                dcod_carry_req_o, // instruction requires carry flag
 
   // flag & branches
+  output                                dcod_jump_or_branch_o, // detect jump/branch to indicate "delay slot" for next fetched instruction
   output                                dcod_op_bf_o, // to BRANCH PREDICTION
   output                                dcod_op_bnf_o, // to BRANCH PREDICTION
   output                          [9:0] dcod_immjbr_upper_o, // to BRANCH PREDICTION : Upper 10 bits of immediate for jumps and branches
@@ -686,6 +687,10 @@ module mor1kx_decode_marocchino
     end
   end
 
+  // detect jump/branch to indicate "delay slot" for next fetched instruction
+  assign dcod_jump_or_branch_o = ((opc_insn < `OR1K_OPCODE_NOP) |   // l.j  | l.jal  | l.bnf | l.bf
+                                  (opc_insn == `OR1K_OPCODE_JR) |   // l.jr
+                                  (opc_insn == `OR1K_OPCODE_JALR)); // l.jalr
   // take branch flag / target / align exception
   //  # take branch flag
   assign dcod_do_branch_o         = branch_to_imm | dcod_op_jr_o;

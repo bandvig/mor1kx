@@ -207,9 +207,6 @@ module mor1kx_cpu_marocchino
   wire                            dcod_op_jr;
   wire                            stall_fetch;
 
-  wire                            dcod_op_branch;
-
-
   wire                            dcod_delay_slot;
   wire                            wb_delay_slot;
 
@@ -217,17 +214,21 @@ module mor1kx_cpu_marocchino
   wire  [`OR1K_FPCSR_RM_SIZE-1:0] ctrl_fpu_round_mode;
 
   // branching
+  //  ## detect jump/branch to indicate "delay slot" for next fetched instruction
+  wire                            dcod_jump_or_branch;
+  //  ## branch prediction
   wire                            dcod_op_bf;
   wire                            dcod_op_bnf;
-  wire                            dcod_do_branch;
   wire [9:0]                      dcod_immjbr_upper;
-  wire [OPTION_OPERAND_WIDTH-1:0] dcod_do_branch_target;
-  wire                            branch_mispredict;
   wire                            predicted_flag;
+  //  ## do branch (pedicted or unconditional)
+  wire                            dcod_do_branch;
+  wire [OPTION_OPERAND_WIDTH-1:0] dcod_do_branch_target;
   //  ## for detect misprediction
   wire                            exec_op_brcond;
   wire                            exec_predicted_flag;
   wire [OPTION_OPERAND_WIDTH-1:0] exec_mispredict_target;
+  wire                            branch_mispredict;
   //  ## drop mispredict flag by drop ecex-op-brcond
   wire                            mispredict_deassert;
 
@@ -427,8 +428,12 @@ module mor1kx_cpu_marocchino
     .ibus_burst_o                     (ibus_burst_o), // FETCH
 
     // branch/jump control transfer
+    //  ## detect jump/branch to indicate "delay slot" for next fetched instruction
+    .dcod_jump_or_branch_i            (dcod_jump_or_branch), // FETCH
+    //  ## do branch (pedicted or unconditional)
     .dcod_do_branch_i                 (dcod_do_branch), // FETCH
     .dcod_do_branch_target_i          (dcod_do_branch_target), // FETCH
+    //  ## for detect misprediction
     .branch_mispredict_i              (branch_mispredict), // FETCH
     .exec_mispredict_target_i         (exec_mispredict_target), // FETCH
     .mispredict_deassert_o            (mispredict_deassert), // FETCH
@@ -449,7 +454,6 @@ module mor1kx_cpu_marocchino
     //   To DECODE
     .pc_decode_o                      (pc_decode), // FETCH
     .dcod_insn_o                      (dcod_insn), // FETCH
-    .dcod_op_branch_o                 (dcod_op_branch), // FETCH
     .dcod_delay_slot_o                (dcod_delay_slot), // FETCH
     .dcod_insn_valid_o                (dcod_insn_valid), // FETCH
 
@@ -501,9 +505,10 @@ module mor1kx_cpu_marocchino
     .dcod_flag_req_o                  (dcod_flag_req), // DECODE & DECODE->EXE
     .dcod_carry_req_o                 (dcod_carry_req), // DECODE & DECODE->EXE
     // flag & branches
-    .dcod_op_bf_o                     (dcod_op_bf), // DECODE & DECODE->EXE (not latched, to BRANCH PREDICTION)
-    .dcod_op_bnf_o                    (dcod_op_bnf), // DECODE & DECODE->EXE (not latched, to BRANCH PREDICTION)
-    .dcod_immjbr_upper_o              (dcod_immjbr_upper), // DECODE & DECODE->EXE (not latched, to BRANCH PREDICTION)
+    .dcod_jump_or_branch_o            (dcod_jump_or_branch), // DECODE & DECODE->EXE
+    .dcod_op_bf_o                     (dcod_op_bf), // DECODE & DECODE->EXE (to BRANCH PREDICTION)
+    .dcod_op_bnf_o                    (dcod_op_bnf), // DECODE & DECODE->EXE (to BRANCH PREDICTION)
+    .dcod_immjbr_upper_o              (dcod_immjbr_upper), // DECODE & DECODE->EXE (to BRANCH PREDICTION)
     .dcod_rfb_i                       (dcod_rfb), // DECODE & DECODE->EXE
     .dcod_do_branch_o                 (dcod_do_branch), // DECODE & DECODE->EXE
     .dcod_do_branch_target_o          (dcod_do_branch_target), // DECODE & DECODE->EXE
@@ -992,7 +997,7 @@ module mor1kx_cpu_marocchino
     .dcod_do_branch_target_i          (dcod_do_branch_target), // CTRL
     .branch_mispredict_i              (branch_mispredict), // CTRL
     .exec_mispredict_target_i         (exec_mispredict_target), // CTRL
-    .dcod_op_branch_i                 (dcod_op_branch), // CTRL
+    .dcod_jump_or_branch_i            (dcod_jump_or_branch), // CTRL
     .pc_decode_i                      (pc_decode), // CTRL
 
     // Debug Unit related
