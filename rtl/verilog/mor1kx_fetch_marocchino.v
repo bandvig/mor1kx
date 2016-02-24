@@ -251,30 +251,27 @@ module mor1kx_fetch_marocchino
   /* Stage #1: PC update and IMMU / ICACHE access */
   /************************************************/
 
+  // We need to store "fetch delay slot" only during ICACHE re-fill
+  // The only case when pushing "jump or brnch" to DECODE by
+  // padv-fetch-i desn't lead to padv-s1
+  wire ic_refill_state = (ibus_state == IBUS_IC_REFILL);
+  // pending "fetch delay slot" for next padv-s1
+  reg fetch_ds_stored;
+  // fetching delay slot
+  reg fetching_ds_r;
+  // ---
+  always @(posedge clk `OR_ASYNC_RST) begin
+    if (rst)
+      fetch_ds_stored <= 1'b0;
+    else if ((padv_s1 & ~fetch_excepts) | flush_by_ctrl)
+      fetch_ds_stored <= 1'b0;
+    else if (~fetch_ds_stored)
+      fetch_ds_stored <= (dcod_jump_or_branch_i & ic_refill_state & ~fetching_ds_r);
+  end // @ clock
 
   //   1-clock flag to indicate that ICACHE/IBUS
   // has started to fetch new instruction
   wire imem_req_state = (ibus_state == IMEM_REQ);
-
-
-  // take delay slot with next padv-s1
-  reg fetch_ds_r;
-  // fetching delay slot
-  reg fetching_ds_r;
-  // pay attention: if low bits of s1o-virt-addr are equal to
-  //                s2o-pc ones it means that delay slot isn't
-  //                under processing right now
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      fetch_ds_r <= 1'b0;
-    else if ((padv_s1 & ~fetch_excepts) | flush_by_ctrl)
-      fetch_ds_r <= 1'b0;
-    else if (~fetch_ds_r)
-      fetch_ds_r <= (dcod_jump_or_branch_i & ~imem_req_state & ~fetching_ds_r);
-  end // @ clock
-  // combined flag to take delay slot with next padv-s1
-  wire fetch_ds = (dcod_jump_or_branch_i & ~imem_req_state & ~fetching_ds_r) | fetch_ds_r;
-
   // ---
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
@@ -282,7 +279,7 @@ module mor1kx_fetch_marocchino
     else if (flush_by_ctrl)
       fetching_ds_r <= 1'b0;
     else if (padv_s1 & ~fetch_excepts)
-      fetching_ds_r <= fetch_ds;
+      fetching_ds_r <= fetch_ds_stored;
     else if (~fetching_ds_r)
       fetching_ds_r <= (dcod_jump_or_branch_i & imem_req_state);
   end // @ clock
@@ -300,8 +297,8 @@ module mor1kx_fetch_marocchino
       mispredict_stored        <= 1'b0;           // reset
       mispredict_target_stored <= {IFOOW{1'b0}};  // reset
     end
-    else if ((padv_s1 & ~(fetch_excepts | fetch_ds)) |   // clean up stored mispredict
-             mispredict_taken_r | flush_by_ctrl) begin  // clean up stored mispredict
+    else if ((padv_s1 & ~(fetch_excepts | fetch_ds_stored)) | // clean up stored mispredict
+             mispredict_taken_r | flush_by_ctrl) begin        // clean up stored mispredict
       mispredict_stored        <= 1'b0;           // mispredict has been taken or flushed by pipe-flushing
       mispredict_target_stored <= {IFOOW{1'b0}};  // mispredict has been taken or flushed by pipe-flushing
     end
@@ -316,7 +313,7 @@ module mor1kx_fetch_marocchino
       mispredict_taken_r <= 1'b0;
     else if (mispredict_taken_r | flush_by_ctrl) // branch-mispredict-i flag will be cleaned by taken (see later)
       mispredict_taken_r <= 1'b0;
-    else if (padv_s1 & ~(fetch_excepts | fetch_ds) & branch_mispredict_i)  // for "mispredict has been taken"
+    else if (padv_s1 & ~(fetch_excepts | fetch_ds_stored) & branch_mispredict_i)  // for "mispredict has been taken"
       mispredict_taken_r <= 1'b1;
   end // @ clock
   // drop mispredict flag in EXECUTE
@@ -334,7 +331,7 @@ module mor1kx_fetch_marocchino
       branch_stored        <= 1'b0;           // reset
       branch_target_stored <= {IFOOW{1'b0}};  // reset
     end
-    else if ((padv_s1 & ~(fetch_excepts | fetch_ds)) | flush_by_ctrl) begin  // for clean up stored branch
+    else if ((padv_s1 & ~(fetch_excepts | fetch_ds_stored)) | flush_by_ctrl) begin  // for clean up stored branch
       branch_stored        <= 1'b0;           // take stored branch or flush by pipe-flushing
       branch_target_stored <= {IFOOW{1'b0}};  // take stored branch or flush by pipe-flushing
     end
@@ -372,7 +369,7 @@ module mor1kx_fetch_marocchino
     du_restart_i                                         ? du_restart_pc_i :
     // padv-s1 and neither exceptions nor pipeline flush
     (ctrl_branch_exception_i & ~fetch_exception_taken_o) ? ctrl_branch_except_pc_i :
-    fetch_ds                                             ? s1t_pc_next :
+    fetch_ds_stored                                      ? s1t_pc_next :
     (branch_mispredict_i & ~mispredict_taken_r)          ? exec_mispredict_target_i :
     mispredict_stored                                    ? mispredict_target_stored :
     dcod_do_branch_i                                     ? dcod_do_branch_target_i :
