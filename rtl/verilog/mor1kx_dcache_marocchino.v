@@ -53,11 +53,6 @@ module mor1kx_dcache_marocchino
   input                                 lsu_excepts_any_i,
   input                                 dbus_err_instant_i,
 
-  // input commands
-  //  # for genearel load or store
-  input                                 lsu_load_i,
-  input                                 lsu_store_i,
-
   // Regular operation
   //  # addresses and "DCHACHE inhibit" flag
   input      [OPTION_OPERAND_WIDTH-1:0] virt_addr_i,

@@ -100,8 +100,6 @@ module mor1kx_ctrl_marocchino
   // Track branch address for exception processing support
   input                                 dcod_do_branch_i,
   input      [OPTION_OPERAND_WIDTH-1:0] dcod_do_branch_target_i,
-  input                                 branch_mispredict_i,
-  input      [OPTION_OPERAND_WIDTH-1:0] exec_mispredict_target_i,
   input                                 dcod_jump_or_branch_i,
   input      [OPTION_OPERAND_WIDTH-1:0] pc_decode_i,
 
@@ -649,8 +647,6 @@ endgenerate // FPU related: FPCSR and exceptions
       last_branch_target_pc <= {OPTION_OPERAND_WIDTH{1'b0}};
     else if (pipeline_flush_o)
       last_branch_target_pc <= last_branch_target_pc; // keep state on pipeline flush
-    else if (padv_wb_o & branch_mispredict_i)
-      last_branch_target_pc <= exec_mispredict_target_i;
     else if (padv_decode_o & dcod_do_branch_i)
       last_branch_target_pc <= dcod_do_branch_target_i;
   end // @ clock

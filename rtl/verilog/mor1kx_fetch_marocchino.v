@@ -90,13 +90,11 @@ module mor1kx_fetch_marocchino
   //  ## do branch (pedicted or unconditional)
   input                                 dcod_do_branch_i,
   input      [OPTION_OPERAND_WIDTH-1:0] dcod_do_branch_target_i,
-  //  ## for detect misprediction
-  input                                 branch_mispredict_i,
-  input      [OPTION_OPERAND_WIDTH-1:0] exec_mispredict_target_i,
-  output                                mispredict_deassert_o,
+
   // exception/rfe control transfer
   input                                 ctrl_branch_exception_i,
   input      [OPTION_OPERAND_WIDTH-1:0] ctrl_branch_except_pc_i,
+
   // debug unit command for control transfer
   input                                 du_restart_i,
   input      [OPTION_OPERAND_WIDTH-1:0] du_restart_pc_i,
@@ -194,8 +192,8 @@ module mor1kx_fetch_marocchino
   /* Wires & registers are used across FETCH pipe stages */
 
   // Flush processing
-  wire flush_by_ctrl;     // flush registers from pipeline-flush command till IBUS transaction completion
-  wire flush_by_borm_ds;  // flush stage #2 by-branch OR by-mispredict and takes into accaunt fetching delay slot flag
+  wire flush_by_ctrl;    // flush registers from pipeline-flush command till IBUS transaction completion
+  wire flush_by_branch;  // flush stage #2 by-branch but doesn't if fetching delay slot
 
   // ICACHE/IMMU match address store register
   //   The register operates in the same way
@@ -216,8 +214,8 @@ module mor1kx_fetch_marocchino
   /********************/
 
   // IMMU exceptions masked by branch or "mispredicted branch" cases.
-  assign except_itlb_miss  = immu_tlb_miss  & ~flush_by_borm_ds;
-  assign except_ipagefault = immu_pagefault & ~flush_by_borm_ds;
+  assign except_itlb_miss  = immu_tlb_miss  & ~flush_by_branch;
+  assign except_ipagefault = immu_pagefault & ~flush_by_branch;
 
   // IBUS error during IBUS access
   assign ibus_err_instant = ibus_req_o & ibus_err_i;
@@ -227,13 +225,13 @@ module mor1kx_fetch_marocchino
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
       ibus_err_r <= 1'b0;
-    else if (flush_by_borm_ds | flush_by_ctrl)
+    else if (flush_by_branch | flush_by_ctrl)
       ibus_err_r <= 1'b0;
     else if (ibus_err_instant) // IBUS error pending
       ibus_err_r <= 1'b1;
   end // @ clock
   // IBUS error stored and masked by branch or "mispredicted branch" cases.
-  assign except_ibus_err = ibus_err_r & ~flush_by_borm_ds;
+  assign except_ibus_err = ibus_err_r & ~flush_by_branch;
 
   // combined MMU's and IBUS's exceptions
   wire fetch_excepts = except_itlb_miss | except_ipagefault | except_ibus_err;
@@ -287,41 +285,6 @@ module mor1kx_fetch_marocchino
   wire fetching_ds = (dcod_jump_or_branch_i & imem_req_state) | fetching_ds_r;
 
 
-  // store mispredict flag and target if stage #1 is busy
-  reg                            mispredict_stored;
-  reg [OPTION_OPERAND_WIDTH-1:0] mispredict_target_stored;
-  reg                            mispredict_taken_r;
-  // ---
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst) begin
-      mispredict_stored        <= 1'b0;           // reset
-      mispredict_target_stored <= {IFOOW{1'b0}};  // reset
-    end
-    else if ((padv_s1 & ~(fetch_excepts | fetch_ds_stored)) | // clean up stored mispredict
-             mispredict_taken_r | flush_by_ctrl) begin        // clean up stored mispredict
-      mispredict_stored        <= 1'b0;           // mispredict has been taken or flushed by pipe-flushing
-      mispredict_target_stored <= {IFOOW{1'b0}};  // mispredict has been taken or flushed by pipe-flushing
-    end
-    else if (branch_mispredict_i & ~mispredict_stored) begin
-      mispredict_stored        <= 1'b1;
-      mispredict_target_stored <= exec_mispredict_target_i;
-    end
-  end // @ clock
-  // ---
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      mispredict_taken_r <= 1'b0;
-    else if (mispredict_taken_r | flush_by_ctrl) // branch-mispredict-i flag will be cleaned by taken (see later)
-      mispredict_taken_r <= 1'b0;
-    else if (padv_s1 & ~(fetch_excepts | fetch_ds_stored) & branch_mispredict_i)  // for "mispredict has been taken"
-      mispredict_taken_r <= 1'b1;
-  end // @ clock
-  // drop mispredict flag in EXECUTE
-  assign mispredict_deassert_o  = mispredict_taken_r | mispredict_stored;
-  // flush some registers in stages #2 & #3 if mispredict branch processing
-  wire flush_by_mispredict = (branch_mispredict_i & ~mispredict_taken_r) | mispredict_stored;
-
-
   // store branch flag and target if stage #1 is busy
   reg                            branch_stored;
   reg [OPTION_OPERAND_WIDTH-1:0] branch_target_stored;
@@ -340,12 +303,8 @@ module mor1kx_fetch_marocchino
       branch_target_stored <= dcod_do_branch_target_i;
     end
   end // @ clock
-  // flush some registers if branch processing
-  wire flush_by_branch = dcod_do_branch_i | branch_stored;
-
-
-  // combined: by-branch OR by-mispredict and takes into accaunt fetching delay slot flag
-  assign flush_by_borm_ds = (flush_by_branch | flush_by_mispredict) & ~fetching_ds;
+  // flush stage #2 by-branch but doesn't if fetching delay slot
+  assign flush_by_branch = (dcod_do_branch_i | branch_stored) & ~fetching_ds;
 
 
   // 1-clock fetch-exception-taken
@@ -370,8 +329,6 @@ module mor1kx_fetch_marocchino
     // padv-s1 and neither exceptions nor pipeline flush
     (ctrl_branch_exception_i & ~fetch_exception_taken_o) ? ctrl_branch_except_pc_i :
     fetch_ds_stored                                      ? s1t_pc_next :
-    (branch_mispredict_i & ~mispredict_taken_r)          ? exec_mispredict_target_i :
-    mispredict_stored                                    ? mispredict_target_stored :
     dcod_do_branch_i                                     ? dcod_do_branch_target_i :
     branch_stored                                        ? branch_target_stored :
                                                            s1t_pc_next;
@@ -432,16 +389,16 @@ module mor1kx_fetch_marocchino
   wire s2t_ack = ic_ack | ibus_ack | ic_ack_stored | ibus_ack_stored;
 
   // valid instruction
-  wire s2t_insn_or_excepts = (s2t_ack & ~flush_by_borm_ds) | fetch_excepts;
+  wire s2t_insn_or_excepts = (s2t_ack & ~flush_by_branch) | fetch_excepts;
 
   // instruction word
   wire [`OR1K_INSN_WIDTH-1:0] s2t_insn_mux =
-    (flush_by_borm_ds | fetch_excepts) ? {`OR1K_OPCODE_NOP,26'd0} :
-    ic_ack                             ? ic_dat                   :
-    ibus_ack                           ? ibus_dat_i               :
-    ic_ack_stored                      ? ic_dat_stored            :
-    ibus_ack_stored                    ? ibus_dat_stored          :
-                                         {`OR1K_OPCODE_NOP,26'd0};
+    (flush_by_branch | fetch_excepts) ? {`OR1K_OPCODE_NOP,26'd0} :
+    ic_ack                            ? ic_dat                   :
+    ibus_ack                          ? ibus_dat_i               :
+    ic_ack_stored                     ? ic_dat_stored            :
+    ibus_ack_stored                   ? ibus_dat_stored          :
+                                        {`OR1K_OPCODE_NOP,26'd0};
 
   // to DECODE: delay slot flag
   always @(posedge clk `OR_ASYNC_RST) begin
@@ -483,7 +440,7 @@ module mor1kx_fetch_marocchino
   // to RF
   assign fetch_rfa_adr_o      = s2t_insn_mux[`OR1K_RA_SELECT];
   assign fetch_rfb_adr_o      = s2t_insn_mux[`OR1K_RB_SELECT];
-  assign fetch_rf_adr_valid_o = padv_fetch_i & s2t_ack & ~(flush_by_borm_ds | flush_by_ctrl | clean_fetch_i);
+  assign fetch_rf_adr_valid_o = padv_fetch_i & s2t_ack & ~(flush_by_branch | flush_by_ctrl | clean_fetch_i);
 
 
   /********** End of FETCH pipe. Start other logics. **********/
@@ -519,9 +476,9 @@ module mor1kx_fetch_marocchino
   // !!! should follows appropriate FSM condition,
   //     but without taking into account exceptions
   assign ibus_fsm_free =
-    (ibus_state == IBUS_IDLE) |                                 // IBUS FSM is free
-    ((ibus_state == IMEM_REQ) & (flush_by_borm_ds | ic_ack)) |  // IBUS FSM is free
-    ibus_ack;                                                   // IBUS FSM is free
+    (ibus_state == IBUS_IDLE) |                                // IBUS FSM is free
+    ((ibus_state == IMEM_REQ) & (flush_by_branch | ic_ack)) |  // IBUS FSM is free
+    ibus_ack;                                                  // IBUS FSM is free
 
 
   // ICACHE re-fill-allowed corresponds to refill-request position in IBUS FSM
@@ -531,7 +488,7 @@ module mor1kx_fetch_marocchino
     ic_refill_allowed = 1'b0;
     case (ibus_state)
       IMEM_REQ: begin
-        if (padv_fetch_i & flush_by_borm_ds) // re-fill isn't allowed due to flushing by branch or mispredict (eq. padv_s1)
+        if (padv_fetch_i & flush_by_branch) // re-fill isn't allowed due to flushing by branch or mispredict (eq. padv_s1)
           ic_refill_allowed = 1'b0;
         else if (ic_refill_req) // automatically means (ic-access & ~ic-ack)
           ic_refill_allowed = 1'b1;
@@ -572,7 +529,7 @@ module mor1kx_fetch_marocchino
           if (fetch_excepts | flush_by_ctrl) begin
             ibus_state <= IBUS_IDLE;
           end
-          else if (padv_fetch_i & (flush_by_borm_ds | ic_ack)) begin // eq. padv_s1 (in IMEM-REQ state of IBUS FSM)
+          else if (padv_fetch_i & (flush_by_branch | ic_ack)) begin // eq. padv_s1 (in IMEM-REQ state of IBUS FSM)
             ibus_state <= IMEM_REQ;
           end
           else if (ic_refill_req) begin

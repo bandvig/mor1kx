@@ -216,21 +216,13 @@ module mor1kx_cpu_marocchino
   // branching
   //  ## detect jump/branch to indicate "delay slot" for next fetched instruction
   wire                            dcod_jump_or_branch;
-  //  ## branch prediction
-  wire                            dcod_op_bf;
-  wire                            dcod_op_bnf;
-  wire [9:0]                      dcod_immjbr_upper;
-  wire                            predicted_flag;
   //  ## do branch (pedicted or unconditional)
   wire                            dcod_do_branch;
   wire [OPTION_OPERAND_WIDTH-1:0] dcod_do_branch_target;
-  //  ## for detect misprediction
-  wire                            exec_op_brcond;
-  wire                            exec_predicted_flag;
-  wire [OPTION_OPERAND_WIDTH-1:0] exec_mispredict_target;
-  wire                            branch_mispredict;
-  //  ## drop mispredict flag by drop ecex-op-brcond
-  wire                            mispredict_deassert;
+
+  // Delay conditional fetching till flag computation completion (see OMAN for details)
+  wire                            dcod_flag_await; // wait till flag ready & WB
+  wire                            dcod_op_brcond;  // l.bf or l.bnf
 
 
 
@@ -296,6 +288,10 @@ module mor1kx_cpu_marocchino
   wire                            wb_fp32_flag_set;
   wire                            wb_fp32_flag_clear;
   wire    [`OR1K_FPCSR_WIDTH-1:0] wb_fp32_cmp_fpcsr;
+
+  // Forwarding comparision flag
+  wire                            exec_op_1clk_cmp; // integer or fp32
+  wire                            exec_flag_set;    // integer or fp32 comparison result
 
 
   wire [OPTION_OPERAND_WIDTH-1:0] store_buffer_epcr;
@@ -433,10 +429,6 @@ module mor1kx_cpu_marocchino
     //  ## do branch (pedicted or unconditional)
     .dcod_do_branch_i                 (dcod_do_branch), // FETCH
     .dcod_do_branch_target_i          (dcod_do_branch_target), // FETCH
-    //  ## for detect misprediction
-    .branch_mispredict_i              (branch_mispredict), // FETCH
-    .exec_mispredict_target_i         (exec_mispredict_target), // FETCH
-    .mispredict_deassert_o            (mispredict_deassert), // FETCH
 
     // exception/rfe control transfer
     .ctrl_branch_exception_i          (ctrl_branch_exception), // FETCH
@@ -477,12 +469,6 @@ module mor1kx_cpu_marocchino
   )
   u_decode
   (
-    // clocks & resets
-    .clk                              (clk),
-    .rst                              (rst),
-    // pipeline control signal in
-    .padv_decode_i                    (padv_decode), // DECODE & DECODE->EXE
-    .pipeline_flush_i                 (pipeline_flush), // DECODE & DECODE->EXE
     // INSN
     .dcod_insn_i                      (dcod_insn), // DECODE & DECODE->EXE
     // Data dependancy detection
@@ -506,17 +492,17 @@ module mor1kx_cpu_marocchino
     .dcod_carry_req_o                 (dcod_carry_req), // DECODE & DECODE->EXE
     // flag & branches
     .dcod_jump_or_branch_o            (dcod_jump_or_branch), // DECODE & DECODE->EXE
-    .dcod_op_bf_o                     (dcod_op_bf), // DECODE & DECODE->EXE (to BRANCH PREDICTION)
-    .dcod_op_bnf_o                    (dcod_op_bnf), // DECODE & DECODE->EXE (to BRANCH PREDICTION)
-    .dcod_immjbr_upper_o              (dcod_immjbr_upper), // DECODE & DECODE->EXE (to BRANCH PREDICTION)
+    // Forwarding comparision flag
+    .exec_op_1clk_cmp_i               (exec_op_1clk_cmp), // DECODE & DECODE->EXE
+    .exec_flag_set_i                  (exec_flag_set), // DECODE & DECODE->EXE
+    .ctrl_flag_i                      (ctrl_flag), // DECODE & DECODE->EXE
+    // Do jump/branch and jump/branch target for FETCH
     .dcod_rfb_i                       (dcod_rfb), // DECODE & DECODE->EXE
     .dcod_do_branch_o                 (dcod_do_branch), // DECODE & DECODE->EXE
     .dcod_do_branch_target_o          (dcod_do_branch_target), // DECODE & DECODE->EXE
-    .mispredict_deassert_i            (mispredict_deassert), // DECODE & DECODE->EXE
-    .predicted_flag_i                 (predicted_flag), // DECODE & DECODE->EXE
-    .exec_op_brcond_o                 (exec_op_brcond), // DECODE & DECODE->EXE
-    .exec_predicted_flag_o            (exec_predicted_flag), // DECODE & DECODE->EXE
-    .exec_mispredict_target_o         (exec_mispredict_target), // DECODE & DECODE->EXE
+    // Delay conditional fetching till flag computation completion (see OMAN for details)
+    .dcod_flag_await_o                (dcod_flag_await), // DECODE & DECODE->EXE
+    .dcod_op_brcond_o                 (dcod_op_brcond), // DECODE & DECODE->EXE
     // LSU related
     .dcod_imm16_o                     (dcod_imm16), // DECODE & DECODE->EXE
     .dcod_op_lsu_load_o               (dcod_op_lsu_load), // DECODE & DECODE->EXE
@@ -568,27 +554,6 @@ module mor1kx_cpu_marocchino
     .dcod_op_rfe_o                    (dcod_op_rfe) // DECODE & DECODE->EXE
   );
 
-
-  mor1kx_branch_prediction
-  #(
-     .OPTION_OPERAND_WIDTH(OPTION_OPERAND_WIDTH)
-  )
-  u_branch_prediction
-  (
-    // clocks & resets
-    .clk (clk),
-    .rst (rst),
-    // Outputs
-    .predicted_flag_o                 (predicted_flag), // BRANCH PREDICTION
-    .branch_mispredict_o              (branch_mispredict), // BRANCH PREDICTION
-    // Inputs
-    .op_bf_i                          (dcod_op_bf), // BRANCH PREDICTION
-    .op_bnf_i                         (dcod_op_bnf), // BRANCH PREDICTION
-    .immjbr_upper_i                   (dcod_immjbr_upper), // BRANCH PREDICTION
-    .prev_op_brcond_i                 (exec_op_brcond), // BRANCH PREDICTION
-    .prev_predicted_flag_i            (exec_predicted_flag), // BRANCH PREDICTION
-    .flag_i                           (ctrl_flag) // BRANCH PREDICTION
-  );
 
 
   mor1kx_execute_marocchino
@@ -669,6 +634,10 @@ module mor1kx_cpu_marocchino
     //  ## LSU related inputs
     .wb_lsu_rdy_i                     (wb_lsu_rdy), // EXE
     .wb_lsu_result_i                  (wb_lsu_result), // EXE
+
+    // Forwarding comparision flag
+    .exec_op_1clk_cmp_o               (exec_op_1clk_cmp), // EXE
+    .exec_flag_set_o                  (exec_flag_set), // EXE
 
     // WB outputs
     .wb_result_o                      (wb_result), // EXE
@@ -847,6 +816,7 @@ module mor1kx_cpu_marocchino
     // DECODE non-latched additional information related instruction
     //  part #1: iformation stored in order control buffer
     .dcod_delay_slot_i          (dcod_delay_slot), // OMAN
+    .dcod_flag_await_i          (dcod_flag_await), // OMAN
     .dcod_flag_wb_i             (dcod_flag_wb), // OMAN
     .dcod_carry_wb_i            (dcod_carry_wb), // OMAN
     .dcod_rf_wb_i               (dcod_rf_wb), // OMAN
@@ -860,6 +830,7 @@ module mor1kx_cpu_marocchino
     .dcod_flag_req_i            (dcod_flag_req), // OMAN
     .dcod_carry_req_i           (dcod_carry_req), // OMAN
     .dcod_op_jr_i               (dcod_op_jr), // OMAN
+    .dcod_op_brcond_i           (dcod_op_brcond), // OMAN
     //  part #3: information required for create enable for
     //           for external (timer/ethernet/uart/etc) interrupts
     .dcod_op_lsu_store_i        (dcod_op_lsu_store), // OMAN
@@ -995,8 +966,6 @@ module mor1kx_cpu_marocchino
     // Track branch address for exception processing support
     .dcod_do_branch_i                 (dcod_do_branch), // CTRL
     .dcod_do_branch_target_i          (dcod_do_branch_target), // CTRL
-    .branch_mispredict_i              (branch_mispredict), // CTRL
-    .exec_mispredict_target_i         (exec_mispredict_target), // CTRL
     .dcod_jump_or_branch_i            (dcod_jump_or_branch), // CTRL
     .pc_decode_i                      (pc_decode), // CTRL
 

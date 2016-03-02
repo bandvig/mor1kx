@@ -1136,10 +1136,6 @@ module mor1kx_lsu_marocchino
     // exceptions
     .lsu_excepts_any_i          (lsu_excepts_any), // DCACHE
     .dbus_err_instant_i         (dbus_err_instant), // DCACHE
-    // input commands
-    //  # for genearel load or store
-    .lsu_load_i                 (lsu_load_r), // DCACHE
-    .lsu_store_i                (lsu_store_r), // DCACHE
     // Regular operation
     //  # addresses and "DCHACHE inhibit" flag
     .virt_addr_i                (virt_addr), // DCACHE

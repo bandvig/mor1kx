@@ -104,6 +104,10 @@ module mor1kx_execute_marocchino
   input                                 wb_lsu_rdy_i,
   input      [OPTION_OPERAND_WIDTH-1:0] wb_lsu_result_i,
 
+  // Forwarding comparision flag
+  output                                exec_op_1clk_cmp_o, // integer or fp32
+  output                                exec_flag_set_o,    // integer or fp32 comparison result
+
   // WB outputs
   output     [OPTION_OPERAND_WIDTH-1:0] wb_result_o,
   //  ## integer comparison result
@@ -322,6 +326,8 @@ module mor1kx_execute_marocchino
   //------------------------//
   // FP-32 comparison logic //
   //------------------------//
+  wire fp32_flag_set; // for forwarding to branch prediction
+  // ---
   generate
     /* verilator lint_off WIDTH */
     if (FEATURE_FPU != "NONE") begin :  alu_fp32_cmp_ena
@@ -340,18 +346,29 @@ module mor1kx_execute_marocchino
         // Operands
         .rfa_i                  (alu_1clk_a), // fp32-cmp
         .rfb_i                  (alu_1clk_b), // fp32-cmp
-        // outputs
+        // Outputs
+        //  # not WB-latched for flag forwarding
+        .fp32_flag_set_o        (fp32_flag_set),
+        //  # WB-latched
         .wb_fp32_flag_set_o     (wb_fp32_flag_set_o),   // fp32-cmp  result
         .wb_fp32_flag_clear_o   (wb_fp32_flag_clear_o), // fp32-cmp  result
         .wb_fp32_cmp_fpcsr_o    (wb_fp32_cmp_fpcsr_o)   // fp32-cmp  exceptions
       );
     end
     else begin :  alu_fp32_cmp_none
+      assign fp32_flag_set         =  1'b0;
       assign wb_fp32_flag_set_o    =  1'b0;
       assign wb_fp32_flag_clear_o  =  1'b0;
       assign wb_fp32_cmp_fpcsr_o   = {`OR1K_FPCSR_WIDTH{1'b0}};
     end // fpu_ena/fpu_none
   endgenerate // FP-32 comparison part related
+
+
+  //--------------------------------------------------//
+  // Forwarding comparision flag to branch prediction //
+  //--------------------------------------------------//
+  assign exec_op_1clk_cmp_o = op_setflag_r | op_fp32_cmp_r[`OR1K_FPUOP_WIDTH-1];
+  assign exec_flag_set_o    = (op_setflag_r & flag_set) | (op_fp32_cmp_r[`OR1K_FPUOP_WIDTH-1] & fp32_flag_set);
 
 
   //------//

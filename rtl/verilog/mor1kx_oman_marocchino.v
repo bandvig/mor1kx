@@ -52,6 +52,7 @@ module mor1kx_oman_marocchino
   // DECODE non-latched additional information related instruction
   //  part #1: iformation stored in order control buffer
   input                                 dcod_delay_slot_i, // instruction is in delay slot
+  input                                 dcod_flag_await_i, // instruction is multi-cycle computation of flag
   input                                 dcod_flag_wb_i,    // instruction affects comparison flag
   input                                 dcod_carry_wb_i,   // instruction affects carry flag
   input                                 dcod_rf_wb_i,      // instruction generates WB
@@ -65,6 +66,7 @@ module mor1kx_oman_marocchino
   input                                 dcod_flag_req_i,   // need comparison flag (l.cmov)
   input                                 dcod_carry_req_i,  // need carry flag
   input                                 dcod_op_jr_i,      // l.jr/l.jalr require operand B (potentially hazard)
+  input                                 dcod_op_brcond_i,  // l.bf/l.bnf require awaited flag (stall fetch)
   //  part #3: information required for create enable for
   //           for external (timer/ethernet/uart/etc) interrupts
   input                                 dcod_op_lsu_store_i,
@@ -152,8 +154,10 @@ module mor1kx_oman_marocchino
   localparam  OCBT_OP_RFE_POS         = OCBT_OP_LSU_ATOMIC_POS  + 1; // l.rfe
   //  Instruction is in delay slot
   localparam  OCBT_DELAY_SLOT_POS     = OCBT_OP_RFE_POS         + 1;
+  //  Instruction is multi-cycle computation of flag
+  localparam  OCBT_FLAG_AWAIT_POS     = OCBT_DELAY_SLOT_POS     + 1;
   //  Instruction affect comparison flag
-  localparam  OCBT_FLAG_WB_POS        = OCBT_DELAY_SLOT_POS     + 1;
+  localparam  OCBT_FLAG_WB_POS        = OCBT_FLAG_AWAIT_POS     + 1;
   //  Instruction affect carry flag
   localparam  OCBT_CARRY_WB_POS       = OCBT_FLAG_WB_POS        + 1;
   //  Instruction generates WB
@@ -203,6 +207,7 @@ module mor1kx_oman_marocchino
                   dcod_rf_wb_i,      // instruction generates WB
                   dcod_carry_wb_i,   // istruction affects carry flag
                   dcod_flag_wb_i,    // istruction affects comparison flag
+                  dcod_flag_await_i, // instruction is multi-cycle computation of flag
                   dcod_delay_slot_i, // istruction is in delay slot
                   // unit that must be granted for WB
                   dcod_op_rfe_i,     // l.rfe
@@ -385,15 +390,26 @@ module mor1kx_oman_marocchino
 
 
   //   Stall FETCH advance (CTRL).
-  //   Detect the situation where there is a jump to register in decode
+  //   a) Detect the situation where there is a jump to register in decode
   // stage and an instruction in execute stage that will write to that
   // register.
-  //   We also stall FETCH when an l.rfe/ecxeptions are in decode stage.
+  //   b) l.bf/l.bnf waiting flag if it should be computed by multi-cycle
+  //      instruction like l.swa of float64 comparison.
+  //      MAROCCHINO_TODO: performance improvement is possible with
+  //                       forwarding of result of these instructions. 
+  //   c) When an l.rfe/ecxeptions are in decode stage.
   // The main purpose of this is waiting till l.rfe/exceptions propagate
   // up to WB stage.
-  //   And the final reason to stop FETCH is l.mf(t)spr execution.
+  //   d) And the final reason to stop FETCH is l.mf(t)spr execution.
+  //
+  // auxiliary
+  wire flag_await = ocbo07[OCBT_FLAG_AWAIT_POS] | ocbo06[OCBT_FLAG_AWAIT_POS] | ocbo05[OCBT_FLAG_AWAIT_POS] |
+                    ocbo04[OCBT_FLAG_AWAIT_POS] | ocbo03[OCBT_FLAG_AWAIT_POS] | ocbo02[OCBT_FLAG_AWAIT_POS] |
+                    ocbo01[OCBT_FLAG_AWAIT_POS] | ocbo00[OCBT_FLAG_AWAIT_POS];
+  // stall fetch combination
   assign stall_fetch_o = ((ocb_hazard_b | exe2dec_hazard_b_o) & dcod_op_jr_i) | // stall FETCH
-                         dcod_op_rfe_i | dcod_an_except |                       // stall FETCH
+                         (flag_await & dcod_op_brcond_i)  |                     // stall FETCH
+                         dcod_op_rfe_i   | dcod_an_except |                     // stall FETCH
                          dcod_op_mtspr_i | dcod_op_mfspr_i;                     // stall FETCH
 
 
