@@ -76,6 +76,7 @@ module mor1kx_oman_marocchino
   input                                 dcod_op_mfspr_i,
 
   // collect busy flags from execution module
+  input                                 mul_busy_i,
   input                                 div_busy_i,
   input                                 fp32_arith_busy_i,
   input                                 lsu_busy_i,
@@ -324,7 +325,7 @@ module mor1kx_oman_marocchino
   wire stall_by_hazard_u =
     (dcod_op_1clk_i & exec_op_1clk_i & ~ocbo00[OCBT_OP_1CLK_POS]) |
     (dcod_op_div_i & (div_busy_i | (div_valid_i & ~ocbo00[OCBT_OP_DIV_POS]))) |
-    (dcod_op_mul_i & mul_valid_i & ~ocbo00[OCBT_OP_MUL_POS]) |
+    (dcod_op_mul_i & (mul_busy_i | (mul_valid_i & ~ocbo00[OCBT_OP_MUL_POS]))) |
     (dcod_op_fp32_arith_i & (fp32_arith_busy_i | (fp32_arith_valid_i & ~ocbo00[OCBT_OP_FP32_POS]))) |
     ((dcod_op_ls_i | dcod_op_msync_i) & (lsu_busy_i | (lsu_valid_i & ~ocbo00[OCBT_OP_LS_POS])));
 

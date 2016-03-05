@@ -273,6 +273,7 @@ module mor1kx_cpu_marocchino
 
   // Pipelined multiplier
   wire                            dcod_op_mul;
+  wire                            mul_busy;
   wire                            mul_valid;
   wire                            grant_wb_to_mul;
 
@@ -613,6 +614,7 @@ module mor1kx_cpu_marocchino
     // multi-clock instruction related inputs/outputs
     //  ## multiplier inputs/outputs
     .dcod_op_mul_i                    (dcod_op_mul), // EXE
+    .mul_busy_o                       (mul_busy), // EXE
     .mul_valid_o                      (mul_valid), // EXE
     .grant_wb_to_mul_i                (grant_wb_to_mul), // EXE
     //  ## division inputs/outputs
@@ -840,6 +842,7 @@ module mor1kx_cpu_marocchino
     .dcod_op_mfspr_i            (dcod_op_mfspr), // OMAN
 
     // collect busy flags from exwcution module
+    .mul_busy_i                 (mul_busy), // OMAN
     .div_busy_i                 (div_busy), // OMAN
     .fp32_arith_busy_i          (fp32_arith_busy), // OMAN
     .lsu_busy_i                 (lsu_busy), // OMAN
