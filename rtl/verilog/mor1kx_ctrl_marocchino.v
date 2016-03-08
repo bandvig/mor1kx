@@ -164,12 +164,9 @@ module mor1kx_ctrl_marocchino
   //  # Excepion processing auxiliaries
   input      [OPTION_OPERAND_WIDTH-1:0] wb_lsu_except_addr_i,
   //    ## Exception PC input coming from the store buffer
-  input      [OPTION_OPERAND_WIDTH-1:0] store_buffer_epcr_i,
-  input                                 store_buffer_err_i,
-  //    ## Exception PC output, used in the lsu
-  //       to properly signal dbus errors that has
-  //       went through the store buffer
-  output     [OPTION_OPERAND_WIDTH-1:0] ctrl_epcr_o,
+  input      [OPTION_OPERAND_WIDTH-1:0] sbuf_eear_i,
+  input      [OPTION_OPERAND_WIDTH-1:0] sbuf_epcr_i,
+  input                                 sbuf_err_i,
   //    ## Instriction is in delay slot
   input                                 wb_delay_slot_i,
   //    ## Instruction is restartable
@@ -321,9 +318,11 @@ module mor1kx_ctrl_marocchino
   wire except_range = ctrl_overflow;
 
   wire exception =
-    except_ibus_err_i | except_ibus_align_i | except_itlb_miss_i | except_ipagefault_i |
-    except_illegal_i | except_syscall_i | except_range | except_fpu |except_trap_i |
-    except_dbus_i | except_align_i | except_dtlb_miss_i | except_dpagefault_i |
+    except_ibus_err_i  | except_ibus_align_i | except_itlb_miss_i | except_ipagefault_i |
+    except_illegal_i   | except_syscall_i    | except_trap_i      |
+    except_range       | except_fpu          |
+    except_dbus_i      | except_align_i      | except_dtlb_miss_i | except_dpagefault_i |
+    sbuf_err_i         |
     ((except_ticktimer | except_pic) & wb_interrupts_en_i);
 
 
@@ -355,7 +354,7 @@ module mor1kx_ctrl_marocchino
              except_dtlb_miss_i,
              except_dpagefault_i,
              except_trap_i,
-             except_dbus_i,
+             (except_dbus_i | sbuf_err_i),
              except_range,
              except_fpu,
              except_pic,
@@ -595,7 +594,7 @@ endgenerate // FPU related: FPCSR and exceptions
 
   //   special case for delay slot:
   //   on l.rfe re-run branch(jump) instruction
-  assign ctrl_epcr_o = wb_delay_slot_i ? pc_pre_wb : pc_wb_i;
+  wire [OPTION_OPERAND_WIDTH-1:0] ctrl_epcr = wb_delay_slot_i ? pc_pre_wb : pc_wb_i;
 
   //   E-P-C-R update
   always @(posedge clk) begin
@@ -606,11 +605,11 @@ endgenerate // FPU related: FPCSR and exceptions
       // the syscall instruction, unless the syscall was in a delay slot
       else if (except_syscall_i)
         spr_epcr <= wb_delay_slot_i ? pc_pre_wb : pc_nxt_wb;
-      else if (store_buffer_err_i)
-        spr_epcr <= store_buffer_epcr_i;
+      else if (sbuf_err_i)
+        spr_epcr <= sbuf_epcr_i;
       // Don't update EPCR on software breakpoint
       else if (~(du_stall_on_trap & except_trap_i))
-        spr_epcr <= ctrl_epcr_o;
+        spr_epcr <= ctrl_epcr;
     end
     else if (spr_we & spr_access[`OR1K_SPR_SYS_BASE] &
              (`SPR_OFFSET(spr_addr)==`SPR_OFFSET(`OR1K_SPR_EPCR0_ADDR))) begin
@@ -619,14 +618,15 @@ endgenerate // FPU related: FPCSR and exceptions
   end // @ clock
 
   // Exception Effective Address
+  wire fetch_err = except_ibus_err_i | except_itlb_miss_i | except_ipagefault_i;
+  // ---
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
       spr_eear <= {OPTION_OPERAND_WIDTH{1'b0}};
     else if (exception_re) begin
-      if (except_ibus_err_i | except_itlb_miss_i | except_ipagefault_i)
-        spr_eear <= pc_wb_i;
-      else
-        spr_eear <= wb_lsu_except_addr_i;
+      spr_eear <= fetch_err  ? pc_wb_i     :
+                  sbuf_err_i ? sbuf_eear_i :
+                               wb_lsu_except_addr_i;
     end
   end // @ clock
 
@@ -663,12 +663,12 @@ endgenerate // FPU related: FPCSR and exceptions
       spr_npc <= stepped_into_rfe        ? spr_epcr              :
                  stepped_into_delay_slot ? last_branch_target_pc :
                  stepped_into_exception  ? exception_pc_addr     :
-                 wb_new_result         ? pc_nxt_wb             :
+                 wb_new_result           ? pc_nxt_wb             :
                                            spr_npc;
     end
     else if (wb_new_result) begin
-      spr_npc <= (du_stall_on_trap & except_trap_i) ? pc_wb_i     :
-                 du_cpu_stall                       ? ctrl_epcr_o :
+      spr_npc <= (du_stall_on_trap & except_trap_i) ? pc_wb_i   :
+                 du_cpu_stall                       ? ctrl_epcr :
                                                       pc_nxt_wb;
     end
   end // @ clock

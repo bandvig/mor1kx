@@ -145,7 +145,6 @@ module mor1kx_cpu_marocchino
 
   wire [OPTION_OPERAND_WIDTH-1:0] pc_decode;
   wire [OPTION_OPERAND_WIDTH-1:0] pc_wb;
-  wire [OPTION_OPERAND_WIDTH-1:0] ctrl_epcr;
 
   wire                            wb_atomic_flag_set;
   wire                            wb_atomic_flag_clear;
@@ -295,8 +294,9 @@ module mor1kx_cpu_marocchino
   wire                            exec_flag_set;    // integer or fp32 comparison result
 
 
-  wire [OPTION_OPERAND_WIDTH-1:0] store_buffer_epcr;
-  wire                            store_buffer_err;
+  wire [OPTION_OPERAND_WIDTH-1:0] sbuf_eear;
+  wire [OPTION_OPERAND_WIDTH-1:0] sbuf_epcr;
+  wire                            sbuf_err;
 
 
   // SPR access buses (Unit -> CTRL part)
@@ -690,6 +690,8 @@ module mor1kx_cpu_marocchino
     .dmmu_enable_i                    (spr_sr_o[`OR1K_SPR_SR_DME]), // LSU
     .supervisor_mode_i                (spr_sr_o[`OR1K_SPR_SR_SM]), // LSU
     // Input from DECODE (not latched)
+    .dcod_delay_slot_i                (dcod_delay_slot), // LSU (for store buffer EPCR computation)
+    .pc_decode_i                      (pc_decode), // LSU (for store buffer EPCR computation)
     .dcod_imm16_i                     (dcod_imm16), // LSU
     .dcod_rfa_i                       (dcod_rfa), // LSU
     .dcod_rfb_i                       (dcod_rfb), // LSU
@@ -726,9 +728,9 @@ module mor1kx_cpu_marocchino
     .snoop_adr_i                      (snoop_adr_i[31:0]), // LSU
     .snoop_en_i                       (snoop_en_i), // LSU
     // Exceprions & errors
-    .store_buffer_epcr_o              (store_buffer_epcr), // LSU
-    .store_buffer_err_o               (store_buffer_err), // LSU
-    .ctrl_epcr_i                      (ctrl_epcr), // LSU
+    .sbuf_eear_o                      (sbuf_eear), // LSU
+    .sbuf_epcr_o                      (sbuf_epcr), // LSU
+    .sbuf_err_o                       (sbuf_err), // LSU
     // Outputs
     .lsu_busy_o                       (lsu_busy), // LSU
     .lsu_valid_o                      (lsu_valid), // LSU: result ready or exceptions
@@ -1031,9 +1033,9 @@ module mor1kx_cpu_marocchino
     .wb_fp32_cmp_fpcsr_i              (wb_fp32_cmp_fpcsr), // CTRL
     //  # Excepion processing auxiliaries
     .wb_lsu_except_addr_i             (wb_lsu_except_addr), // CTRL
-    .store_buffer_epcr_i              (store_buffer_epcr), // CTRL
-    .store_buffer_err_i               (store_buffer_err), // CTRL
-    .ctrl_epcr_o                      (ctrl_epcr), // CTRL
+    .sbuf_eear_i                      (sbuf_eear), // CTRL
+    .sbuf_epcr_i                      (sbuf_epcr), // CTRL
+    .sbuf_err_i                       (sbuf_err), // CTRL
     .wb_delay_slot_i                  (wb_delay_slot), // CTRL
     .wb_interrupts_en_i               (wb_interrupts_en), // CTRL
     //  # Particular exception flags

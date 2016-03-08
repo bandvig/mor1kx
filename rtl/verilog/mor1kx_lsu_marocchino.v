@@ -59,6 +59,8 @@ module mor1kx_lsu_marocchino
   input                                 dmmu_enable_i,
   input                                 supervisor_mode_i,
   // Input from DECODE (not latched)
+  input                                 dcod_delay_slot_i, // for store buffer EPCR computation
+  input      [OPTION_OPERAND_WIDTH-1:0] pc_decode_i,       // for store buffer EPCR computation
   input           [`OR1K_IMM_WIDTH-1:0] dcod_imm16_i, // immediate offset for address computation
   input      [OPTION_OPERAND_WIDTH-1:0] dcod_rfa_i,   // operand "A" (part of address)
   input      [OPTION_OPERAND_WIDTH-1:0] dcod_rfb_i,   // operand "B" (value to store)
@@ -97,10 +99,9 @@ module mor1kx_lsu_marocchino
   // Exceprions & errors
   //  # Indicator of dbus exception came via the store buffer
   //    and appropriate PC
-  output     [OPTION_OPERAND_WIDTH-1:0] store_buffer_epcr_o,
-  output reg                            store_buffer_err_o,
-  //  # From control stage, exception PC for the store buffer input
-  input      [OPTION_OPERAND_WIDTH-1:0] ctrl_epcr_i,
+  output reg [OPTION_OPERAND_WIDTH-1:0] sbuf_eear_o,
+  output reg [OPTION_OPERAND_WIDTH-1:0] sbuf_epcr_o,
+  output reg                            sbuf_err_o,
   // output flags and load result
   output                                lsu_busy_o,
   output                                lsu_valid_o, // result ready or exceptions
@@ -124,6 +125,9 @@ module mor1kx_lsu_marocchino
   reg                            lsu_atomic_r;
   reg                      [1:0] lsu_length_r;
   reg                            lsu_zext_r;
+  //  # registers for store buffer EPCR computation
+  reg                            dcod_delay_slot_r;
+  reg [OPTION_OPERAND_WIDTH-1:0] pc_decode_r;
   //  # registers for operands from DECODE
   reg      [`OR1K_IMM_WIDTH-1:0] lsu_imm16_r; // immediate offset for address computation
   reg [OPTION_OPERAND_WIDTH-1:0] lsu_a_r;     // operand "A" (part of address)
@@ -147,6 +151,8 @@ module mor1kx_lsu_marocchino
   reg                      [1:0] cmd_length;
   reg                            cmd_zext;
   reg [OPTION_OPERAND_WIDTH-1:0] cmd_rfb;  // register file B in (store operand)
+  //  # registers for store buffer EPCR computation
+  reg [OPTION_OPERAND_WIDTH-1:0] cmd_epcr;
   //  # latched virtual address
   reg [OPTION_OPERAND_WIDTH-1:0] virt_addr_cmd;
   //  # l.msync
@@ -204,7 +210,9 @@ module mor1kx_lsu_marocchino
   // ---
   wire                              sbuf_full;
   wire                              sbuf_empty;
-  wire   [OPTION_OPERAND_WIDTH-1:0] sbuf_radr;
+  wire   [OPTION_OPERAND_WIDTH-1:0] sbuf_epcr;
+  wire   [OPTION_OPERAND_WIDTH-1:0] sbuf_virt_addr;
+  wire   [OPTION_OPERAND_WIDTH-1:0] sbuf_phys_addr;
   wire   [OPTION_OPERAND_WIDTH-1:0] sbuf_dat;
   wire [OPTION_OPERAND_WIDTH/8-1:0] sbuf_bsel;
 
@@ -359,6 +367,9 @@ module mor1kx_lsu_marocchino
       lsu_imm16_r  <= {`OR1K_IMM_WIDTH{1'b0}};
       lsu_length_r <= 2'd0;
       lsu_zext_r   <= 1'b0;
+      // store buffer EPCR computation
+      dcod_delay_slot_r <= 1'b0;
+      pc_decode_r       <= {LSUOOW{1'b0}};
     end
     else if (lsu_excepts_any | pipeline_flush_i) begin  // drop command on address computation stage
       // commands
@@ -369,6 +380,9 @@ module mor1kx_lsu_marocchino
       lsu_imm16_r  <= {`OR1K_IMM_WIDTH{1'b0}};
       lsu_length_r <= 2'd0;
       lsu_zext_r   <= 1'b0;
+      // store buffer EPCR computation
+      dcod_delay_slot_r <= 1'b0;
+      pc_decode_r       <= {LSUOOW{1'b0}};
     end
     else if (padv_lsu_input) begin
       // commands
@@ -379,6 +393,9 @@ module mor1kx_lsu_marocchino
       lsu_imm16_r  <= dcod_imm16_i;
       lsu_length_r <= dcod_lsu_length_i;
       lsu_zext_r   <= dcod_lsu_zext_i;
+      // store buffer EPCR computation
+      dcod_delay_slot_r <= dcod_delay_slot_i;
+      pc_decode_r       <= pc_decode_i;
     end
     else if (lsu_takes_ls) begin
       // commands
@@ -389,6 +406,9 @@ module mor1kx_lsu_marocchino
       lsu_imm16_r  <= {`OR1K_IMM_WIDTH{1'b0}};
       lsu_length_r <= 2'd0;
       lsu_zext_r   <= 1'b0;
+      // store buffer EPCR computation
+      dcod_delay_slot_r <= 1'b0;
+      pc_decode_r       <= {LSUOOW{1'b0}};
     end
   end // @clock
 
@@ -453,6 +473,8 @@ module mor1kx_lsu_marocchino
       // store
       cmd_store_r <= 1'b0;
       cmd_swa_r   <= 1'b0;
+      // store buffer EPCR
+      cmd_epcr    <= {LSUOOW{1'b0}};
     end
     else if (lsu_excepts_any | pipeline_flush_i) begin
       // load
@@ -462,6 +484,8 @@ module mor1kx_lsu_marocchino
       // store
       cmd_store_r <= 1'b0;
       cmd_swa_r   <= 1'b0;
+      // store buffer EPCR
+      cmd_epcr    <= {LSUOOW{1'b0}};
     end
     else if (lsu_takes_ls) begin
       // load
@@ -470,6 +494,8 @@ module mor1kx_lsu_marocchino
       // store
       cmd_store_r <= lsu_store_r & ~lsu_atomic_r;
       cmd_swa_r   <= lsu_store_r &  lsu_atomic_r;
+      // store buffer EPCR
+      cmd_epcr    <= dcod_delay_slot_r ? (pc_decode_r - 4) : pc_decode_r;
     end
     else begin
       // load
@@ -478,8 +504,10 @@ module mor1kx_lsu_marocchino
         cmd_lwa_r   <= 1'b0;
       end
       // classic store
-      if (lsu_ack_store)
+      if (lsu_ack_store) begin
         cmd_store_r <= 1'b0;
+        cmd_epcr    <= {LSUOOW{1'b0}};
+      end
       // store conditional
       if (lsu_ack_swa)
         cmd_swa_r   <= 1'b0;
@@ -537,13 +565,25 @@ module mor1kx_lsu_marocchino
   assign dbus_err_instant = dbus_req_o & dbus_err_i;
 
   // --- bus error during bus access from store buffer ---
+  //  ## pay attention that l.swa is executed around of
+  //     store buffer, so we don't take into accaunt
+  //     atomic store here.
   always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      store_buffer_err_o <= 1'b0;
-    else if (flush_by_ctrl)  // prenent store buffer  DBUS error report
-      store_buffer_err_o <= 1'b0;
-    else if (~store_buffer_err_o)
-      store_buffer_err_o <= dbus_err_instant & dbus_we;
+    if (rst) begin
+      sbuf_err_o  <= 1'b0;
+      sbuf_eear_o <= {LSUOOW{1'b0}};
+      sbuf_epcr_o <= {LSUOOW{1'b0}};
+    end
+    else if (flush_by_ctrl) begin // prevent store buffer DBUS error report
+      sbuf_err_o  <= 1'b0;
+      sbuf_eear_o <= {LSUOOW{1'b0}};
+      sbuf_epcr_o <= {LSUOOW{1'b0}};
+    end
+    else if (dbus_err_instant & dbus_we & ~dbus_atomic) begin
+      sbuf_err_o  <= 1'b1;
+      sbuf_eear_o <= sbuf_virt_addr;
+      sbuf_epcr_o <= sbuf_epcr;
+    end
   end // @ clock
 
   // --- align error detection ---
@@ -843,10 +883,10 @@ module mor1kx_lsu_marocchino
               //  # no buffered data for write == store buffer is empty
               dbus_req_o  <= 1'b1;
               dbus_we     <= 1'b1;
-              dbus_bsel_o <= sbuf_odata ? sbuf_bsel : dbus_bsel;
-              dbus_adr_o  <= sbuf_odata ? sbuf_radr : phys_addr_cmd;
-              dbus_dat_o  <= sbuf_odata ? sbuf_dat  : lsu_sdat;
-              dbus_atomic <= sbuf_odata ? 1'b0      : cmd_swa_r; // we execute store conditional around store buffer
+              dbus_bsel_o <= sbuf_odata ? sbuf_bsel      : dbus_bsel;
+              dbus_adr_o  <= sbuf_odata ? sbuf_phys_addr : phys_addr_cmd;
+              dbus_dat_o  <= sbuf_odata ? sbuf_dat       : lsu_sdat;
+              dbus_atomic <= sbuf_odata ? 1'b0           : cmd_swa_r; // we execute store conditional around store buffer
               // DBUS FSM state
               state       <= WRITE;
             end
@@ -995,23 +1035,25 @@ module mor1kx_lsu_marocchino
   )
   u_store_buffer
   (
-    .clk      (clk),
-    .rst      (rst),
+    .clk          (clk),
+    .rst          (rst),
     // entry port
-    .pc_i     (ctrl_epcr_i), // STORE_BUFFER
-    .adr_i    (phys_addr_cmd), // STORE_BUFFER
-    .dat_i    (lsu_sdat), // STORE_BUFFER
-    .bsel_i   (dbus_bsel), // STORE_BUFFER
-    .write_i  (sbuf_we), // STORE_BUFFER
+    .sbuf_epcr_i  (cmd_epcr), // STORE_BUFFER
+    .virt_addr_i  (virt_addr_cmd), // STORE_BUFFER
+    .phys_addr_i  (phys_addr_cmd), // STORE_BUFFER
+    .dat_i        (lsu_sdat), // STORE_BUFFER
+    .bsel_i       (dbus_bsel), // STORE_BUFFER
+    .write_i      (sbuf_we), // STORE_BUFFER
     // output port
-    .pc_o     (store_buffer_epcr_o), // STORE_BUFFER
-    .adr_o    (sbuf_radr), // STORE_BUFFER
-    .dat_o    (sbuf_dat), // STORE_BUFFER
-    .bsel_o   (sbuf_bsel), // STORE_BUFFER
-    .read_i   (sbuf_re), // STORE_BUFFER
-
-    .full_o   (sbuf_full), // STORE_BUFFER
-    .empty_o  (sbuf_empty) // STORE_BUFFER
+    .sbuf_epcr_o  (sbuf_epcr), // STORE_BUFFER
+    .virt_addr_o  (sbuf_virt_addr), // STORE_BUFFER
+    .phys_addr_o  (sbuf_phys_addr), // STORE_BUFFER
+    .dat_o        (sbuf_dat), // STORE_BUFFER
+    .bsel_o       (sbuf_bsel), // STORE_BUFFER
+    .read_i       (sbuf_re), // STORE_BUFFER
+    // status flags
+    .full_o       (sbuf_full), // STORE_BUFFER
+    .empty_o      (sbuf_empty) // STORE_BUFFER
   );
 
 
