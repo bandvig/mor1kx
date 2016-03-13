@@ -324,7 +324,6 @@ module mor1kx_cpu_marocchino
 
   // pipeline controls from CTRL to units
   wire padv_fetch;
-  wire clean_fetch;
   wire padv_decode;
   wire padv_wb;
   wire pipeline_flush;
@@ -394,7 +393,6 @@ module mor1kx_cpu_marocchino
 
     // pipeline control
     .padv_fetch_i                     (padv_fetch), // FETCH
-    .clean_fetch_i                    (clean_fetch), // FETCH
     .stall_fetch_i                    (stall_fetch), // FETCH
     .pipeline_flush_i                 (pipeline_flush), // FETCH
 
@@ -953,7 +951,6 @@ module mor1kx_cpu_marocchino
     .do_rf_wb_i                       (do_rf_wb), // CTRL (MFSPR support)
     .pipeline_flush_o                 (pipeline_flush), // CTRL
     .padv_fetch_o                     (padv_fetch), // CTRL
-    .clean_fetch_o                    (clean_fetch), // CTRL
     .padv_decode_o                    (padv_decode), // CTRL
     .padv_wb_o                        (padv_wb), // CTRL
 

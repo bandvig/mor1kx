@@ -54,7 +54,6 @@ module mor1kx_fetch_marocchino
 
   // pipeline control
   input                                 padv_fetch_i,
-  input                                 clean_fetch_i,
   input                                 stall_fetch_i,
   input                                 pipeline_flush_i,
 
@@ -413,7 +412,7 @@ module mor1kx_fetch_marocchino
       // actual programm counter
       pc_decode_o               <= {IFOOW{1'b0}}; // reset
     end
-    else if (flush_by_ctrl | clean_fetch_i) begin
+    else if (flush_by_ctrl) begin
       dcod_delay_slot_o         <= 1'b0;
       dcod_insn_o               <= {`OR1K_OPCODE_NOP,26'd0};
       dcod_insn_valid_o         <= 1'b0;
@@ -440,7 +439,7 @@ module mor1kx_fetch_marocchino
   // to RF
   assign fetch_rfa_adr_o      = s2t_insn_mux[`OR1K_RA_SELECT];
   assign fetch_rfb_adr_o      = s2t_insn_mux[`OR1K_RB_SELECT];
-  assign fetch_rf_adr_valid_o = padv_fetch_i & s2t_ack & ~(flush_by_branch | flush_by_ctrl | clean_fetch_i);
+  assign fetch_rf_adr_valid_o = padv_fetch_i & s2t_ack & ~(flush_by_branch | flush_by_ctrl);
 
 
   /********** End of FETCH pipe. Start other logics. **********/

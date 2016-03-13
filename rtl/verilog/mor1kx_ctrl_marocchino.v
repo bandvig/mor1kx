@@ -82,7 +82,6 @@ module mor1kx_ctrl_marocchino
   input                                 do_rf_wb_i,
   output                                pipeline_flush_o,
   output                                padv_fetch_o,
-  output                                clean_fetch_o,
   output                                padv_decode_o,
   output                                padv_wb_o,
 
@@ -400,10 +399,6 @@ module mor1kx_ctrl_marocchino
   assign padv_fetch_o =
     // MAROCCHINO_TODO: ~du_cpu_stall & ~stepping &  // from DU
     (dcod_valid_i | ~dcod_insn_valid_i) & ~cmd_op_mXspr & ~stall_fetch_i;
-
-  // Clean up FETCH output when l.mf(t)spr goes to execution
-  // The condition is same to one is used to start l.mf(t)spr processing  
-  assign clean_fetch_o = padv_decode_o & (dcod_op_mfspr_i | dcod_op_mtspr_i);
 
 
   assign padv_decode_o =

@@ -376,7 +376,7 @@ module mor1kx_oman_marocchino
   wire stall_by_carry = dcod_carry_req_i & (ocb_carry | carry_waiting);
 
   //  stall by:
-  //    a) MF(T)SPR in decode till and OCB become empty or LSU insn completion (see here)
+  //    a) MF(T)SPR in decode till and OCB become empty (see here)
   //    b) till completion MF(T)SPR (see CTRL)
   //       this completion generates padv-wb,
   //       in next turn padv-wb cleans up OCB and restores
@@ -409,9 +409,8 @@ module mor1kx_oman_marocchino
                     ocbo01[OCBT_FLAG_AWAIT_POS] | ocbo00[OCBT_FLAG_AWAIT_POS];
   // stall fetch combination
   assign stall_fetch_o = ((ocb_hazard_b | exe2dec_hazard_b_o) & dcod_op_jr_i) | // stall FETCH
-                         (flag_await & dcod_op_brcond_i)  |                     // stall FETCH
-                         dcod_op_rfe_i   | dcod_an_except |                     // stall FETCH
-                         dcod_op_mtspr_i | dcod_op_mfspr_i;                     // stall FETCH
+                         (flag_await & dcod_op_brcond_i) |                      // stall FETCH
+                         dcod_op_rfe_i | dcod_an_except;                        // stall FETCH
 
 
   // For debug with  simulatiom
