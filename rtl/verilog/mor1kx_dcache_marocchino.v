@@ -29,12 +29,13 @@
 
 module mor1kx_dcache_marocchino
 #(
-  parameter OPTION_OPERAND_WIDTH      = 32,
-  parameter OPTION_DCACHE_BLOCK_WIDTH =  5,
-  parameter OPTION_DCACHE_SET_WIDTH   =  9,
-  parameter OPTION_DCACHE_WAYS        =  2,
-  parameter OPTION_DCACHE_LIMIT_WIDTH = 32,
-  parameter OPTION_DCACHE_SNOOP       = "NONE"
+  parameter OPTION_OPERAND_WIDTH        = 32,
+  parameter OPTION_DCACHE_BLOCK_WIDTH   =  5,
+  parameter OPTION_DCACHE_SET_WIDTH     =  9,
+  parameter OPTION_DCACHE_WAYS          =  2,
+  parameter OPTION_DCACHE_LIMIT_WIDTH   = 32,
+  parameter OPTION_DCACHE_SNOOP         = "NONE",
+  parameter OPTION_DCACHE_CLEAR_ON_INIT =  0
 )
 (
   // clock & reset
@@ -692,7 +693,7 @@ module mor1kx_dcache_marocchino
     #(
       .ADDR_WIDTH     (WAY_WIDTH-2),
       .DATA_WIDTH     (OPTION_OPERAND_WIDTH),
-      .CLEAR_ON_INIT  (0)
+      .CLEAR_ON_INIT  (OPTION_DCACHE_CLEAR_ON_INIT)
     )
     dc_way_ram
     (
@@ -755,7 +756,7 @@ module mor1kx_dcache_marocchino
   #(
     .ADDR_WIDTH     (OPTION_DCACHE_SET_WIDTH),
     .DATA_WIDTH     (TAGMEM_WIDTH),
-    .CLEAR_ON_INIT  (0)
+    .CLEAR_ON_INIT  (OPTION_DCACHE_CLEAR_ON_INIT)
   )
   dc_tag_ram
   (
@@ -805,7 +806,7 @@ module mor1kx_dcache_marocchino
     #(
       .ADDR_WIDTH     (OPTION_DCACHE_SET_WIDTH),
       .DATA_WIDTH     (TAGMEM_WIDTH),
-      .CLEAR_ON_INIT  (0)
+      .CLEAR_ON_INIT  (OPTION_DCACHE_CLEAR_ON_INIT)
     )
     dc_snoop_tag_ram
     (

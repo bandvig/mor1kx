@@ -30,29 +30,32 @@
 
 module mor1kx_marocchino_alone
 #(
-  parameter OPTION_OPERAND_WIDTH      = 32,
+  parameter OPTION_OPERAND_WIDTH        = 32,
 
   // data cache configuration
-  parameter OPTION_DCACHE_BLOCK_WIDTH =  5,
-  parameter OPTION_DCACHE_SET_WIDTH   =  9,
-  parameter OPTION_DCACHE_WAYS        =  2,
-  parameter OPTION_DCACHE_LIMIT_WIDTH = 32,
-  parameter OPTION_DCACHE_SNOOP       = "NONE",
+  parameter OPTION_DCACHE_BLOCK_WIDTH   =  5,
+  parameter OPTION_DCACHE_SET_WIDTH     =  9,
+  parameter OPTION_DCACHE_WAYS          =  2,
+  parameter OPTION_DCACHE_LIMIT_WIDTH   = 32,
+  parameter OPTION_DCACHE_SNOOP         = "NONE",
+  parameter OPTION_DCACHE_CLEAR_ON_INIT =  0, // !!! activate for simulation only !!!
 
   // data mmu
-  parameter FEATURE_DMMU_HW_TLB_RELOAD = "NONE",
-  parameter OPTION_DMMU_SET_WIDTH      =  6,
-  parameter OPTION_DMMU_WAYS           =  1,
+  parameter FEATURE_DMMU_HW_TLB_RELOAD  = "NONE",
+  parameter OPTION_DMMU_SET_WIDTH       =  6,
+  parameter OPTION_DMMU_WAYS            =  1,
+  parameter OPTION_DMMU_CLEAR_ON_INIT   =  0, // !!! activate for simulation only !!!
 
   // store buffer
-  parameter OPTION_STORE_BUFFER_DEPTH_WIDTH = 4, // 16 taps
+  parameter OPTION_STORE_BUFFER_DEPTH_WIDTH   = 4, // 16 taps
+  parameter OPTION_STORE_BUFFER_CLEAR_ON_INIT = 0, // !!! activate for simulation only !!!
 
   // istruction cache
-  parameter OPTION_ICACHE_BLOCK_WIDTH  =  5,
-  parameter OPTION_ICACHE_SET_WIDTH    =  9,
-  parameter OPTION_ICACHE_WAYS         =  2,
-  parameter OPTION_ICACHE_LIMIT_WIDTH  = 32,
-  parameter OPTION_ICACHE_CLEAR_ON_INIT=  0, // !!! activate for simulation only !!!
+  parameter OPTION_ICACHE_BLOCK_WIDTH   =  5,
+  parameter OPTION_ICACHE_SET_WIDTH     =  9,
+  parameter OPTION_ICACHE_WAYS          =  2,
+  parameter OPTION_ICACHE_LIMIT_WIDTH   = 32,
+  parameter OPTION_ICACHE_CLEAR_ON_INIT =  0, // !!! activate for simulation only !!!
 
   // instruction mmu
   parameter FEATURE_IMMU_HW_TLB_RELOAD = "NONE",
@@ -263,12 +266,15 @@ module mor1kx_marocchino_alone
     .OPTION_DCACHE_WAYS               (OPTION_DCACHE_WAYS),
     .OPTION_DCACHE_LIMIT_WIDTH        (OPTION_DCACHE_LIMIT_WIDTH),
     .OPTION_DCACHE_SNOOP              (OPTION_DCACHE_SNOOP),
+    .OPTION_DCACHE_CLEAR_ON_INIT      (OPTION_DCACHE_CLEAR_ON_INIT),
     // data mmu
     .FEATURE_DMMU_HW_TLB_RELOAD       (FEATURE_DMMU_HW_TLB_RELOAD),
     .OPTION_DMMU_SET_WIDTH            (OPTION_DMMU_SET_WIDTH),
     .OPTION_DMMU_WAYS                 (OPTION_DMMU_WAYS),
+    .OPTION_DMMU_CLEAR_ON_INIT        (OPTION_DMMU_CLEAR_ON_INIT),
     // write buffer
-    .OPTION_STORE_BUFFER_DEPTH_WIDTH  (OPTION_STORE_BUFFER_DEPTH_WIDTH),
+    .OPTION_STORE_BUFFER_DEPTH_WIDTH    (OPTION_STORE_BUFFER_DEPTH_WIDTH),
+    .OPTION_STORE_BUFFER_CLEAR_ON_INIT  (OPTION_STORE_BUFFER_CLEAR_ON_INIT),
     // instructon cache
     .OPTION_ICACHE_BLOCK_WIDTH        (OPTION_ICACHE_BLOCK_WIDTH),
     .OPTION_ICACHE_SET_WIDTH          (OPTION_ICACHE_SET_WIDTH),

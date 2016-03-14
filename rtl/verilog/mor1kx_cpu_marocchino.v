@@ -26,26 +26,28 @@ module mor1kx_cpu_marocchino
 #(
   parameter OPTION_OPERAND_WIDTH = 32,
   // data cache
-  parameter OPTION_DCACHE_BLOCK_WIDTH = 5,
-  parameter OPTION_DCACHE_SET_WIDTH   = 9,
-  parameter OPTION_DCACHE_WAYS        = 2,
-  parameter OPTION_DCACHE_LIMIT_WIDTH = 32,
-  parameter OPTION_DCACHE_SNOOP       = "NONE",
+  parameter OPTION_DCACHE_BLOCK_WIDTH   = 5,
+  parameter OPTION_DCACHE_SET_WIDTH     = 9,
+  parameter OPTION_DCACHE_WAYS          = 2,
+  parameter OPTION_DCACHE_LIMIT_WIDTH   = 32,
+  parameter OPTION_DCACHE_SNOOP         = "NONE",
+  parameter OPTION_DCACHE_CLEAR_ON_INIT = 0,
   // data mmu
-  parameter FEATURE_DMMU_HW_TLB_RELOAD = "NONE",
-  parameter OPTION_DMMU_SET_WIDTH      = 6,
-  parameter OPTION_DMMU_WAYS           = 1,
+  parameter FEATURE_DMMU_HW_TLB_RELOAD  = "NONE",
+  parameter OPTION_DMMU_SET_WIDTH       = 6,
+  parameter OPTION_DMMU_WAYS            = 1,
+  parameter OPTION_DMMU_CLEAR_ON_INIT   = 0,
   // instruction cache
-  parameter OPTION_ICACHE_BLOCK_WIDTH  = 5,
-  parameter OPTION_ICACHE_SET_WIDTH    = 9,
-  parameter OPTION_ICACHE_WAYS         = 2,
-  parameter OPTION_ICACHE_LIMIT_WIDTH  = 32,
-  parameter OPTION_ICACHE_CLEAR_ON_INIT= 0,
+  parameter OPTION_ICACHE_BLOCK_WIDTH   = 5,
+  parameter OPTION_ICACHE_SET_WIDTH     = 9,
+  parameter OPTION_ICACHE_WAYS          = 2,
+  parameter OPTION_ICACHE_LIMIT_WIDTH   = 32,
+  parameter OPTION_ICACHE_CLEAR_ON_INIT = 0,
   // instruction mmu
-  parameter FEATURE_IMMU_HW_TLB_RELOAD = "NONE",
-  parameter OPTION_IMMU_SET_WIDTH      = 6,
-  parameter OPTION_IMMU_WAYS           = 1,
-  parameter OPTION_IMMU_CLEAR_ON_INIT  = 0,
+  parameter FEATURE_IMMU_HW_TLB_RELOAD  = "NONE",
+  parameter OPTION_IMMU_SET_WIDTH       = 6,
+  parameter OPTION_IMMU_WAYS            = 1,
+  parameter OPTION_IMMU_CLEAR_ON_INIT   = 0,
 
   parameter FEATURE_TIMER        = "ENABLED",
   parameter FEATURE_DEBUGUNIT    = "NONE",
@@ -68,7 +70,8 @@ module mor1kx_cpu_marocchino
 
   parameter FEATURE_FPU    = "NONE", // ENABLED|NONE: pipeline marocchino
 
-  parameter OPTION_STORE_BUFFER_DEPTH_WIDTH = 4, // 16 taps
+  parameter OPTION_STORE_BUFFER_DEPTH_WIDTH   = 4, // 16 taps
+  parameter OPTION_STORE_BUFFER_CLEAR_ON_INIT = 0,
 
   parameter FEATURE_MULTICORE      = "NONE",
 
@@ -661,16 +664,19 @@ module mor1kx_cpu_marocchino
 
   mor1kx_lsu_marocchino
   #(
-    .OPTION_OPERAND_WIDTH             (OPTION_OPERAND_WIDTH),
-    .OPTION_DCACHE_BLOCK_WIDTH        (OPTION_DCACHE_BLOCK_WIDTH),
-    .OPTION_DCACHE_SET_WIDTH          (OPTION_DCACHE_SET_WIDTH),
-    .OPTION_DCACHE_WAYS               (OPTION_DCACHE_WAYS),
-    .OPTION_DCACHE_LIMIT_WIDTH        (OPTION_DCACHE_LIMIT_WIDTH),
-    .OPTION_DCACHE_SNOOP              (OPTION_DCACHE_SNOOP),
-    .FEATURE_DMMU_HW_TLB_RELOAD       (FEATURE_DMMU_HW_TLB_RELOAD),
-    .OPTION_DMMU_SET_WIDTH            (OPTION_DMMU_SET_WIDTH),
-    .OPTION_DMMU_WAYS                 (OPTION_DMMU_WAYS),
-    .OPTION_STORE_BUFFER_DEPTH_WIDTH  (OPTION_STORE_BUFFER_DEPTH_WIDTH)
+    .OPTION_OPERAND_WIDTH               (OPTION_OPERAND_WIDTH),
+    .OPTION_DCACHE_BLOCK_WIDTH          (OPTION_DCACHE_BLOCK_WIDTH),
+    .OPTION_DCACHE_SET_WIDTH            (OPTION_DCACHE_SET_WIDTH),
+    .OPTION_DCACHE_WAYS                 (OPTION_DCACHE_WAYS),
+    .OPTION_DCACHE_LIMIT_WIDTH          (OPTION_DCACHE_LIMIT_WIDTH),
+    .OPTION_DCACHE_SNOOP                (OPTION_DCACHE_SNOOP),
+    .OPTION_DCACHE_CLEAR_ON_INIT        (OPTION_DCACHE_CLEAR_ON_INIT),
+    .FEATURE_DMMU_HW_TLB_RELOAD         (FEATURE_DMMU_HW_TLB_RELOAD),
+    .OPTION_DMMU_SET_WIDTH              (OPTION_DMMU_SET_WIDTH),
+    .OPTION_DMMU_WAYS                   (OPTION_DMMU_WAYS),
+    .OPTION_DMMU_CLEAR_ON_INIT          (OPTION_DMMU_CLEAR_ON_INIT),
+    .OPTION_STORE_BUFFER_DEPTH_WIDTH    (OPTION_STORE_BUFFER_DEPTH_WIDTH),
+    .OPTION_STORE_BUFFER_CLEAR_ON_INIT  (OPTION_STORE_BUFFER_CLEAR_ON_INIT)
   )
   u_lsu
   (

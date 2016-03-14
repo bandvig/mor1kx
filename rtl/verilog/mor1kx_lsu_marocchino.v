@@ -31,18 +31,21 @@
 module mor1kx_lsu_marocchino
 #(
   // data cache
-  parameter OPTION_OPERAND_WIDTH      = 32,
-  parameter OPTION_DCACHE_BLOCK_WIDTH = 5,
-  parameter OPTION_DCACHE_SET_WIDTH   = 9,
-  parameter OPTION_DCACHE_WAYS        = 2,
-  parameter OPTION_DCACHE_LIMIT_WIDTH = 32,
-  parameter OPTION_DCACHE_SNOOP       = "NONE",
+  parameter OPTION_OPERAND_WIDTH        = 32,
+  parameter OPTION_DCACHE_BLOCK_WIDTH   = 5,
+  parameter OPTION_DCACHE_SET_WIDTH     = 9,
+  parameter OPTION_DCACHE_WAYS          = 2,
+  parameter OPTION_DCACHE_LIMIT_WIDTH   = 32,
+  parameter OPTION_DCACHE_SNOOP         = "NONE",
+  parameter OPTION_DCACHE_CLEAR_ON_INIT = 0,
   // mmu cache
   parameter FEATURE_DMMU_HW_TLB_RELOAD = "NONE",
   parameter OPTION_DMMU_SET_WIDTH      = 6,
   parameter OPTION_DMMU_WAYS           = 1,
+  parameter OPTION_DMMU_CLEAR_ON_INIT  = 0,
   // store buffer
-  parameter OPTION_STORE_BUFFER_DEPTH_WIDTH = 4 // 16 taps
+  parameter OPTION_STORE_BUFFER_DEPTH_WIDTH   = 4, // 16 taps
+  parameter OPTION_STORE_BUFFER_CLEAR_ON_INIT = 0
 )
 (
   // clocks & resets
@@ -1031,7 +1034,8 @@ module mor1kx_lsu_marocchino
   mor1kx_store_buffer_marocchino
   #(
     .DEPTH_WIDTH          (OPTION_STORE_BUFFER_DEPTH_WIDTH),
-    .OPTION_OPERAND_WIDTH (OPTION_OPERAND_WIDTH)
+    .OPTION_OPERAND_WIDTH (OPTION_OPERAND_WIDTH),
+    .CLEAR_ON_INIT        (OPTION_STORE_BUFFER_CLEAR_ON_INIT)
   )
   u_store_buffer
   (
@@ -1157,12 +1161,13 @@ module mor1kx_lsu_marocchino
 
   mor1kx_dcache_marocchino
   #(
-    .OPTION_OPERAND_WIDTH       (OPTION_OPERAND_WIDTH),
-    .OPTION_DCACHE_BLOCK_WIDTH  (OPTION_DCACHE_BLOCK_WIDTH),
-    .OPTION_DCACHE_SET_WIDTH    (OPTION_DCACHE_SET_WIDTH),
-    .OPTION_DCACHE_WAYS         (OPTION_DCACHE_WAYS),
-    .OPTION_DCACHE_LIMIT_WIDTH  (OPTION_DCACHE_LIMIT_WIDTH),
-    .OPTION_DCACHE_SNOOP        (OPTION_DCACHE_SNOOP)
+    .OPTION_OPERAND_WIDTH         (OPTION_OPERAND_WIDTH),
+    .OPTION_DCACHE_BLOCK_WIDTH    (OPTION_DCACHE_BLOCK_WIDTH),
+    .OPTION_DCACHE_SET_WIDTH      (OPTION_DCACHE_SET_WIDTH),
+    .OPTION_DCACHE_WAYS           (OPTION_DCACHE_WAYS),
+    .OPTION_DCACHE_LIMIT_WIDTH    (OPTION_DCACHE_LIMIT_WIDTH),
+    .OPTION_DCACHE_SNOOP          (OPTION_DCACHE_SNOOP),
+    .OPTION_DCACHE_CLEAR_ON_INIT  (OPTION_DCACHE_CLEAR_ON_INIT)
   )
   u_dcache
   (
@@ -1224,7 +1229,8 @@ module mor1kx_lsu_marocchino
     .FEATURE_DMMU_HW_TLB_RELOAD (FEATURE_DMMU_HW_TLB_RELOAD),
     .OPTION_OPERAND_WIDTH       (OPTION_OPERAND_WIDTH),
     .OPTION_DMMU_SET_WIDTH      (OPTION_DMMU_SET_WIDTH),
-    .OPTION_DMMU_WAYS           (OPTION_DMMU_WAYS)
+    .OPTION_DMMU_WAYS           (OPTION_DMMU_WAYS),
+    .OPTION_DMMU_CLEAR_ON_INIT  (OPTION_DMMU_CLEAR_ON_INIT)
   )
   u_dmmu
   (

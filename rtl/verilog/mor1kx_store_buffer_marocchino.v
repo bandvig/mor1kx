@@ -27,7 +27,8 @@
 module mor1kx_store_buffer_marocchino
 #(
   parameter DEPTH_WIDTH          =  4, // 16 taps
-  parameter OPTION_OPERAND_WIDTH = 32
+  parameter OPTION_OPERAND_WIDTH = 32,
+  parameter CLEAR_ON_INIT        = 0
 )
 (
   input                               clk,
@@ -110,7 +111,7 @@ module mor1kx_store_buffer_marocchino
   #(
     .ADDR_WIDTH     (DEPTH_WIDTH),
     .DATA_WIDTH     (FIFO_DATA_WIDTH),
-    .CLEAR_ON_INIT  (0)
+    .CLEAR_ON_INIT  (CLEAR_ON_INIT)
   )
   fifo_ram
   (

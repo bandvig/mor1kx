@@ -29,7 +29,8 @@ module mor1kx_dmmu_marocchino
   parameter FEATURE_DMMU_HW_TLB_RELOAD  = "NONE",
   parameter OPTION_OPERAND_WIDTH        = 32,
   parameter OPTION_DMMU_SET_WIDTH       =  6,
-  parameter OPTION_DMMU_WAYS            =  1
+  parameter OPTION_DMMU_WAYS            =  1,
+  parameter OPTION_DMMU_CLEAR_ON_INIT   =  0
 )
 (
   // clocks and resest
@@ -506,7 +507,7 @@ module mor1kx_dmmu_marocchino
     #(
       .ADDR_WIDTH     (OPTION_DMMU_SET_WIDTH),
       .DATA_WIDTH     (OPTION_OPERAND_WIDTH),
-      .CLEAR_ON_INIT  (0)
+      .CLEAR_ON_INIT  (OPTION_DMMU_CLEAR_ON_INIT)
     )
     dtlb_match_regs
     (
@@ -530,7 +531,7 @@ module mor1kx_dmmu_marocchino
     #(
       .ADDR_WIDTH     (OPTION_DMMU_SET_WIDTH),
       .DATA_WIDTH     (OPTION_OPERAND_WIDTH),
-      .CLEAR_ON_INIT  (0)
+      .CLEAR_ON_INIT  (OPTION_DMMU_CLEAR_ON_INIT)
     )
     dtlb_trans_regs
     (
