@@ -164,13 +164,13 @@ module mor1kx_lsu_marocchino
 
   // DBUS FSM
   //  # DBUS FSM states
-  localparam [4:0] IDLE      = 5'b00001, // eq. to DCACHE
-                   DMEM_REQ  = 5'b10000,
-                   READ      = 5'b00010, // eq. to DCACHE
-                   WRITE     = 5'b00100, // eq. to DCACHE
-                   DC_REFILL = 5'b01000; // eq. to DCACHE
+  localparam [4:0] DBUS_IDLE      = 5'b00001, // eq. to DCACHE
+                   DMEM_REQ       = 5'b10000,
+                   DBUS_READ      = 5'b00010, // eq. to DCACHE
+                   DBUS_WRITE     = 5'b00100, // eq. to DCACHE
+                   DBUS_DC_REFILL = 5'b01000; // eq. to DCACHE
   //  # DBUS FSM state indicator
-  reg [4:0] state;
+  reg        [4:0] dbus_state;
   //  # DBUS FSM other registers & wires
   reg                               dbus_we;
   reg                               dbus_atomic;
@@ -303,8 +303,8 @@ module mor1kx_lsu_marocchino
 
   // report on command execution
   //  # load completion / waiting
-  assign lsu_ack_load   = cmd_load_r &   (((state == READ) & dbus_ack_i) | dc_ack);
-  assign lsu_busy_load  = cmd_load_r & ~((((state == READ) & dbus_ack_i) | dc_ack) & grant_wb_to_lsu_i);
+  assign lsu_ack_load   = cmd_load_r &   (((dbus_state == DBUS_READ) & dbus_ack_i) | dc_ack);
+  assign lsu_busy_load  = cmd_load_r & ~((((dbus_state == DBUS_READ) & dbus_ack_i) | dc_ack) & grant_wb_to_lsu_i);
   //  # store completion
   assign lsu_ack_store  = sbuf_write; // it already includes cmd_store_r
   assign lsu_ack_swa    = cmd_swa_r & dbus_swa_ack;
@@ -320,8 +320,9 @@ module mor1kx_lsu_marocchino
 
   // LSU is busy
   //  # DCACHE/DBUS access stage busy
-  assign lsu_busy_mem = lsu_busy_load | (state == DC_REFILL) | lsu_busy_store |  // DCACHE/DBUS access stage busy
-                        cmd_msync_r | snoop_hit |  flush_r;                      // DCACHE/DBUS access stage busy
+  assign lsu_busy_mem = lsu_busy_load | (dbus_state == DBUS_DC_REFILL) |  // DCACHE/DBUS access stage busy
+                        lsu_busy_store |                                  // DCACHE/DBUS access stage busy
+                        cmd_msync_r | snoop_hit |  flush_r;               // DCACHE/DBUS access stage busy
   //  # Result is waiting WB access
   assign lsu_busy_wb = (lsu_ack_load_pending | lsu_ack_store_pending) & ~grant_wb_to_lsu_i;
   //  # BUSY reported to execution [O]rder [MAN]ager, OMAN
@@ -330,11 +331,11 @@ module mor1kx_lsu_marocchino
 
   // Flushing from pipeline-flush-i till DBUS transaction completion
   //  # conditions to assert flush-r
-  wire assert_flush_r = (((state == READ) | (state == WRITE)) & ~dbus_ack_i) | // assert flush-r
-                        (state == DC_REFILL);                                  // assert flush-r
+  wire assert_flush_r = (((dbus_state == DBUS_READ) | (dbus_state == DBUS_WRITE)) & ~dbus_ack_i) | // assert flush-r
+                        (dbus_state == DBUS_DC_REFILL);                                            // assert flush-r
   //  # conditions to de-assert flush-r
-  wire deassert_flush_r = (((state == READ) | (state == WRITE)) & dbus_ack_i) | // de-assert flush-r
-                          (state == IDLE);                                      // de-assert flush-r
+  wire deassert_flush_r = (((dbus_state == DBUS_READ) | (dbus_state == DBUS_WRITE)) & dbus_ack_i) | // de-assert flush-r
+                          (dbus_state == DBUS_IDLE);                                                // de-assert flush-r
   // ---
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
@@ -547,7 +548,7 @@ module mor1kx_lsu_marocchino
   end // @clock
 
   // l.msync cause LSU busy
-  wire cmd_msync_deassert = cmd_msync_r & ((state == IDLE) & sbuf_empty | dbus_err_instant); // deassert busy by l.msync
+  wire cmd_msync_deassert = cmd_msync_r & ((dbus_state == DBUS_IDLE) & sbuf_empty | dbus_err_instant); // deassert busy by l.msync
   // ---
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
@@ -794,7 +795,7 @@ module mor1kx_lsu_marocchino
   // DBUS FSM //
   //----------//
 
-  assign dbus_burst_o = (state == DC_REFILL) & ~dc_refill_last;
+  assign dbus_burst_o = (dbus_state == DBUS_DC_REFILL) & ~dc_refill_last;
 
   // Slightly subtle, but if there is an atomic store coming out from the
   // store buffer, and the link has been broken while it was waiting there,
@@ -807,7 +808,7 @@ module mor1kx_lsu_marocchino
   //     so we don't use them here
   always @(*) begin
     dc_refill_allowed = 1'b0;
-    case (state)
+    case (dbus_state)
       DMEM_REQ: begin
         if (sbuf_odata | cmd_store_r | cmd_swa_r) // re-fill not allowed
           dc_refill_allowed = 1'b0;
@@ -830,7 +831,7 @@ module mor1kx_lsu_marocchino
       dbus_atomic <= 1'b0; // reset
       sbuf_odata  <= 1'b0; // reset
       // DBUS FSM state
-      state       <= IDLE; // reset
+      dbus_state  <= DBUS_IDLE; // reset
     end
     else if (dbus_err_instant) begin // in DBUS FSM: highest priority
       // DBUS controls
@@ -842,12 +843,12 @@ module mor1kx_lsu_marocchino
       dbus_atomic <= 1'b0; // bus error
       sbuf_odata  <= 1'b0; // bus error; MAROCCHINO_TODO: force buffer empty by DBUS error ?
       // DBUS FSM state
-      state       <= IDLE; // bus error
+      dbus_state  <= DBUS_IDLE; // bus error
     end
     else begin
       // process
-      case (state)
-        IDLE: begin
+      case (dbus_state)
+        DBUS_IDLE: begin
           // DBUS controls
           dbus_req_o  <= 1'b0; // idle default
           dbus_we     <= 1'b0; // idle default
@@ -857,12 +858,12 @@ module mor1kx_lsu_marocchino
           dbus_atomic <= 1'b0; // idle default
           sbuf_odata  <= sbuf_odata; // idle default
           // DBUS FSM state
-          state       <= IDLE; // idle default
+          dbus_state  <= DBUS_IDLE; // idle default
           // ---
           if (lsu_excepts_wb | spr_bus_stb_i| pipeline_flush_i) // DBUS FSM keep idling
-            state <= IDLE;
+            dbus_state <= DBUS_IDLE;
           else if (lsu_takes_ls | sbuf_odata) // idle -> dmem req
-            state <= DMEM_REQ;
+            dbus_state <= DMEM_REQ;
         end
 
         DMEM_REQ: begin
@@ -875,10 +876,10 @@ module mor1kx_lsu_marocchino
           dbus_atomic <= 1'b0;        // dmem req default
           sbuf_odata  <= sbuf_odata;  // dmem req default
           // DBUS FSM state
-          state       <= DMEM_REQ;    // dmem req default
+          dbus_state  <= DMEM_REQ;    // dmem req default
           // ---
           if (lsu_excepts_addr | pipeline_flush_i) begin // dmem req
-            state  <= IDLE; // dmem req -> exceptions or pipe flush
+            dbus_state  <= DBUS_IDLE; // dmem req -> exceptions or pipe flush
           end
           else if (sbuf_odata | cmd_store_r | cmd_swa_r) begin
             if (~snoop_hit) begin
@@ -891,7 +892,7 @@ module mor1kx_lsu_marocchino
               dbus_dat_o  <= sbuf_odata ? sbuf_dat       : lsu_sdat;
               dbus_atomic <= sbuf_odata ? 1'b0           : cmd_swa_r; // we execute store conditional around store buffer
               // DBUS FSM state
-              state       <= WRITE;
+              dbus_state  <= DBUS_WRITE;
             end
           end
           else if (dc_refill_req) begin // it automatically means (l.load & dc-access)
@@ -899,26 +900,26 @@ module mor1kx_lsu_marocchino
             dbus_we     <= 1'b0;
             dbus_adr_o  <= phys_addr_cmd;
             dbus_bsel_o <= 4'hf;
-            state       <= DC_REFILL;
+            dbus_state  <= DBUS_DC_REFILL;
           end
           else if (cmd_load_r & ~dc_access) begin
             dbus_req_o  <= 1'b1;
             dbus_we     <= 1'b0;
             dbus_adr_o  <= phys_addr_cmd;
             dbus_bsel_o <= dbus_bsel;
-            state       <= READ;
+            dbus_state  <= DBUS_READ;
           end
           else if (~lsu_takes_ls) begin // no new memory request
-            state <= IDLE;              // no new memory request
+            dbus_state <= DBUS_IDLE;    // no new memory request
           end
         end // idle
 
-        DC_REFILL: begin
+        DBUS_DC_REFILL: begin
           // DBUS controls
-          dbus_req_o  <= 1'b1;        // re-fill default
-          dbus_adr_o  <= dbus_adr_o;  // re-fill default
+          dbus_req_o  <= 1'b1;            // re-fill default
+          dbus_adr_o  <= dbus_adr_o;      // re-fill default
           // DBUS FSM state
-          state       <= DC_REFILL;   // re-fill default
+          dbus_state  <= DBUS_DC_REFILL;  // re-fill default
           // ---
           if (dbus_ack_i) begin
             dbus_adr_o <= next_refill_adr;
@@ -927,7 +928,7 @@ module mor1kx_lsu_marocchino
               dbus_req_o  <= 1'b0;
               dbus_adr_o  <= {LSUOOW{1'b0}};
               // DBUS FSM state
-              state       <= IDLE; // re-fill complete
+              dbus_state  <= DBUS_IDLE; // re-fill complete
             end
           end
           // TODO: only abort on snoop-hits to refill address
@@ -936,17 +937,17 @@ module mor1kx_lsu_marocchino
             dbus_req_o  <= 1'b0;
             dbus_adr_o  <= {LSUOOW{1'b0}};
             // DBUS FSM state
-            state       <= flush_by_ctrl ? IDLE : DMEM_REQ; // snoop-hit on re-fill
+            dbus_state  <= flush_by_ctrl ? DBUS_IDLE : DMEM_REQ; // snoop-hit on re-fill
           end
         end // dc-refill
 
-        READ: begin
+        DBUS_READ: begin
           // DBUS controls
           dbus_req_o  <= 1'b1;        // read default
           dbus_bsel_o <= dbus_bsel_o; // read default
           dbus_adr_o  <= dbus_adr_o;  // read default
           // DBUS FSM state
-          state       <= READ;        // read default
+          dbus_state  <= DBUS_READ;   // read default
           // ---
           if (dbus_ack_i) begin
             // DBUS controls
@@ -954,11 +955,11 @@ module mor1kx_lsu_marocchino
             dbus_bsel_o <= 4'hf;
             dbus_adr_o  <= {LSUOOW{1'b0}};
             // DBUS FSM next state
-            state       <= flush_by_ctrl ? IDLE : DMEM_REQ; // read complete
+            dbus_state  <= flush_by_ctrl ? DBUS_IDLE : DMEM_REQ; // read complete
           end
         end // read
 
-        WRITE: begin
+        DBUS_WRITE: begin
           // DBUS controls
           dbus_req_o  <= 1'b1;        // write default
           dbus_we     <= 1'b1;        // write default
@@ -968,7 +969,7 @@ module mor1kx_lsu_marocchino
           dbus_atomic <= dbus_atomic; // write default
           sbuf_odata  <= 1'b0;        // write default
           // DBUS FSM state
-          state       <= WRITE;       // write default
+          dbus_state  <= DBUS_WRITE;  // write default
           //---
           if (dbus_ack_i) begin
             // DBUS controls
@@ -983,9 +984,9 @@ module mor1kx_lsu_marocchino
               sbuf_odata  <= 1'b1;  // write complete
             // DBUS FSM next state
             if (lsu_excepts_addr | flush_by_ctrl)
-              state <= IDLE;     // write complete, exceptions or flushing
+              dbus_state <= DBUS_IDLE; // write complete, exceptions or flushing
             else
-              state <= DMEM_REQ; // write complete, no exceptions, no flushing
+              dbus_state <= DMEM_REQ;  // write complete, no exceptions, no flushing
           end
         end // write-state
 
@@ -1023,11 +1024,11 @@ module mor1kx_lsu_marocchino
   // MAROCCHINO_TODO: force buffer empty by DBUS error ?
   //
   //               in DMEM-REQ state we take into accaunt appropriate exceptions
-  assign sbuf_re = ((state == DMEM_REQ) & sbuf_rdwr_empty & ~sbuf_odata & ~(lsu_excepts_addr | pipeline_flush_i)) | // SBUFF read, dmem-req
+  assign sbuf_re = ((dbus_state == DMEM_REQ) & sbuf_rdwr_empty & ~sbuf_odata & ~(lsu_excepts_addr | pipeline_flush_i)) | // SBUFF read, dmem-req
   //               in WRITE state if write request overlaps DBUS ACK and empty buffer state
-                   ((state == WRITE) & dbus_ack_i & sbuf_rdwr_empty & ~(lsu_excepts_addr | pipeline_flush_i)) | // SBUFF read, dbus-write
+                   ((dbus_state == DBUS_WRITE) & dbus_ack_i & sbuf_rdwr_empty & ~(lsu_excepts_addr | pipeline_flush_i)) | // SBUFF read, dbus-write
   //               in WRITE state we read non-empty buffer to prepare next write
-                   ((state == WRITE) & dbus_ack_i & ~sbuf_empty); // SBUFF read, dbus-write
+                   ((dbus_state == DBUS_WRITE) & dbus_ack_i & ~sbuf_empty); // SBUFF read, dbus-write
 
 
   // store buffer module
@@ -1149,7 +1150,7 @@ module mor1kx_lsu_marocchino
   //   For MAROCCHINO SPR access means that pipeline is stalled till ACK.
   // So, no padv-*. We only delay SPR access command till DBUS transaction
   // completion.
-  wire spr_bus_lsu_stb = spr_bus_stb_i & (state == IDLE); // SPR access
+  wire spr_bus_lsu_stb = spr_bus_stb_i & (dbus_state == DBUS_IDLE); // SPR access
 
 
 

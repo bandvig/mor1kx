@@ -636,14 +636,12 @@ endgenerate // FPU related: FPCSR and exceptions
 
 
 
-  reg [OPTION_OPERAND_WIDTH-1:0] last_branch_target_pc;
+  reg [OPTION_OPERAND_WIDTH-1:0] last_branch_target;
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
-      last_branch_target_pc <= {OPTION_OPERAND_WIDTH{1'b0}};
-    else if (pipeline_flush_o)
-      last_branch_target_pc <= last_branch_target_pc; // keep state on pipeline flush
+      last_branch_target <= {OPTION_OPERAND_WIDTH{1'b0}};
     else if (padv_decode_o & dcod_do_branch_i)
-      last_branch_target_pc <= dcod_do_branch_target_i;
+      last_branch_target <= dcod_do_branch_target_i;
   end // @ clock
 
   // Generate the NPC for SPR accesses
@@ -655,10 +653,10 @@ endgenerate // FPU related: FPCSR and exceptions
     else if (du_npc_written)
       spr_npc <= spr_npc;
     else if (stepping) begin
-      spr_npc <= stepped_into_rfe        ? spr_epcr              :
-                 stepped_into_delay_slot ? last_branch_target_pc :
-                 stepped_into_exception  ? exception_pc_addr     :
-                 wb_new_result           ? pc_nxt_wb             :
+      spr_npc <= stepped_into_rfe        ? spr_epcr           :
+                 stepped_into_delay_slot ? last_branch_target :
+                 stepped_into_exception  ? exception_pc_addr  :
+                 wb_new_result           ? pc_nxt_wb          :
                                            spr_npc;
     end
     else if (wb_new_result) begin
@@ -868,25 +866,23 @@ endgenerate
 
   // Select spr
   always @(*) begin
-    spr_access <= {SPR_ACCESS_WIDTH{1'b0}};
+    spr_access = {SPR_ACCESS_WIDTH{1'b0}}; // invalid if the group is not present in the design
     case(`SPR_BASE(spr_addr))
       // system registers
-      `OR1K_SPR_SYS_BASE:  spr_access[`OR1K_SPR_SYS_BASE]  <= 1'b1;
+      `OR1K_SPR_SYS_BASE:  spr_access[`OR1K_SPR_SYS_BASE]  = 1'b1;
       // modules registers
-      `OR1K_SPR_DMMU_BASE: spr_access[`OR1K_SPR_DMMU_BASE] <= 1'b1;
-      `OR1K_SPR_IMMU_BASE: spr_access[`OR1K_SPR_IMMU_BASE] <= 1'b1;
-      `OR1K_SPR_DC_BASE:   spr_access[`OR1K_SPR_DC_BASE]   <= 1'b1;
-      `OR1K_SPR_IC_BASE:   spr_access[`OR1K_SPR_IC_BASE]   <= 1'b1;
-      `OR1K_SPR_MAC_BASE:  spr_access[`OR1K_SPR_MAC_BASE]  <= (FEATURE_MAC != "NONE");
-      `OR1K_SPR_DU_BASE:   spr_access[`OR1K_SPR_DU_BASE]   <= (FEATURE_DEBUGUNIT != "NONE");
-      `OR1K_SPR_PC_BASE:   spr_access[`OR1K_SPR_PC_BASE]   <= (FEATURE_PERFCOUNTERS != "NONE");
-      `OR1K_SPR_PM_BASE:   spr_access[`OR1K_SPR_PM_BASE]   <= (FEATURE_PMU != "NONE");
-      `OR1K_SPR_PIC_BASE:  spr_access[`OR1K_SPR_PIC_BASE]  <= (FEATURE_PIC != "NONE");
-      `OR1K_SPR_TT_BASE:   spr_access[`OR1K_SPR_TT_BASE]   <= (FEATURE_TIMER != "NONE");
-      `OR1K_SPR_FPU_BASE:  spr_access[`OR1K_SPR_FPU_BASE]  <= (FEATURE_FPU != "NONE");
-      // generate invalid if the group is not present in the design
-      default:
-        spr_access <= {SPR_ACCESS_WIDTH{1'b0}};
+      `OR1K_SPR_DMMU_BASE: spr_access[`OR1K_SPR_DMMU_BASE] = 1'b1;
+      `OR1K_SPR_IMMU_BASE: spr_access[`OR1K_SPR_IMMU_BASE] = 1'b1;
+      `OR1K_SPR_DC_BASE:   spr_access[`OR1K_SPR_DC_BASE]   = 1'b1;
+      `OR1K_SPR_IC_BASE:   spr_access[`OR1K_SPR_IC_BASE]   = 1'b1;
+      `OR1K_SPR_MAC_BASE:  spr_access[`OR1K_SPR_MAC_BASE]  = (FEATURE_MAC          != "NONE");
+      `OR1K_SPR_DU_BASE:   spr_access[`OR1K_SPR_DU_BASE]   = (FEATURE_DEBUGUNIT    != "NONE");
+      `OR1K_SPR_PC_BASE:   spr_access[`OR1K_SPR_PC_BASE]   = (FEATURE_PERFCOUNTERS != "NONE");
+      `OR1K_SPR_PM_BASE:   spr_access[`OR1K_SPR_PM_BASE]   = (FEATURE_PMU          != "NONE");
+      `OR1K_SPR_PIC_BASE:  spr_access[`OR1K_SPR_PIC_BASE]  = (FEATURE_PIC          != "NONE");
+      `OR1K_SPR_TT_BASE:   spr_access[`OR1K_SPR_TT_BASE]   = (FEATURE_TIMER        != "NONE");
+      `OR1K_SPR_FPU_BASE:  spr_access[`OR1K_SPR_FPU_BASE]  = (FEATURE_FPU          != "NONE");
+      default:;
     endcase
   end // always
 
