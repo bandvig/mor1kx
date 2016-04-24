@@ -244,7 +244,7 @@ module mor1kx_cpu_marocchino
 
 
   wire                            dcod_op_1clk;
-  wire                            exec_op_1clk;
+  wire                            op_1clk_busy;
 
   wire  [`OR1K_ALU_OPC_WIDTH-1:0] dcod_opc_alu;
   wire  [`OR1K_ALU_OPC_WIDTH-1:0] dcod_opc_alu_secondary;
@@ -588,7 +588,7 @@ module mor1kx_cpu_marocchino
     // 1-clock instruction related inputs
     //  # 1-clock instruction
     .dcod_op_1clk_i                   (dcod_op_1clk), // EXE
-    .exec_op_1clk_o                   (exec_op_1clk), // EXE
+    .op_1clk_busy_o                   (op_1clk_busy), // EXE
     //  # opcode for alu
     .dcod_opc_alu_i                   (dcod_opc_alu), // EXE
     .dcod_opc_alu_secondary_i         (dcod_opc_alu_secondary), // EXE
@@ -848,13 +848,13 @@ module mor1kx_cpu_marocchino
     .dcod_op_mfspr_i            (dcod_op_mfspr), // OMAN
 
     // collect busy flags from exwcution module
+    .op_1clk_busy_i             (op_1clk_busy), // OMAN
     .mul_busy_i                 (mul_busy), // OMAN
     .div_busy_i                 (div_busy), // OMAN
     .fp32_arith_busy_i          (fp32_arith_busy), // OMAN
     .lsu_busy_i                 (lsu_busy), // OMAN
 
     // collect valid flags from execution modules
-    .exec_op_1clk_i             (exec_op_1clk), // OMAN
     .div_valid_i                (div_valid), // OMAN
     .mul_valid_i                (mul_valid), // OMAN
     .fp32_arith_valid_i         (fp32_arith_valid), // OMAN

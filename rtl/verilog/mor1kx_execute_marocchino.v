@@ -55,7 +55,7 @@ module mor1kx_execute_marocchino
   // 1-clock instruction related inputs
   //  # 1-clock instruction
   input                                 dcod_op_1clk_i,
-  output reg                            exec_op_1clk_o,
+  output                                op_1clk_busy_o,
   //  # opcode for alu
   input       [`OR1K_ALU_OPC_WIDTH-1:0] dcod_opc_alu_i,
   input       [`OR1K_ALU_OPC_WIDTH-1:0] dcod_opc_alu_secondary_i,
@@ -89,7 +89,7 @@ module mor1kx_execute_marocchino
   input                                 dcod_op_div_i,
   input                                 dcod_op_div_signed_i,
   input                                 dcod_op_div_unsigned_i,
-  output reg                            div_busy_o,
+  output                                div_busy_o,
   output reg                            div_valid_o,
   input                                 grant_wb_to_div_i,
   //  ## FPU-32 arithmetic part
@@ -151,17 +151,22 @@ module mor1kx_execute_marocchino
   reg                           op_setflag_r;
   reg   [`OR1K_FPUOP_WIDTH-1:0] op_fp32_cmp_r;
 
+  // flag that 1-clock instruction is executed
+  reg op_1clk_r;
   // ---
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
-      exec_op_1clk_o <= 1'b0;
+      op_1clk_r <= 1'b0;
     else if (pipeline_flush_i)
-      exec_op_1clk_o <= 1'b0;
+      op_1clk_r <= 1'b0;
     else if (padv_decode_i & dcod_op_1clk_i)
-      exec_op_1clk_o <= 1'b1;
+      op_1clk_r <= 1'b1;
     else if (padv_wb_i & grant_wb_to_1clk_i)
-      exec_op_1clk_o <= 1'b0;
+      op_1clk_r <= 1'b0;
   end // posedge clock
+
+  // busy signal for 1-clock units
+  assign op_1clk_busy_o = op_1clk_r & ~(padv_wb_i & grant_wb_to_1clk_i);
 
   // ---
   always @(posedge clk `OR_ASYNC_RST) begin
@@ -710,8 +715,11 @@ module mor1kx_execute_marocchino
   reg  op_div_unsigned_r;
   //  ## iterations counter
   reg [5:0] div_count;
+  reg       div_proc_r;
   //  ## start division
-  wire take_op_div = op_div_r & (div_valid_o ? (padv_wb_i & grant_wb_to_div_i) : ~div_busy_o);
+  wire take_op_div = op_div_r & (div_valid_o ? (padv_wb_i & grant_wb_to_div_i) : ~div_proc_r);
+  //  ## outbut busy flag
+  assign div_busy_o = op_div_r & ~(div_valid_o ? (padv_wb_i & grant_wb_to_div_i) : ~div_proc_r);
 
   // ---
   always @(posedge clk `OR_ASYNC_RST) begin
@@ -789,28 +797,28 @@ module mor1kx_execute_marocchino
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst) begin
       div_valid_o <= 1'b0;
-      div_busy_o  <= 1'b0;
+      div_proc_r  <= 1'b0;
       div_count   <= 6'd0;
     end
     if (pipeline_flush_i) begin
       div_valid_o <= 1'b0;
-      div_busy_o  <= 1'b0;
+      div_proc_r  <= 1'b0;
       div_count   <= 6'd0;
     end
     else if (take_op_div) begin
       div_valid_o <= 1'b0;
-      div_busy_o  <= 1'b1;
+      div_proc_r  <= 1'b1;
       div_count   <= EXEDW;
     end
     else if (div_valid_o & padv_wb_i & grant_wb_to_div_i) begin
       div_valid_o <= 1'b0;
-      div_busy_o  <= div_busy_o;
+      div_proc_r  <= div_busy_o;
       div_count   <= div_count;
     end
-    else if (div_busy_o) begin
+    else if (div_proc_r) begin
       if (div_count == 6'd1) begin
         div_valid_o <= 1'b1;
-        div_busy_o  <= 1'b0;
+        div_proc_r  <= 1'b0;
       end
       div_count <= div_count - 6'd1;
     end
