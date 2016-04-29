@@ -327,7 +327,7 @@ module mor1kx_oman_marocchino
     (dcod_op_div_i  & div_busy_i) |
     (dcod_op_mul_i  & mul_busy_i) |
     (dcod_op_fp32_arith_i & (fp32_arith_busy_i | (fp32_arith_valid_i & ~ocbo00[OCBT_OP_FP32_POS]))) |
-    ((dcod_op_ls_i | dcod_op_msync_i) & (lsu_busy_i | (lsu_valid_i & ~ocbo00[OCBT_OP_LS_POS])));
+    ((dcod_op_ls_i | dcod_op_msync_i) & lsu_busy_i);
 
   //  stall by operand A hazard
   //    hazard has occured inside OCB

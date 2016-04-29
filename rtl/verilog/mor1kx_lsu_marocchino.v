@@ -304,12 +304,12 @@ module mor1kx_lsu_marocchino
   // report on command execution
   //  # load completion / waiting
   assign lsu_ack_load   = cmd_load_r &   (((dbus_state == DBUS_READ) & dbus_ack_i) | dc_ack);
-  assign lsu_busy_load  = cmd_load_r & ~((((dbus_state == DBUS_READ) & dbus_ack_i) | dc_ack) & grant_wb_to_lsu_i);
+  assign lsu_busy_load  = cmd_load_r & ~((((dbus_state == DBUS_READ) & dbus_ack_i) | dc_ack) & padv_wb_i & grant_wb_to_lsu_i);
   //  # store completion
   assign lsu_ack_store  = sbuf_write; // it already includes cmd_store_r
   assign lsu_ack_swa    = cmd_swa_r & dbus_swa_ack;
-  assign lsu_busy_store = (cmd_store_r & ~(sbuf_write & grant_wb_to_lsu_i)) |   // waiting store completion
-                          (cmd_swa_r   & ~(dbus_swa_ack & grant_wb_to_lsu_i));  // waiting store completion
+  assign lsu_busy_store = (cmd_store_r & ~(sbuf_write & padv_wb_i & grant_wb_to_lsu_i)) |   // waiting store completion
+                          (cmd_swa_r   & ~(dbus_swa_ack & padv_wb_i & grant_wb_to_lsu_i));  // waiting store completion
 
 
   // output assignement (1-clk ahead for WB-latching)
@@ -320,11 +320,11 @@ module mor1kx_lsu_marocchino
 
   // LSU is busy
   //  # DCACHE/DBUS access stage busy
-  assign lsu_busy_mem = lsu_busy_load | (dbus_state == DBUS_DC_REFILL) |  // DCACHE/DBUS access stage busy
-                        lsu_busy_store |                                  // DCACHE/DBUS access stage busy
-                        cmd_msync_r | snoop_hit |  flush_r;               // DCACHE/DBUS access stage busy
+  assign lsu_busy_mem = lsu_busy_load  | (dbus_state == DBUS_DC_REFILL) |  // DCACHE/DBUS access stage busy
+                        lsu_busy_store |                                   // DCACHE/DBUS access stage busy
+                        cmd_msync_r    | snoop_hit | flush_r;              // DCACHE/DBUS access stage busy
   //  # Result is waiting WB access
-  assign lsu_busy_wb = (lsu_ack_load_pending | lsu_ack_store_pending) & ~grant_wb_to_lsu_i;
+  assign lsu_busy_wb = (lsu_ack_load_pending | lsu_ack_store_pending) & ~(padv_wb_i & grant_wb_to_lsu_i);
   //  # BUSY reported to execution [O]rder [MAN]ager, OMAN
   assign lsu_busy_o = ((lsu_load_r | lsu_store_r) & (lsu_busy_mem | lsu_busy_wb)) | lsu_excepts_wb; // overall busy
 
