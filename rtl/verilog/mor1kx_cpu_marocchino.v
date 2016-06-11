@@ -49,16 +49,12 @@ module mor1kx_cpu_marocchino
   parameter OPTION_IMMU_WAYS            = 1,
   parameter OPTION_IMMU_CLEAR_ON_INIT   = 0,
 
-  parameter FEATURE_TIMER        = "ENABLED",
   parameter FEATURE_DEBUGUNIT    = "NONE",
   parameter FEATURE_PERFCOUNTERS = "NONE",
 
-  parameter FEATURE_PIC          = "ENABLED",
   parameter OPTION_PIC_TRIGGER   = "LEVEL",
   parameter OPTION_PIC_NMI_WIDTH = 0,
 
-  parameter FEATURE_FASTCONTEXTS     = "NONE",
-  parameter OPTION_RF_NUM_SHADOW_GPR = 0,
   parameter OPTION_RF_CLEAR_ON_INIT  = 0,
   parameter OPTION_RF_ADDR_WIDTH     = 5,
 
@@ -126,15 +122,6 @@ module mor1kx_cpu_marocchino
   output                            spr_bus_we_o,
   output                            spr_bus_stb_o,
   output [OPTION_OPERAND_WIDTH-1:0] spr_bus_dat_o,
-  input  [OPTION_OPERAND_WIDTH-1:0] spr_bus_dat_mac_i,
-  input                             spr_bus_ack_mac_i,
-  input  [OPTION_OPERAND_WIDTH-1:0] spr_bus_dat_pmu_i,
-  input                             spr_bus_ack_pmu_i,
-  input  [OPTION_OPERAND_WIDTH-1:0] spr_bus_dat_pcu_i,
-  input                             spr_bus_ack_pcu_i,
-  input  [OPTION_OPERAND_WIDTH-1:0] spr_bus_dat_fpu_i,
-  input                             spr_bus_ack_fpu_i,
-  output                     [15:0] spr_sr_o,
 
   input  [OPTION_OPERAND_WIDTH-1:0] multicore_coreid_i,
   input  [OPTION_OPERAND_WIDTH-1:0] multicore_numcores_i,
@@ -212,8 +199,6 @@ module mor1kx_cpu_marocchino
   wire                            dcod_delay_slot;
   wire                            wb_delay_slot;
 
-
-  wire  [`OR1K_FPCSR_RM_SIZE-1:0] ctrl_fpu_round_mode;
 
   // branching
   //  ## detect jump/branch to indicate "delay slot" for next fetched instruction
@@ -331,6 +316,14 @@ module mor1kx_cpu_marocchino
   wire padv_wb;
   wire pipeline_flush;
 
+  // enable modules and other control signals from CTRL
+  wire                            ic_enable;
+  wire                            immu_enable;
+  wire                            dc_enable;
+  wire                            dmmu_enable;
+  wire                            supervisor_mode;
+  wire  [`OR1K_FPCSR_RM_SIZE-1:0] ctrl_fpu_round_mode;
+
 
   // Exceptions: reported from FETCH to OMAN
   wire dcod_except_ibus_err;
@@ -400,13 +393,13 @@ module mor1kx_cpu_marocchino
     .pipeline_flush_i                 (pipeline_flush), // FETCH
 
     // configuration
-    .ic_enable_i                      (spr_sr_o[`OR1K_SPR_SR_ICE]), // FETCH
-    .immu_enable_i                    (spr_sr_o[`OR1K_SPR_SR_IME]), // FETCH
-    .supervisor_mode_i                (spr_sr_o[`OR1K_SPR_SR_SM]), // FETCH
+    .ic_enable_i                      (ic_enable), // FETCH
+    .immu_enable_i                    (immu_enable), // FETCH
+    .supervisor_mode_i                (supervisor_mode), // FETCH
 
     // SPR interface
     //  input
-    .spr_bus_addr_i                   (spr_bus_addr_o[15:0]), // FETCH
+    .spr_bus_addr_i                   (spr_bus_addr_o), // FETCH
     .spr_bus_we_i                     (spr_bus_we_o), // FETCH
     .spr_bus_stb_i                    (spr_bus_stb_o), // FETCH
     .spr_bus_dat_i                    (spr_bus_dat_o), // FETCH
@@ -690,9 +683,9 @@ module mor1kx_cpu_marocchino
     .do_rf_wb_i                       (do_rf_wb), // LSU
     .grant_wb_to_lsu_i                (grant_wb_to_lsu), // LSU
     // configuration
-    .dc_enable_i                      (spr_sr_o[`OR1K_SPR_SR_DCE]), // LSU
-    .dmmu_enable_i                    (spr_sr_o[`OR1K_SPR_SR_DME]), // LSU
-    .supervisor_mode_i                (spr_sr_o[`OR1K_SPR_SR_SM]), // LSU
+    .dc_enable_i                      (dc_enable), // LSU
+    .dmmu_enable_i                    (dmmu_enable), // LSU
+    .supervisor_mode_i                (supervisor_mode), // LSU
     // Input from DECODE (not latched)
     .dcod_delay_slot_i                (dcod_delay_slot), // LSU (for store buffer EPCR computation)
     .pc_decode_i                      (pc_decode), // LSU (for store buffer EPCR computation)
@@ -710,7 +703,7 @@ module mor1kx_cpu_marocchino
     .exe2dec_hazard_b_i               (exe2dec_hazard_b), // LSU
     .wb_result_i                      (wb_result), // LSU
     // inter-module interface
-    .spr_bus_addr_i                   (spr_bus_addr_o[15:0]), // LSU
+    .spr_bus_addr_i                   (spr_bus_addr_o), // LSU
     .spr_bus_we_i                     (spr_bus_we_o), // LSU
     .spr_bus_stb_i                    (spr_bus_stb_o), // LSU
     .spr_bus_dat_i                    (spr_bus_dat_o), // LSU
@@ -752,8 +745,6 @@ module mor1kx_cpu_marocchino
 
   mor1kx_rf_marocchino
   #(
-    .FEATURE_FASTCONTEXTS     (FEATURE_FASTCONTEXTS),
-    .OPTION_RF_NUM_SHADOW_GPR (OPTION_RF_NUM_SHADOW_GPR),
     .OPTION_OPERAND_WIDTH     (OPTION_OPERAND_WIDTH),
     .OPTION_RF_CLEAR_ON_INIT  (OPTION_RF_CLEAR_ON_INIT),
     .OPTION_RF_ADDR_WIDTH     (OPTION_RF_ADDR_WIDTH),
@@ -767,7 +758,7 @@ module mor1kx_cpu_marocchino
     // pipeline control signals
     .pipeline_flush_i                 (pipeline_flush), // RF
     // SPR bus
-    .spr_bus_addr_i                   (spr_bus_addr_o[15:0]), // RF
+    .spr_bus_addr_i                   (spr_bus_addr_o), // RF
     .spr_bus_stb_i                    (spr_bus_stb_o), // RF
     .spr_bus_we_i                     (spr_bus_we_o), // RF
     .spr_bus_dat_i                    (spr_bus_dat_o), // RF
@@ -916,32 +907,88 @@ module mor1kx_cpu_marocchino
 // synthesis translate_on
 `endif
 
+  //-------//
+  // TIMER //
+  //-------//
+  //  # connection wires
+  wire        tt_rdy;
+  wire [31:0] spr_bus_dat_tt;
+  wire        spr_bus_ack_tt;
+  //  # timer instance
+  mor1kx_ticktimer_oneself u_ticktimer
+  (
+    // clock and reset
+    .clk                (clk), // TIMER
+    .rst                (rst), // TIMER
+    // ready flag
+    .tt_rdy_o           (tt_rdy), // TIMER
+    // SPR interface
+    .spr_bus_addr_i     (spr_bus_addr_o), // TIMER
+    .spr_bus_we_i       (spr_bus_we_o), // TIMER
+    .spr_bus_stb_i      (spr_bus_stb_o), // TIMER
+    .spr_bus_dat_i      (spr_bus_dat_o), // TIMER
+    .spr_bus_dat_tt_o   (spr_bus_dat_tt), // TIMER
+    .spr_bus_ack_tt_o   (spr_bus_ack_tt) // TIMER
+  );
 
+
+  //-----//
+  // PIC //
+  //-----//
+  //  # connection wires
+  wire [31:0] spr_picsr;
+  wire [31:0] spr_bus_dat_pic;
+  wire        spr_bus_ack_pic;
+  //  # timer instance
+  mor1kx_pic_oneself
+  #(
+    .OPTION_PIC_TRIGGER   (OPTION_PIC_TRIGGER), // PIC
+    .OPTION_PIC_NMI_WIDTH (OPTION_PIC_NMI_WIDTH) // PIC
+  )
+  u_pic
+  (
+    // clock and reset
+    .clk                (clk), // PIC
+    .rst                (rst), // PIC
+    // input interrupt lines
+    .irq_i              (irq_i), // PIC
+    // output interrupt lines
+    .spr_picsr_o        (spr_picsr), // PIC
+    // SPR BUS
+    //  # inputs
+    .spr_bus_addr_i     (spr_bus_addr_o), // PIC
+    .spr_bus_we_i       (spr_bus_we_o), // PIC
+    .spr_bus_stb_i      (spr_bus_stb_o), // PIC
+    .spr_bus_dat_i      (spr_bus_dat_o), // PIC
+    //  # outputs
+    .spr_bus_dat_pic_o  (spr_bus_dat_pic), // PIC
+    .spr_bus_ack_pic_o  (spr_bus_ack_pic) // PIC
+  );
+
+
+  //------//
+  // CTRL //
+  //------//
   mor1kx_ctrl_marocchino
   #(
-    .OPTION_OPERAND_WIDTH       (OPTION_OPERAND_WIDTH),
-    .OPTION_RESET_PC            (OPTION_RESET_PC),
-    .FEATURE_PIC                (FEATURE_PIC),
-    .FEATURE_TIMER              (FEATURE_TIMER),
-    .OPTION_PIC_TRIGGER         (OPTION_PIC_TRIGGER),
-    .OPTION_PIC_NMI_WIDTH       (OPTION_PIC_NMI_WIDTH),
-    .OPTION_DCACHE_BLOCK_WIDTH  (OPTION_DCACHE_BLOCK_WIDTH),
-    .OPTION_DCACHE_SET_WIDTH    (OPTION_DCACHE_SET_WIDTH),
-    .OPTION_DCACHE_WAYS         (OPTION_DCACHE_WAYS),
-    .OPTION_DMMU_SET_WIDTH      (OPTION_DMMU_SET_WIDTH),
-    .OPTION_DMMU_WAYS           (OPTION_DMMU_WAYS),
-    .OPTION_ICACHE_BLOCK_WIDTH  (OPTION_ICACHE_BLOCK_WIDTH),
-    .OPTION_ICACHE_SET_WIDTH    (OPTION_ICACHE_SET_WIDTH),
-    .OPTION_ICACHE_WAYS         (OPTION_ICACHE_WAYS),
-    .OPTION_IMMU_SET_WIDTH      (OPTION_IMMU_SET_WIDTH),
-    .OPTION_IMMU_WAYS           (OPTION_IMMU_WAYS),
-    .FEATURE_DEBUGUNIT          (FEATURE_DEBUGUNIT),
-    .FEATURE_PERFCOUNTERS       (FEATURE_PERFCOUNTERS),
-    .FEATURE_MAC                ("NONE"),
-    .FEATURE_FPU                (FEATURE_FPU), // pipeline MAROCCHINO: ctrl instance
-    .FEATURE_MULTICORE          (FEATURE_MULTICORE),
-    .FEATURE_FASTCONTEXTS       (FEATURE_FASTCONTEXTS),
-    .OPTION_RF_NUM_SHADOW_GPR   (OPTION_RF_NUM_SHADOW_GPR)
+    .OPTION_OPERAND_WIDTH       (OPTION_OPERAND_WIDTH), // CTRL
+    .OPTION_RESET_PC            (OPTION_RESET_PC), // CTRL
+    .OPTION_PIC_TRIGGER         (OPTION_PIC_TRIGGER), // CTRL
+    .OPTION_DCACHE_BLOCK_WIDTH  (OPTION_DCACHE_BLOCK_WIDTH), // CTRL
+    .OPTION_DCACHE_SET_WIDTH    (OPTION_DCACHE_SET_WIDTH), // CTRL
+    .OPTION_DCACHE_WAYS         (OPTION_DCACHE_WAYS), // CTRL
+    .OPTION_DMMU_SET_WIDTH      (OPTION_DMMU_SET_WIDTH), // CTRL
+    .OPTION_DMMU_WAYS           (OPTION_DMMU_WAYS), // CTRL
+    .OPTION_ICACHE_BLOCK_WIDTH  (OPTION_ICACHE_BLOCK_WIDTH), // CTRL
+    .OPTION_ICACHE_SET_WIDTH    (OPTION_ICACHE_SET_WIDTH), // CTRL
+    .OPTION_ICACHE_WAYS         (OPTION_ICACHE_WAYS), // CTRL
+    .OPTION_IMMU_SET_WIDTH      (OPTION_IMMU_SET_WIDTH), // CTRL
+    .OPTION_IMMU_WAYS           (OPTION_IMMU_WAYS), // CTRL
+    .FEATURE_DEBUGUNIT          (FEATURE_DEBUGUNIT), // CTRL
+    .FEATURE_PERFCOUNTERS       (FEATURE_PERFCOUNTERS), // CTRL
+    .FEATURE_MAC                ("NONE"), // CTRL
+    .FEATURE_FPU                (FEATURE_FPU), // CTRL
+    .FEATURE_MULTICORE          (FEATURE_MULTICORE) // CTRL
   )
   u_ctrl
   (
@@ -989,15 +1036,17 @@ module mor1kx_cpu_marocchino
     .du_restart_pc_o                  (du_restart_pc), // CTRL
     .du_restart_o                     (du_restart), // CTRL
 
-    // External IRQ lines in
-    .irq_i                            (irq_i[31:0]), // CTRL
+    // IRQ lines from PIC
+    .spr_picsr_i                      (spr_picsr), // CTRL
+
+    // Input from tick-timer
+    .tt_rdy_i                         (tt_rdy), // CTRL
 
     // SPR accesses to external units (cache, mmu, etc.)
-    .spr_bus_addr_o                   (spr_bus_addr_o[15:0]), // CTRL
+    .spr_bus_addr_o                   (spr_bus_addr_o), // CTRL
     .spr_bus_we_o                     (spr_bus_we_o), // CTRL
     .spr_bus_stb_o                    (spr_bus_stb_o), // CTRL
     .spr_bus_dat_o                    (spr_bus_dat_o), // CTRL
-    .spr_sr_o                         (spr_sr_o[15:0]), // CTRL
     .spr_bus_dat_dc_i                 (spr_bus_dat_dc), // CTRL
     .spr_bus_ack_dc_i                 (spr_bus_ack_dc), // CTRL
     .spr_bus_dat_ic_i                 (spr_bus_dat_ic), // CTRL
@@ -1006,14 +1055,18 @@ module mor1kx_cpu_marocchino
     .spr_bus_ack_dmmu_i               (spr_bus_ack_dmmu), // CTRL
     .spr_bus_dat_immu_i               (spr_bus_dat_immu), // CTRL
     .spr_bus_ack_immu_i               (spr_bus_ack_immu), // CTRL
-    .spr_bus_dat_mac_i                (spr_bus_dat_mac_i), // CTRL
-    .spr_bus_ack_mac_i                (spr_bus_ack_mac_i), // CTRL
-    .spr_bus_dat_pmu_i                (spr_bus_dat_pmu_i), // CTRL
-    .spr_bus_ack_pmu_i                (spr_bus_ack_pmu_i), // CTRL
-    .spr_bus_dat_pcu_i                (spr_bus_dat_pcu_i), // CTRL
-    .spr_bus_ack_pcu_i                (spr_bus_ack_pcu_i), // CTRL
-    .spr_bus_dat_fpu_i                (spr_bus_dat_fpu_i), // CTRL
-    .spr_bus_ack_fpu_i                (spr_bus_ack_fpu_i), // CTRL
+    .spr_bus_dat_mac_i                ({OPTION_OPERAND_WIDTH{1'b0}}), // CTRL
+    .spr_bus_ack_mac_i                (1'b0), // CTRL
+    .spr_bus_dat_pmu_i                ({OPTION_OPERAND_WIDTH{1'b0}}), // CTRL
+    .spr_bus_ack_pmu_i                (1'b0), // CTRL
+    .spr_bus_dat_pcu_i                ({OPTION_OPERAND_WIDTH{1'b0}}), // CTRL
+    .spr_bus_ack_pcu_i                (1'b0), // CTRL
+    .spr_bus_dat_fpu_i                ({OPTION_OPERAND_WIDTH{1'b0}}), // CTRL
+    .spr_bus_ack_fpu_i                (1'b0), // CTRL
+    .spr_bus_dat_tt_i                 (spr_bus_dat_tt), // CTRL
+    .spr_bus_ack_tt_i                 (spr_bus_ack_tt), // CTRL
+    .spr_bus_dat_pic_i                (spr_bus_dat_pic), // CTRL
+    .spr_bus_ack_pic_i                (spr_bus_ack_pic), // CTRL
     .spr_gpr_dat_i                    (spr_gpr_dat), // CTRL
     .spr_gpr_ack_i                    (spr_gpr_ack), // CTRL
 
@@ -1067,6 +1120,13 @@ module mor1kx_cpu_marocchino
     // Flag & Carry
     .ctrl_flag_o                      (ctrl_flag), // CTRL
     .ctrl_carry_o                     (ctrl_carry), // CTRL
+
+    // Enable modules
+    .ic_enable_o                      (ic_enable), // CTRL
+    .immu_enable_o                    (immu_enable), // CTRL
+    .dc_enable_o                      (dc_enable), // CTRL
+    .dmmu_enable_o                    (dmmu_enable), // CTRL
+    .supervisor_mode_o                (supervisor_mode), // CTRL
 
     // FPU rounding mode
     .ctrl_fpu_round_mode_o            (ctrl_fpu_round_mode) // CTRL

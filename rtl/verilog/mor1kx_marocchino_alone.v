@@ -63,17 +63,15 @@ module mor1kx_marocchino_alone
   parameter OPTION_IMMU_WAYS           =  1,
   parameter OPTION_IMMU_CLEAR_ON_INIT  =  0, // !!! activate for simulation only !!!
 
-  parameter FEATURE_TIMER              = "ENABLED",
+  // Timer
   parameter FEATURE_DEBUGUNIT          = "NONE",
   parameter FEATURE_PERFCOUNTERS       = "NONE",
 
-  parameter FEATURE_PIC                = "ENABLED",
+  // PIC
   parameter OPTION_PIC_TRIGGER         = "LEVEL",
   parameter OPTION_PIC_NMI_WIDTH       =  0,
 
-  parameter FEATURE_FASTCONTEXTS       = "NONE",
   parameter OPTION_RF_CLEAR_ON_INIT    =  0, // !!! activate for simulation only !!!
-  parameter OPTION_RF_NUM_SHADOW_GPR   =  0,
   parameter OPTION_RF_ADDR_WIDTH       =  5,
   parameter OPTION_RF_WORDS            = 32,
 
@@ -179,7 +177,6 @@ module mor1kx_marocchino_alone
   wire [OPTION_OPERAND_WIDTH-1:0] spr_bus_dat_o;
   wire                            spr_bus_stb_o;
   wire                            spr_bus_we_o;
-  wire [15:0]                     spr_sr_o;
 
 
   // BUS-Bridge for CPU instruction port
@@ -287,19 +284,15 @@ module mor1kx_marocchino_alone
     .OPTION_IMMU_WAYS                 (OPTION_IMMU_WAYS),
     .OPTION_IMMU_CLEAR_ON_INIT        (OPTION_IMMU_CLEAR_ON_INIT),
     // interrupt cintroller
-    .FEATURE_PIC                      (FEATURE_PIC),
     .OPTION_PIC_TRIGGER               (OPTION_PIC_TRIGGER),
     .OPTION_PIC_NMI_WIDTH             (OPTION_PIC_NMI_WIDTH),
     // timer
-    .FEATURE_TIMER                    (FEATURE_TIMER),
     .FEATURE_DEBUGUNIT                ("NONE"), // MAROCCHINO_TODO: not implemented FEATURE_DEBUGUNIT
     .FEATURE_PERFCOUNTERS             (FEATURE_PERFCOUNTERS),
     .FEATURE_MULTICORE                (FEATURE_MULTICORE),
     .FEATURE_TRACEPORT_EXEC           (FEATURE_TRACEPORT_EXEC),
-    .FEATURE_FASTCONTEXTS             (FEATURE_FASTCONTEXTS),
     // Redister File
     .OPTION_RF_CLEAR_ON_INIT          (OPTION_RF_CLEAR_ON_INIT),
-    .OPTION_RF_NUM_SHADOW_GPR         (OPTION_RF_NUM_SHADOW_GPR),
     .OPTION_RF_ADDR_WIDTH             (OPTION_RF_ADDR_WIDTH),
     //.OPTION_RF_WORDS(OPTION_RF_WORDS), // MAROCCHINO_TODO
     .OPTION_RESET_PC                  (OPTION_RESET_PC),
@@ -336,7 +329,6 @@ module mor1kx_marocchino_alone
     .spr_bus_we_o    (spr_bus_we_o),
     .spr_bus_stb_o   (spr_bus_stb_o),
     .spr_bus_dat_o   (spr_bus_dat_o[OPTION_OPERAND_WIDTH-1:0]),
-    .spr_sr_o        (spr_sr_o[15:0]),
     // Inputs
     .ibus_err_i     (ibus_err_i),
     .ibus_ack_i     (ibus_ack_i),
@@ -350,14 +342,6 @@ module mor1kx_marocchino_alone
     .du_dat_i    (du_dat_i[OPTION_OPERAND_WIDTH-1:0]),
     .du_we_i     (du_we_i),
     .du_stall_i  (du_stall_i),
-    .spr_bus_dat_mac_i    ({OPTION_OPERAND_WIDTH{1'b0}}),
-    .spr_bus_ack_mac_i    (1'b0),
-    .spr_bus_dat_pmu_i    ({OPTION_OPERAND_WIDTH{1'b0}}),
-    .spr_bus_ack_pmu_i    (1'b0),
-    .spr_bus_dat_pcu_i    ({OPTION_OPERAND_WIDTH{1'b0}}),
-    .spr_bus_ack_pcu_i    (1'b0),
-    .spr_bus_dat_fpu_i    ({OPTION_OPERAND_WIDTH{1'b0}}),
-    .spr_bus_ack_fpu_i    (1'b0),
     .multicore_coreid_i    (multicore_coreid_i[OPTION_OPERAND_WIDTH-1:0]),
     .multicore_numcores_i  (multicore_numcores_i[OPTION_OPERAND_WIDTH-1:0]),
     .snoop_adr_i  (snoop_adr_i[31:0]),

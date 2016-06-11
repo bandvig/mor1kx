@@ -29,8 +29,6 @@
 
 module mor1kx_rf_marocchino
 #(
-  parameter FEATURE_FASTCONTEXTS     = "NONE",
-  parameter OPTION_RF_NUM_SHADOW_GPR = 0,
   parameter OPTION_RF_CLEAR_ON_INIT  = 0,
   parameter OPTION_RF_ADDR_WIDTH     = 5,
   parameter FEATURE_DEBUGUNIT        = "NONE",
@@ -74,12 +72,6 @@ module mor1kx_rf_marocchino
   output [OPTION_OPERAND_WIDTH-1:0] dcod_rfb_o
 );
 
-`include "mor1kx_utils.vh"
-
-  localparam RF_ADDR_WIDTH = OPTION_RF_ADDR_WIDTH +
-                            ((OPTION_RF_NUM_SHADOW_GPR == 1) ? 1 :
-                             `clog2(OPTION_RF_NUM_SHADOW_GPR));
-
   //-----------//
   // FETCH->RF //
   //-----------//
@@ -88,15 +80,7 @@ module mor1kx_rf_marocchino
   wire [OPTION_OPERAND_WIDTH-1:0] rfa_dout;
   wire [OPTION_OPERAND_WIDTH-1:0] rfb_dout;
 
-  // RF addresses align
-  wire [RF_ADDR_WIDTH-1:0] fetch_rfa_adr_rf;
-  wire [RF_ADDR_WIDTH-1:0] fetch_rfb_adr_rf;
-  wire [RF_ADDR_WIDTH-1:0] dcod_rfa_adr_rf;
-  wire [RF_ADDR_WIDTH-1:0] dcod_rfb_adr_rf;
-  wire [RF_ADDR_WIDTH-1:0] wb_rfd_adr_rf;
-
   // SPR/GPR access from bus signals
-  wire [RF_ADDR_WIDTH-1:0] spr_bus_addr_rf = spr_bus_addr_i[RF_ADDR_WIDTH-1:0];
   wire spr_gpr_we, spr_gpr_re;
 
   // 1-clock strobe for GPR write
@@ -105,73 +89,24 @@ module mor1kx_rf_marocchino
   //    will be restarted by l.rfe
   wire wb_rf_we = wb_rf_wb_i & ~pipeline_flush_i;
 
-generate
-// Zero-pad unused parts of vector
-if (OPTION_RF_NUM_SHADOW_GPR > 0) begin : zero_pad_gen
-  assign fetch_rfa_adr_rf = {{(RF_ADDR_WIDTH-OPTION_RF_ADDR_WIDTH){1'b0}},fetch_rfa_adr_i};
-  assign fetch_rfb_adr_rf = {{(RF_ADDR_WIDTH-OPTION_RF_ADDR_WIDTH){1'b0}},fetch_rfb_adr_i};
-  assign dcod_rfa_adr_rf  = {{(RF_ADDR_WIDTH-OPTION_RF_ADDR_WIDTH){1'b0}},dcod_rfa_adr_i};
-  assign dcod_rfb_adr_rf  = {{(RF_ADDR_WIDTH-OPTION_RF_ADDR_WIDTH){1'b0}},dcod_rfb_adr_i};
-  assign wb_rfd_adr_rf    = {{(RF_ADDR_WIDTH-OPTION_RF_ADDR_WIDTH){1'b0}},wb_rfd_adr_i};
-end
-else begin
-  assign fetch_rfa_adr_rf = fetch_rfa_adr_i;
-  assign fetch_rfb_adr_rf = fetch_rfb_adr_i;
-  assign dcod_rfa_adr_rf  = dcod_rfa_adr_i;
-  assign dcod_rfb_adr_rf  = dcod_rfb_adr_i;
-  assign wb_rfd_adr_rf    = wb_rfd_adr_i;
-end
-
-// SPR/GPR access from bus
-if ((FEATURE_DEBUGUNIT!="NONE") | (FEATURE_FASTCONTEXTS!="NONE") |
-    (OPTION_RF_NUM_SHADOW_GPR > 0)) begin : spr_gpr_controls_gen
-
-  //  we don't expect R/W-collisions for SPRbus vs WB cycles since 
-  //    SPRbus access start 1-clock later than WB
-  //    thanks to MT(F)SPR processing logic (see OMAN)
-  assign spr_gpr_we = (spr_bus_addr_i[15:9] == 7'h2) &
-                      spr_bus_stb_i & spr_bus_we_i;
-
-  assign spr_gpr_re = (spr_bus_addr_i[15:9] == 7'h2) &
-                      spr_bus_stb_i & (~spr_bus_we_i);
-
-  reg spr_gpr_read_ack;
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      spr_gpr_read_ack <= 1'b0;
-    else
-      spr_gpr_read_ack <= spr_gpr_re;
-  end
-
-  assign spr_gpr_ack_o = spr_gpr_we | (spr_gpr_re & spr_gpr_read_ack);
-
-end
-else begin
-
-  assign spr_gpr_we    = 1'b0;
-  assign spr_gpr_re    = 1'b0;
-  assign spr_gpr_ack_o = 1'b1;
-
-end
-endgenerate
 
   // operand A read/write request attributes
   //  # read request attributes
-  wire                     opa_read_req  = fetch_rf_adr_valid_i;
-  wire [RF_ADDR_WIDTH-1:0] opa_read_addr = fetch_rfa_adr_rf;
+  wire                            opa_read_req  = fetch_rf_adr_valid_i;
+  wire [OPTION_RF_ADDR_WIDTH-1:0] opa_read_addr = fetch_rfa_adr_i;
   //  # read request attributes
   wire                            opa_write_req  = wb_rf_we | spr_gpr_we;
-  wire        [RF_ADDR_WIDTH-1:0] opa_write_addr = wb_rf_we ? wb_rfd_adr_rf : spr_bus_addr_rf;
-  wire [OPTION_OPERAND_WIDTH-1:0] opa_write_data = wb_rf_we ? wb_result_i   : spr_bus_dat_i;
+  wire [OPTION_RF_ADDR_WIDTH-1:0] opa_write_addr = wb_rf_we ? wb_rfd_adr_i : spr_bus_addr_i;
+  wire [OPTION_OPERAND_WIDTH-1:0] opa_write_data = wb_rf_we ? wb_result_i  : spr_bus_dat_i;
 
   // operand A read/write conflict
   wire opa_rw_hazard = (opa_write_req &  opa_read_req & (opa_write_addr == opa_read_addr)) |
-                       (wb_rf_we      & ~opa_read_req & (wb_rfd_adr_rf == dcod_rfa_adr_rf));
+                       (wb_rf_we      & ~opa_read_req & (wb_rfd_adr_i == dcod_rfa_adr_i));
 
   // operand A form control signals for Read/Write port rwp_*
-  wire                     opa_rwp_en    = opa_read_req | opa_rw_hazard;
-  wire                     opa_rwp_write = opa_rw_hazard;
-  wire [RF_ADDR_WIDTH-1:0] opa_rwp_addr  = opa_rw_hazard ? opa_write_addr : opa_read_addr;
+  wire                            opa_rwp_en    = opa_read_req | opa_rw_hazard;
+  wire                            opa_rwp_write = opa_rw_hazard;
+  wire [OPTION_RF_ADDR_WIDTH-1:0] opa_rwp_addr  = opa_rw_hazard ? opa_write_addr : opa_read_addr;
 
   // operand A form control signals for Write port wp_*
   wire opa_wp_en    = opa_write_req & ~opa_rw_hazard;
@@ -180,7 +115,7 @@ endgenerate
   // instance RF-A
   mor1kx_dpram_en_w1st_sclk
   #(
-    .ADDR_WIDTH     (RF_ADDR_WIDTH),
+    .ADDR_WIDTH     (OPTION_RF_ADDR_WIDTH),
     .DATA_WIDTH     (OPTION_OPERAND_WIDTH),
     .CLEAR_ON_INIT  (OPTION_RF_CLEAR_ON_INIT)
   )
@@ -205,21 +140,21 @@ endgenerate
 
   // operand B read/write request attributes
   //  # read request attributes
-  wire                     opb_read_req  = fetch_rf_adr_valid_i;
-  wire [RF_ADDR_WIDTH-1:0] opb_read_addr = fetch_rfb_adr_rf;
+  wire                            opb_read_req  = fetch_rf_adr_valid_i;
+  wire [OPTION_RF_ADDR_WIDTH-1:0] opb_read_addr = fetch_rfb_adr_i;
   //  # read request attributes
   wire                            opb_write_req  = wb_rf_we | spr_gpr_we;
-  wire        [RF_ADDR_WIDTH-1:0] opb_write_addr = wb_rf_we ? wb_rfd_adr_rf : spr_bus_addr_rf;
-  wire [OPTION_OPERAND_WIDTH-1:0] opb_write_data = wb_rf_we ? wb_result_i   : spr_bus_dat_i;
+  wire [OPTION_RF_ADDR_WIDTH-1:0] opb_write_addr = wb_rf_we ? wb_rfd_adr_i : spr_bus_addr_i;
+  wire [OPTION_OPERAND_WIDTH-1:0] opb_write_data = wb_rf_we ? wb_result_i  : spr_bus_dat_i;
 
   // operand B read/write conflict
   wire opb_rw_hazard = (opb_write_req &  opb_read_req & (opb_read_addr == opb_write_addr)) |
-                       (wb_rf_we      & ~opb_read_req & (wb_rfd_adr_rf == dcod_rfb_adr_rf));
+                       (wb_rf_we      & ~opb_read_req & (wb_rfd_adr_i == dcod_rfb_adr_i));
 
-  // operand A form control signals for Read/Write port rwp_*
-  wire                     opb_rwp_en    = opb_read_req | opb_rw_hazard;
-  wire                     opb_rwp_write = opb_rw_hazard;
-  wire [RF_ADDR_WIDTH-1:0] opb_rwp_addr  = opb_rw_hazard ? opb_write_addr : opb_read_addr;
+  // operand B form control signals for Read/Write port rwp_*
+  wire                            opb_rwp_en    = opb_read_req | opb_rw_hazard;
+  wire                            opb_rwp_write = opb_rw_hazard;
+  wire [OPTION_RF_ADDR_WIDTH-1:0] opb_rwp_addr  = opb_rw_hazard ? opb_write_addr : opb_read_addr;
 
   // operand B form control signals for Write port wp_*
   wire opb_wp_en    = opb_write_req & ~opb_rw_hazard;
@@ -228,7 +163,7 @@ endgenerate
   // instance RF-B
   mor1kx_dpram_en_w1st_sclk
   #(
-    .ADDR_WIDTH     (RF_ADDR_WIDTH),
+    .ADDR_WIDTH     (OPTION_RF_ADDR_WIDTH),
     .DATA_WIDTH     (OPTION_OPERAND_WIDTH),
     .CLEAR_ON_INIT  (OPTION_RF_CLEAR_ON_INIT)
   )
@@ -252,16 +187,34 @@ endgenerate
 
 
 generate
-if ((FEATURE_DEBUGUNIT!="NONE") | (FEATURE_FASTCONTEXTS!="NONE") |
-    (OPTION_RF_NUM_SHADOW_GPR > 0)) begin : rfspr_gen
+if (FEATURE_DEBUGUNIT != "NONE") begin : rfspr_gen
+
+  //  we don't expect R/W-collisions for SPRbus vs WB cycles since 
+  //    SPRbus access start 1-clock later than WB
+  //    thanks to MT(F)SPR processing logic (see OMAN)
+  assign spr_gpr_we = (spr_bus_addr_i[15:9] == 7'h2) &
+                      spr_bus_stb_i & spr_bus_we_i;
+
+  assign spr_gpr_re = (spr_bus_addr_i[15:9] == 7'h2) &
+                      spr_bus_stb_i & (~spr_bus_we_i);
+
+  reg spr_gpr_read_ack;
+  always @(posedge clk `OR_ASYNC_RST) begin
+    if (rst)
+      spr_gpr_read_ack <= 1'b0;
+    else
+      spr_gpr_read_ack <= spr_gpr_re;
+  end
+
+  assign spr_gpr_ack_o = spr_gpr_we | (spr_gpr_re & spr_gpr_read_ack);
 
   wire                            rfspr_wren  = wb_rf_we | spr_gpr_we;
-  wire        [RF_ADDR_WIDTH-1:0] rfspr_addr  = wb_rf_we ? wb_rfd_adr_rf : spr_bus_addr_rf;
-  wire [OPTION_OPERAND_WIDTH-1:0] rfspr_wrdat = wb_rf_we ? wb_result_i   : spr_bus_dat_i;
+  wire [OPTION_RF_ADDR_WIDTH-1:0] rfspr_addr  = wb_rf_we ? wb_rfd_adr_i : spr_bus_addr_i;
+  wire [OPTION_OPERAND_WIDTH-1:0] rfspr_wrdat = wb_rf_we ? wb_result_i  : spr_bus_dat_i;
 
   mor1kx_spram_en_w1st
   #(
-     .ADDR_WIDTH    (RF_ADDR_WIDTH),
+     .ADDR_WIDTH    (OPTION_RF_ADDR_WIDTH),
      .DATA_WIDTH    (OPTION_OPERAND_WIDTH),
      .CLEAR_ON_INIT (OPTION_RF_CLEAR_ON_INIT)
   )
@@ -272,7 +225,7 @@ if ((FEATURE_DEBUGUNIT!="NONE") | (FEATURE_FASTCONTEXTS!="NONE") |
     // port
     .en   (rfspr_wren | spr_gpr_re), // enable port
     .we   (rfspr_wren),
-    .addr (rfspr_addr), // == spr_bus_addr_rf for read
+    .addr (rfspr_addr), // == spr_bus_addr_i for read
     .din  (rfspr_wrdat),
     .dout (spr_gpr_dat_o)
   );
@@ -280,6 +233,9 @@ if ((FEATURE_DEBUGUNIT!="NONE") | (FEATURE_FASTCONTEXTS!="NONE") |
 end
 else begin
 
+  assign spr_gpr_we    = 1'b0;
+  assign spr_gpr_re    = 1'b0;
+  assign spr_gpr_ack_o = 1'b0;
   assign spr_gpr_dat_o = {OPTION_OPERAND_WIDTH{1'b0}};
 
 end
