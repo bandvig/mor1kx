@@ -116,10 +116,10 @@ module mor1kx_ctrl_marocchino
   input                                 tt_rdy_i,
 
   // SPR accesses to external units (cache, mmu, etc.)
-  output                         [15:0] spr_bus_addr_o,
-  output                                spr_bus_we_o,
-  output                                spr_bus_stb_o,
-  output     [OPTION_OPERAND_WIDTH-1:0] spr_bus_dat_o,
+  output reg                     [15:0] spr_bus_addr_o,
+  output reg                            spr_bus_we_o,
+  output reg                            spr_bus_stb_o,
+  output reg [OPTION_OPERAND_WIDTH-1:0] spr_bus_dat_o,
   input      [OPTION_OPERAND_WIDTH-1:0] spr_bus_dat_dc_i,
   input                                 spr_bus_ack_dc_i,
   input      [OPTION_OPERAND_WIDTH-1:0] spr_bus_dat_ic_i,
@@ -229,8 +229,6 @@ module mor1kx_ctrl_marocchino
 
   reg                               doing_rfe_r;
 
-  wire [15:0]                       spr_addr;
-
   /* Debug SPRs */
   reg [31:0]                        spr_dmr1;
   reg [31:0]                        spr_dmr2;
@@ -250,21 +248,18 @@ module mor1kx_ctrl_marocchino
   reg                               du_npc_written;
   wire                              du_stall_on_trap;
 
-  /* Wires for SPR management */
+  /* For SPR BUS transactions */
   localparam                        SPR_ACCESS_WIDTH = 12;
-  wire                              cmd_op_mXspr; // process l.mf(t)spr
-  wire                              spr_access_valid;
-  reg                               spr_we_en; // 1-clock write ensable strobe for local regs
-  wire                              spr_we;
-  wire                              spr_ack;
-  wire                              mXspr_ack; // MF(T)SPR done, push WB
-  wire   [OPTION_OPERAND_WIDTH-1:0] spr_write_dat;
-  reg        [SPR_ACCESS_WIDTH-1:0] spr_access;
-  wire       [SPR_ACCESS_WIDTH-1:0] spr_access_ack;
-  wire                       [31:0] spr_internal_read_dat [0:SPR_ACCESS_WIDTH-1];
-  wire                              spr_read_access;
-  wire                              spr_write_access;
-  wire                              spr_bus_access;
+  reg                               spr_bus_wait_r;
+  wire                              spr_bus_ack;
+  wire       [SPR_ACCESS_WIDTH-1:0] spr_bus_ack_in;
+  wire                       [31:0] spr_bus_dat_in [0:SPR_ACCESS_WIDTH-1];
+  //  # access to SYSTEM GROUP control registers
+  //  # excluding GPR0
+  wire                              spr_sys_group_cs;
+  reg                               spr_sys_group_wr_r;
+  reg                               spr_bus_ack_sys_group;
+  reg                        [31:0] spr_bus_dat_sys_group;
 
   /* Wires from mor1kx_cfgrs module */
   wire [31:0]                       spr_vr;
@@ -395,15 +390,15 @@ module mor1kx_ctrl_marocchino
 
   assign padv_fetch_o =
     // MAROCCHINO_TODO: ~du_cpu_stall & ~stepping &  // from DU
-    (dcod_valid_i | ~dcod_insn_valid_i) & ~cmd_op_mXspr & ~stall_fetch_i;
+    (dcod_valid_i | ~dcod_insn_valid_i) & ~spr_bus_wait_r & ~stall_fetch_i;
 
 
   assign padv_decode_o =
     // MAROCCHINO_TODO: ~du_cpu_stall & (~stepping | (stepping & pstep[1])) &  // from DU
-    dcod_valid_i & dcod_insn_valid_i & ~cmd_op_mXspr;
+    dcod_valid_i & dcod_insn_valid_i & ~spr_bus_wait_r;
 
 
-  assign padv_wb_o = (exec_valid_i & ~cmd_op_mXspr) | mXspr_ack;
+  assign padv_wb_o = (exec_valid_i & ~spr_bus_wait_r) | spr_bus_ack;
 
   // 1-clock delayed padv-wb
   reg wb_new_result;
@@ -460,12 +455,12 @@ if (FEATURE_FPU != "NONE") begin : fpu_csr_gen
       spr_fpcsr[`OR1K_FPCSR_RM]   <= spr_fpcsr[`OR1K_FPCSR_RM];
       spr_fpcsr[`OR1K_FPCSR_FPEE] <= 1'b0;
     end
-    else if ((spr_we & spr_access[`OR1K_SPR_SYS_BASE] &
-            ((spr_sr[`OR1K_SPR_SR_SM] & spr_we_en) | du_access)) &
-             (`SPR_OFFSET(spr_addr)==`SPR_OFFSET(`OR1K_SPR_FPCSR_ADDR))) begin
-      spr_fpcsr <= spr_write_dat[`OR1K_FPCSR_WIDTH-1:0]; // update all fields
+    else if (spr_sys_group_cs & (`SPR_OFFSET(spr_bus_addr_o) == `SPR_OFFSET(`OR1K_SPR_FPCSR_ADDR)) &
+             spr_sys_group_wr_r &
+             spr_sr[`OR1K_SPR_SR_SM]) begin
+      spr_fpcsr <= spr_bus_dat_o[`OR1K_FPCSR_WIDTH-1:0]; // update all fields
      `ifdef OR1K_FPCSR_MASK_FLAGS
-      spr_fpcsr_mf <= spr_write_dat[`OR1K_FPCSR_MASK_ALL];
+      spr_fpcsr_mf <= spr_bus_dat_o[`OR1K_FPCSR_MASK_ALL];
      `endif
     end
   end // FPCSR reg's always(@posedge clk)
@@ -509,24 +504,24 @@ endgenerate // FPU related: FPCSR and exceptions
       spr_sr[`OR1K_SPR_SR_OV ] <= ctrl_overflow; // but save overflow flag
       spr_sr[`OR1K_SPR_SR_DSX] <= wb_delay_slot_i;
     end
-    else if ((spr_we & spr_access[`OR1K_SPR_SYS_BASE] &
-             ((spr_sr[`OR1K_SPR_SR_SM] & spr_we_en) | du_access)) &
-             (`SPR_OFFSET(spr_addr) == `SPR_OFFSET(`OR1K_SPR_SR_ADDR))) begin
+    else if (spr_sys_group_cs & (`SPR_OFFSET(spr_bus_addr_o) == `SPR_OFFSET(`OR1K_SPR_SR_ADDR)) &
+             spr_sys_group_wr_r &
+             spr_sr[`OR1K_SPR_SR_SM]) begin
       // from SPR bus
-      spr_sr[`OR1K_SPR_SR_SM ] <= spr_write_dat[`OR1K_SPR_SR_SM ];
-      spr_sr[`OR1K_SPR_SR_F  ] <= spr_write_dat[`OR1K_SPR_SR_F  ];
-      spr_sr[`OR1K_SPR_SR_TEE] <= spr_write_dat[`OR1K_SPR_SR_TEE];
-      spr_sr[`OR1K_SPR_SR_IEE] <= spr_write_dat[`OR1K_SPR_SR_IEE];
-      spr_sr[`OR1K_SPR_SR_DCE] <= spr_write_dat[`OR1K_SPR_SR_DCE];
-      spr_sr[`OR1K_SPR_SR_ICE] <= spr_write_dat[`OR1K_SPR_SR_ICE];
-      spr_sr[`OR1K_SPR_SR_DME] <= spr_write_dat[`OR1K_SPR_SR_DME];
-      spr_sr[`OR1K_SPR_SR_IME] <= spr_write_dat[`OR1K_SPR_SR_IME];
+      spr_sr[`OR1K_SPR_SR_SM ] <= spr_bus_dat_o[`OR1K_SPR_SR_SM ];
+      spr_sr[`OR1K_SPR_SR_F  ] <= spr_bus_dat_o[`OR1K_SPR_SR_F  ];
+      spr_sr[`OR1K_SPR_SR_TEE] <= spr_bus_dat_o[`OR1K_SPR_SR_TEE];
+      spr_sr[`OR1K_SPR_SR_IEE] <= spr_bus_dat_o[`OR1K_SPR_SR_IEE];
+      spr_sr[`OR1K_SPR_SR_DCE] <= spr_bus_dat_o[`OR1K_SPR_SR_DCE];
+      spr_sr[`OR1K_SPR_SR_ICE] <= spr_bus_dat_o[`OR1K_SPR_SR_ICE];
+      spr_sr[`OR1K_SPR_SR_DME] <= spr_bus_dat_o[`OR1K_SPR_SR_DME];
+      spr_sr[`OR1K_SPR_SR_IME] <= spr_bus_dat_o[`OR1K_SPR_SR_IME];
       spr_sr[`OR1K_SPR_SR_CE ] <= 1'b0;
-      spr_sr[`OR1K_SPR_SR_CY ] <= spr_write_dat[`OR1K_SPR_SR_CY ];
-      spr_sr[`OR1K_SPR_SR_OV ] <= spr_write_dat[`OR1K_SPR_SR_OV ];
-      spr_sr[`OR1K_SPR_SR_OVE] <= spr_write_dat[`OR1K_SPR_SR_OVE];
-      spr_sr[`OR1K_SPR_SR_DSX] <= spr_write_dat[`OR1K_SPR_SR_DSX];
-      spr_sr[`OR1K_SPR_SR_EPH] <= spr_write_dat[`OR1K_SPR_SR_EPH];
+      spr_sr[`OR1K_SPR_SR_CY ] <= spr_bus_dat_o[`OR1K_SPR_SR_CY ];
+      spr_sr[`OR1K_SPR_SR_OV ] <= spr_bus_dat_o[`OR1K_SPR_SR_OV ];
+      spr_sr[`OR1K_SPR_SR_OVE] <= spr_bus_dat_o[`OR1K_SPR_SR_OVE];
+      spr_sr[`OR1K_SPR_SR_DSX] <= spr_bus_dat_o[`OR1K_SPR_SR_DSX];
+      spr_sr[`OR1K_SPR_SR_EPH] <= spr_bus_dat_o[`OR1K_SPR_SR_EPH];
     end
     else if (wb_new_result) begin
       if (wb_op_rfe_i) begin
@@ -546,9 +541,9 @@ endgenerate // FPU related: FPCSR and exceptions
       spr_esr <= SPR_SR_RESET_VALUE;
     else if (exception_re)
       spr_esr <= spr_sr; // by exceptions
-    else if (spr_we & spr_access[`OR1K_SPR_SYS_BASE] &
-             (`SPR_OFFSET(spr_addr)==`SPR_OFFSET(`OR1K_SPR_ESR0_ADDR)))
-      spr_esr <= spr_write_dat[SPR_SR_WIDTH-1:0];
+    else if (spr_sys_group_cs & (`SPR_OFFSET(spr_bus_addr_o) == `SPR_OFFSET(`OR1K_SPR_ESR0_ADDR)) &
+             spr_sys_group_wr_r)
+      spr_esr <= spr_bus_dat_o[SPR_SR_WIDTH-1:0];
   end // @ clock
 
 
@@ -608,9 +603,9 @@ endgenerate // FPU related: FPCSR and exceptions
       else if (~(du_stall_on_trap & except_trap_i))
         spr_epcr <= ctrl_epcr;
     end
-    else if (spr_we & spr_access[`OR1K_SPR_SYS_BASE] &
-             (`SPR_OFFSET(spr_addr)==`SPR_OFFSET(`OR1K_SPR_EPCR0_ADDR))) begin
-      spr_epcr <= spr_write_dat;
+    else if (spr_sys_group_cs & (`SPR_OFFSET(spr_bus_addr_o) == `SPR_OFFSET(`OR1K_SPR_EPCR0_ADDR)) &
+             spr_sys_group_wr_r) begin
+      spr_epcr <= spr_bus_dat_o;
     end
   end // @ clock
 
@@ -672,9 +667,9 @@ endgenerate // FPU related: FPCSR and exceptions
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
       spr_evbar <= {OPTION_OPERAND_WIDTH{1'b0}};
-    else if (spr_we & spr_access[`OR1K_SPR_SYS_BASE] &
-             (`SPR_OFFSET(spr_addr) == `SPR_OFFSET(`OR1K_SPR_EVBAR_ADDR)))
-      spr_evbar <= {spr_write_dat[OPTION_OPERAND_WIDTH-1:13], 13'd0};
+    else if (spr_sys_group_cs & (`SPR_OFFSET(spr_bus_addr_o) == `SPR_OFFSET(`OR1K_SPR_EVBAR_ADDR)) &
+             spr_sys_group_wr_r)
+      spr_evbar <= {spr_bus_dat_o[OPTION_OPERAND_WIDTH-1:13], 13'd0};
   end // @ clock
 
   // configuration registers
@@ -742,231 +737,230 @@ endgenerate // FPU related: FPCSR and exceptions
   // SPR access control                                                        //
   //   Allow accesses from either the instructions or from the debug interface //
   //---------------------------------------------------------------------------//
+
+  // MAROCCHINO_TODO: accees to SPR bus from debug unit should be added
+
+  // SPR address for latch
+  wire [15:0] spr_addr_the = dcod_rfa_i[15:0] | dcod_imm16_i;
+
+  // Is accessiblr SPR is present
+  reg spr_access_valid_mux;
+  reg spr_access_valid_reg; // SPR ACK in case of access to not existing modules
+  //---
+  always @(*) begin
+    case(`SPR_BASE(spr_addr_the))
+      // system registers
+      `OR1K_SPR_SYS_BASE:  spr_access_valid_mux = 1'b1;
+      // modules registers
+      `OR1K_SPR_DMMU_BASE: spr_access_valid_mux = 1'b1;
+      `OR1K_SPR_IMMU_BASE: spr_access_valid_mux = 1'b1;
+      `OR1K_SPR_DC_BASE:   spr_access_valid_mux = 1'b1;
+      `OR1K_SPR_IC_BASE:   spr_access_valid_mux = 1'b1;
+      `OR1K_SPR_MAC_BASE:  spr_access_valid_mux = (FEATURE_MAC          != "NONE");
+      `OR1K_SPR_DU_BASE:   spr_access_valid_mux = (FEATURE_DEBUGUNIT    != "NONE");
+      `OR1K_SPR_PC_BASE:   spr_access_valid_mux = (FEATURE_PERFCOUNTERS != "NONE");
+      `OR1K_SPR_PM_BASE:   spr_access_valid_mux = (FEATURE_PMU          != "NONE");
+      `OR1K_SPR_PIC_BASE:  spr_access_valid_mux = 1'b1;
+      `OR1K_SPR_TT_BASE:   spr_access_valid_mux = 1'b1;
+      `OR1K_SPR_FPU_BASE:  spr_access_valid_mux = (FEATURE_FPU          != "NONE");
+      // invalid if the group is not present in the design
+      default:             spr_access_valid_mux = 1'b0;
+    endcase
+  end // always
+
   //   Before issuing MT(F)SPR, OMAN waits till order control buffer has become
   // empty. Also we don't issue new instruction till l.mf(t)spr completion.
   //   So, we don't need neither forwarding nor 'grant' signals here.
 
-  // MT(F)SPR command
-  reg cmd_op_mfspr;
-  reg cmd_op_mtspr;
-  // MT(F)SPR address & data
-  reg                     [15:0] cmd_op_mXspr_addr;
-  reg [OPTION_OPERAND_WIDTH-1:0] cmd_op_mXspr_data;
-  // ---
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst) begin
-      // SPR access commnad 
-      cmd_op_mfspr      <=  1'b0;
-      cmd_op_mtspr      <=  1'b0;
-      cmd_op_mXspr_addr <= 16'd0;
-      cmd_op_mXspr_data <= {OPTION_OPERAND_WIDTH{1'b0}};
-      // write strob for local SPRs
-      spr_we_en         <= 1'b0;
+      spr_bus_addr_o <= 16'd0;
+      spr_bus_we_o   <= 1'b0;
+      spr_bus_stb_o  <= 1'b0;
+      spr_bus_dat_o  <= {OPTION_OPERAND_WIDTH{1'b0}};
+      // Wait SPR ACK regardless on access validity
+      spr_bus_wait_r <= 1'b0;
+      // SPR ACK in case of access to not existing modules
+      spr_access_valid_reg <= 1'b1; 
     end
-    else if (pipeline_flush_o | spr_ack) begin
-      // SPR access commnad 
-      cmd_op_mfspr      <= 1'b0;
-      cmd_op_mtspr      <= 1'b0;
-      cmd_op_mXspr_addr <= cmd_op_mXspr_addr;
-      cmd_op_mXspr_data <= cmd_op_mXspr_data;
-      // write strob for local SPRs
-      spr_we_en         <= 1'b0;
+    else if (pipeline_flush_o | spr_bus_ack) begin
+      spr_bus_addr_o <= 16'd0;
+      spr_bus_we_o   <= 1'b0;
+      spr_bus_stb_o  <= 1'b0;
+      spr_bus_dat_o  <= {OPTION_OPERAND_WIDTH{1'b0}};
+      // Wait SPR ACK regardless on access validity
+      spr_bus_wait_r <= 1'b0;
+      // SPR ACK in case of access to not existing modules
+      spr_access_valid_reg <= 1'b1; 
     end
     else if (padv_decode_o & (dcod_op_mfspr_i | dcod_op_mtspr_i)) begin
-      // SPR access commnad 
-      cmd_op_mfspr      <= dcod_op_mfspr_i;
-      cmd_op_mtspr      <= dcod_op_mtspr_i;
-      cmd_op_mXspr_addr <= dcod_rfa_i[15:0] | dcod_imm16_i;
-      cmd_op_mXspr_data <= dcod_rfb_i;
-      // write strob for local SPRs
-      spr_we_en         <= dcod_op_mtspr_i;
+      if (spr_access_valid_mux) begin
+        spr_bus_addr_o <= spr_addr_the;
+        spr_bus_we_o   <= dcod_op_mtspr_i;
+        spr_bus_stb_o  <= 1'b1;
+        spr_bus_dat_o  <= dcod_rfb_i;
+      end
+      // Wait SPR ACK regardless on access validity
+      spr_bus_wait_r <= 1'b1;
+      // SPR ACK in case of access to not existing modules
+      spr_access_valid_reg <= spr_access_valid_mux; 
     end
   end // @clock
 
-  assign cmd_op_mXspr = cmd_op_mfspr | cmd_op_mtspr;
 
-  assign spr_addr         = du_access ? du_addr_i : cmd_op_mXspr_addr;
-  assign spr_write_dat    = du_access ? du_dat_i  : cmd_op_mXspr_data;
-
-  assign spr_read_access  = (cmd_op_mfspr | (du_access & (~du_we_i)));
-  assign spr_write_access = (cmd_op_mtspr | (du_access &   du_we_i ));
-
-  assign spr_we           = spr_write_access & spr_access_valid;
-
-
-  // Select spr
+  // System group (0) SPR data out
+  reg [OPTION_OPERAND_WIDTH-1:0]    spr_sys_group_dat;
+  // ---
   always @(*) begin
-    spr_access = {SPR_ACCESS_WIDTH{1'b0}}; // invalid if the group is not present in the design
-    case(`SPR_BASE(spr_addr))
-      // system registers
-      `OR1K_SPR_SYS_BASE:  spr_access[`OR1K_SPR_SYS_BASE]  = 1'b1;
-      // modules registers
-      `OR1K_SPR_DMMU_BASE: spr_access[`OR1K_SPR_DMMU_BASE] = 1'b1;
-      `OR1K_SPR_IMMU_BASE: spr_access[`OR1K_SPR_IMMU_BASE] = 1'b1;
-      `OR1K_SPR_DC_BASE:   spr_access[`OR1K_SPR_DC_BASE]   = 1'b1;
-      `OR1K_SPR_IC_BASE:   spr_access[`OR1K_SPR_IC_BASE]   = 1'b1;
-      `OR1K_SPR_MAC_BASE:  spr_access[`OR1K_SPR_MAC_BASE]  = (FEATURE_MAC          != "NONE");
-      `OR1K_SPR_DU_BASE:   spr_access[`OR1K_SPR_DU_BASE]   = (FEATURE_DEBUGUNIT    != "NONE");
-      `OR1K_SPR_PC_BASE:   spr_access[`OR1K_SPR_PC_BASE]   = (FEATURE_PERFCOUNTERS != "NONE");
-      `OR1K_SPR_PM_BASE:   spr_access[`OR1K_SPR_PM_BASE]   = (FEATURE_PMU          != "NONE");
-      `OR1K_SPR_PIC_BASE:  spr_access[`OR1K_SPR_PIC_BASE]  = 1'b1;
-      `OR1K_SPR_TT_BASE:   spr_access[`OR1K_SPR_TT_BASE]   = 1'b1;
-      `OR1K_SPR_FPU_BASE:  spr_access[`OR1K_SPR_FPU_BASE]  = (FEATURE_FPU          != "NONE");
-      default:;
+    case(`SPR_OFFSET(spr_bus_addr_o))
+      `SPR_OFFSET(`OR1K_SPR_VR_ADDR)      : spr_sys_group_dat = spr_vr;
+      `SPR_OFFSET(`OR1K_SPR_UPR_ADDR)     : spr_sys_group_dat = spr_upr;
+      `SPR_OFFSET(`OR1K_SPR_CPUCFGR_ADDR) : spr_sys_group_dat = spr_cpucfgr;
+      `SPR_OFFSET(`OR1K_SPR_DMMUCFGR_ADDR): spr_sys_group_dat = spr_dmmucfgr;
+      `SPR_OFFSET(`OR1K_SPR_IMMUCFGR_ADDR): spr_sys_group_dat = spr_immucfgr;
+      `SPR_OFFSET(`OR1K_SPR_DCCFGR_ADDR)  : spr_sys_group_dat = spr_dccfgr;
+      `SPR_OFFSET(`OR1K_SPR_ICCFGR_ADDR)  : spr_sys_group_dat = spr_iccfgr;
+      `SPR_OFFSET(`OR1K_SPR_DCFGR_ADDR)   : spr_sys_group_dat = spr_dcfgr;
+      `SPR_OFFSET(`OR1K_SPR_PCCFGR_ADDR)  : spr_sys_group_dat = spr_pccfgr;
+      `SPR_OFFSET(`OR1K_SPR_VR2_ADDR)     : spr_sys_group_dat = {spr_vr2[31:8], `MOR1KX_PIPEID_CAPPUCCINO};
+      `SPR_OFFSET(`OR1K_SPR_AVR_ADDR)     : spr_sys_group_dat = spr_avr;
+      `SPR_OFFSET(`OR1K_SPR_EVBAR_ADDR)   : spr_sys_group_dat = spr_evbar;
+      `SPR_OFFSET(`OR1K_SPR_NPC_ADDR)     : spr_sys_group_dat = spr_npc;
+      `SPR_OFFSET(`OR1K_SPR_SR_ADDR)      : spr_sys_group_dat = {{(OPTION_OPERAND_WIDTH-SPR_SR_WIDTH){1'b0}},
+                                                                  spr_sr};
+      `SPR_OFFSET(`OR1K_SPR_PPC_ADDR)     : spr_sys_group_dat = spr_ppc;
+     `ifdef OR1K_FPCSR_MASK_FLAGS
+      `SPR_OFFSET(`OR1K_SPR_FPCSR_ADDR)   : spr_sys_group_dat = {{(OPTION_OPERAND_WIDTH-`OR1K_FPCSR_WIDTH-`OR1K_FPCSR_ALLF_SIZE){1'b0}},
+                                                                  spr_fpcsr_mf,spr_fpcsr};
+     `else
+      `SPR_OFFSET(`OR1K_SPR_FPCSR_ADDR)   : spr_sys_group_dat = {{(OPTION_OPERAND_WIDTH-`OR1K_FPCSR_WIDTH){1'b0}},
+                                                                  spr_fpcsr};
+     `endif
+      `SPR_OFFSET(`OR1K_SPR_ISR0_ADDR)    : spr_sys_group_dat = spr_isr[0];
+      `SPR_OFFSET(`OR1K_SPR_ISR0_ADDR) +1 : spr_sys_group_dat = spr_isr[1];
+      `SPR_OFFSET(`OR1K_SPR_ISR0_ADDR) +2 : spr_sys_group_dat = spr_isr[2];
+      `SPR_OFFSET(`OR1K_SPR_ISR0_ADDR) +3 : spr_sys_group_dat = spr_isr[3];
+      `SPR_OFFSET(`OR1K_SPR_ISR0_ADDR) +4 : spr_sys_group_dat = spr_isr[4];
+      `SPR_OFFSET(`OR1K_SPR_ISR0_ADDR) +5 : spr_sys_group_dat = spr_isr[5];
+      `SPR_OFFSET(`OR1K_SPR_ISR0_ADDR) +6 : spr_sys_group_dat = spr_isr[6];
+      `SPR_OFFSET(`OR1K_SPR_ISR0_ADDR) +7 : spr_sys_group_dat = spr_isr[7];
+      `SPR_OFFSET(`OR1K_SPR_EPCR0_ADDR)   : spr_sys_group_dat = spr_epcr;
+      `SPR_OFFSET(`OR1K_SPR_EEAR0_ADDR)   : spr_sys_group_dat = spr_eear;
+      `SPR_OFFSET(`OR1K_SPR_ESR0_ADDR)    : spr_sys_group_dat = {{(OPTION_OPERAND_WIDTH-SPR_SR_WIDTH){1'b0}},
+                                                                  spr_esr};
+
+      // If the multicore feature is activated this address returns the
+      // core identifier, 0 otherwise
+      `SPR_OFFSET(`OR1K_SPR_COREID_ADDR)  : spr_sys_group_dat = (FEATURE_MULTICORE != "NONE") ?
+                                                                  multicore_coreid_i : 0;
+      // If the multicore feature is activated this address returns the
+      // core identifier, 0 otherwise
+      `SPR_OFFSET(`OR1K_SPR_NUMCORES_ADDR): spr_sys_group_dat = (FEATURE_MULTICORE != "NONE") ?
+                                                                  multicore_numcores_i : 0;
+
+      default:                              spr_sys_group_dat = {OPTION_OPERAND_WIDTH{1'b0}};
     endcase
   end // always
 
-  // Is the SPR in the design?
-  assign spr_access_valid = |spr_access;
-
-
-  // Is a SPR bus access needed, or is the requested SPR in this file?
-  assign spr_bus_access = // --- Any of the units we have got in this file ---
-                            // --- System group ---
-                          ~(spr_access[`OR1K_SPR_SYS_BASE] |
-                            // --- Debug Group ---
-                            spr_access[`OR1K_SPR_DU_BASE]) |
-                          // *** Any of the units we haven't got in this file ***
-                          // *** GPR ***
-                          (spr_access[`OR1K_SPR_SYS_BASE] & spr_addr[10:9]==2'h2);
-
-  // A bus out to other units that live outside of the control unit
-  assign spr_bus_addr_o = spr_addr;
-  assign spr_bus_we_o   = spr_write_access & spr_access_valid & spr_bus_access;
-  assign spr_bus_stb_o  = (spr_read_access | spr_write_access) &
-                           spr_access_valid & spr_bus_access;
-  assign spr_bus_dat_o  = spr_write_dat;
-
-
-  // SPR access "ACK"
-  assign spr_ack = (spr_read_access | spr_write_access) &
-                   ((|spr_access_ack) | (~spr_access_valid));
-
-  // System group (0) SPR data out
-  reg [OPTION_OPERAND_WIDTH-1:0]    spr_sys_group_read;
+  // SPR BUS interface for SYSTEM GROUP
+  //  !!! Excluding GPR0 !!!
+  assign spr_sys_group_cs = spr_bus_stb_o & (`SPR_BASE(spr_bus_addr_o) == `OR1K_SPR_SYS_BASE);
   // ---
-  always @* begin
-    spr_sys_group_read = {OPTION_OPERAND_WIDTH{1'b0}};
-    if (spr_access[`OR1K_SPR_SYS_BASE])
-      case(`SPR_OFFSET(spr_addr))
-        `SPR_OFFSET(`OR1K_SPR_VR_ADDR)      : spr_sys_group_read = spr_vr;
-        `SPR_OFFSET(`OR1K_SPR_VR2_ADDR)     : spr_sys_group_read = {spr_vr2[31:8], `MOR1KX_PIPEID_CAPPUCCINO};
-        `SPR_OFFSET(`OR1K_SPR_AVR_ADDR)     : spr_sys_group_read = spr_avr;
-        `SPR_OFFSET(`OR1K_SPR_UPR_ADDR)     : spr_sys_group_read = spr_upr;
-        `SPR_OFFSET(`OR1K_SPR_CPUCFGR_ADDR) : spr_sys_group_read = spr_cpucfgr;
-        `SPR_OFFSET(`OR1K_SPR_DMMUCFGR_ADDR): spr_sys_group_read = spr_dmmucfgr;
-        `SPR_OFFSET(`OR1K_SPR_IMMUCFGR_ADDR): spr_sys_group_read = spr_immucfgr;
-        `SPR_OFFSET(`OR1K_SPR_DCCFGR_ADDR)  : spr_sys_group_read = spr_dccfgr;
-        `SPR_OFFSET(`OR1K_SPR_ICCFGR_ADDR)  : spr_sys_group_read = spr_iccfgr;
-        `SPR_OFFSET(`OR1K_SPR_DCFGR_ADDR)   : spr_sys_group_read = spr_dcfgr;
-        `SPR_OFFSET(`OR1K_SPR_PCCFGR_ADDR)  : spr_sys_group_read = spr_pccfgr;
-        `SPR_OFFSET(`OR1K_SPR_NPC_ADDR)     : spr_sys_group_read = spr_npc;
-        `SPR_OFFSET(`OR1K_SPR_SR_ADDR)      : spr_sys_group_read = {{(OPTION_OPERAND_WIDTH-SPR_SR_WIDTH){1'b0}},
-                                                                    spr_sr};
-        `SPR_OFFSET(`OR1K_SPR_PPC_ADDR)     : spr_sys_group_read = spr_ppc;
-       `ifdef OR1K_FPCSR_MASK_FLAGS
-        `SPR_OFFSET(`OR1K_SPR_FPCSR_ADDR)   : spr_sys_group_read = {{(OPTION_OPERAND_WIDTH-`OR1K_FPCSR_WIDTH-`OR1K_FPCSR_ALLF_SIZE){1'b0}},
-                                                                    spr_fpcsr_mf,spr_fpcsr};
-       `else
-        `SPR_OFFSET(`OR1K_SPR_FPCSR_ADDR)   : spr_sys_group_read = {{(OPTION_OPERAND_WIDTH-`OR1K_FPCSR_WIDTH){1'b0}},
-                                                                    spr_fpcsr};
-       `endif
-        `SPR_OFFSET(`OR1K_SPR_EPCR0_ADDR)   : spr_sys_group_read = spr_epcr;
-        `SPR_OFFSET(`OR1K_SPR_EEAR0_ADDR)   : spr_sys_group_read = spr_eear;
-        `SPR_OFFSET(`OR1K_SPR_ESR0_ADDR)    : spr_sys_group_read = {{(OPTION_OPERAND_WIDTH-SPR_SR_WIDTH){1'b0}},
-                                                                    spr_esr};
-        `SPR_OFFSET(`OR1K_SPR_EVBAR_ADDR)   : spr_sys_group_read = spr_evbar;
-        `SPR_OFFSET(`OR1K_SPR_ISR0_ADDR)    : spr_sys_group_read = spr_isr[0];
-        `SPR_OFFSET(`OR1K_SPR_ISR0_ADDR) +1 : spr_sys_group_read = spr_isr[1];
-        `SPR_OFFSET(`OR1K_SPR_ISR0_ADDR) +2 : spr_sys_group_read = spr_isr[2];
-        `SPR_OFFSET(`OR1K_SPR_ISR0_ADDR) +3 : spr_sys_group_read = spr_isr[3];
-        `SPR_OFFSET(`OR1K_SPR_ISR0_ADDR) +4 : spr_sys_group_read = spr_isr[4];
-        `SPR_OFFSET(`OR1K_SPR_ISR0_ADDR) +5 : spr_sys_group_read = spr_isr[5];
-        `SPR_OFFSET(`OR1K_SPR_ISR0_ADDR) +6 : spr_sys_group_read = spr_isr[6];
-        `SPR_OFFSET(`OR1K_SPR_ISR0_ADDR) +7 : spr_sys_group_read = spr_isr[7];
-
-        // If the multicore feature is activated this address returns the
-        // core identifier, 0 otherwise
-        `SPR_OFFSET(`OR1K_SPR_COREID_ADDR)  : spr_sys_group_read = (FEATURE_MULTICORE != "NONE") ?
-                                                                    multicore_coreid_i : 0;
-        // If the multicore feature is activated this address returns the
-        // core identifier, 0 otherwise
-        `SPR_OFFSET(`OR1K_SPR_NUMCORES_ADDR): spr_sys_group_read = (FEATURE_MULTICORE != "NONE") ?
-                                                                    multicore_numcores_i : 0;
-
-        // GPR
-        `SPR_OFFSET(`OR1K_SPR_GPR0_ADDR)    : spr_sys_group_read = spr_gpr_dat_i;
-        default:;
-      endcase
-  end // always
+  always @(posedge clk `OR_ASYNC_RST) begin
+    if (rst) begin
+      spr_sys_group_wr_r    <= 1'b0;
+      spr_bus_ack_sys_group <= 1'b0;
+      spr_bus_dat_sys_group <= 32'd0;
+    end
+    else if (spr_bus_ack_sys_group) begin // end of cycle
+      spr_sys_group_wr_r    <= 1'b0;
+      spr_bus_ack_sys_group <= 1'b0;
+      spr_bus_dat_sys_group <= 32'd0;
+    end
+    else if (spr_sys_group_cs &
+             (`SPR_OFFSET(spr_bus_addr_o) != `SPR_OFFSET(`OR1K_SPR_GPR0_ADDR))) begin
+      if (spr_bus_we_o) begin
+        spr_sys_group_wr_r    <= 1'b1;
+        spr_bus_ack_sys_group <= 1'b1;
+        spr_bus_dat_sys_group <= 32'd0;
+      end
+      else begin
+        spr_sys_group_wr_r    <= 1'b0;
+        spr_bus_ack_sys_group <= 1'b1;
+        spr_bus_dat_sys_group <= spr_sys_group_dat;
+      end
+    end
+  end // at clock
 
 
-  // System group 'ack' and data
-  assign spr_access_ack[`OR1K_SPR_SYS_BASE]        = spr_access[`OR1K_SPR_SYS_BASE] &
-    ((`SPR_OFFSET(spr_addr) == `SPR_OFFSET(`OR1K_SPR_GPR0_ADDR)) ? spr_gpr_ack_i : 1'b1);
-  assign spr_internal_read_dat[`OR1K_SPR_SYS_BASE] = spr_sys_group_read;
+  // System group 'ack' and data (excluding GPR0)
+  assign spr_bus_ack_in[`OR1K_SPR_SYS_BASE]   = spr_bus_ack_sys_group;
+  assign spr_bus_dat_in[`OR1K_SPR_SYS_BASE]   = spr_bus_dat_sys_group;
+
+  // GPR0 'ack' and data: MAROCCHINO_TODO
 
   // DMMU 'ack' and data
-  assign spr_access_ack[`OR1K_SPR_DMMU_BASE]        = spr_bus_ack_dmmu_i;
-  assign spr_internal_read_dat[`OR1K_SPR_DMMU_BASE] = spr_bus_dat_dmmu_i;
+  assign spr_bus_ack_in[`OR1K_SPR_DMMU_BASE]  = spr_bus_ack_dmmu_i;
+  assign spr_bus_dat_in[`OR1K_SPR_DMMU_BASE]  = spr_bus_dat_dmmu_i;
 
   // IMMU 'ack' and data
-  assign spr_access_ack[`OR1K_SPR_IMMU_BASE]        = spr_bus_ack_immu_i;
-  assign spr_internal_read_dat[`OR1K_SPR_IMMU_BASE] = spr_bus_dat_immu_i;
+  assign spr_bus_ack_in[`OR1K_SPR_IMMU_BASE]  = spr_bus_ack_immu_i;
+  assign spr_bus_dat_in[`OR1K_SPR_IMMU_BASE]  = spr_bus_dat_immu_i;
 
   // DCACHE 'ack' and data
-  assign spr_access_ack[`OR1K_SPR_DC_BASE]        = spr_bus_ack_dc_i;
-  assign spr_internal_read_dat[`OR1K_SPR_DC_BASE] = spr_bus_dat_dc_i;
+  assign spr_bus_ack_in[`OR1K_SPR_DC_BASE]    = spr_bus_ack_dc_i;
+  assign spr_bus_dat_in[`OR1K_SPR_DC_BASE]    = spr_bus_dat_dc_i;
 
   // ICACHE 'ack' and data
-  assign spr_access_ack[`OR1K_SPR_IC_BASE]        = spr_bus_ack_ic_i;
-  assign spr_internal_read_dat[`OR1K_SPR_IC_BASE] = spr_bus_dat_ic_i;
+  assign spr_bus_ack_in[`OR1K_SPR_IC_BASE]    = spr_bus_ack_ic_i;
+  assign spr_bus_dat_in[`OR1K_SPR_IC_BASE]    = spr_bus_dat_ic_i;
 
   // Multiply-Accumulate (MAC) 'ack' and data
-  assign spr_access_ack[`OR1K_SPR_MAC_BASE]        = spr_bus_ack_mac_i;
-  assign spr_internal_read_dat[`OR1K_SPR_MAC_BASE] = spr_bus_dat_mac_i;
+  assign spr_bus_ack_in[`OR1K_SPR_MAC_BASE]   = spr_bus_ack_mac_i;
+  assign spr_bus_dat_in[`OR1K_SPR_MAC_BASE]   = spr_bus_dat_mac_i;
 
   // Performance Counters 'ack' and data
-  assign spr_access_ack[`OR1K_SPR_PC_BASE]        = spr_bus_ack_pcu_i;
-  assign spr_internal_read_dat[`OR1K_SPR_PC_BASE] = spr_bus_dat_pcu_i;
+  assign spr_bus_ack_in[`OR1K_SPR_PC_BASE]    = spr_bus_ack_pcu_i;
+  assign spr_bus_dat_in[`OR1K_SPR_PC_BASE]    = spr_bus_dat_pcu_i;
 
   // Power Management 'ack' and data
-  assign spr_access_ack[`OR1K_SPR_PM_BASE]        = spr_bus_ack_pmu_i;
-  assign spr_internal_read_dat[`OR1K_SPR_PM_BASE] = spr_bus_dat_pmu_i;
+  assign spr_bus_ack_in[`OR1K_SPR_PM_BASE]    = spr_bus_ack_pmu_i;
+  assign spr_bus_dat_in[`OR1K_SPR_PM_BASE]    = spr_bus_dat_pmu_i;
 
   // FPU 'ack' and data
-  assign spr_access_ack[`OR1K_SPR_FPU_BASE]        = spr_bus_ack_fpu_i;
-  assign spr_internal_read_dat[`OR1K_SPR_FPU_BASE] = spr_bus_dat_fpu_i;
+  assign spr_bus_ack_in[`OR1K_SPR_FPU_BASE]   = spr_bus_ack_fpu_i;
+  assign spr_bus_dat_in[`OR1K_SPR_FPU_BASE]   = spr_bus_dat_fpu_i;
 
   // Timer's 'ack' and data
-  assign spr_access_ack[`OR1K_SPR_TT_BASE]        = spr_bus_ack_tt_i;
-  assign spr_internal_read_dat[`OR1K_SPR_TT_BASE] = spr_bus_dat_tt_i;
+  assign spr_bus_ack_in[`OR1K_SPR_TT_BASE]    = spr_bus_ack_tt_i;
+  assign spr_bus_dat_in[`OR1K_SPR_TT_BASE]    = spr_bus_dat_tt_i;
 
-  // Timer's 'ack' and data
-  assign spr_access_ack[`OR1K_SPR_PIC_BASE]        = spr_bus_ack_pic_i;
-  assign spr_internal_read_dat[`OR1K_SPR_PIC_BASE] = spr_bus_dat_pic_i;
+  // PIC 'ack' and data
+  assign spr_bus_ack_in[`OR1K_SPR_PIC_BASE]   = spr_bus_ack_pic_i;
+  assign spr_bus_dat_in[`OR1K_SPR_PIC_BASE]   = spr_bus_dat_pic_i;
+
+  // SPR access "ACK"
+  assign spr_bus_ack = (|spr_bus_ack_in) | (~spr_access_valid_reg);
 
   //
   // Generate data to the register file for mfspr operations
   // Read datas are simply ORed since set to 0 when not
   // concerned by spr access.
   //
-  wire [OPTION_OPERAND_WIDTH-1:0] mfspr_dat_w =
-    spr_internal_read_dat[`OR1K_SPR_SYS_BASE]  |
-    spr_internal_read_dat[`OR1K_SPR_DMMU_BASE] |
-    spr_internal_read_dat[`OR1K_SPR_IMMU_BASE] |
-    spr_internal_read_dat[`OR1K_SPR_DC_BASE]   |
-    spr_internal_read_dat[`OR1K_SPR_IC_BASE]   |
-    spr_internal_read_dat[`OR1K_SPR_MAC_BASE]  |
-    spr_internal_read_dat[`OR1K_SPR_DU_BASE]   |
-    spr_internal_read_dat[`OR1K_SPR_PC_BASE]   |
-    spr_internal_read_dat[`OR1K_SPR_PM_BASE]   |
-    spr_internal_read_dat[`OR1K_SPR_PIC_BASE]  |
-    spr_internal_read_dat[`OR1K_SPR_TT_BASE]   |
-    spr_internal_read_dat[`OR1K_SPR_FPU_BASE];
+  wire [OPTION_OPERAND_WIDTH-1:0] spr_bus_dat_mux =
+    spr_bus_dat_in[`OR1K_SPR_SYS_BASE]  |
+    spr_bus_dat_in[`OR1K_SPR_DMMU_BASE] |
+    spr_bus_dat_in[`OR1K_SPR_IMMU_BASE] |
+    spr_bus_dat_in[`OR1K_SPR_DC_BASE]   |
+    spr_bus_dat_in[`OR1K_SPR_IC_BASE]   |
+    spr_bus_dat_in[`OR1K_SPR_MAC_BASE]  |
+    spr_bus_dat_in[`OR1K_SPR_DU_BASE]   |
+    spr_bus_dat_in[`OR1K_SPR_PC_BASE]   |
+    spr_bus_dat_in[`OR1K_SPR_PM_BASE]   |
+    spr_bus_dat_in[`OR1K_SPR_PIC_BASE]  |
+    spr_bus_dat_in[`OR1K_SPR_TT_BASE]   |
+    spr_bus_dat_in[`OR1K_SPR_FPU_BASE];
 
-  // MF(T)SPR done, push WB
-  assign mXspr_ack = cmd_op_mXspr & spr_ack;
 
   // MFSPR data and flag for WB_MUX
   always @(posedge clk `OR_ASYNC_RST) begin
@@ -979,9 +973,9 @@ endgenerate // FPU related: FPCSR and exceptions
       wb_mfspr_dat_o <= {OPTION_OPERAND_WIDTH{1'b0}};
     end
     else if (padv_wb_o) begin
-      if (cmd_op_mfspr & spr_ack) begin
-        wb_mfspr_rdy_o <= 1'b1;
-        wb_mfspr_dat_o <= mfspr_dat_w;
+      if (spr_bus_wait_r) begin
+        wb_mfspr_rdy_o <= ~spr_bus_we_o;
+        wb_mfspr_dat_o <= spr_bus_dat_mux;
       end
       else if (do_rf_wb_i)
         wb_mfspr_rdy_o <= 1'b0;
@@ -1011,7 +1005,7 @@ if (FEATURE_DEBUGUNIT != "NONE") begin : du
     else if (du_ack)
       du_ack <= 1'b0;
     else if (du_stb_i) begin
-      du_ack <= spr_ack;
+      du_ack <= spr_bus_ack;
     end
   end // @ clock
 
@@ -1110,25 +1104,25 @@ if (FEATURE_DEBUGUNIT != "NONE") begin : du
   assign stepped_into_delay_slot = branch_step[1] & stepping;
 
   /* Signals for waveform debuging */
-  wire [31:0] spr_read_data_group_0 = spr_internal_read_dat[0];
-  wire [31:0] spr_read_data_group_1 = spr_internal_read_dat[1];
-  wire [31:0] spr_read_data_group_2 = spr_internal_read_dat[2];
-  wire [31:0] spr_read_data_group_3 = spr_internal_read_dat[3];
-  wire [31:0] spr_read_data_group_4 = spr_internal_read_dat[4];
-  wire [31:0] spr_read_data_group_5 = spr_internal_read_dat[5];
-  wire [31:0] spr_read_data_group_6 = spr_internal_read_dat[6];
-  wire [31:0] spr_read_data_group_7 = spr_internal_read_dat[7];
-  wire [31:0] spr_read_data_group_8 = spr_internal_read_dat[8];
-  wire [31:0] spr_read_data_group_9 = spr_internal_read_dat[9];
+  wire [31:0] spr_read_data_group_0 = spr_bus_dat_in[0];
+  wire [31:0] spr_read_data_group_1 = spr_bus_dat_in[1];
+  wire [31:0] spr_read_data_group_2 = spr_bus_dat_in[2];
+  wire [31:0] spr_read_data_group_3 = spr_bus_dat_in[3];
+  wire [31:0] spr_read_data_group_4 = spr_bus_dat_in[4];
+  wire [31:0] spr_read_data_group_5 = spr_bus_dat_in[5];
+  wire [31:0] spr_read_data_group_6 = spr_bus_dat_in[6];
+  wire [31:0] spr_read_data_group_7 = spr_bus_dat_in[7];
+  wire [31:0] spr_read_data_group_8 = spr_bus_dat_in[8];
+  wire [31:0] spr_read_data_group_9 = spr_bus_dat_in[9];
 
 
   /* always single cycle access */
-  assign spr_access_ack[`OR1K_SPR_DU_BASE] = spr_access[`OR1K_SPR_DU_BASE];
-  assign spr_internal_read_dat[`OR1K_SPR_DU_BASE] =
-    (spr_addr==`OR1K_SPR_DMR1_ADDR) ?  spr_dmr1 :
-    (spr_addr==`OR1K_SPR_DMR2_ADDR) ?  spr_dmr2 :
-    (spr_addr==`OR1K_SPR_DSR_ADDR)  ?  spr_dsr  :
-    (spr_addr==`OR1K_SPR_DRR_ADDR)  ?  spr_drr  : 1'b0;
+  assign spr_bus_ack_in[`OR1K_SPR_DU_BASE] = 1'b1; // MAROCCHINO_TODO
+  assign spr_bus_dat_in[`OR1K_SPR_DU_BASE] =
+    (spr_bus_addr_o==`OR1K_SPR_DMR1_ADDR) ?  spr_dmr1 :
+    (spr_bus_addr_o==`OR1K_SPR_DMR2_ADDR) ?  spr_dmr2 :
+    (spr_bus_addr_o==`OR1K_SPR_DSR_ADDR)  ?  spr_dsr  :
+    (spr_bus_addr_o==`OR1K_SPR_DRR_ADDR)  ?  spr_drr  : 1'b0;
 
   /* Put the incoming stall signal through a register to detect FE */
   always @(posedge clk `OR_ASYNC_RST) begin
@@ -1142,8 +1136,8 @@ if (FEATURE_DEBUGUNIT != "NONE") begin : du
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
       spr_dmr1 <= 0;
-    else if (spr_we & (spr_addr == `OR1K_SPR_DMR1_ADDR))
-      spr_dmr1[23:0] <= spr_write_dat[23:0];
+    else if (spr_bus_we_o & (spr_bus_addr_o == `OR1K_SPR_DMR1_ADDR))
+      spr_dmr1[23:0] <= spr_bus_dat_o[23:0];
   end // @ clock
 
   /* DMR2 */
@@ -1154,16 +1148,16 @@ if (FEATURE_DEBUGUNIT != "NONE") begin : du
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
       spr_dsr <= 0;
-    else if (spr_we & (spr_addr == `OR1K_SPR_DSR_ADDR))
-      spr_dsr[13:0] <= spr_write_dat[13:0];
+    else if (spr_bus_we_o & (spr_bus_addr_o == `OR1K_SPR_DSR_ADDR))
+      spr_dsr[13:0] <= spr_bus_dat_o[13:0];
   end // @ clock
 
   /* DRR */
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
       spr_drr <= 0;
-    else if (spr_we & (spr_addr == `OR1K_SPR_DRR_ADDR))
-      spr_drr[13:0] <= spr_write_dat[13:0];
+    else if (spr_bus_we_o & (spr_bus_addr_o == `OR1K_SPR_DRR_ADDR))
+      spr_drr[13:0] <= spr_bus_dat_o[13:0];
     else if (du_stall_on_trap & wb_new_result & except_trap_i) // DU
       spr_drr[`OR1K_SPR_DRR_TE] <= 1'b1;
   end // @ clock
@@ -1181,8 +1175,8 @@ else begin : no_du
   assign stepped_into_delay_slot = 0;
   assign du_dat_o = 0;
   assign du_restart_from_stall = 0;
-  assign spr_access_ack[`OR1K_SPR_DU_BASE] = 0;
-  assign spr_internal_read_dat[`OR1K_SPR_DU_BASE] = 0;
+  assign spr_bus_ack_in[`OR1K_SPR_DU_BASE] = 1'b0;
+  assign spr_bus_dat_in[`OR1K_SPR_DU_BASE] = 0;
   always @(posedge clk) begin
     spr_dmr1 <= 0;
     spr_dmr2 <= 0;
