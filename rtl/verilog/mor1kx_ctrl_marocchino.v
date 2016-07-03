@@ -417,68 +417,73 @@ module mor1kx_ctrl_marocchino
 
 
   // FPU related: FPCSR and exceptions
-generate
+  generate
+
  `ifdef OR1K_FPCSR_MASK_FLAGS
   reg [`OR1K_FPCSR_ALLF_SIZE-1:0] spr_fpcsr_mf; // mask for FPU flags
  `endif
 
-/* verilator lint_off WIDTH */
-if (FEATURE_FPU != "NONE") begin : fpu_csr_gen
-/* verilator lint_on WIDTH */
-  assign ctrl_fpu_round_mode_o = spr_fpcsr[`OR1K_FPCSR_RM];
+  /* verilator lint_off WIDTH */
+  if (FEATURE_FPU != "NONE") begin : fpu_csr_gen
+  /* verilator lint_on WIDTH */
 
-  // select all flags
-  // (1) Before issuing l.rfe, an exeption FPU handler
-  //     must clean up all exeption flags in FPCSR.
-  // (2) Only new arrived flags make sense to detect
-  //     FPU exceptions.
- `ifdef OR1K_FPCSR_MASK_FLAGS
-  wire [`OR1K_FPCSR_ALLF_SIZE-1:0] fpu_allf = spr_fpcsr_mf &
-    (wb_fp32_arith_fpcsr_i[`OR1K_FPCSR_ALLF] | wb_fp32_cmp_fpcsr_i[`OR1K_FPCSR_ALLF]);
- `else
-  wire [`OR1K_FPCSR_ALLF_SIZE-1:0] fpu_allf =
-    (wb_fp32_arith_fpcsr_i[`OR1K_FPCSR_ALLF] | wb_fp32_cmp_fpcsr_i[`OR1K_FPCSR_ALLF]);
- `endif
+    assign ctrl_fpu_round_mode_o = spr_fpcsr[`OR1K_FPCSR_RM];
+  
+    // select all flags
+    // (1) Before issuing l.rfe, an exeption FPU handler
+    //     must clean up all exeption flags in FPCSR.
+    // (2) Only new arrived flags make sense to detect
+    //     FPU exceptions.
+   `ifdef OR1K_FPCSR_MASK_FLAGS
+    wire [`OR1K_FPCSR_ALLF_SIZE-1:0] fpu_allf = spr_fpcsr_mf &
+      (wb_fp32_arith_fpcsr_i[`OR1K_FPCSR_ALLF] | wb_fp32_cmp_fpcsr_i[`OR1K_FPCSR_ALLF]);
+   `else
+    wire [`OR1K_FPCSR_ALLF_SIZE-1:0] fpu_allf =
+      (wb_fp32_arith_fpcsr_i[`OR1K_FPCSR_ALLF] | wb_fp32_cmp_fpcsr_i[`OR1K_FPCSR_ALLF]);
+   `endif
+  
+    assign except_fpu = spr_fpcsr[`OR1K_FPCSR_FPEE] & (|fpu_allf);
+  
+    // FPU Control & status register
+    always @(posedge clk `OR_ASYNC_RST) begin
+      if (rst) begin
+        spr_fpcsr <= `OR1K_FPCSR_RESET_VALUE;
+       `ifdef OR1K_FPCSR_MASK_FLAGS
+        spr_fpcsr_mf <= `OR1K_FPCSR_MASK_RESET_VALUE;
+       `endif
+      end
+      else if (exception_re) begin
+        spr_fpcsr[`OR1K_FPCSR_ALLF] <= fpu_allf;
+        spr_fpcsr[`OR1K_FPCSR_RM]   <= spr_fpcsr[`OR1K_FPCSR_RM];
+        spr_fpcsr[`OR1K_FPCSR_FPEE] <= 1'b0;
+      end
+      else if (spr_sys_group_cs & (`SPR_OFFSET(spr_bus_addr_o) == `SPR_OFFSET(`OR1K_SPR_FPCSR_ADDR)) &
+               spr_sys_group_wr_r &
+               spr_sr[`OR1K_SPR_SR_SM]) begin
+        spr_fpcsr <= spr_bus_dat_o[`OR1K_FPCSR_WIDTH-1:0]; // update all fields
+       `ifdef OR1K_FPCSR_MASK_FLAGS
+        spr_fpcsr_mf <= spr_bus_dat_o[`OR1K_FPCSR_MASK_ALL];
+       `endif
+      end
+    end // FPCSR reg's always(@posedge clk)
 
-  assign except_fpu = spr_fpcsr[`OR1K_FPCSR_FPEE] & (|fpu_allf);
+  end
+  else begin : fpu_csr_none
 
-  // FPU Control & status register
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst) begin
-      spr_fpcsr <= `OR1K_FPCSR_RESET_VALUE;
-     `ifdef OR1K_FPCSR_MASK_FLAGS
-      spr_fpcsr_mf <= `OR1K_FPCSR_MASK_RESET_VALUE;
-     `endif
-    end
-    else if (exception_re) begin
-      spr_fpcsr[`OR1K_FPCSR_ALLF] <= fpu_allf;
-      spr_fpcsr[`OR1K_FPCSR_RM]   <= spr_fpcsr[`OR1K_FPCSR_RM];
-      spr_fpcsr[`OR1K_FPCSR_FPEE] <= 1'b0;
-    end
-    else if (spr_sys_group_cs & (`SPR_OFFSET(spr_bus_addr_o) == `SPR_OFFSET(`OR1K_SPR_FPCSR_ADDR)) &
-             spr_sys_group_wr_r &
-             spr_sr[`OR1K_SPR_SR_SM]) begin
-      spr_fpcsr <= spr_bus_dat_o[`OR1K_FPCSR_WIDTH-1:0]; // update all fields
-     `ifdef OR1K_FPCSR_MASK_FLAGS
-      spr_fpcsr_mf <= spr_bus_dat_o[`OR1K_FPCSR_MASK_ALL];
-     `endif
-    end
-  end // FPCSR reg's always(@posedge clk)
-end
-else begin : fpu_csr_none
-  assign ctrl_fpu_round_mode_o = {`OR1K_FPCSR_RM_SIZE{1'b0}};
-  assign except_fpu = 1'b0;
-  // FPU Control & status register
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst) begin
-      spr_fpcsr <= {`OR1K_FPCSR_WIDTH{1'b0}};
-     `ifdef OR1K_FPCSR_MASK_FLAGS
-      spr_fpcsr_mf <= {`OR1K_FPCSR_ALLF_SIZE{1'b0}};
-     `endif
-    end
-  end // FPCSR reg's always(@posedge clk)
-end
-endgenerate // FPU related: FPCSR and exceptions
+    assign ctrl_fpu_round_mode_o = {`OR1K_FPCSR_RM_SIZE{1'b0}};
+    assign except_fpu = 1'b0;
+    // FPU Control & status register
+    always @(posedge clk `OR_ASYNC_RST) begin
+      if (rst) begin
+        spr_fpcsr <= {`OR1K_FPCSR_WIDTH{1'b0}};
+       `ifdef OR1K_FPCSR_MASK_FLAGS
+        spr_fpcsr_mf <= {`OR1K_FPCSR_ALLF_SIZE{1'b0}};
+       `endif
+      end
+    end // FPCSR reg's always(@posedge clk)
+
+  end
+  endgenerate // FPU related: FPCSR and exceptions
 
 
   // Supervision register
@@ -762,7 +767,7 @@ endgenerate // FPU related: FPCSR and exceptions
       `OR1K_SPR_PM_BASE:   spr_access_valid_mux = (FEATURE_PMU          != "NONE");
       `OR1K_SPR_PIC_BASE:  spr_access_valid_mux = 1'b1;
       `OR1K_SPR_TT_BASE:   spr_access_valid_mux = 1'b1;
-      `OR1K_SPR_FPU_BASE:  spr_access_valid_mux = (FEATURE_FPU          != "NONE");
+      `OR1K_SPR_FPU_BASE:  spr_access_valid_mux = 1'b0; // FEATURE_FPU: actual FPU implementation havn't got control registers
       // invalid if the group is not present in the design
       default:             spr_access_valid_mux = 1'b0;
     endcase

@@ -42,12 +42,12 @@ module mor1kx_rf_marocchino
   input                             pipeline_flush_i,
 
   // SPR bus
-  input                      [15:0] spr_bus_addr_i,
-  input                             spr_bus_stb_i,
-  input                             spr_bus_we_i,
-  input  [OPTION_OPERAND_WIDTH-1:0] spr_bus_dat_i,
-  output                            spr_gpr_ack_o,
-  output [OPTION_OPERAND_WIDTH-1:0] spr_gpr_dat_o,
+  input                          [15:0] spr_bus_addr_i,
+  input                                 spr_bus_stb_i,
+  input                                 spr_bus_we_i,
+  input      [OPTION_OPERAND_WIDTH-1:0] spr_bus_dat_i,
+  output reg                            spr_gpr_ack_o,
+  output reg [OPTION_OPERAND_WIDTH-1:0] spr_gpr_dat_o,
 
   // from FETCH
   input                             fetch_rf_adr_valid_i,
@@ -81,7 +81,9 @@ module mor1kx_rf_marocchino
   wire [OPTION_OPERAND_WIDTH-1:0] rfb_dout;
 
   // SPR/GPR access from bus signals
-  wire spr_gpr_we, spr_gpr_re;
+  reg  spr_gpr_we_r;
+  wire spr_gpr_cs;
+
 
   // 1-clock strobe for GPR write
   //  - writting act could be blocked by exceptions processing
@@ -95,7 +97,7 @@ module mor1kx_rf_marocchino
   wire                            opa_read_req  = fetch_rf_adr_valid_i;
   wire [OPTION_RF_ADDR_WIDTH-1:0] opa_read_addr = fetch_rfa_adr_i;
   //  # read request attributes
-  wire                            opa_write_req  = wb_rf_we | spr_gpr_we;
+  wire                            opa_write_req  = wb_rf_we | spr_gpr_we_r;
   wire [OPTION_RF_ADDR_WIDTH-1:0] opa_write_addr = wb_rf_we ? wb_rfd_adr_i : spr_bus_addr_i;
   wire [OPTION_OPERAND_WIDTH-1:0] opa_write_data = wb_rf_we ? wb_result_i  : spr_bus_dat_i;
 
@@ -110,7 +112,6 @@ module mor1kx_rf_marocchino
 
   // operand A form control signals for Write port wp_*
   wire opa_wp_en    = opa_write_req & ~opa_rw_hazard;
-  wire opa_wp_write = opa_wp_en;
 
   // instance RF-A
   mor1kx_dpram_en_w1st_sclk
@@ -131,7 +132,7 @@ module mor1kx_rf_marocchino
     .dout_a (rfa_dout),
     // port "b": Write if no RW-conflict
     .en_b   (opa_wp_en),      // enable port "b"
-    .we_b   (opa_wp_write),   // operation is "write"
+    .we_b   (opa_wp_en),      // operation is "write"
     .addr_b (opa_write_addr),
     .din_b  (opa_write_data),
     .dout_b ()                // not used
@@ -143,7 +144,7 @@ module mor1kx_rf_marocchino
   wire                            opb_read_req  = fetch_rf_adr_valid_i;
   wire [OPTION_RF_ADDR_WIDTH-1:0] opb_read_addr = fetch_rfb_adr_i;
   //  # read request attributes
-  wire                            opb_write_req  = wb_rf_we | spr_gpr_we;
+  wire                            opb_write_req  = wb_rf_we | spr_gpr_we_r;
   wire [OPTION_RF_ADDR_WIDTH-1:0] opb_write_addr = wb_rf_we ? wb_rfd_adr_i : spr_bus_addr_i;
   wire [OPTION_OPERAND_WIDTH-1:0] opb_write_data = wb_rf_we ? wb_result_i  : spr_bus_dat_i;
 
@@ -158,7 +159,6 @@ module mor1kx_rf_marocchino
 
   // operand B form control signals for Write port wp_*
   wire opb_wp_en    = opb_write_req & ~opb_rw_hazard;
-  wire opb_wp_write = opb_wp_en;
 
   // instance RF-B
   mor1kx_dpram_en_w1st_sclk
@@ -179,67 +179,114 @@ module mor1kx_rf_marocchino
     .dout_a (rfb_dout),
     // port "b": Write if no RW-conflict
     .en_b   (opb_wp_en),      // enable port "b"
-    .we_b   (opb_wp_write),   // operation is "write"
+    .we_b   (opb_wp_en),      // operation is "write"
     .addr_b (opb_write_addr),
     .din_b  (opb_write_data),
     .dout_b ()                // not used
   );
 
 
-generate
-if (FEATURE_DEBUGUNIT != "NONE") begin : rfspr_gen
+  //---------------//
+  // SPR interface //
+  //---------------//
 
-  //  we don't expect R/W-collisions for SPRbus vs WB cycles since 
-  //    SPRbus access start 1-clock later than WB
-  //    thanks to MT(F)SPR processing logic (see OMAN)
-  assign spr_gpr_we = (spr_bus_addr_i[15:9] == 7'h2) &
-                      spr_bus_stb_i & spr_bus_we_i;
+  // detect GPR access
+  assign spr_gpr_cs = spr_bus_stb_i & (spr_bus_addr_i == `OR1K_SPR_GPR0_ADDR);
 
-  assign spr_gpr_re = (spr_bus_addr_i[15:9] == 7'h2) &
-                      spr_bus_stb_i & (~spr_bus_we_i);
+  generate
+  if (FEATURE_DEBUGUNIT != "NONE") begin : rfspr_gen
 
-  reg spr_gpr_read_ack;
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      spr_gpr_read_ack <= 1'b0;
-    else
-      spr_gpr_read_ack <= spr_gpr_re;
+    wire [OPTION_OPERAND_WIDTH-1:0] rfspr_dout;
+
+    //  we don't expect R/W-collisions for SPRbus vs WB cycles since 
+    //    SPRbus access start 1-clock later than WB
+    //    thanks to MT(F)SPR processing logic (see OMAN)
+
+    reg spr_gpr_re_r;
+    reg spr_gpr_mux_r;
+  
+    // SPR processing cycle
+    always @(posedge clk `OR_ASYNC_RST) begin
+      if (rst) begin
+        spr_gpr_we_r  <= 1'b0;
+        spr_gpr_re_r  <= 1'b0;
+        spr_gpr_mux_r <= 1'b0;
+        spr_gpr_ack_o <= 1'b0;
+        spr_gpr_dat_o <= {OPTION_OPERAND_WIDTH{1'b0}};
+      end
+      else if (spr_gpr_ack_o) begin
+        spr_gpr_we_r  <= 1'b0;
+        spr_gpr_re_r  <= 1'b0;
+        spr_gpr_mux_r <= 1'b0;
+        spr_gpr_ack_o <= 1'b0;
+        spr_gpr_dat_o <= {OPTION_OPERAND_WIDTH{1'b0}};
+      end
+      else if (spr_gpr_mux_r) begin
+        spr_gpr_we_r  <= 1'b0;
+        spr_gpr_re_r  <= 1'b0;
+        spr_gpr_mux_r <= 1'b0;
+        spr_gpr_ack_o <= 1'b1;
+        spr_gpr_dat_o <= rfspr_dout;
+      end
+      else if (spr_gpr_re_r) begin
+        spr_gpr_we_r  <= 1'b0;
+        spr_gpr_re_r  <= 1'b0;
+        spr_gpr_mux_r <= 1'b1;
+        spr_gpr_ack_o <= 1'b0;
+        spr_gpr_dat_o <= {OPTION_OPERAND_WIDTH{1'b0}};
+      end
+      else if (spr_gpr_cs) begin
+        spr_gpr_we_r  <= spr_bus_we_i;
+        spr_gpr_re_r  <= ~spr_bus_we_i;
+        spr_gpr_mux_r <= 1'b0;
+        spr_gpr_ack_o <= spr_bus_we_i; // write on next posedge of clock and finish
+        spr_gpr_dat_o <= {OPTION_OPERAND_WIDTH{1'b0}};
+      end
+    end // @ clock
+  
+    wire                            rfspr_wren = wb_rf_we | spr_gpr_we_r;
+    wire [OPTION_RF_ADDR_WIDTH-1:0] rfspr_addr = wb_rf_we ? wb_rfd_adr_i : spr_bus_addr_i;
+    wire [OPTION_OPERAND_WIDTH-1:0] rfspr_din  = wb_rf_we ? wb_result_i  : spr_bus_dat_i;
+  
+    mor1kx_spram_en_w1st
+    #(
+       .ADDR_WIDTH    (OPTION_RF_ADDR_WIDTH),
+       .DATA_WIDTH    (OPTION_OPERAND_WIDTH),
+       .CLEAR_ON_INIT (OPTION_RF_CLEAR_ON_INIT)
+    )
+    rfspr
+    (
+      // clock
+      .clk  (clk),
+      // port
+      .en   (rfspr_wren | spr_gpr_re_r), // enable port
+      .we   (rfspr_wren),
+      .addr (rfspr_addr),
+      .din  (rfspr_din),
+      .dout (rfspr_dout)
+    );
+
   end
+  else begin
 
-  assign spr_gpr_ack_o = spr_gpr_we | (spr_gpr_re & spr_gpr_read_ack);
+    // make ACK
+    always @(posedge clk `OR_ASYNC_RST) begin
+      if (rst)
+        spr_gpr_ack_o <= 1'b0;
+      else if (spr_gpr_ack_o)
+        spr_gpr_ack_o <= 1'b0;
+      else if (spr_gpr_cs)
+        spr_gpr_ack_o <= 1'b1;
+    end
 
-  wire                            rfspr_wren  = wb_rf_we | spr_gpr_we;
-  wire [OPTION_RF_ADDR_WIDTH-1:0] rfspr_addr  = wb_rf_we ? wb_rfd_adr_i : spr_bus_addr_i;
-  wire [OPTION_OPERAND_WIDTH-1:0] rfspr_wrdat = wb_rf_we ? wb_result_i  : spr_bus_dat_i;
+    // data to output
+    always @(posedge clk) begin
+      spr_gpr_we_r  <= 1'b0;
+      spr_gpr_dat_o <= {OPTION_OPERAND_WIDTH{1'b0}};
+    end
 
-  mor1kx_spram_en_w1st
-  #(
-     .ADDR_WIDTH    (OPTION_RF_ADDR_WIDTH),
-     .DATA_WIDTH    (OPTION_OPERAND_WIDTH),
-     .CLEAR_ON_INIT (OPTION_RF_CLEAR_ON_INIT)
-  )
-  rfspr
-  (
-    // clock
-    .clk  (clk),
-    // port
-    .en   (rfspr_wren | spr_gpr_re), // enable port
-    .we   (rfspr_wren),
-    .addr (rfspr_addr), // == spr_bus_addr_i for read
-    .din  (rfspr_wrdat),
-    .dout (spr_gpr_dat_o)
-  );
-
-end
-else begin
-
-  assign spr_gpr_we    = 1'b0;
-  assign spr_gpr_re    = 1'b0;
-  assign spr_gpr_ack_o = 1'b0;
-  assign spr_gpr_dat_o = {OPTION_OPERAND_WIDTH{1'b0}};
-
-end
-endgenerate
+  end
+  endgenerate
 
 
   //-----------------------//
