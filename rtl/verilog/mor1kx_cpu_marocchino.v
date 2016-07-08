@@ -289,8 +289,8 @@ module mor1kx_cpu_marocchino
 
   // SPR access buses (Unit -> CTRL part)
   //   GPR
-  wire                            spr_gpr_ack;
-  wire [OPTION_OPERAND_WIDTH-1:0] spr_gpr_dat;
+  wire                            spr_bus_ack_gpr;
+  wire [OPTION_OPERAND_WIDTH-1:0] spr_bus_dat_gpr;
   //   Data MMU
   wire [OPTION_OPERAND_WIDTH-1:0] spr_bus_dat_dmmu;
   wire                            spr_bus_ack_dmmu;
@@ -762,8 +762,8 @@ module mor1kx_cpu_marocchino
     .spr_bus_stb_i                    (spr_bus_stb_o), // RF
     .spr_bus_we_i                     (spr_bus_we_o), // RF
     .spr_bus_dat_i                    (spr_bus_dat_o), // RF
-    .spr_gpr_ack_o                    (spr_gpr_ack), // RF
-    .spr_gpr_dat_o                    (spr_gpr_dat), // RF
+    .spr_bus_ack_gpr_o                (spr_bus_ack_gpr), // RF
+    .spr_bus_dat_gpr_o                (spr_bus_dat_gpr), // RF
     // from FETCH
     .fetch_rf_adr_valid_i             (fetch_rf_adr_valid), // RF
     .fetch_rfa_adr_i                  (fetch_rfa_adr), // RF
@@ -1067,8 +1067,8 @@ module mor1kx_cpu_marocchino
     .spr_bus_ack_tt_i                 (spr_bus_ack_tt), // CTRL
     .spr_bus_dat_pic_i                (spr_bus_dat_pic), // CTRL
     .spr_bus_ack_pic_i                (spr_bus_ack_pic), // CTRL
-    .spr_gpr_dat_i                    (spr_gpr_dat), // CTRL
-    .spr_gpr_ack_i                    (spr_gpr_ack), // CTRL
+    .spr_bus_dat_gpr_i                (spr_bus_dat_gpr), // CTRL
+    .spr_bus_ack_gpr_i                (spr_bus_ack_gpr), // CTRL
 
     // WB & Exceptions
     //  # PC of completed instruction

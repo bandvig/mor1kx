@@ -46,8 +46,8 @@ module mor1kx_rf_marocchino
   input                                 spr_bus_stb_i,
   input                                 spr_bus_we_i,
   input      [OPTION_OPERAND_WIDTH-1:0] spr_bus_dat_i,
-  output reg                            spr_gpr_ack_o,
-  output reg [OPTION_OPERAND_WIDTH-1:0] spr_gpr_dat_o,
+  output reg                            spr_bus_ack_gpr_o,
+  output reg [OPTION_OPERAND_WIDTH-1:0] spr_bus_dat_gpr_o,
 
   // from FETCH
   input                             fetch_rf_adr_valid_i,
@@ -208,39 +208,39 @@ module mor1kx_rf_marocchino
     // SPR processing cycle
     always @(posedge clk `OR_ASYNC_RST) begin
       if (rst) begin
-        spr_gpr_we_r  <= 1'b0;
-        spr_gpr_re_r  <= 1'b0;
-        spr_gpr_mux_r <= 1'b0;
-        spr_gpr_ack_o <= 1'b0;
-        spr_gpr_dat_o <= {OPTION_OPERAND_WIDTH{1'b0}};
+        spr_gpr_we_r      <= 1'b0;
+        spr_gpr_re_r      <= 1'b0;
+        spr_gpr_mux_r     <= 1'b0;
+        spr_bus_ack_gpr_o <= 1'b0;
+        spr_bus_dat_gpr_o <= {OPTION_OPERAND_WIDTH{1'b0}};
       end
-      else if (spr_gpr_ack_o) begin
-        spr_gpr_we_r  <= 1'b0;
-        spr_gpr_re_r  <= 1'b0;
-        spr_gpr_mux_r <= 1'b0;
-        spr_gpr_ack_o <= 1'b0;
-        spr_gpr_dat_o <= {OPTION_OPERAND_WIDTH{1'b0}};
+      else if (spr_bus_ack_gpr_o) begin
+        spr_gpr_we_r      <= 1'b0;
+        spr_gpr_re_r      <= 1'b0;
+        spr_gpr_mux_r     <= 1'b0;
+        spr_bus_ack_gpr_o <= 1'b0;
+        spr_bus_dat_gpr_o <= {OPTION_OPERAND_WIDTH{1'b0}};
       end
       else if (spr_gpr_mux_r) begin
-        spr_gpr_we_r  <= 1'b0;
-        spr_gpr_re_r  <= 1'b0;
-        spr_gpr_mux_r <= 1'b0;
-        spr_gpr_ack_o <= 1'b1;
-        spr_gpr_dat_o <= rfspr_dout;
+        spr_gpr_we_r      <= 1'b0;
+        spr_gpr_re_r      <= 1'b0;
+        spr_gpr_mux_r     <= 1'b0;
+        spr_bus_ack_gpr_o <= 1'b1;
+        spr_bus_dat_gpr_o <= rfspr_dout;
       end
       else if (spr_gpr_re_r) begin
-        spr_gpr_we_r  <= 1'b0;
-        spr_gpr_re_r  <= 1'b0;
-        spr_gpr_mux_r <= 1'b1;
-        spr_gpr_ack_o <= 1'b0;
-        spr_gpr_dat_o <= {OPTION_OPERAND_WIDTH{1'b0}};
+        spr_gpr_we_r      <= 1'b0;
+        spr_gpr_re_r      <= 1'b0;
+        spr_gpr_mux_r     <= 1'b1;
+        spr_bus_ack_gpr_o <= 1'b0;
+        spr_bus_dat_gpr_o <= {OPTION_OPERAND_WIDTH{1'b0}};
       end
       else if (spr_gpr_cs) begin
-        spr_gpr_we_r  <= spr_bus_we_i;
-        spr_gpr_re_r  <= ~spr_bus_we_i;
-        spr_gpr_mux_r <= 1'b0;
-        spr_gpr_ack_o <= spr_bus_we_i; // write on next posedge of clock and finish
-        spr_gpr_dat_o <= {OPTION_OPERAND_WIDTH{1'b0}};
+        spr_gpr_we_r      <= spr_bus_we_i;
+        spr_gpr_re_r      <= ~spr_bus_we_i;
+        spr_gpr_mux_r     <= 1'b0;
+        spr_bus_ack_gpr_o <= spr_bus_we_i; // write on next posedge of clock and finish
+        spr_bus_dat_gpr_o <= {OPTION_OPERAND_WIDTH{1'b0}};
       end
     end // @ clock
   
@@ -272,17 +272,17 @@ module mor1kx_rf_marocchino
     // make ACK
     always @(posedge clk `OR_ASYNC_RST) begin
       if (rst)
-        spr_gpr_ack_o <= 1'b0;
-      else if (spr_gpr_ack_o)
-        spr_gpr_ack_o <= 1'b0;
+        spr_bus_ack_gpr_o <= 1'b0;
+      else if (spr_bus_ack_gpr_o)
+        spr_bus_ack_gpr_o <= 1'b0;
       else if (spr_gpr_cs)
-        spr_gpr_ack_o <= 1'b1;
+        spr_bus_ack_gpr_o <= 1'b1;
     end
 
     // data to output
     always @(posedge clk) begin
-      spr_gpr_we_r  <= 1'b0;
-      spr_gpr_dat_o <= {OPTION_OPERAND_WIDTH{1'b0}};
+      spr_gpr_we_r      <= 1'b0;
+      spr_bus_dat_gpr_o <= {OPTION_OPERAND_WIDTH{1'b0}};
     end
 
   end

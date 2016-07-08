@@ -140,8 +140,8 @@ module mor1kx_ctrl_marocchino
   input                                 spr_bus_ack_tt_i,
   input      [OPTION_OPERAND_WIDTH-1:0] spr_bus_dat_pic_i,
   input                                 spr_bus_ack_pic_i,
-  input      [OPTION_OPERAND_WIDTH-1:0] spr_gpr_dat_i,
-  input                                 spr_gpr_ack_i,
+  input      [OPTION_OPERAND_WIDTH-1:0] spr_bus_dat_gpr_i,
+  input                                 spr_bus_ack_gpr_i,
 
   // WB & Exceptions
   //  # PC of completed instruction
@@ -229,11 +229,6 @@ module mor1kx_ctrl_marocchino
 
   reg                               doing_rfe_r;
 
-  /* Debug SPRs */
-  reg [31:0]                        spr_dmr1;
-  reg [31:0]                        spr_dmr2;
-  reg [31:0]                        spr_dsr;
-  reg [31:0]                        spr_drr;
 
   /* DU internal control signals */
   wire                              du_access;
@@ -247,13 +242,16 @@ module mor1kx_ctrl_marocchino
   wire                              du_npc_write;
   reg                               du_npc_written;
   wire                              du_stall_on_trap;
+  // SPR BUS acceess to DU's control registers
+  wire                              spr_bus_cs_du;  // "chip select" for DU
+  reg                               spr_bus_ack_du;
+  reg                        [31:0] spr_bus_dat_du;
+
+
 
   /* For SPR BUS transactions */
-  localparam                        SPR_ACCESS_WIDTH = 12;
   reg                               spr_bus_wait_r;
   wire                              spr_bus_ack;
-  wire       [SPR_ACCESS_WIDTH-1:0] spr_bus_ack_in;
-  wire                       [31:0] spr_bus_dat_in [0:SPR_ACCESS_WIDTH-1];
   //  # access to SYSTEM GROUP control registers
   //  # excluding GPR0
   wire                              spr_sys_group_cs;
@@ -898,54 +896,14 @@ module mor1kx_ctrl_marocchino
   end // at clock
 
 
-  // System group 'ack' and data (excluding GPR0)
-  assign spr_bus_ack_in[`OR1K_SPR_SYS_BASE]   = spr_bus_ack_sys_group;
-  assign spr_bus_dat_in[`OR1K_SPR_SYS_BASE]   = spr_bus_dat_sys_group;
-
-  // GPR0 'ack' and data: MAROCCHINO_TODO
-
-  // DMMU 'ack' and data
-  assign spr_bus_ack_in[`OR1K_SPR_DMMU_BASE]  = spr_bus_ack_dmmu_i;
-  assign spr_bus_dat_in[`OR1K_SPR_DMMU_BASE]  = spr_bus_dat_dmmu_i;
-
-  // IMMU 'ack' and data
-  assign spr_bus_ack_in[`OR1K_SPR_IMMU_BASE]  = spr_bus_ack_immu_i;
-  assign spr_bus_dat_in[`OR1K_SPR_IMMU_BASE]  = spr_bus_dat_immu_i;
-
-  // DCACHE 'ack' and data
-  assign spr_bus_ack_in[`OR1K_SPR_DC_BASE]    = spr_bus_ack_dc_i;
-  assign spr_bus_dat_in[`OR1K_SPR_DC_BASE]    = spr_bus_dat_dc_i;
-
-  // ICACHE 'ack' and data
-  assign spr_bus_ack_in[`OR1K_SPR_IC_BASE]    = spr_bus_ack_ic_i;
-  assign spr_bus_dat_in[`OR1K_SPR_IC_BASE]    = spr_bus_dat_ic_i;
-
-  // Multiply-Accumulate (MAC) 'ack' and data
-  assign spr_bus_ack_in[`OR1K_SPR_MAC_BASE]   = spr_bus_ack_mac_i;
-  assign spr_bus_dat_in[`OR1K_SPR_MAC_BASE]   = spr_bus_dat_mac_i;
-
-  // Performance Counters 'ack' and data
-  assign spr_bus_ack_in[`OR1K_SPR_PC_BASE]    = spr_bus_ack_pcu_i;
-  assign spr_bus_dat_in[`OR1K_SPR_PC_BASE]    = spr_bus_dat_pcu_i;
-
-  // Power Management 'ack' and data
-  assign spr_bus_ack_in[`OR1K_SPR_PM_BASE]    = spr_bus_ack_pmu_i;
-  assign spr_bus_dat_in[`OR1K_SPR_PM_BASE]    = spr_bus_dat_pmu_i;
-
-  // FPU 'ack' and data
-  assign spr_bus_ack_in[`OR1K_SPR_FPU_BASE]   = spr_bus_ack_fpu_i;
-  assign spr_bus_dat_in[`OR1K_SPR_FPU_BASE]   = spr_bus_dat_fpu_i;
-
-  // Timer's 'ack' and data
-  assign spr_bus_ack_in[`OR1K_SPR_TT_BASE]    = spr_bus_ack_tt_i;
-  assign spr_bus_dat_in[`OR1K_SPR_TT_BASE]    = spr_bus_dat_tt_i;
-
-  // PIC 'ack' and data
-  assign spr_bus_ack_in[`OR1K_SPR_PIC_BASE]   = spr_bus_ack_pic_i;
-  assign spr_bus_dat_in[`OR1K_SPR_PIC_BASE]   = spr_bus_dat_pic_i;
-
   // SPR access "ACK"
-  assign spr_bus_ack = (|spr_bus_ack_in) | (~spr_access_valid_reg);
+  assign spr_bus_ack = spr_bus_ack_sys_group | spr_bus_ack_gpr_i  |
+                       spr_bus_ack_dmmu_i    | spr_bus_ack_immu_i |
+                       spr_bus_ack_dc_i      | spr_bus_ack_ic_i   |
+                       spr_bus_ack_mac_i     | spr_bus_ack_du     |
+                       spr_bus_ack_pcu_i     | spr_bus_ack_pmu_i  |
+                       spr_bus_ack_pic_i     | spr_bus_ack_tt_i   |
+                       spr_bus_ack_fpu_i     | (~spr_access_valid_reg);
 
   //
   // Generate data to the register file for mfspr operations
@@ -953,18 +911,13 @@ module mor1kx_ctrl_marocchino
   // concerned by spr access.
   //
   wire [OPTION_OPERAND_WIDTH-1:0] spr_bus_dat_mux =
-    spr_bus_dat_in[`OR1K_SPR_SYS_BASE]  |
-    spr_bus_dat_in[`OR1K_SPR_DMMU_BASE] |
-    spr_bus_dat_in[`OR1K_SPR_IMMU_BASE] |
-    spr_bus_dat_in[`OR1K_SPR_DC_BASE]   |
-    spr_bus_dat_in[`OR1K_SPR_IC_BASE]   |
-    spr_bus_dat_in[`OR1K_SPR_MAC_BASE]  |
-    spr_bus_dat_in[`OR1K_SPR_DU_BASE]   |
-    spr_bus_dat_in[`OR1K_SPR_PC_BASE]   |
-    spr_bus_dat_in[`OR1K_SPR_PM_BASE]   |
-    spr_bus_dat_in[`OR1K_SPR_PIC_BASE]  |
-    spr_bus_dat_in[`OR1K_SPR_TT_BASE]   |
-    spr_bus_dat_in[`OR1K_SPR_FPU_BASE];
+    spr_bus_dat_sys_group | spr_bus_dat_gpr_i  |
+    spr_bus_dat_dmmu_i    | spr_bus_dat_immu_i |
+    spr_bus_dat_dc_i      | spr_bus_dat_ic_i   |
+    spr_bus_dat_mac_i     | spr_bus_dat_du     |
+    spr_bus_dat_pcu_i     | spr_bus_dat_pmu_i  |
+    spr_bus_dat_pic_i     | spr_bus_dat_tt_i   |
+    spr_bus_dat_fpu_i;
 
 
   // MFSPR data and flag for WB_MUX
@@ -992,208 +945,245 @@ module mor1kx_ctrl_marocchino
   //------------//
   // DEBUG unit //
   //------------//
-generate
-if (FEATURE_DEBUGUNIT != "NONE") begin : du
 
-  reg [OPTION_OPERAND_WIDTH-1:0] du_read_dat;
+  // "chip select" for DU
+  assign spr_bus_cs_du = spr_bus_stb_o & (`SPR_BASE(spr_bus_addr_o) == `OR1K_SPR_DU_BASE);  
 
-  reg                            du_ack;
-  reg                            du_stall_r;
-  reg [1:0]                      branch_step;
+  generate
+  if (FEATURE_DEBUGUNIT != "NONE") begin : du_enabled
+    /* Debug SPRs */
+    reg [31:0]                     spr_dmr1;
+    reg [31:0]                     spr_dmr2;
+    reg [31:0]                     spr_dsr;
+    reg [31:0]                     spr_drr;
 
-  assign du_access = du_stb_i;
+    reg [OPTION_OPERAND_WIDTH-1:0] du_read_dat;
+  
+    reg                            du_ack;
+    reg                            du_stall_r;
+    reg [1:0]                      branch_step;
+  
+    assign du_access = du_stb_i;
+  
+    // Generate ack back to the debug interface bus
+    always @(posedge clk `OR_ASYNC_RST) begin
+      if (rst)
+        du_ack <= 1'b0;
+      else if (du_ack)
+        du_ack <= 1'b0;
+      else if (du_stb_i) begin
+        du_ack <= spr_bus_ack;
+      end
+    end // @ clock
+  
+    assign du_ack_o = du_ack;
+  
+    /* Data back to the debug bus */
+    always @(posedge clk)
+      du_read_dat <= wb_mfspr_dat_o;
+  
+    assign du_dat_o = du_read_dat;
+  
+    always @(posedge clk) begin
+      if (rst)
+        du_cpu_stall <= 1'b0;
+      else if (~du_stall_i)
+        du_cpu_stall <= 1'b0;
+      else if ((padv_wb_o & du_stall_i) | du_stall_o)
+        du_cpu_stall <= 1'b1;
+    end // @ clock
+  
+    /* goes out to the debug interface and comes back 1 cycle later
+       via du_stall_i */
+    assign du_stall_o = stepping & pstep[4] |
+                       (du_stall_on_trap & wb_new_result & except_trap_i); // DU
+  
+    /* Pulse to indicate we're restarting after a stall */
+    assign du_restart_from_stall = du_stall_r & (~du_stall_i);
+  
+    /* NPC debug control logic */
+    assign du_npc_write = (du_we_i & (du_addr_i == `OR1K_SPR_NPC_ADDR) &
+                           du_ack_o);
+  
+    /* Pick the traps-cause-stall bit out of the DSR */
+    assign du_stall_on_trap = spr_dsr[`OR1K_SPR_DSR_TE];
+  
+    /* record if NPC was written while we were stalled.
+       If so, we will use this value for restarting */
+    always @(posedge clk `OR_ASYNC_RST) begin
+      if (rst)
+        du_npc_written <= 1'b0;
+      else if (du_restart_from_stall)
+        du_npc_written <= 1'b0;
+      else if (du_npc_write)
+        du_npc_written <= 1'b1;
+    end // @ clock
+  
+    always @(posedge clk `OR_ASYNC_RST) begin
+      if (rst)
+        stepped_into_exception <= 1'b0;
+      else if (du_restart_from_stall)
+        stepped_into_exception <= 1'b0;
+      else if (stepping & exception & wb_new_result) // DU
+        stepped_into_exception <= 1'b1;
+    end // @ clock
+  
+    always @(posedge clk `OR_ASYNC_RST) begin
+      if (rst)
+        stepped_into_rfe <= 1'b0;
+      else if (du_restart_from_stall)
+        stepped_into_rfe <= 1'b0;
+      else if (stepping)
+        stepped_into_rfe <= wb_op_rfe_i; // DU
+    end // @ clock
+  
+    assign du_restart_pc_o = spr_npc;
+  
+    assign du_restart_o = du_restart_from_stall;
+  
+    /* Indicate when we're stepping */
+    assign stepping = spr_dmr1[`OR1K_SPR_DMR1_ST] & spr_dsr[`OR1K_SPR_DSR_TE];
+  
+    always @(posedge clk `OR_ASYNC_RST) begin
+      if (rst)
+        pstep <= 6'h0;
+      else if (du_restart_from_stall & stepping)
+        pstep <= 6'h1;
+      else if (pstep[0] |
+               /* decode is always single cycle */
+               (pstep[1] & padv_decode_o) |
+               pstep[4])
+        pstep <= {pstep[4:0],1'b0};
+    end // @ clock
+  
+    always @(posedge clk `OR_ASYNC_RST) begin
+      if (rst)
+        branch_step <= 0;
+      else if (du_npc_written)
+        branch_step <= 0;
+      else if (stepping & pstep[2])
+        branch_step <= {branch_step[0], dcod_do_branch_i};
+      else if ((~stepping) & wb_new_result) // DU
+        branch_step <= {branch_step[0], wb_delay_slot_i};// DU
+    end // @ clock
+  
+    assign stepped_into_delay_slot = branch_step[1] & stepping;
+  
+    /* Put the incoming stall signal through a register to detect FE */
+    always @(posedge clk `OR_ASYNC_RST) begin
+      if (rst)
+        du_stall_r <= 1'b0;
+      else
+        du_stall_r <= du_stall_i;
+    end // @ clock
 
-  // Generate ack back to the debug interface bus
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      du_ack <= 1'b0;
-    else if (du_ack)
-      du_ack <= 1'b0;
-    else if (du_stb_i) begin
-      du_ack <= spr_bus_ack;
+
+    // DU's Control registers and SPR BUS access cycle
+    wire spr_bus_cs_du_dmr1 = (`SPR_OFFSET(spr_bus_addr_o) == `SPR_OFFSET(`OR1K_SPR_DMR1_ADDR));
+    wire spr_bus_cs_du_dmr2 = (`SPR_OFFSET(spr_bus_addr_o) == `SPR_OFFSET(`OR1K_SPR_DMR2_ADDR));
+    wire spr_bus_cs_du_dsr  = (`SPR_OFFSET(spr_bus_addr_o) == `SPR_OFFSET(`OR1K_SPR_DSR_ADDR));
+    wire spr_bus_cs_du_drr  = (`SPR_OFFSET(spr_bus_addr_o) == `SPR_OFFSET(`OR1K_SPR_DRR_ADDR));
+ 
+    reg spr_du_wr_r;
+  
+    always @(posedge clk `OR_ASYNC_RST) begin
+      if (rst) begin
+        spr_du_wr_r    <=  1'b0;
+        spr_bus_ack_du <=  1'b0;
+        spr_bus_dat_du <= 32'd0;
+      end
+      else if (spr_bus_ack_du) begin // end of cycle
+        spr_du_wr_r    <=  1'b0;
+        spr_bus_ack_du <=  1'b0;
+        spr_bus_dat_du <= 32'd0;
+      end
+      else if (spr_bus_cs_du) begin
+        spr_bus_ack_du <= 1'b1;
+        spr_du_wr_r    <= spr_bus_we_o;
+        // data
+        if (spr_bus_we_o) begin
+          spr_bus_dat_du <= 32'd0;
+        end
+        else begin
+          spr_bus_dat_du <= spr_bus_cs_du_dmr1 ? spr_dmr1 :
+                            spr_bus_cs_du_dmr2 ? spr_dmr2 :
+                            spr_bus_cs_du_dsr  ? spr_dsr  :
+                            spr_bus_cs_du_drr  ? spr_drr  :
+                                                 32'd0;
+        end
+      end
+    end // at clock
+
+   
+    /* DMR1 */
+    always @(posedge clk `OR_ASYNC_RST) begin
+      if (rst)
+        spr_dmr1 <= 32'd0;
+      else if (spr_du_wr_r & spr_bus_cs_du_dmr1)
+        spr_dmr1[23:0] <= spr_bus_dat_o[23:0];
+    end // @ clock
+  
+    /* DMR2 */
+    always @(posedge clk)
+      spr_dmr2 <= 0;
+  
+    /* DSR */
+    always @(posedge clk `OR_ASYNC_RST) begin
+      if (rst)
+        spr_dsr <= 32'd0;
+      else if (spr_du_wr_r & spr_bus_cs_du_dsr)
+        spr_dsr[13:0] <= spr_bus_dat_o[13:0];
+    end // @ clock
+  
+    /* DRR */
+    always @(posedge clk `OR_ASYNC_RST) begin
+      if (rst)
+        spr_drr <= 32'd0;
+      else if (spr_du_wr_r & spr_bus_cs_du_drr)
+        spr_drr[13:0] <= spr_bus_dat_o[13:0];
+      else if (du_stall_on_trap & wb_new_result & except_trap_i) // DU
+        spr_drr[`OR1K_SPR_DRR_TE] <= 1'b1;
+    end // @ clock
+
+  end // block: du
+  else begin : du_none
+
+    // make ACK to SPR BUS
+    always @(posedge clk `OR_ASYNC_RST) begin
+      if (rst)
+        spr_bus_ack_du <= 1'b0;
+      else if (spr_bus_ack_du)
+        spr_bus_ack_du <= 1'b0;
+      else if (spr_bus_cs_du)
+        spr_bus_ack_du <= 1'b1;
     end
-  end // @ clock
 
-  assign du_ack_o = du_ack;
+    // data to output to SPR BUS
+    always @(posedge clk) begin
+      spr_bus_dat_du <= 32'd0;
+    end
 
-  /* Data back to the debug bus */
-  always @(posedge clk)
-    du_read_dat <= wb_mfspr_dat_o;
+    assign du_access = 0;
+    assign du_stall_o = 0;
+    assign du_ack_o = 0;
+    assign du_restart_o = 0;
+    assign du_restart_pc_o = 0;
+    assign stepping = 0;
+    assign du_npc_write = 0;
+    assign du_stall_on_trap = 0;
+    assign stepped_into_delay_slot = 0;
+    assign du_dat_o = 0;
+    assign du_restart_from_stall = 0;
 
-  assign du_dat_o = du_read_dat;
-
-  always @(posedge clk) begin
-    if (rst)
-      du_cpu_stall <= 1'b0;
-    else if (~du_stall_i)
-      du_cpu_stall <= 1'b0;
-    else if ((padv_wb_o & du_stall_i) | du_stall_o)
-      du_cpu_stall <= 1'b1;
-  end // @ clock
-
-  /* goes out to the debug interface and comes back 1 cycle later
-     via du_stall_i */
-  assign du_stall_o = stepping & pstep[4] |
-                     (du_stall_on_trap & wb_new_result & except_trap_i); // DU
-
-  /* Pulse to indicate we're restarting after a stall */
-  assign du_restart_from_stall = du_stall_r & (~du_stall_i);
-
-  /* NPC debug control logic */
-  assign du_npc_write = (du_we_i & (du_addr_i == `OR1K_SPR_NPC_ADDR) &
-                         du_ack_o);
-
-  /* Pick the traps-cause-stall bit out of the DSR */
-  assign du_stall_on_trap = spr_dsr[`OR1K_SPR_DSR_TE];
-
-  /* record if NPC was written while we were stalled.
-     If so, we will use this value for restarting */
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
+    always @(posedge clk) begin
       du_npc_written <= 1'b0;
-    else if (du_restart_from_stall)
-      du_npc_written <= 1'b0;
-    else if (du_npc_write)
-      du_npc_written <= 1'b1;
-  end // @ clock
-
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
+      du_cpu_stall <= 1'b0;
+      pstep <= 6'd0;
       stepped_into_exception <= 1'b0;
-    else if (du_restart_from_stall)
-      stepped_into_exception <= 1'b0;
-    else if (stepping & exception & wb_new_result) // DU
-      stepped_into_exception <= 1'b1;
-  end // @ clock
-
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
       stepped_into_rfe <= 1'b0;
-    else if (du_restart_from_stall)
-      stepped_into_rfe <= 1'b0;
-    else if (stepping)
-      stepped_into_rfe <= wb_op_rfe_i; // DU
-  end // @ clock
+    end // @ clock
 
-  assign du_restart_pc_o = spr_npc;
-
-  assign du_restart_o = du_restart_from_stall;
-
-  /* Indicate when we're stepping */
-  assign stepping = spr_dmr1[`OR1K_SPR_DMR1_ST] &
-                    spr_dsr[`OR1K_SPR_DSR_TE];
-
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      pstep <= 6'h0;
-    else if (du_restart_from_stall & stepping)
-      pstep <= 6'h1;
-    else if (pstep[0] |
-             /* decode is always single cycle */
-             (pstep[1] & padv_decode_o) |
-             pstep[4])
-      pstep <= {pstep[4:0],1'b0};
-  end // @ clock
-
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      branch_step <= 0;
-    else if (du_npc_written)
-      branch_step <= 0;
-    else if (stepping & pstep[2])
-      branch_step <= {branch_step[0], dcod_do_branch_i};
-    else if ((~stepping) & wb_new_result) // DU
-      branch_step <= {branch_step[0], wb_delay_slot_i};// DU
-  end // @ clock
-
-  assign stepped_into_delay_slot = branch_step[1] & stepping;
-
-  /* Signals for waveform debuging */
-  wire [31:0] spr_read_data_group_0 = spr_bus_dat_in[0];
-  wire [31:0] spr_read_data_group_1 = spr_bus_dat_in[1];
-  wire [31:0] spr_read_data_group_2 = spr_bus_dat_in[2];
-  wire [31:0] spr_read_data_group_3 = spr_bus_dat_in[3];
-  wire [31:0] spr_read_data_group_4 = spr_bus_dat_in[4];
-  wire [31:0] spr_read_data_group_5 = spr_bus_dat_in[5];
-  wire [31:0] spr_read_data_group_6 = spr_bus_dat_in[6];
-  wire [31:0] spr_read_data_group_7 = spr_bus_dat_in[7];
-  wire [31:0] spr_read_data_group_8 = spr_bus_dat_in[8];
-  wire [31:0] spr_read_data_group_9 = spr_bus_dat_in[9];
-
-
-  /* always single cycle access */
-  assign spr_bus_ack_in[`OR1K_SPR_DU_BASE] = 1'b1; // MAROCCHINO_TODO
-  assign spr_bus_dat_in[`OR1K_SPR_DU_BASE] =
-    (spr_bus_addr_o==`OR1K_SPR_DMR1_ADDR) ?  spr_dmr1 :
-    (spr_bus_addr_o==`OR1K_SPR_DMR2_ADDR) ?  spr_dmr2 :
-    (spr_bus_addr_o==`OR1K_SPR_DSR_ADDR)  ?  spr_dsr  :
-    (spr_bus_addr_o==`OR1K_SPR_DRR_ADDR)  ?  spr_drr  : 1'b0;
-
-  /* Put the incoming stall signal through a register to detect FE */
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      du_stall_r <= 1'b0;
-    else
-      du_stall_r <= du_stall_i;
-  end // @ clock
-
-  /* DMR1 */
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      spr_dmr1 <= 0;
-    else if (spr_bus_we_o & (spr_bus_addr_o == `OR1K_SPR_DMR1_ADDR))
-      spr_dmr1[23:0] <= spr_bus_dat_o[23:0];
-  end // @ clock
-
-  /* DMR2 */
-  always @(posedge clk)
-    spr_dmr2 <= 0;
-
-  /* DSR */
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      spr_dsr <= 0;
-    else if (spr_bus_we_o & (spr_bus_addr_o == `OR1K_SPR_DSR_ADDR))
-      spr_dsr[13:0] <= spr_bus_dat_o[13:0];
-  end // @ clock
-
-  /* DRR */
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      spr_drr <= 0;
-    else if (spr_bus_we_o & (spr_bus_addr_o == `OR1K_SPR_DRR_ADDR))
-      spr_drr[13:0] <= spr_bus_dat_o[13:0];
-    else if (du_stall_on_trap & wb_new_result & except_trap_i) // DU
-      spr_drr[`OR1K_SPR_DRR_TE] <= 1'b1;
-  end // @ clock
-
-end // block: du
-else begin : no_du
-  assign du_access = 0;
-  assign du_stall_o = 0;
-  assign du_ack_o = 0;
-  assign du_restart_o = 0;
-  assign du_restart_pc_o = 0;
-  assign stepping = 0;
-  assign du_npc_write = 0;
-  assign du_stall_on_trap = 0;
-  assign stepped_into_delay_slot = 0;
-  assign du_dat_o = 0;
-  assign du_restart_from_stall = 0;
-  assign spr_bus_ack_in[`OR1K_SPR_DU_BASE] = 1'b0;
-  assign spr_bus_dat_in[`OR1K_SPR_DU_BASE] = 0;
-  always @(posedge clk) begin
-    spr_dmr1 <= 0;
-    spr_dmr2 <= 0;
-    spr_dsr <= 0;
-    spr_drr <= 0;
-    du_npc_written <= 1'b0;
-    du_cpu_stall <= 1'b0;
-    pstep <= 6'd0;
-    stepped_into_exception <= 1'b0;
-    stepped_into_rfe <= 1'b0;
-  end // @ clock
-end
-endgenerate
+  end // du enabled/none
+  endgenerate
 
 endmodule // mor1kx_ctrl_marocchino
