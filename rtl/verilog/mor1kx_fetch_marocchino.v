@@ -90,13 +90,9 @@ module mor1kx_fetch_marocchino
   input                                 dcod_do_branch_i,
   input      [OPTION_OPERAND_WIDTH-1:0] dcod_do_branch_target_i,
 
-  // exception/rfe control transfer
+  // DU/exception/rfe control transfer
   input                                 ctrl_branch_exception_i,
   input      [OPTION_OPERAND_WIDTH-1:0] ctrl_branch_except_pc_i,
-
-  // debug unit command for control transfer
-  input                                 du_restart_i,
-  input      [OPTION_OPERAND_WIDTH-1:0] du_restart_pc_i,
 
   // to RF
   output     [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfa_adr_o,
@@ -323,13 +319,12 @@ module mor1kx_fetch_marocchino
 
   // Select the PC for next fetch
   wire [OPTION_OPERAND_WIDTH-1:0] virt_addr =
-    // Debug (MAROCCHINO_TODO)
-    du_restart_i                                         ? du_restart_pc_i :
-    // padv-s1 and neither exceptions nor pipeline flush
+    // Use DU/exceptions/rfe provided address
     (ctrl_branch_exception_i & ~fetch_exception_taken_o) ? ctrl_branch_except_pc_i :
-    fetch_ds_stored                                      ? s1t_pc_next :
+    // regular update of IFETCH
+    fetch_ds_stored                                      ? s1t_pc_next             :
     dcod_do_branch_i                                     ? dcod_do_branch_target_i :
-    branch_stored                                        ? branch_target_stored :
+    branch_stored                                        ? branch_target_stored    :
                                                            s1t_pc_next;
 
 

@@ -126,7 +126,7 @@ module mor1kx_marocchino_alone
   // IRQ
   input [31:0]                      irq_i,
 
-  // Debug interface
+  // Debug System accesses CPU SPRs through DU
   input [15:0]                      du_addr_i,
   input                             du_stb_i,
   input [OPTION_OPERAND_WIDTH-1:0]  du_dat_i,
@@ -337,7 +337,7 @@ module mor1kx_marocchino_alone
     .dbus_ack_i     (dbus_ack_i),
     .dbus_dat_i     (dbus_dat_i[OPTION_OPERAND_WIDTH-1:0]),
     .irq_i  (irq_i[31:0]),
-    .du_addr_i   (du_addr_i[15:0]),
+    .du_addr_i   (du_addr_i),
     .du_stb_i    (du_stb_i),
     .du_dat_i    (du_dat_i[OPTION_OPERAND_WIDTH-1:0]),
     .du_we_i     (du_we_i),

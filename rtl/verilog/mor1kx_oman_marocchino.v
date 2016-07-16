@@ -41,6 +41,7 @@ module mor1kx_oman_marocchino
   // DECODE non-latched flags to indicate next required unit
   // (The information is stored in order control buffer)
   input                                 dcod_op_pass_exec_i,
+  input                                 dcod_jump_or_branch_i, // just to support IBUS error handling in CTRL
   input                                 dcod_op_1clk_i,
   input                                 dcod_op_div_i,
   input                                 dcod_op_mul_i,
@@ -117,6 +118,10 @@ module mor1kx_oman_marocchino
   // common flag signaling that WB ir required
   output                                do_rf_wb_o,
 
+  // Support IBUS error handling in CTRL
+  output                                exec_jump_or_branch_o,
+  output     [OPTION_OPERAND_WIDTH-1:0] pc_exec_o,
+
   // WB outputs
   //  ## instruction related information
   output reg [OPTION_OPERAND_WIDTH-1:0] pc_wb_o,
@@ -146,7 +151,8 @@ module mor1kx_oman_marocchino
   localparam  OCBT_INTERRUPTS_EN_POS  = OCBT_FD_AN_EXCEPT_POS   + 1;
   //  Unit wise requested/ready
   localparam  OCBT_OP_PASS_EXEC_POS   = OCBT_INTERRUPTS_EN_POS  + 1;
-  localparam  OCBT_OP_1CLK_POS        = OCBT_OP_PASS_EXEC_POS   + 1;
+  localparam  OCBT_JUMP_OR_BRANCH_POS = OCBT_OP_PASS_EXEC_POS   + 1;
+  localparam  OCBT_OP_1CLK_POS        = OCBT_JUMP_OR_BRANCH_POS + 1;
   localparam  OCBT_OP_DIV_POS         = OCBT_OP_1CLK_POS        + 1;
   localparam  OCBT_OP_MUL_POS         = OCBT_OP_DIV_POS         + 1;
   localparam  OCBT_OP_FP32_POS        = OCBT_OP_MUL_POS         + 1; // arithmetic part only, FP comparison is 1-clock
@@ -218,6 +224,7 @@ module mor1kx_oman_marocchino
                   dcod_op_mul_i,
                   dcod_op_div_i,
                   dcod_op_1clk_i,
+                  dcod_jump_or_branch_i,
                   dcod_op_pass_exec_i,
                   // Flag that istruction is restartable
                   interrupts_en,
@@ -413,10 +420,9 @@ module mor1kx_oman_marocchino
                          dcod_op_rfe_i | dcod_an_except;                        // stall FETCH
 
 
-  // For debug with  simulatiom
-`ifdef SIM_SMPL_SOC // MAROCCHINO_TODO
-  wire [OPTION_OPERAND_WIDTH-1:0] pc_exec = ocbo00[OCBT_PC_MSB:OCBT_PC_LSB];
-`endif
+  // Support IBUS error handling in CTRL
+  assign exec_jump_or_branch_o = ocbo00[OCBT_JUMP_OR_BRANCH_POS];
+  assign pc_exec_o             = ocbo00[OCBT_PC_MSB:OCBT_PC_LSB];
 
 
   // WB-request (1-clock to prevent extra writes in RF)

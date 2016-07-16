@@ -134,6 +134,7 @@ module mor1kx_cpu_marocchino
   wire                            dcod_insn_valid;
 
   wire [OPTION_OPERAND_WIDTH-1:0] pc_decode;
+  wire [OPTION_OPERAND_WIDTH-1:0] pc_exec;
   wire [OPTION_OPERAND_WIDTH-1:0] pc_wb;
 
   wire                            wb_atomic_flag_set;
@@ -203,6 +204,8 @@ module mor1kx_cpu_marocchino
   // branching
   //  ## detect jump/branch to indicate "delay slot" for next fetched instruction
   wire                            dcod_jump_or_branch;
+  //  ## support IBUS error handling in CTRL
+  wire                            exec_jump_or_branch;
   //  ## do branch (pedicted or unconditional)
   wire                            dcod_do_branch;
   wire [OPTION_OPERAND_WIDTH-1:0] dcod_do_branch_target;
@@ -303,11 +306,6 @@ module mor1kx_cpu_marocchino
   //   Insn Cache
   wire [OPTION_OPERAND_WIDTH-1:0] spr_bus_dat_ic;
   wire                            spr_bus_ack_ic;
-
-
-  // Debug Unit
-  wire                            du_restart;
-  wire [OPTION_OPERAND_WIDTH-1:0] du_restart_pc;
 
 
   // pipeline controls from CTRL to units
@@ -425,13 +423,9 @@ module mor1kx_cpu_marocchino
     .dcod_do_branch_i                 (dcod_do_branch), // FETCH
     .dcod_do_branch_target_i          (dcod_do_branch_target), // FETCH
 
-    // exception/rfe control transfer
+    // DU/exception/rfe control transfer
     .ctrl_branch_exception_i          (ctrl_branch_exception), // FETCH
     .ctrl_branch_except_pc_i          (ctrl_branch_except_pc), // FETCH
-
-    // debug unit command for control transfer
-    .du_restart_i                     (du_restart), // FETCH
-    .du_restart_pc_i                  (du_restart_pc), // FETCH
 
     //   To RF
     .fetch_rfa_adr_o                  (fetch_rfa_adr), // FETCH (not latched, to RF)
@@ -804,6 +798,7 @@ module mor1kx_cpu_marocchino
     // DECODE non-latched flags to indicate next required unit
     // (The information is stored in order control buffer)
     .dcod_op_pass_exec_i        (dcod_op_pass_exec), // OMAN
+    .dcod_jump_or_branch_i      (dcod_jump_or_branch), // OMAN
     .dcod_op_1clk_i             (dcod_op_1clk), // OMAN
     .dcod_op_div_i              (dcod_op_div), // OMAN
     .dcod_op_mul_i              (dcod_op_mul), // OMAN
@@ -879,6 +874,10 @@ module mor1kx_cpu_marocchino
     .grant_wb_to_lsu_o          (grant_wb_to_lsu), // OMAN
     // common flag signaling that WB ir required
     .do_rf_wb_o                 (do_rf_wb), // OMAN
+
+    // Support IBUS error handling in CTRL
+    .exec_jump_or_branch_o      (exec_jump_or_branch), // OMAN
+    .pc_exec_o                  (pc_exec), // OMAN
 
     // WB outputs
     //  ## instruction related information
@@ -1021,11 +1020,13 @@ module mor1kx_cpu_marocchino
     // Track branch address for exception processing support
     .dcod_do_branch_i                 (dcod_do_branch), // CTRL
     .dcod_do_branch_target_i          (dcod_do_branch_target), // CTRL
-    .dcod_jump_or_branch_i            (dcod_jump_or_branch), // CTRL
-    .pc_decode_i                      (pc_decode), // CTRL
+    //.dcod_jump_or_branch_i            (dcod_jump_or_branch), // CTRL
+    // Support IBUS error handling in CTRL
+    .exec_jump_or_branch_i            (exec_jump_or_branch), // CTRL
+    .pc_exec_i                        (pc_exec), // CTRL
 
-    // Debug Unit related
-    .du_addr_i                        (du_addr_i[15:0]), // CTRL
+    // Debug System accesses CPU SPRs through DU
+    .du_addr_i                        (du_addr_i), // CTRL
     .du_stb_i                         (du_stb_i), // CTRL
     .du_dat_i                         (du_dat_i), // CTRL
     .du_we_i                          (du_we_i), // CTRL
@@ -1033,8 +1034,6 @@ module mor1kx_cpu_marocchino
     .du_ack_o                         (du_ack_o), // CTRL
     .du_stall_i                       (du_stall_i), // CTRL
     .du_stall_o                       (du_stall_o), // CTRL
-    .du_restart_pc_o                  (du_restart_pc), // CTRL
-    .du_restart_o                     (du_restart), // CTRL
 
     // IRQ lines from PIC
     .spr_picsr_i                      (spr_picsr), // CTRL
