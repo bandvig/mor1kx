@@ -1232,7 +1232,7 @@ module mor1kx_ctrl_marocchino
       end
     end // @ clock
     // ---
-    assign stepped_into_delay_slot = branch_step[3];
+    assign stepped_into_delay_slot = branch_step[2];
 
   end // DU is enabled
   else begin : du_none
