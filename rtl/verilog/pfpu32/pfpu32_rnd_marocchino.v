@@ -410,7 +410,7 @@ module pfpu32_rnd_marocchino
         wb_fp32_arith_fpcsr_o[`OR1K_FPCSR_DZF] <= s2t_dbz;
       end
       else  if (do_rf_wb_i) begin // another unit is granted with guarantee
-        wb_fp32_arith_rdy_o   <= 1'b1;
+        wb_fp32_arith_rdy_o   <= 1'b0;
         wb_fp32_arith_fpcsr_o <= {`OR1K_FPCSR_WIDTH{1'b0}};
       end
     end // advance WB latches
