@@ -66,7 +66,6 @@ module pfpu32_top_marocchino
   output                            fp32_arith_valid_o,    // WB-latching ahead arithmetic ready flag
   input                             grant_wb_to_fp32_arith_i,
   output                     [31:0] wb_fp32_arith_res_o,   // arithmetic result
-  output                            wb_fp32_arith_rdy_o,   // arithmetic ready flag
   output    [`OR1K_FPCSR_WIDTH-1:0] wb_fp32_arith_fpcsr_o  // arithmetic exceptions
 );
 
@@ -415,7 +414,6 @@ pfpu32_rnd_marocchino u_f32_rnd
   // outputs
   .fp32_arith_valid_o     (fp32_arith_valid_o),
   .wb_fp32_arith_res_o    (wb_fp32_arith_res_o),
-  .wb_fp32_arith_rdy_o    (wb_fp32_arith_rdy_o),
   .wb_fp32_arith_fpcsr_o  (wb_fp32_arith_fpcsr_o)
 );
 

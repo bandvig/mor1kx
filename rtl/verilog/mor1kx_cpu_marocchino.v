@@ -160,14 +160,16 @@ module mor1kx_cpu_marocchino
 
   wire                            dcod_op_mfspr; // to OMAN & CTRL (not latched)
   wire                            dcod_op_mtspr; // to OMAN & CTRL (not latched)
-  wire                            wb_mfspr_rdy; // to WB_MUX
-  wire [OPTION_OPERAND_WIDTH-1:0] wb_mfspr_dat; // to WB_MUX
 
 
-  wire [OPTION_OPERAND_WIDTH-1:0] wb_result;
+  wire [OPTION_OPERAND_WIDTH-1:0] wb_alu_1clk_result;
+  wire [OPTION_OPERAND_WIDTH-1:0] wb_div_result;
+  wire [OPTION_OPERAND_WIDTH-1:0] wb_mul_result;
+  wire [OPTION_OPERAND_WIDTH-1:0] wb_fp32_arith_res;
+  wire [OPTION_OPERAND_WIDTH-1:0] wb_lsu_result;
+  wire [OPTION_OPERAND_WIDTH-1:0] wb_mfspr_dat;
+  wire [OPTION_OPERAND_WIDTH-1:0] wb_result; // WB result combiner
 
-  wire [OPTION_OPERAND_WIDTH-1:0] wb_lsu_result;  // to WB_MUX
-  wire                            wb_lsu_rdy;     // to WB_MUX
 
   wire                            dcod_valid;
   wire                            exec_valid;
@@ -570,6 +572,7 @@ module mor1kx_cpu_marocchino
     //   forwarding from WB
     .exe2dec_hazard_a_i               (exe2dec_hazard_a), // EXE
     .exe2dec_hazard_b_i               (exe2dec_hazard_b), // EXE
+    .wb_result_i                      (wb_result), // EXE
 
 
     // 1-clock instruction related inputs
@@ -598,6 +601,8 @@ module mor1kx_cpu_marocchino
     .flag_i                           (ctrl_flag), // EXE
     //  # grant WB to 1-clock execution units
     .grant_wb_to_1clk_i               (grant_wb_to_1clk), // EXE
+    //  # WB-latched 1-clock ALU result
+    .wb_alu_1clk_result_o             (wb_alu_1clk_result), // EXE
 
     // multi-clock instruction related inputs/outputs
     //  ## multiplier inputs/outputs
@@ -605,6 +610,7 @@ module mor1kx_cpu_marocchino
     .mul_busy_o                       (mul_busy), // EXE
     .mul_valid_o                      (mul_valid), // EXE
     .grant_wb_to_mul_i                (grant_wb_to_mul), // EXE
+    .wb_mul_result_o                  (wb_mul_result), // EXE
     //  ## division inputs/outputs
     .dcod_op_div_i                    (dcod_op_div), // EXE
     .dcod_op_div_signed_i             (dcod_op_div_signed), // EXE
@@ -612,25 +618,20 @@ module mor1kx_cpu_marocchino
     .div_busy_o                       (div_busy), // EXE
     .div_valid_o                      (div_valid), // EXE
     .grant_wb_to_div_i                (grant_wb_to_div), // EXE
+    .wb_div_result_o                  (wb_div_result), // EXE
     //  ## FPU-32 arithmetic part
     .fpu_round_mode_i                 (ctrl_fpu_round_mode), // EXE
     .dcod_op_fp32_arith_i             (dcod_op_fp32_arith), // EXE
     .fp32_arith_busy_o                (fp32_arith_busy), // EXE
     .fp32_arith_valid_o               (fp32_arith_valid), // EXE
     .grant_wb_to_fp32_arith_i         (grant_wb_to_fp32_arith), // EXE
-    //  ## MFSPR
-    .wb_mfspr_rdy_i                   (wb_mfspr_rdy), // EXE
-    .wb_mfspr_dat_i                   (wb_mfspr_dat), // EXE
-    //  ## LSU related inputs
-    .wb_lsu_rdy_i                     (wb_lsu_rdy), // EXE
-    .wb_lsu_result_i                  (wb_lsu_result), // EXE
+    .wb_fp32_arith_res_o              (wb_fp32_arith_res), // EXE
 
     // Forwarding comparision flag
     .exec_op_1clk_cmp_o               (exec_op_1clk_cmp), // EXE
     .exec_flag_set_o                  (exec_flag_set), // EXE
 
     // WB outputs
-    .wb_result_o                      (wb_result), // EXE
     //  ## integer comparison result
     .wb_int_flag_set_o                (wb_int_flag_set), // EXE
     .wb_int_flag_clear_o              (wb_int_flag_clear), // EXE
@@ -648,6 +649,19 @@ module mor1kx_cpu_marocchino
     .wb_fp32_cmp_fpcsr_o              (wb_fp32_cmp_fpcsr) // EXE
   );
 
+
+  //---------------//
+  // Result for WB //
+  //---------------//
+  
+  assign wb_result =  wb_alu_1clk_result | wb_div_result     |
+                      wb_mul_result      | wb_fp32_arith_res |
+                      wb_lsu_result      | wb_mfspr_dat;
+
+
+  //--------------//
+  // LSU instance //
+  //--------------//
 
   mor1kx_lsu_marocchino
   #(
@@ -674,7 +688,6 @@ module mor1kx_cpu_marocchino
     .pipeline_flush_i                 (pipeline_flush), // LSU
     .padv_decode_i                    (padv_decode), // LSU
     .padv_wb_i                        (padv_wb), // LSU
-    .do_rf_wb_i                       (do_rf_wb), // LSU
     .grant_wb_to_lsu_i                (grant_wb_to_lsu), // LSU
     // configuration
     .dc_enable_i                      (dc_enable), // LSU
@@ -726,7 +739,6 @@ module mor1kx_cpu_marocchino
     .lsu_busy_o                       (lsu_busy), // LSU
     .lsu_valid_o                      (lsu_valid), // LSU: result ready or exceptions
     .wb_lsu_result_o                  (wb_lsu_result), // LSU
-    .wb_lsu_rdy_o                     (wb_lsu_rdy), // LSU
     .wb_except_dbus_o                 (wb_except_dbus), // LSU
     .wb_except_dpagefault_o           (wb_except_dpagefault), // LSU
     .wb_except_dtlb_miss_o            (wb_except_dtlb_miss), // LSU
@@ -739,10 +751,10 @@ module mor1kx_cpu_marocchino
 
   mor1kx_rf_marocchino
   #(
-    .OPTION_OPERAND_WIDTH     (OPTION_OPERAND_WIDTH),
-    .OPTION_RF_CLEAR_ON_INIT  (OPTION_RF_CLEAR_ON_INIT),
-    .OPTION_RF_ADDR_WIDTH     (OPTION_RF_ADDR_WIDTH),
-    .FEATURE_DEBUGUNIT        (FEATURE_DEBUGUNIT)
+    .OPTION_OPERAND_WIDTH     (OPTION_OPERAND_WIDTH), // RF
+    .OPTION_RF_CLEAR_ON_INIT  (OPTION_RF_CLEAR_ON_INIT), // RF
+    .OPTION_RF_ADDR_WIDTH     (OPTION_RF_ADDR_WIDTH), // RF
+    .FEATURE_DEBUGUNIT        (FEATURE_DEBUGUNIT) // RF
   )
   u_rf
   (
@@ -1000,7 +1012,6 @@ module mor1kx_cpu_marocchino
     .stall_fetch_i                    (stall_fetch), // CTRL
     .dcod_valid_i                     (dcod_valid), // CTRL
     .exec_valid_i                     (exec_valid), // CTRL
-    .do_rf_wb_i                       (do_rf_wb), // CTRL (MFSPR support)
     .pipeline_flush_o                 (pipeline_flush), // CTRL
     .padv_fetch_o                     (padv_fetch), // CTRL
     .padv_decode_o                    (padv_decode), // CTRL
@@ -1014,7 +1025,6 @@ module mor1kx_cpu_marocchino
     .dcod_op_mfspr_i                  (dcod_op_mfspr), // CTRL
     .dcod_op_mtspr_i                  (dcod_op_mtspr), // CTRL
     //  ## result to WB_MUX
-    .wb_mfspr_rdy_o                   (wb_mfspr_rdy), // CTRL: for WB_MUX
     .wb_mfspr_dat_o                   (wb_mfspr_dat), // CTRL: for WB_MUX
 
     // Track branch address for exception processing support

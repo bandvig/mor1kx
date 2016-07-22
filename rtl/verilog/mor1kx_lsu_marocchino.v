@@ -55,7 +55,6 @@ module mor1kx_lsu_marocchino
   input                                 pipeline_flush_i,
   input                                 padv_decode_i,
   input                                 padv_wb_i,
-  input                                 do_rf_wb_i,
   input                                 grant_wb_to_lsu_i,
   // configuration
   input                                 dc_enable_i,
@@ -109,7 +108,6 @@ module mor1kx_lsu_marocchino
   output                                lsu_busy_o,
   output                                lsu_valid_o, // result ready or exceptions
   output reg [OPTION_OPERAND_WIDTH-1:0] wb_lsu_result_o,
-  output reg                            wb_lsu_rdy_o,
   // exception output
   output reg                            wb_except_dbus_o,
   output reg                            wb_except_dpagefault_o,
@@ -731,29 +729,19 @@ module mor1kx_lsu_marocchino
   //------------------------//
 
   always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst) begin
-      wb_lsu_rdy_o    <= 1'b0;
+    if (rst)
       wb_lsu_result_o <= {LSUOOW{1'b0}};
-    end
-    else if (flush_by_ctrl) begin // drop LSU's WB-ready flag
-      wb_lsu_rdy_o    <= 1'b0;
-      wb_lsu_result_o <= {LSUOOW{1'b0}};
-    end
     else if (padv_wb_i) begin
       if (grant_wb_to_lsu_i) begin
-        if (lsu_excepts_any | lsu_excepts_wb) begin // drop LSU's WB-ready flag
-          wb_lsu_rdy_o    <= 1'b0;
+        if (lsu_excepts_any | lsu_excepts_wb)
           wb_lsu_result_o <= {LSUOOW{1'b0}};
-        end
-        else begin
-          wb_lsu_rdy_o    <= lsu_ack_load_pending | lsu_ack_load | wb_lsu_rdy_o;
-          wb_lsu_result_o <= lsu_ack_load ? dbus_dat_extended : lsu_result_r;
-        end
+        else
+          wb_lsu_result_o <= lsu_ack_load         ? dbus_dat_extended :
+                             lsu_ack_load_pending ? lsu_result_r      :
+                                                    {LSUOOW{1'b0}};
       end
-      else if (do_rf_wb_i) begin// another unit is granted with guarantee
-        wb_lsu_rdy_o    <= 1'b0;
+      else
         wb_lsu_result_o <= {LSUOOW{1'b0}};
-      end
     end
   end // @clock
 

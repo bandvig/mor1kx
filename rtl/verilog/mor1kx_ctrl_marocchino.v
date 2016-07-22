@@ -73,7 +73,6 @@ module mor1kx_ctrl_marocchino
   input                                 stall_fetch_i,
   input                                 dcod_valid_i,
   input                                 exec_valid_i,
-  input                                 do_rf_wb_i,
   output                                pipeline_flush_o,
   output                                padv_fetch_o,
   output                                padv_decode_o,
@@ -87,7 +86,6 @@ module mor1kx_ctrl_marocchino
   input                                 dcod_op_mfspr_i,
   input                                 dcod_op_mtspr_i,
   //  ## result to WB_MUX
-  output reg                            wb_mfspr_rdy_o,
   output reg [OPTION_OPERAND_WIDTH-1:0] wb_mfspr_dat_o,
 
   // Track branch address for exception processing support
@@ -705,22 +703,22 @@ module mor1kx_ctrl_marocchino
     .OPTION_RF_NUM_SHADOW_GPR        (0), // mor1kx_cfgrs instance: marocchino
     .FEATURE_OVERFLOW                ("ENABLED"), // mor1kx_cfgrs instance: marocchino
     .FEATURE_DATACACHE               ("ENABLED"), // mor1kx_cfgrs instance: marocchino
-    .OPTION_DCACHE_BLOCK_WIDTH       (OPTION_DCACHE_BLOCK_WIDTH),
-    .OPTION_DCACHE_SET_WIDTH         (OPTION_DCACHE_SET_WIDTH),
-    .OPTION_DCACHE_WAYS              (OPTION_DCACHE_WAYS),
+    .OPTION_DCACHE_BLOCK_WIDTH       (OPTION_DCACHE_BLOCK_WIDTH), // mor1kx_cfgrs instance: 
+    .OPTION_DCACHE_SET_WIDTH         (OPTION_DCACHE_SET_WIDTH), // mor1kx_cfgrs instance: 
+    .OPTION_DCACHE_WAYS              (OPTION_DCACHE_WAYS), // mor1kx_cfgrs instance: 
     .FEATURE_DMMU                    ("ENABLED"), // mor1kx_cfgrs instance: marocchino
-    .OPTION_DMMU_SET_WIDTH           (OPTION_DMMU_SET_WIDTH),
-    .OPTION_DMMU_WAYS                (OPTION_DMMU_WAYS),
+    .OPTION_DMMU_SET_WIDTH           (OPTION_DMMU_SET_WIDTH), // mor1kx_cfgrs instance: 
+    .OPTION_DMMU_WAYS                (OPTION_DMMU_WAYS), // mor1kx_cfgrs instance: 
     .FEATURE_INSTRUCTIONCACHE        ("ENABLED"), // mor1kx_cfgrs instance: marocchino
-    .OPTION_ICACHE_BLOCK_WIDTH       (OPTION_ICACHE_BLOCK_WIDTH),
-    .OPTION_ICACHE_SET_WIDTH         (OPTION_ICACHE_SET_WIDTH),
-    .OPTION_ICACHE_WAYS              (OPTION_ICACHE_WAYS),
+    .OPTION_ICACHE_BLOCK_WIDTH       (OPTION_ICACHE_BLOCK_WIDTH), // mor1kx_cfgrs instance: 
+    .OPTION_ICACHE_SET_WIDTH         (OPTION_ICACHE_SET_WIDTH), // mor1kx_cfgrs instance: 
+    .OPTION_ICACHE_WAYS              (OPTION_ICACHE_WAYS), // mor1kx_cfgrs instance: 
     .FEATURE_IMMU                    ("ENABLED"), // mor1kx_cfgrs instance: marocchino
-    .OPTION_IMMU_SET_WIDTH           (OPTION_IMMU_SET_WIDTH),
-    .OPTION_IMMU_WAYS                (OPTION_IMMU_WAYS),
-    .FEATURE_DEBUGUNIT               (FEATURE_DEBUGUNIT),
-    .FEATURE_PERFCOUNTERS            (FEATURE_PERFCOUNTERS),
-    .FEATURE_MAC                     (FEATURE_MAC),
+    .OPTION_IMMU_SET_WIDTH           (OPTION_IMMU_SET_WIDTH), // mor1kx_cfgrs instance: 
+    .OPTION_IMMU_WAYS                (OPTION_IMMU_WAYS), // mor1kx_cfgrs instance: 
+    .FEATURE_DEBUGUNIT               (FEATURE_DEBUGUNIT), // mor1kx_cfgrs instance: 
+    .FEATURE_PERFCOUNTERS            (FEATURE_PERFCOUNTERS), // mor1kx_cfgrs instance: 
+    .FEATURE_MAC                     (FEATURE_MAC), // mor1kx_cfgrs instance: 
     .FEATURE_FPU                     (FEATURE_FPU), // mor1kx_cfgrs instance: marocchino
     .FEATURE_SYSCALL                 ("ENABLED"), // mor1kx_cfgrs instance: marocchino
     .FEATURE_TRAP                    ("ENABLED"), // mor1kx_cfgrs instance: marocchino
@@ -954,22 +952,10 @@ module mor1kx_ctrl_marocchino
 
   // MFSPR data and flag for WB_MUX
   always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst) begin
-      wb_mfspr_rdy_o <= 1'b0;
+    if (rst)
       wb_mfspr_dat_o <= {OPTION_OPERAND_WIDTH{1'b0}};
-    end
-    else if (pipeline_flush_o) begin
-      wb_mfspr_rdy_o <= 1'b0;
-      wb_mfspr_dat_o <= {OPTION_OPERAND_WIDTH{1'b0}};
-    end
-    else if (padv_wb_o) begin
-      if (spr_bus_mXspr_r & (~spr_bus_we_o)) begin // l.mfspr execution
-        wb_mfspr_rdy_o <= 1'b1;
-        wb_mfspr_dat_o <= spr_bus_dat_mux;
-      end
-      else if (do_rf_wb_i)
-        wb_mfspr_rdy_o <= 1'b0;
-    end
+    else if (padv_wb_o)
+      wb_mfspr_dat_o <= {OPTION_OPERAND_WIDTH{spr_bus_mXspr_r}} & spr_bus_dat_mux;
   end // @clock
 
 
@@ -982,7 +968,10 @@ module mor1kx_ctrl_marocchino
   assign spr_bus_cs_du = spr_bus_stb_o & (`SPR_BASE(spr_bus_addr_o) == `OR1K_SPR_DU_BASE);
 
   generate
+
+  /* verilator lint_off WIDTH */
   if (FEATURE_DEBUGUNIT != "NONE") begin : du_enabled
+  /* verilator lint_on WIDTH */
 
     /* Generate answers to Debug System */
 

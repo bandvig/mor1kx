@@ -194,7 +194,9 @@ module mor1kx_rf_marocchino
   assign spr_gpr_cs = spr_bus_stb_i & (spr_bus_addr_i == `OR1K_SPR_GPR0_ADDR);
 
   generate
+  /* verilator lint_off WIDTH */
   if (FEATURE_DEBUGUNIT != "NONE") begin : rfspr_gen
+  /* verilator lint_on WIDTH */
 
     wire [OPTION_OPERAND_WIDTH-1:0] rfspr_dout;
 

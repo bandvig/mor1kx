@@ -287,7 +287,7 @@ module mor1kx_marocchino_alone
     .OPTION_PIC_TRIGGER               (OPTION_PIC_TRIGGER),
     .OPTION_PIC_NMI_WIDTH             (OPTION_PIC_NMI_WIDTH),
     // timer
-    .FEATURE_DEBUGUNIT                ("NONE"), // MAROCCHINO_TODO: not implemented FEATURE_DEBUGUNIT
+    .FEATURE_DEBUGUNIT                (FEATURE_DEBUGUNIT),
     .FEATURE_PERFCOUNTERS             (FEATURE_PERFCOUNTERS),
     .FEATURE_MULTICORE                (FEATURE_MULTICORE),
     .FEATURE_TRACEPORT_EXEC           (FEATURE_TRACEPORT_EXEC),

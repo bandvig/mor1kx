@@ -51,6 +51,7 @@ module mor1kx_execute_marocchino
   //   forwarding from WB
   input                                 exe2dec_hazard_a_i,
   input                                 exe2dec_hazard_b_i,
+  input      [OPTION_OPERAND_WIDTH-1:0] wb_result_i,
 
   // 1-clock instruction related inputs
   //  # 1-clock instruction
@@ -78,6 +79,8 @@ module mor1kx_execute_marocchino
   input                                 flag_i, // feedback from ctrl (for cmov)
   //  # grant WB to 1-clock execution units
   input                                 grant_wb_to_1clk_i,
+  //  # WB-latched 1-clock ALU result
+  output reg [OPTION_OPERAND_WIDTH-1:0] wb_alu_1clk_result_o,
 
   // multi-clock instruction related inputs/outputs
   //  ## multiplier inputs/outputs
@@ -85,6 +88,7 @@ module mor1kx_execute_marocchino
   output                                mul_busy_o,
   output                                mul_valid_o,
   input                                 grant_wb_to_mul_i,
+  output reg [OPTION_OPERAND_WIDTH-1:0] wb_mul_result_o,
   //  ## division inputs/outputs
   input                                 dcod_op_div_i,
   input                                 dcod_op_div_signed_i,
@@ -92,25 +96,20 @@ module mor1kx_execute_marocchino
   output                                div_busy_o,
   output reg                            div_valid_o,
   input                                 grant_wb_to_div_i,
+  output reg [OPTION_OPERAND_WIDTH-1:0] wb_div_result_o,
   //  ## FPU-32 arithmetic part
   input       [`OR1K_FPCSR_RM_SIZE-1:0] fpu_round_mode_i,
   input         [`OR1K_FPUOP_WIDTH-1:0] dcod_op_fp32_arith_i,
   output                                fp32_arith_busy_o, // idicates that arihmetic units are busy
   output                                fp32_arith_valid_o,
   input                                 grant_wb_to_fp32_arith_i,
-  //  ## MFSPR
-  input                                 wb_mfspr_rdy_i,
-  input      [OPTION_OPERAND_WIDTH-1:0] wb_mfspr_dat_i,
-  //  ## LSU related inputs
-  input                                 wb_lsu_rdy_i,
-  input      [OPTION_OPERAND_WIDTH-1:0] wb_lsu_result_i,
+  output     [OPTION_OPERAND_WIDTH-1:0] wb_fp32_arith_res_o,
 
   // Forwarding comparision flag
   output                                exec_op_1clk_cmp_o, // integer or fp32
   output                                exec_flag_set_o,    // integer or fp32 comparison result
 
   // WB outputs
-  output     [OPTION_OPERAND_WIDTH-1:0] wb_result_o,
   //  ## integer comparison result
   output reg                            wb_int_flag_set_o,
   output reg                            wb_int_flag_clear_o,
@@ -278,8 +277,8 @@ module mor1kx_execute_marocchino
     end
   end // @clock
   // last forward (from WB)
-  assign alu_1clk_a = alu_1clk_fwd_wb_a_r ? wb_result_o : alu_1clk_a_r;
-  assign alu_1clk_b = alu_1clk_fwd_wb_b_r ? wb_result_o : alu_1clk_b_r;
+  assign alu_1clk_a = alu_1clk_fwd_wb_a_r ? wb_result_i : alu_1clk_a_r;
+  assign alu_1clk_b = alu_1clk_fwd_wb_b_r ? wb_result_i : alu_1clk_b_r;
 
 
   //------------------//
@@ -486,29 +485,15 @@ module mor1kx_execute_marocchino
                                          op_jal_r   ? jal_result_r : // for GPR[9]
                                                       {EXEDW{1'b0}};
   //  registering output for 1-clock operations
-  reg [EXEDW-1:0] wb_alu_1clk_result;
-  reg             wb_alu_1clk_rdy;
   //  # pay attention that WB-access is granted to 1-clock
   //    either for RF-WB or for SR[F] update, so we
   //    additionally use do-rf-wb here to be sure
   //    that namely RF-WB is processed
   always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst) begin
-      wb_alu_1clk_result <= {EXEDW{1'b0}};
-      wb_alu_1clk_rdy    <= 1'b0;
-    end
-    else if (pipeline_flush_i) begin
-      wb_alu_1clk_result <= {EXEDW{1'b0}};
-      wb_alu_1clk_rdy    <= 1'b0;
-    end
-    else if (padv_wb_i) begin
-      if (grant_wb_to_1clk_i & do_rf_wb_i) begin
-        wb_alu_1clk_result <= alu_1clk_result_mux;
-        wb_alu_1clk_rdy    <= 1'b1;
-      end
-      else if (do_rf_wb_i) // another unit is granted with guarantee
-        wb_alu_1clk_rdy    <= 1'b0;
-    end
+    if (rst)
+      wb_alu_1clk_result_o <= {EXEDW{1'b0}};
+    else if (padv_wb_i)
+      wb_alu_1clk_result_o <= {EXEDW{grant_wb_to_1clk_i & do_rf_wb_i}} & alu_1clk_result_mux;
   end // posedge clock
 
   // latched integer comparison result for WB
@@ -621,8 +606,8 @@ module mor1kx_execute_marocchino
     end
   end // @clock
   // last forward (from WB)
-  assign mul_a = mul_fwd_wb_a_r ? wb_result_o : mul_a_r;
-  assign mul_b = mul_fwd_wb_b_r ? wb_result_o : mul_b_r;
+  assign mul_a = mul_fwd_wb_a_r ? wb_result_i : mul_a_r;
+  assign mul_b = mul_fwd_wb_b_r ? wb_result_i : mul_b_r;
 
 
   // stage #1: register inputs & split them on halfed parts
@@ -681,26 +666,11 @@ module mor1kx_execute_marocchino
                        {mul_s2_ahbl[MULHDW-1:0],{MULHDW{1'b0}}} +
                         mul_s2_albl;
   //  registering
-  reg [EXEDW-1:0] wb_mul_result;
-  reg             wb_mul_rdy;
-  // ---
   always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst) begin
-      wb_mul_result <= {EXEDW{1'b0}};
-      wb_mul_rdy    <= 1'b0;
-    end
-    else if (pipeline_flush_i) begin
-      wb_mul_result <= {EXEDW{1'b0}};
-      wb_mul_rdy    <= 1'b0;
-    end
-    else if (padv_wb_i) begin
-      if (grant_wb_to_mul_i) begin
-        wb_mul_result <= mul_s3t_sum;
-        wb_mul_rdy    <= 1'b1;
-      end
-      else if (do_rf_wb_i) // another unit is granted with guarantee
-        wb_mul_rdy    <= 1'b0;
-    end
+    if (rst)
+      wb_mul_result_o <= {EXEDW{1'b0}};
+    else if (padv_wb_i)
+      wb_mul_result_o <= {EXEDW{grant_wb_to_mul_i}} & mul_s3t_sum;
   end // posedge clock
 
 
@@ -790,8 +760,8 @@ module mor1kx_execute_marocchino
     end
   end // @clock
   // last forward (from WB)
-  assign div_a = div_fwd_wb_a_r ? wb_result_o : div_a_r;
-  assign div_b = div_fwd_wb_b_r ? wb_result_o : div_b_r;
+  assign div_a = div_fwd_wb_a_r ? wb_result_i : div_a_r;
+  assign div_b = div_fwd_wb_b_r ? wb_result_i : div_b_r;
 
   // division controller
   always @(posedge clk `OR_ASYNC_RST) begin
@@ -867,26 +837,11 @@ module mor1kx_execute_marocchino
   wire [EXEDW-1:0] div_result = (div_n ^ {EXEDW{div_neg}}) + {{(EXEDW-1){1'b0}},div_neg};
 
   // WB registering
-  reg [EXEDW-1:0] wb_div_result;
-  reg             wb_div_rdy;
-  // ---
   always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst) begin
-      wb_div_result <= {EXEDW{1'b0}};
-      wb_div_rdy    <= 1'b0;
-    end
-    else if (pipeline_flush_i) begin
-      wb_div_result <= {EXEDW{1'b0}};
-      wb_div_rdy    <= 1'b0;
-    end
-    else if (padv_wb_i) begin
-      if (grant_wb_to_div_i) begin
-        wb_div_result <= div_result;
-        wb_div_rdy    <= 1'b1;
-      end
-      else if (do_rf_wb_i) // another unit is granted with guarantee
-        wb_div_rdy    <= 1'b0;
-    end
+    if (rst)
+      wb_div_result_o <= {EXEDW{1'b0}};
+    else if (padv_wb_i)
+      wb_div_result_o <= {EXEDW{grant_wb_to_div_i}} & div_result;
   end // posedge clock
 
 
@@ -894,110 +849,104 @@ module mor1kx_execute_marocchino
   //------------------------//
   // FPU arithmetic related //
   //------------------------//
-  //  arithmetic part interface
-  wire [31:0] wb_fp32_arith_res;
-  wire        wb_fp32_arith_rdy;
-  //  instance
   generate
-    /* verilator lint_off WIDTH */
-    if (FEATURE_FPU != "NONE") begin :  alu_fp32_arith_ena
-    /* verilator lint_on WIDTH */
-      // fp32 arithmetic controls
-      reg   [`OR1K_FPUOP_WIDTH-1:0] op_fp32_arith_r;
-      wire                          take_op_fp32_arith;
-      // ---
-      always @(posedge clk `OR_ASYNC_RST) begin
-        if (rst)
-          op_fp32_arith_r <= {`OR1K_FPUOP_WIDTH{1'b0}};
-        else if (pipeline_flush_i)
-          op_fp32_arith_r <= {`OR1K_FPUOP_WIDTH{1'b0}};
-        else if (padv_decode_i & dcod_op_fp32_arith_i[`OR1K_FPUOP_WIDTH-1])
-          op_fp32_arith_r <= dcod_op_fp32_arith_i;
-        else if (take_op_fp32_arith)
-          op_fp32_arith_r <= {`OR1K_FPUOP_WIDTH{1'b0}};
-      end // posedge clock
+  /* verilator lint_off WIDTH */
+  if (FEATURE_FPU != "NONE") begin :  alu_fp32_arith_ena
+  /* verilator lint_on WIDTH */
+    // fp32 arithmetic controls
+    reg   [`OR1K_FPUOP_WIDTH-1:0] op_fp32_arith_r;
+    wire                          take_op_fp32_arith;
+    // ---
+    always @(posedge clk `OR_ASYNC_RST) begin
+      if (rst)
+        op_fp32_arith_r <= {`OR1K_FPUOP_WIDTH{1'b0}};
+      else if (pipeline_flush_i)
+        op_fp32_arith_r <= {`OR1K_FPUOP_WIDTH{1'b0}};
+      else if (padv_decode_i & dcod_op_fp32_arith_i[`OR1K_FPUOP_WIDTH-1])
+        op_fp32_arith_r <= dcod_op_fp32_arith_i;
+      else if (take_op_fp32_arith)
+        op_fp32_arith_r <= {`OR1K_FPUOP_WIDTH{1'b0}};
+    end // posedge clock
 
-      // operand A latches
-      reg  [EXEDW-1:0] fp32_arith_a_r;        // latched from decode
-      reg              fp32_arith_fwd_wb_a_r; // use WB result
-      wire [EXEDW-1:0] fp32_arith_a;          // with forwarding from WB
-      // operand B latches
-      reg  [EXEDW-1:0] fp32_arith_b_r;        // latched from decode
-      reg              fp32_arith_fwd_wb_b_r; // use WB result
-      wire [EXEDW-1:0] fp32_arith_b;          // with forwarding from WB
-      // new FP-32 arith input
-      reg              fp32_arith_new_insn_r;
-      // !!! pay attention that B-operand related hazard is
-      // !!! overriden already in OMAN if immediate is used
-      always @(posedge clk `OR_ASYNC_RST) begin
-        if (rst) begin
-          fp32_arith_fwd_wb_a_r <= 1'b0;
-          fp32_arith_fwd_wb_b_r <= 1'b0;
-          fp32_arith_new_insn_r <= 1'b0;
-        end
-        else if (pipeline_flush_i) begin
-          fp32_arith_fwd_wb_a_r <= 1'b0;
-          fp32_arith_fwd_wb_b_r <= 1'b0;
-          fp32_arith_new_insn_r <= 1'b0;
-        end
-        else if (padv_decode_i & dcod_op_fp32_arith_i[`OR1K_FPUOP_WIDTH-1]) begin
-          fp32_arith_fwd_wb_a_r <= exe2dec_hazard_a_i;
-          fp32_arith_fwd_wb_b_r <= exe2dec_hazard_b_i;
-          fp32_arith_new_insn_r <= 1'b1;
-        end
-        else if (fp32_arith_new_insn_r) begin // complete forwarding from WB
-          fp32_arith_fwd_wb_a_r <= 1'b0;
-          fp32_arith_fwd_wb_b_r <= 1'b0;
-          fp32_arith_new_insn_r <= 1'b0;
-        end
-      end // @clock
-      // ---
-      always @(posedge clk) begin
-        if (padv_decode_i & dcod_op_fp32_arith_i[`OR1K_FPUOP_WIDTH-1]) begin
-          fp32_arith_a_r <= dcod_rfa_i;
-          fp32_arith_b_r <= dcod_rfb_i;
-        end
-        else if (fp32_arith_new_insn_r) begin // complete forwarding from WB
-          fp32_arith_a_r <= fp32_arith_a;
-          fp32_arith_b_r <= fp32_arith_b;
-        end
-      end // @clock
-      // last forward (from WB)
-      assign fp32_arith_a = fp32_arith_fwd_wb_a_r ? wb_result_o : fp32_arith_a_r;
-      assign fp32_arith_b = fp32_arith_fwd_wb_b_r ? wb_result_o : fp32_arith_b_r;
+    // operand A latches
+    reg  [EXEDW-1:0] fp32_arith_a_r;        // latched from decode
+    reg              fp32_arith_fwd_wb_a_r; // use WB result
+    wire [EXEDW-1:0] fp32_arith_a;          // with forwarding from WB
+    // operand B latches
+    reg  [EXEDW-1:0] fp32_arith_b_r;        // latched from decode
+    reg              fp32_arith_fwd_wb_b_r; // use WB result
+    wire [EXEDW-1:0] fp32_arith_b;          // with forwarding from WB
+    // new FP-32 arith input
+    reg              fp32_arith_new_insn_r;
+    // !!! pay attention that B-operand related hazard is
+    // !!! overriden already in OMAN if immediate is used
+    always @(posedge clk `OR_ASYNC_RST) begin
+      if (rst) begin
+        fp32_arith_fwd_wb_a_r <= 1'b0;
+        fp32_arith_fwd_wb_b_r <= 1'b0;
+        fp32_arith_new_insn_r <= 1'b0;
+      end
+      else if (pipeline_flush_i) begin
+        fp32_arith_fwd_wb_a_r <= 1'b0;
+        fp32_arith_fwd_wb_b_r <= 1'b0;
+        fp32_arith_new_insn_r <= 1'b0;
+      end
+      else if (padv_decode_i & dcod_op_fp32_arith_i[`OR1K_FPUOP_WIDTH-1]) begin
+        fp32_arith_fwd_wb_a_r <= exe2dec_hazard_a_i;
+        fp32_arith_fwd_wb_b_r <= exe2dec_hazard_b_i;
+        fp32_arith_new_insn_r <= 1'b1;
+      end
+      else if (fp32_arith_new_insn_r) begin // complete forwarding from WB
+        fp32_arith_fwd_wb_a_r <= 1'b0;
+        fp32_arith_fwd_wb_b_r <= 1'b0;
+        fp32_arith_new_insn_r <= 1'b0;
+      end
+    end // @clock
+    // ---
+    always @(posedge clk) begin
+      if (padv_decode_i & dcod_op_fp32_arith_i[`OR1K_FPUOP_WIDTH-1]) begin
+        fp32_arith_a_r <= dcod_rfa_i;
+        fp32_arith_b_r <= dcod_rfb_i;
+      end
+      else if (fp32_arith_new_insn_r) begin // complete forwarding from WB
+        fp32_arith_a_r <= fp32_arith_a;
+        fp32_arith_b_r <= fp32_arith_b;
+      end
+    end // @clock
+    // last forward (from WB)
+    assign fp32_arith_a = fp32_arith_fwd_wb_a_r ? wb_result_i : fp32_arith_a_r;
+    assign fp32_arith_b = fp32_arith_fwd_wb_b_r ? wb_result_i : fp32_arith_b_r;
 
-      // fp32 arithmetic instance
-      pfpu32_top_marocchino  u_pfpu32
-      (
-        // clock & reset
-        .clk                      (clk),
-        .rst                      (rst),
-        // pipeline control
-        .flush_i                  (pipeline_flush_i),
-        .padv_wb_i                (padv_wb_i),
-        .do_rf_wb_i               (do_rf_wb_i),
-        // Operands
-        .rfa_i                    (fp32_arith_a),
-        .rfb_i                    (fp32_arith_b),
-        // FPU-32 arithmetic part
-        .round_mode_i             (fpu_round_mode_i),
-        .op_arith_i               (op_fp32_arith_r),
-        .take_op_fp32_arith_o     (take_op_fp32_arith),    // feedback to drop FP32 arithmetic related command
-        .fp32_arith_busy_o        (fp32_arith_busy_o),     // idicates that arihmetic units are busy
-        .fp32_arith_valid_o       (fp32_arith_valid_o),    // WB-latching ahead arithmetic ready flag
-        .grant_wb_to_fp32_arith_i (grant_wb_to_fp32_arith_i),
-        .wb_fp32_arith_res_o      (wb_fp32_arith_res),     // arithmetic result
-        .wb_fp32_arith_rdy_o      (wb_fp32_arith_rdy),     // arithmetic ready flag
-        .wb_fp32_arith_fpcsr_o    (wb_fp32_arith_fpcsr_o)  // arithmetic exceptions
-      );
-    end
-    else begin :  alu_fp32_arith_none
-      assign fp32_arith_busy_o     =  1'b0;
-      assign fp32_arith_valid_o    =  1'b0;
-      assign wb_fp32_arith_res     = 32'd0;
-      assign wb_fp32_arith_rdy     =  1'b0;
-      assign wb_fp32_arith_fpcsr_o = {`OR1K_FPCSR_WIDTH{1'b0}};
-    end // fpu_ena/fpu_none
+    // fp32 arithmetic instance
+    pfpu32_top_marocchino  u_pfpu32
+    (
+      // clock & reset
+      .clk                      (clk),
+      .rst                      (rst),
+      // pipeline control
+      .flush_i                  (pipeline_flush_i),
+      .padv_wb_i                (padv_wb_i),
+      .do_rf_wb_i               (do_rf_wb_i),
+      // Operands
+      .rfa_i                    (fp32_arith_a),
+      .rfb_i                    (fp32_arith_b),
+      // FPU-32 arithmetic part
+      .round_mode_i             (fpu_round_mode_i),
+      .op_arith_i               (op_fp32_arith_r),
+      .take_op_fp32_arith_o     (take_op_fp32_arith),    // feedback to drop FP32 arithmetic related command
+      .fp32_arith_busy_o        (fp32_arith_busy_o),     // idicates that arihmetic units are busy
+      .fp32_arith_valid_o       (fp32_arith_valid_o),    // WB-latching ahead arithmetic ready flag
+      .grant_wb_to_fp32_arith_i (grant_wb_to_fp32_arith_i),
+      .wb_fp32_arith_res_o      (wb_fp32_arith_res_o),   // arithmetic result
+      .wb_fp32_arith_fpcsr_o    (wb_fp32_arith_fpcsr_o)  // arithmetic exceptions
+    );
+  end
+  else begin :  alu_fp32_arith_none
+    assign fp32_arith_busy_o     =  1'b0;
+    assign fp32_arith_valid_o    =  1'b0;
+    assign wb_fp32_arith_res_o   = {EXEDW{1'b0}};
+    assign wb_fp32_arith_fpcsr_o = {`OR1K_FPCSR_WIDTH{1'b0}};
+  end // fpu_ena/fpu_none
   endgenerate // FPU arithmetic related
 
 
@@ -1005,15 +954,6 @@ module mor1kx_execute_marocchino
   //-----------------------------//
   // WB multiplexors and latches //
   //-----------------------------//
-  // combined output
-  assign wb_result_o = wb_mfspr_rdy_i    ? wb_mfspr_dat_i     :
-                       wb_lsu_rdy_i      ? wb_lsu_result_i    :
-                       wb_alu_1clk_rdy   ? wb_alu_1clk_result :
-                       wb_mul_rdy        ? wb_mul_result      :
-                       wb_div_rdy        ? wb_div_result      :
-                       wb_fp32_arith_rdy ? wb_fp32_arith_res  :
-                                           {EXEDW{1'b0}};
-
   // Overflow flag generation
   // latched integer comparison result for WB
   always @(posedge clk `OR_ASYNC_RST) begin
