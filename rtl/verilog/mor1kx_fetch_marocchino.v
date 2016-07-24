@@ -104,9 +104,9 @@ module mor1kx_fetch_marocchino
   output reg                            dcod_delay_slot_o,
   output reg                            dcod_insn_valid_o,
   // exceptions
-  output reg                            dcod_except_ibus_err_o,
-  output reg                            dcod_except_itlb_miss_o,
-  output reg                            dcod_except_ipagefault_o,
+  output reg                            fetch_except_ibus_err_o,
+  output reg                            fetch_except_itlb_miss_o,
+  output reg                            fetch_except_ipagefault_o,
   output reg                            fetch_exception_taken_o
 );
 
@@ -401,9 +401,9 @@ module mor1kx_fetch_marocchino
       dcod_insn_o               <= {`OR1K_OPCODE_NOP,26'd0};
       dcod_insn_valid_o         <= 1'b0;
       // exceptions
-      dcod_except_ibus_err_o    <= 1'b0;
-      dcod_except_itlb_miss_o   <= 1'b0;
-      dcod_except_ipagefault_o  <= 1'b0;
+      fetch_except_ibus_err_o   <= 1'b0;
+      fetch_except_itlb_miss_o  <= 1'b0;
+      fetch_except_ipagefault_o <= 1'b0;
       // actual programm counter
       pc_decode_o               <= {IFOOW{1'b0}}; // reset
     end
@@ -412,9 +412,9 @@ module mor1kx_fetch_marocchino
       dcod_insn_o               <= {`OR1K_OPCODE_NOP,26'd0};
       dcod_insn_valid_o         <= 1'b0;
       // exceptions
-      dcod_except_ibus_err_o    <= 1'b0;
-      dcod_except_itlb_miss_o   <= 1'b0;
-      dcod_except_ipagefault_o  <= 1'b0;
+      fetch_except_ibus_err_o   <= 1'b0;
+      fetch_except_itlb_miss_o  <= 1'b0;
+      fetch_except_ipagefault_o <= 1'b0;
       // actual programm counter
       pc_decode_o               <= {IFOOW{1'b0}}; // flush
     end
@@ -423,9 +423,9 @@ module mor1kx_fetch_marocchino
       dcod_insn_o               <= s2t_insn_mux;
       dcod_insn_valid_o         <= s2t_insn_or_excepts; // valid instruction or exception
       // exceptions
-      dcod_except_ibus_err_o    <= except_ibus_err;
-      dcod_except_itlb_miss_o   <= except_itlb_miss;
-      dcod_except_ipagefault_o  <= except_ipagefault;
+      fetch_except_ibus_err_o   <= except_ibus_err;
+      fetch_except_itlb_miss_o  <= except_itlb_miss;
+      fetch_except_ipagefault_o <= except_ipagefault;
       // actual programm counter
       pc_decode_o               <= (s2t_insn_or_excepts ? virt_addr_fetch : {IFOOW{1'b0}});
     end

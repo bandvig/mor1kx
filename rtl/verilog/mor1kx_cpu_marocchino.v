@@ -325,31 +325,58 @@ module mor1kx_cpu_marocchino
   wire  [`OR1K_FPCSR_RM_SIZE-1:0] ctrl_fpu_round_mode;
 
 
-  // Exceptions: reported from FETCH to OMAN
-  wire dcod_except_ibus_err;
-  wire dcod_except_ipagefault;
-  wire dcod_except_itlb_miss;
-  // Exceptions: reported from DECODE to OMAN
-  wire dcod_except_ibus_align;
-  wire dcod_except_illegal;
-  wire dcod_except_syscall;
-  wire dcod_except_trap;
-  // Exceptions: latched by WB latches for processing in CONTROL-unit
+  // Exceptions: reported by IFETCH
+  //  # connections IFETCH->OMAN
+  wire fetch_except_ibus_err;
+  wire fetch_except_ipagefault;
+  wire fetch_except_itlb_miss;
+  wire fetch_except_ibus_align;
+  //  # connections OMAN(WB-latches)->CTRL
   wire wb_except_ibus_err;
   wire wb_except_ipagefault;
   wire wb_except_itlb_miss;
   wire wb_except_ibus_align;
+  //  # combined IFETCH exceptions flag
+  wire wb_an_except_fetch;
+
+
+  // Exceptions: reported from DECODE to OMAN
+  wire dcod_except_illegal;
+  wire dcod_except_syscall;
+  wire dcod_except_trap;
+  // Exceptions: latched by WB latches for processing in CONTROL-unit
   wire wb_except_illegal;
   wire wb_except_syscall;
   wire wb_except_trap;
-  wire wb_except_dbus;
-  wire wb_except_dpagefault;
-  wire wb_except_dtlb_miss;
-  wire wb_except_align;
+
+
+  // Exceptions: reported by LSU
+  //  # particular LSU exception flags
+  wire                            wb_except_dbus_err;
+  wire                            wb_except_dpagefault;
+  wire                            wb_except_dtlb_miss;
+  wire                            wb_except_dbus_align;
   wire [OPTION_OPERAND_WIDTH-1:0] wb_lsu_except_addr;
-  // flag to enabel/disable exterlal interrupts processing
-  //  depending on the fact is instructions restartable or not
-  wire wb_interrupts_en;
+  //  # combined LSU exceptions flag
+  wire                            wb_an_except_lsu;
+
+
+  // External Interrupts Collection
+  //  # from "Tick Timer"
+  wire        tt_rdy;
+  wire        tt_interrupt_enable;
+  //  # from "Programmble Interrupt Controller"
+  wire [31:0] spr_picsr;
+  wire        pic_interrupt_enable;
+  //  # flag to enabel/disable exterlal interrupts processing
+  //    depending on the fact is instructions restartable or not
+  wire        exec_interrupts_en;
+  //  # WB latches
+  reg         wb_tt_interrupt_r;
+  reg         wb_pic_interrupt_r;
+  reg         wb_an_interrupt_r; // from PIC or TT
+
+
   // Exeptions process:
   wire dcod_op_rfe;
   wire wb_op_rfe;
@@ -441,9 +468,9 @@ module mor1kx_cpu_marocchino
     .dcod_insn_valid_o                (dcod_insn_valid), // FETCH
 
     //   Exceptions
-    .dcod_except_ibus_err_o           (dcod_except_ibus_err), // FETCH
-    .dcod_except_itlb_miss_o          (dcod_except_itlb_miss), // FETCH
-    .dcod_except_ipagefault_o         (dcod_except_ipagefault), // FETCH
+    .fetch_except_ibus_err_o          (fetch_except_ibus_err), // FETCH
+    .fetch_except_itlb_miss_o         (fetch_except_itlb_miss), // FETCH
+    .fetch_except_ipagefault_o        (fetch_except_ipagefault), // FETCH
     .fetch_exception_taken_o          (fetch_ecxeption_taken) // FETCH
   );
 
@@ -537,7 +564,7 @@ module mor1kx_cpu_marocchino
     .dcod_op_mtspr_o                  (dcod_op_mtspr), // DECODE & DECODE->EXE
     // Exception flags
     //   outcome latched exception flags
-    .dcod_except_ibus_align_o         (dcod_except_ibus_align), // DECODE & DECODE->EXE
+    .fetch_except_ibus_align_o        (fetch_except_ibus_align), // DECODE & DECODE->EXE
     .dcod_except_illegal_o            (dcod_except_illegal), // DECODE & DECODE->EXE
     .dcod_except_syscall_o            (dcod_except_syscall), // DECODE & DECODE->EXE
     .dcod_except_trap_o               (dcod_except_trap), // DECODE & DECODE->EXE
@@ -650,15 +677,6 @@ module mor1kx_cpu_marocchino
   );
 
 
-  //---------------//
-  // Result for WB //
-  //---------------//
-  
-  assign wb_result =  wb_alu_1clk_result | wb_div_result     |
-                      wb_mul_result      | wb_fp32_arith_res |
-                      wb_lsu_result      | wb_mfspr_dat;
-
-
   //--------------//
   // LSU instance //
   //--------------//
@@ -739,15 +757,57 @@ module mor1kx_cpu_marocchino
     .lsu_busy_o                       (lsu_busy), // LSU
     .lsu_valid_o                      (lsu_valid), // LSU: result ready or exceptions
     .wb_lsu_result_o                  (wb_lsu_result), // LSU
-    .wb_except_dbus_o                 (wb_except_dbus), // LSU
+
+    //  # particular LSU exception flags
+    .wb_except_dbus_err_o             (wb_except_dbus_err), // LSU
     .wb_except_dpagefault_o           (wb_except_dpagefault), // LSU
     .wb_except_dtlb_miss_o            (wb_except_dtlb_miss), // LSU
-    .wb_except_align_o                (wb_except_align), // LSU
+    .wb_except_dbus_align_o           (wb_except_dbus_align), // LSU
     .wb_lsu_except_addr_o             (wb_lsu_except_addr), // LSU
+    //  # combined LSU exceptions flag
+    .wb_an_except_lsu_o               (wb_an_except_lsu), // LSU
+
     .wb_atomic_flag_set_o             (wb_atomic_flag_set), // LSU
     .wb_atomic_flag_clear_o           (wb_atomic_flag_clear) // LSU
   );
 
+
+  //-----------//
+  // WB:result //
+  //-----------//
+  
+  assign wb_result =  wb_alu_1clk_result | wb_div_result     |
+                      wb_mul_result      | wb_fp32_arith_res |
+                      wb_lsu_result      | wb_mfspr_dat;
+  
+  //------------------------------------//
+  // WB: External Interrupts Collection //
+  //------------------------------------//
+  wire exec_tt_interrupt  = tt_rdy       & tt_interrupt_enable  & exec_interrupts_en; // from "Tick Timer"
+  wire exec_pic_interrupt = (|spr_picsr) & pic_interrupt_enable & exec_interrupts_en; // from "Programmble Interrupt Controller"
+  // --- wb-latches ---
+  always @(posedge clk `OR_ASYNC_RST) begin
+    if (rst) begin
+      wb_tt_interrupt_r   <= 1'b0;
+      wb_pic_interrupt_r  <= 1'b0;
+      wb_an_interrupt_r   <= 1'b0;
+    end
+    else if (pipeline_flush) begin  // WB: External Interrupts Collection
+      wb_tt_interrupt_r   <= 1'b0;
+      wb_pic_interrupt_r  <= 1'b0;
+      wb_an_interrupt_r   <= 1'b0;
+    end
+    else if (padv_wb) begin         // WB: External Interrupts Collection
+      wb_tt_interrupt_r   <= exec_tt_interrupt;
+      wb_pic_interrupt_r  <= exec_pic_interrupt;
+      wb_an_interrupt_r   <= (exec_tt_interrupt | exec_pic_interrupt);
+    end
+  end // @clock
+
+
+  //-------------------------------//
+  // Registers File (GPR) instance //
+  //-------------------------------//
 
   mor1kx_rf_marocchino
   #(
@@ -859,10 +919,10 @@ module mor1kx_cpu_marocchino
     .lsu_valid_i                (lsu_valid), // OMAN: result ready or exceptions
 
     // FETCH & DECODE exceptions
-    .dcod_except_ibus_err_i     (dcod_except_ibus_err), // OMAN
-    .dcod_except_ipagefault_i   (dcod_except_ipagefault), // OMAN
-    .dcod_except_itlb_miss_i    (dcod_except_itlb_miss), // OMAN
-    .dcod_except_ibus_align_i   (dcod_except_ibus_align), // OMAN
+    .fetch_except_ibus_err_i    (fetch_except_ibus_err), // OMAN
+    .fetch_except_ipagefault_i  (fetch_except_ipagefault), // OMAN
+    .fetch_except_itlb_miss_i   (fetch_except_itlb_miss), // OMAN
+    .fetch_except_ibus_align_i  (fetch_except_ibus_align), // OMAN
     .dcod_except_illegal_i      (dcod_except_illegal), // OMAN
     .dcod_except_syscall_i      (dcod_except_syscall), // OMAN
     .dcod_except_trap_i         (dcod_except_trap), // OMAN
@@ -891,6 +951,10 @@ module mor1kx_cpu_marocchino
     .exec_jump_or_branch_o      (exec_jump_or_branch), // OMAN
     .pc_exec_o                  (pc_exec), // OMAN
 
+    //   Flag to enabel/disable exterlal interrupts processing
+    // depending on the fact is instructions restartable or not
+    .exec_interrupts_en_o       (exec_interrupts_en), // OMAN
+
     // WB outputs
     //  ## instruction related information
     .pc_wb_o                    (pc_wb), // OMAN
@@ -899,15 +963,17 @@ module mor1kx_cpu_marocchino
     .wb_rf_wb_o                 (wb_rf_wb), // OMAN
     //  ## RFE processing
     .wb_op_rfe_o                (wb_op_rfe), // OMAN
-    //  ## output exceptions
+    //  ## IFETCH exceptions
     .wb_except_ibus_err_o       (wb_except_ibus_err), // OMAN
     .wb_except_ipagefault_o     (wb_except_ipagefault), // OMAN
     .wb_except_itlb_miss_o      (wb_except_itlb_miss), // OMAN
     .wb_except_ibus_align_o     (wb_except_ibus_align), // OMAN
+    //  ## combined IFETCH exceptions
+    .wb_an_except_fetch_o       (wb_an_except_fetch), // OMAN
+
     .wb_except_illegal_o        (wb_except_illegal), // OMAN
     .wb_except_syscall_o        (wb_except_syscall), // OMAN
-    .wb_except_trap_o           (wb_except_trap), // OMAN
-    .wb_interrupts_en_o         (wb_interrupts_en) // OMAN
+    .wb_except_trap_o           (wb_except_trap) // OMAN
   );
 
 
@@ -922,7 +988,6 @@ module mor1kx_cpu_marocchino
   // TIMER //
   //-------//
   //  # connection wires
-  wire        tt_rdy;
   wire [31:0] spr_bus_dat_tt;
   wire        spr_bus_ack_tt;
   //  # timer instance
@@ -947,7 +1012,6 @@ module mor1kx_cpu_marocchino
   // PIC //
   //-----//
   //  # connection wires
-  wire [31:0] spr_picsr;
   wire [31:0] spr_bus_dat_pic;
   wire        spr_bus_ack_pic;
   //  # timer instance
@@ -1045,12 +1109,6 @@ module mor1kx_cpu_marocchino
     .du_stall_i                       (du_stall_i), // CTRL
     .du_stall_o                       (du_stall_o), // CTRL
 
-    // IRQ lines from PIC
-    .spr_picsr_i                      (spr_picsr), // CTRL
-
-    // Input from tick-timer
-    .tt_rdy_i                         (tt_rdy), // CTRL
-
     // SPR accesses to external units (cache, mmu, etc.)
     .spr_bus_addr_o                   (spr_bus_addr_o), // CTRL
     .spr_bus_we_o                     (spr_bus_we_o), // CTRL
@@ -1079,6 +1137,13 @@ module mor1kx_cpu_marocchino
     .spr_bus_dat_gpr_i                (spr_bus_dat_gpr), // CTRL
     .spr_bus_ack_gpr_i                (spr_bus_ack_gpr), // CTRL
 
+    // WB: External Interrupt Collection
+    .tt_interrupt_enable_o            (tt_interrupt_enable), // CTRL
+    .pic_interrupt_enable_o           (pic_interrupt_enable), // CTRL
+    .wb_tt_interrupt_i                (wb_tt_interrupt_r), // CTRL
+    .wb_pic_interrupt_i               (wb_pic_interrupt_r), // CTRL
+    .wb_an_interrupt_i                (wb_an_interrupt_r), // CTRL
+
     // WB & Exceptions
     //  # PC of completed instruction
     .pc_wb_i                          (pc_wb), // CTRL
@@ -1097,24 +1162,32 @@ module mor1kx_cpu_marocchino
     .wb_fp32_arith_fpcsr_i            (wb_fp32_arith_fpcsr), // CTRL
     .wb_fp32_cmp_fpcsr_i              (wb_fp32_cmp_fpcsr), // CTRL
     //  # Excepion processing auxiliaries
-    .wb_lsu_except_addr_i             (wb_lsu_except_addr), // CTRL
     .sbuf_eear_i                      (sbuf_eear), // CTRL
     .sbuf_epcr_i                      (sbuf_epcr), // CTRL
     .sbuf_err_i                       (sbuf_err), // CTRL
     .wb_delay_slot_i                  (wb_delay_slot), // CTRL
-    .wb_interrupts_en_i               (wb_interrupts_en), // CTRL
-    //  # Particular exception flags
-    .except_ibus_err_i                (wb_except_ibus_err), // CTRL
-    .except_itlb_miss_i               (wb_except_itlb_miss), // CTRL
-    .except_ipagefault_i              (wb_except_ipagefault), // CTRL
-    .except_ibus_align_i              (wb_except_ibus_align), // CTRL
+
+    //  # particular IFETCH exception flags
+    .wb_except_ibus_err_i             (wb_except_ibus_err), // CTRL
+    .wb_except_itlb_miss_i            (wb_except_itlb_miss), // CTRL
+    .wb_except_ipagefault_i           (wb_except_ipagefault), // CTRL
+    .wb_except_ibus_align_i           (wb_except_ibus_align), // CTRL
+    .wb_lsu_except_addr_i             (wb_lsu_except_addr), // CTRL
+    //  # combined IFETCH exceptions flag
+    .wb_an_except_fetch_i             (wb_an_except_fetch), // CTRL
+
     .except_illegal_i                 (wb_except_illegal), // CTRL
     .except_syscall_i                 (wb_except_syscall), // CTRL
-    .except_dbus_i                    (wb_except_dbus), // CTRL
-    .except_dtlb_miss_i               (wb_except_dtlb_miss), // CTRL
-    .except_dpagefault_i              (wb_except_dpagefault), // CTRL
     .except_trap_i                    (wb_except_trap), // CTRL
-    .except_align_i                   (wb_except_align), // CTRL
+
+    //  # particular LSU exception flags
+    .wb_except_dbus_err_i             (wb_except_dbus_err), // CTRL
+    .wb_except_dtlb_miss_i            (wb_except_dtlb_miss), // CTRL
+    .wb_except_dpagefault_i           (wb_except_dpagefault), // CTRL
+    .wb_except_dbus_align_i           (wb_except_dbus_align), // CTRL
+    //  # combined LSU exceptions flag
+    .wb_an_except_lsu_i               (wb_an_except_lsu), // CTRL
+
     //  # Branch to exception/rfe processing address
     .ctrl_branch_exception_o          (ctrl_branch_exception), // CTRL
     .ctrl_branch_except_pc_o          (ctrl_branch_except_pc), // CTRL

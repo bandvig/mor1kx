@@ -90,10 +90,10 @@ module mor1kx_oman_marocchino
   input                                 lsu_valid_i,
 
   // FETCH & DECODE exceptions
-  input                                 dcod_except_ibus_err_i,
-  input                                 dcod_except_ipagefault_i,
-  input                                 dcod_except_itlb_miss_i,
-  input                                 dcod_except_ibus_align_i,
+  input                                 fetch_except_ibus_err_i,
+  input                                 fetch_except_ipagefault_i,
+  input                                 fetch_except_itlb_miss_i,
+  input                                 fetch_except_ibus_align_i,
   input                                 dcod_except_illegal_i,
   input                                 dcod_except_syscall_i,
   input                                 dcod_except_trap_i,
@@ -122,6 +122,10 @@ module mor1kx_oman_marocchino
   output                                exec_jump_or_branch_o,
   output     [OPTION_OPERAND_WIDTH-1:0] pc_exec_o,
 
+  //   Flag to enabel/disable exterlal interrupts processing
+  // depending on the fact is instructions restartable or not
+  output                                exec_interrupts_en_o,
+
   // WB outputs
   //  ## instruction related information
   output reg [OPTION_OPERAND_WIDTH-1:0] pc_wb_o,
@@ -130,15 +134,17 @@ module mor1kx_oman_marocchino
   output reg                            wb_rf_wb_o,
   //  ## RFE processing
   output reg                            wb_op_rfe_o,
-  //  ## output exceptions
+  //  ## output exceptions: IFETCH
   output reg                            wb_except_ibus_err_o,
   output reg                            wb_except_ipagefault_o,
   output reg                            wb_except_itlb_miss_o,
   output reg                            wb_except_ibus_align_o,
+  //  ## combined IFETCH exceptions 
+  output reg                            wb_an_except_fetch_o,
+  //  
   output reg                            wb_except_illegal_o,
   output reg                            wb_except_syscall_o,
-  output reg                            wb_except_trap_o,
-  output reg                            wb_interrupts_en_o
+  output reg                            wb_except_trap_o
 );
 
   // [O]rder [C]ontrol [B]uffer [T]ap layout
@@ -199,8 +205,8 @@ module mor1kx_oman_marocchino
 
 
   // Combine FETCH related exceptions
-  wire fetch_an_except = dcod_except_ibus_err_i  | dcod_except_ipagefault_i |
-                         dcod_except_itlb_miss_i | dcod_except_ibus_align_i;
+  wire fetch_an_except = fetch_except_ibus_err_i  | fetch_except_ipagefault_i |
+                         fetch_except_itlb_miss_i | fetch_except_ibus_align_i;
   // Combine DECODE related exceptions
   wire dcod_an_except = dcod_except_illegal_i | dcod_except_syscall_i |
                         dcod_except_trap_i;
@@ -231,10 +237,10 @@ module mor1kx_oman_marocchino
                   // combined FETCH & DECODE exceptions flag
                   (fetch_an_except | dcod_an_except),
                   // FETCH & DECODE exceptions
-                  dcod_except_ibus_err_i,
-                  dcod_except_ipagefault_i,
-                  dcod_except_itlb_miss_i,
-                  dcod_except_ibus_align_i,
+                  fetch_except_ibus_err_i,
+                  fetch_except_ipagefault_i,
+                  fetch_except_itlb_miss_i,
+                  fetch_except_ibus_align_i,
                   dcod_except_illegal_i,
                   dcod_except_syscall_i,
                   dcod_except_trap_i };
@@ -424,26 +430,21 @@ module mor1kx_oman_marocchino
   assign exec_jump_or_branch_o = ocbo00[OCBT_JUMP_OR_BRANCH_POS];
   assign pc_exec_o             = ocbo00[OCBT_PC_MSB:OCBT_PC_LSB];
 
+  //   Flag to enabel/disable exterlal interrupts processing
+  // depending on the fact is instructions restartable or not
+  assign exec_interrupts_en_o = ocbo00[OCBT_INTERRUPTS_EN_POS];
+
 
   // WB-request (1-clock to prevent extra writes in RF)
-  // Enable external interrupts (1-clock length by default)
   always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst) begin
-      wb_rf_wb_o          <= 1'b0;
-      wb_interrupts_en_o  <= 1'b0;
-    end
-    else if (pipeline_flush_i) begin
-      wb_rf_wb_o          <= 1'b0;
-      wb_interrupts_en_o  <= 1'b0;
-    end
-    else if (padv_wb_i) begin
-      wb_rf_wb_o          <= exec_rf_wb;
-      wb_interrupts_en_o  <= ocbo00[OCBT_INTERRUPTS_EN_POS];
-    end
-    else begin
-      wb_rf_wb_o          <= 1'b0;
-      wb_interrupts_en_o  <= 1'b0;
-    end
+    if (rst)
+      wb_rf_wb_o <= 1'b0;
+    else if (pipeline_flush_i)
+      wb_rf_wb_o <= 1'b0;
+    else if (padv_wb_i)
+      wb_rf_wb_o <= exec_rf_wb;
+    else
+      wb_rf_wb_o <= 1'b0;
   end // @clock
 
 
@@ -477,6 +478,9 @@ module mor1kx_oman_marocchino
       wb_except_ipagefault_o <= 1'b0;
       wb_except_itlb_miss_o  <= 1'b0;
       wb_except_ibus_align_o <= 1'b0;
+      // Combined IFETCH exceptions 
+      wb_an_except_fetch_o   <= 1'b0;
+      // 
       wb_except_illegal_o    <= 1'b0;
       wb_except_syscall_o    <= 1'b0;
       wb_except_trap_o       <= 1'b0;
@@ -484,11 +488,14 @@ module mor1kx_oman_marocchino
     else if (pipeline_flush_i) begin
       // RFE
       wb_op_rfe_o            <= 1'b0;
-      // FETCH/DECODE exceptions
+      // IFETCH exceptions
       wb_except_ibus_err_o   <= 1'b0;
       wb_except_ipagefault_o <= 1'b0;
       wb_except_itlb_miss_o  <= 1'b0;
       wb_except_ibus_align_o <= 1'b0;
+      // Combined IFETCH exceptions 
+      wb_an_except_fetch_o   <= 1'b0;
+      //
       wb_except_illegal_o    <= 1'b0;
       wb_except_syscall_o    <= 1'b0;
       wb_except_trap_o       <= 1'b0;
@@ -496,11 +503,14 @@ module mor1kx_oman_marocchino
     else if (padv_wb_i) begin
       // RFE
       wb_op_rfe_o            <= ocbo00[OCBT_OP_RFE_POS];
-      // FETCH/DECODE exceptions
+      // IFETCH exceptions
       wb_except_ibus_err_o   <= ocbo00[6];
       wb_except_ipagefault_o <= ocbo00[5];
       wb_except_itlb_miss_o  <= ocbo00[4];
       wb_except_ibus_align_o <= ocbo00[3];
+      // Combined IFETCH exceptions 
+      wb_an_except_fetch_o   <= (|ocbo00[6:3]);
+      //
       wb_except_illegal_o    <= ocbo00[2];
       wb_except_syscall_o    <= ocbo00[1];
       wb_except_trap_o       <= ocbo00[0];

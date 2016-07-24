@@ -134,7 +134,7 @@ module mor1kx_decode_marocchino
   output                                dcod_op_mtspr_o,
 
   // Exceptions detected on decode stage flags
-  output                                dcod_except_ibus_align_o,
+  output                                fetch_except_ibus_align_o,
   output reg                            dcod_except_illegal_o,
   output                                dcod_except_syscall_o,
   output                                dcod_except_trap_o,
@@ -658,13 +658,13 @@ module mor1kx_decode_marocchino
                                   (opc_insn == `OR1K_OPCODE_JALR)); // l.jalr
   // take branch flag / target / align exception
   //  # take branch flag
-  assign dcod_do_branch_o         = branch_to_imm | dcod_op_jr_o;
+  assign dcod_do_branch_o          = branch_to_imm | dcod_op_jr_o;
   //  # take branch target
-  assign dcod_do_branch_target_o  = branch_to_imm ? branch_to_imm_target : dcod_rfb_i;
+  assign dcod_do_branch_target_o   = branch_to_imm ? branch_to_imm_target : dcod_rfb_i;
   //  # take branch align exception
-  assign dcod_except_ibus_align_o = branch_to_imm ? (|branch_to_imm_target[1:0]) :
-                                    dcod_op_jr_o  ? ((|dcod_rfb_i[1:0]) & ~exe2dec_hazard_b_i) :
-                                                    1'b0;
+  assign fetch_except_ibus_align_o = branch_to_imm ? (|branch_to_imm_target[1:0]) :
+                                     dcod_op_jr_o  ? ((|dcod_rfb_i[1:0]) & ~exe2dec_hazard_b_i) :
+                                                     1'b0;
 
 
   // Register file addresses

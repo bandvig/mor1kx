@@ -853,70 +853,6 @@ module mor1kx_execute_marocchino
   /* verilator lint_off WIDTH */
   if (FEATURE_FPU != "NONE") begin :  alu_fp32_arith_ena
   /* verilator lint_on WIDTH */
-    // fp32 arithmetic controls
-    reg   [`OR1K_FPUOP_WIDTH-1:0] op_fp32_arith_r;
-    wire                          take_op_fp32_arith;
-    // ---
-    always @(posedge clk `OR_ASYNC_RST) begin
-      if (rst)
-        op_fp32_arith_r <= {`OR1K_FPUOP_WIDTH{1'b0}};
-      else if (pipeline_flush_i)
-        op_fp32_arith_r <= {`OR1K_FPUOP_WIDTH{1'b0}};
-      else if (padv_decode_i & dcod_op_fp32_arith_i[`OR1K_FPUOP_WIDTH-1])
-        op_fp32_arith_r <= dcod_op_fp32_arith_i;
-      else if (take_op_fp32_arith)
-        op_fp32_arith_r <= {`OR1K_FPUOP_WIDTH{1'b0}};
-    end // posedge clock
-
-    // operand A latches
-    reg  [EXEDW-1:0] fp32_arith_a_r;        // latched from decode
-    reg              fp32_arith_fwd_wb_a_r; // use WB result
-    wire [EXEDW-1:0] fp32_arith_a;          // with forwarding from WB
-    // operand B latches
-    reg  [EXEDW-1:0] fp32_arith_b_r;        // latched from decode
-    reg              fp32_arith_fwd_wb_b_r; // use WB result
-    wire [EXEDW-1:0] fp32_arith_b;          // with forwarding from WB
-    // new FP-32 arith input
-    reg              fp32_arith_new_insn_r;
-    // !!! pay attention that B-operand related hazard is
-    // !!! overriden already in OMAN if immediate is used
-    always @(posedge clk `OR_ASYNC_RST) begin
-      if (rst) begin
-        fp32_arith_fwd_wb_a_r <= 1'b0;
-        fp32_arith_fwd_wb_b_r <= 1'b0;
-        fp32_arith_new_insn_r <= 1'b0;
-      end
-      else if (pipeline_flush_i) begin
-        fp32_arith_fwd_wb_a_r <= 1'b0;
-        fp32_arith_fwd_wb_b_r <= 1'b0;
-        fp32_arith_new_insn_r <= 1'b0;
-      end
-      else if (padv_decode_i & dcod_op_fp32_arith_i[`OR1K_FPUOP_WIDTH-1]) begin
-        fp32_arith_fwd_wb_a_r <= exe2dec_hazard_a_i;
-        fp32_arith_fwd_wb_b_r <= exe2dec_hazard_b_i;
-        fp32_arith_new_insn_r <= 1'b1;
-      end
-      else if (fp32_arith_new_insn_r) begin // complete forwarding from WB
-        fp32_arith_fwd_wb_a_r <= 1'b0;
-        fp32_arith_fwd_wb_b_r <= 1'b0;
-        fp32_arith_new_insn_r <= 1'b0;
-      end
-    end // @clock
-    // ---
-    always @(posedge clk) begin
-      if (padv_decode_i & dcod_op_fp32_arith_i[`OR1K_FPUOP_WIDTH-1]) begin
-        fp32_arith_a_r <= dcod_rfa_i;
-        fp32_arith_b_r <= dcod_rfb_i;
-      end
-      else if (fp32_arith_new_insn_r) begin // complete forwarding from WB
-        fp32_arith_a_r <= fp32_arith_a;
-        fp32_arith_b_r <= fp32_arith_b;
-      end
-    end // @clock
-    // last forward (from WB)
-    assign fp32_arith_a = fp32_arith_fwd_wb_a_r ? wb_result_i : fp32_arith_a_r;
-    assign fp32_arith_b = fp32_arith_fwd_wb_b_r ? wb_result_i : fp32_arith_b_r;
-
     // fp32 arithmetic instance
     pfpu32_top_marocchino  u_pfpu32
     (
@@ -925,15 +861,21 @@ module mor1kx_execute_marocchino
       .rst                      (rst),
       // pipeline control
       .flush_i                  (pipeline_flush_i),
+      .padv_decode_i            (padv_decode_i),
       .padv_wb_i                (padv_wb_i),
       .do_rf_wb_i               (do_rf_wb_i),
-      // Operands
-      .rfa_i                    (fp32_arith_a),
-      .rfb_i                    (fp32_arith_b),
-      // FPU-32 arithmetic part
+      // Configuration
       .round_mode_i             (fpu_round_mode_i),
-      .op_arith_i               (op_fp32_arith_r),
-      .take_op_fp32_arith_o     (take_op_fp32_arith),    // feedback to drop FP32 arithmetic related command
+      // Operands and commands
+      .dcod_op_fp32_arith_i     (dcod_op_fp32_arith_i),
+      //   from DECODE
+      .dcod_rfa_i               (dcod_rfa_i),
+      .dcod_rfb_i               (dcod_rfb_i),
+      //   forwarding from WB
+      .exe2dec_hazard_a_i       (exe2dec_hazard_a_i),
+      .exe2dec_hazard_b_i       (exe2dec_hazard_b_i),
+      .wb_result_i              (wb_result_i),
+      // FPU-32 arithmetic part
       .fp32_arith_busy_o        (fp32_arith_busy_o),     // idicates that arihmetic units are busy
       .fp32_arith_valid_o       (fp32_arith_valid_o),    // WB-latching ahead arithmetic ready flag
       .grant_wb_to_fp32_arith_i (grant_wb_to_fp32_arith_i),

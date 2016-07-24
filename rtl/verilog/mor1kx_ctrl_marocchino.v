@@ -107,12 +107,6 @@ module mor1kx_ctrl_marocchino
   input                                 du_stall_i,
   output                                du_stall_o,
 
-  // IRQ lines from PIC
-  input                          [31:0] spr_picsr_i,
-
-  // Input from tick-timer
-  input                                 tt_rdy_i,
-
   // SPR accesses to external units (cache, mmu, etc.)
   output reg                     [15:0] spr_bus_addr_o,
   output reg                            spr_bus_we_o,
@@ -141,6 +135,13 @@ module mor1kx_ctrl_marocchino
   input      [OPTION_OPERAND_WIDTH-1:0] spr_bus_dat_gpr_i,
   input                                 spr_bus_ack_gpr_i,
 
+  // WB: External Interrupt Collection
+  output                                tt_interrupt_enable_o,
+  output                                pic_interrupt_enable_o,
+  input                                 wb_tt_interrupt_i,
+  input                                 wb_pic_interrupt_i,
+  input                                 wb_an_interrupt_i,
+
   // WB & Exceptions
   //  # PC of completed instruction
   input      [OPTION_OPERAND_WIDTH-1:0] pc_wb_i,
@@ -159,27 +160,35 @@ module mor1kx_ctrl_marocchino
   input         [`OR1K_FPCSR_WIDTH-1:0] wb_fp32_arith_fpcsr_i,
   input         [`OR1K_FPCSR_WIDTH-1:0] wb_fp32_cmp_fpcsr_i,
   //  # Excepion processing auxiliaries
-  input      [OPTION_OPERAND_WIDTH-1:0] wb_lsu_except_addr_i,
   //    ## Exception PC input coming from the store buffer
   input      [OPTION_OPERAND_WIDTH-1:0] sbuf_eear_i,
   input      [OPTION_OPERAND_WIDTH-1:0] sbuf_epcr_i,
   input                                 sbuf_err_i,
   //    ## Instriction is in delay slot
   input                                 wb_delay_slot_i,
-  //    ## Instruction is restartable
-  input                                 wb_interrupts_en_i,
-  //  # Particular exception flags
-  input                                 except_ibus_err_i,
-  input                                 except_itlb_miss_i,
-  input                                 except_ipagefault_i,
-  input                                 except_ibus_align_i,
+
+  //  # particular IFETCH exception flags
+  input                                 wb_except_ibus_err_i,
+  input                                 wb_except_itlb_miss_i,
+  input                                 wb_except_ipagefault_i,
+  input                                 wb_except_ibus_align_i,
+  input      [OPTION_OPERAND_WIDTH-1:0] wb_lsu_except_addr_i,
+  //  # combined IFETCH exceptions flag
+  input                                 wb_an_except_fetch_i,
+
   input                                 except_illegal_i,
   input                                 except_syscall_i,
-  input                                 except_dbus_i,
-  input                                 except_dtlb_miss_i,
-  input                                 except_dpagefault_i,
   input                                 except_trap_i,
-  input                                 except_align_i,
+
+  //  # particular LSU exception flags
+  input                                 wb_except_dbus_err_i,
+  input                                 wb_except_dtlb_miss_i,
+  input                                 wb_except_dpagefault_i,
+  input                                 wb_except_dbus_align_i,
+  //  # combined LSU exceptions flag
+  input                                 wb_an_except_lsu_i,
+
+
   //  # Branch to exception/rfe processing address
   output                                ctrl_branch_exception_o,
   output     [OPTION_OPERAND_WIDTH-1:0] ctrl_branch_except_pc_o,
@@ -308,17 +317,13 @@ module mor1kx_ctrl_marocchino
 
   // exceptions detection and processing
   wire except_range     = ctrl_overflow;
-  wire except_ticktimer = tt_rdy_i & spr_sr[`OR1K_SPR_SR_TEE];
-  wire except_pic       = (|spr_picsr_i) & spr_sr[`OR1K_SPR_SR_IEE];
   wire except_trap      = except_trap_i & du_stall_on_trap;
 
-  wire exception =
-    except_ibus_err_i  | except_ibus_align_i | except_itlb_miss_i | except_ipagefault_i |
+  wire exception = wb_an_except_fetch_i |
     except_illegal_i   | except_syscall_i    | except_trap        |
     except_range       | except_fpu          |
-    except_dbus_i      | except_align_i      | except_dtlb_miss_i | except_dpagefault_i |
-    sbuf_err_i         |
-    ((except_ticktimer | except_pic) & wb_interrupts_en_i);
+    wb_an_except_lsu_i | sbuf_err_i         |
+    wb_an_interrupt_i;
 
 
   assign exception_re = exception & (~exception_r);
@@ -338,21 +343,21 @@ module mor1kx_ctrl_marocchino
     if (rst)
       exception_pc_addr <= {19'd0,`OR1K_RESET_VECTOR,8'd0};
     else if (exception_re) begin
-      casez({except_itlb_miss_i,
-             except_ipagefault_i,
-             except_ibus_err_i,
+      casez({wb_except_itlb_miss_i,
+             wb_except_ipagefault_i,
+             wb_except_ibus_err_i,
              except_illegal_i,
-             except_align_i,
-             except_ibus_align_i,
+             wb_except_dbus_align_i,
+             wb_except_ibus_align_i,
              except_syscall_i,
-             except_dtlb_miss_i,
-             except_dpagefault_i,
+             wb_except_dtlb_miss_i,
+             wb_except_dpagefault_i,
              except_trap,
-             (except_dbus_i | sbuf_err_i),
+             (wb_except_dbus_err_i | sbuf_err_i),
              except_range,
              except_fpu,
-             except_pic,
-             except_ticktimer
+             wb_pic_interrupt_i,
+             wb_tt_interrupt_i
             })
         15'b1??????????????: exception_pc_addr <= spr_evbar | {19'd0,`OR1K_ITLB_VECTOR,8'd0};
         15'b01?????????????: exception_pc_addr <= spr_evbar | {19'd0,`OR1K_IPF_VECTOR,8'd0};
@@ -368,8 +373,8 @@ module mor1kx_ctrl_marocchino
         15'b000000000001???: exception_pc_addr <= spr_evbar | {19'd0,`OR1K_RANGE_VECTOR,8'd0};
         15'b0000000000001??: exception_pc_addr <= spr_evbar | {19'd0,`OR1K_FP_VECTOR,8'd0};
         15'b00000000000001?: exception_pc_addr <= spr_evbar | {19'd0,`OR1K_INT_VECTOR,8'd0};
-        //15'b00000000000001:
-        default:             exception_pc_addr <= spr_evbar | {19'd0,`OR1K_TT_VECTOR,8'd0};
+        15'b000000000000001: exception_pc_addr <= spr_evbar | {19'd0,`OR1K_TT_VECTOR,8'd0};
+        default:             exception_pc_addr <= spr_evbar | {19'd0,`OR1K_RESET_VECTOR,8'd0};
       endcase // casex (...
     end
   end // @ clock
@@ -519,6 +524,9 @@ module mor1kx_ctrl_marocchino
 
 
   // Supervision register
+  // WB: External Interrupt Collection
+  assign  tt_interrupt_enable_o  = spr_sr[`OR1K_SPR_SR_TEE];
+  assign  pic_interrupt_enable_o = spr_sr[`OR1K_SPR_SR_IEE];
   // enable modules
   assign  ic_enable_o       = spr_sr[`OR1K_SPR_SR_ICE];
   assign  immu_enable_o     = spr_sr[`OR1K_SPR_SR_IME];
@@ -605,12 +613,12 @@ module mor1kx_ctrl_marocchino
   //   E-P-C-R update
   always @(posedge clk) begin
     if (exception_re) begin
-      if (except_ibus_err_i)
-        spr_epcr <= last_jump_or_branch_pc; // IBUS error
       // Syscall is a special case, we return back to the instruction _after_
       // the syscall instruction, unless the syscall was in a delay slot
-      else if (except_syscall_i)
+      if (except_syscall_i)
         spr_epcr <= wb_delay_slot_i ? pc_pre_wb : pc_nxt_wb;
+      else if (wb_except_ibus_err_i)
+        spr_epcr <= last_jump_or_branch_pc; // IBUS error
       else if (sbuf_err_i)
         spr_epcr <= sbuf_epcr_i;
       // Don't update EPCR on software breakpoint
@@ -625,7 +633,7 @@ module mor1kx_ctrl_marocchino
 
 
   // Exception Effective Address
-  wire fetch_err = except_ibus_err_i | except_itlb_miss_i | except_ipagefault_i;
+  wire fetch_err = wb_except_ibus_err_i | wb_except_itlb_miss_i | wb_except_ipagefault_i;
   // ---
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
