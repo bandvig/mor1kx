@@ -139,12 +139,12 @@ module mor1kx_oman_marocchino
   output reg                            wb_except_ipagefault_o,
   output reg                            wb_except_itlb_miss_o,
   output reg                            wb_except_ibus_align_o,
-  //  ## combined IFETCH exceptions 
-  output reg                            wb_an_except_fetch_o,
-  //  
+  //  ## output exceptions: DECODE
   output reg                            wb_except_illegal_o,
   output reg                            wb_except_syscall_o,
-  output reg                            wb_except_trap_o
+  output reg                            wb_except_trap_o,
+  //  ## combined DECODE/IFETCH exceptions 
+  output reg                            wb_fd_an_except_o
 );
 
   // [O]rder [C]ontrol [B]uffer [T]ap layout
@@ -478,12 +478,12 @@ module mor1kx_oman_marocchino
       wb_except_ipagefault_o <= 1'b0;
       wb_except_itlb_miss_o  <= 1'b0;
       wb_except_ibus_align_o <= 1'b0;
-      // Combined IFETCH exceptions 
-      wb_an_except_fetch_o   <= 1'b0;
-      // 
+      // DECODE exceptions
       wb_except_illegal_o    <= 1'b0;
       wb_except_syscall_o    <= 1'b0;
       wb_except_trap_o       <= 1'b0;
+      // Combined DECODE/IFETCH exceptions 
+      wb_fd_an_except_o      <= 1'b0;
     end
     else if (pipeline_flush_i) begin
       // RFE
@@ -493,12 +493,12 @@ module mor1kx_oman_marocchino
       wb_except_ipagefault_o <= 1'b0;
       wb_except_itlb_miss_o  <= 1'b0;
       wb_except_ibus_align_o <= 1'b0;
-      // Combined IFETCH exceptions 
-      wb_an_except_fetch_o   <= 1'b0;
-      //
+      // DECODE exceptions
       wb_except_illegal_o    <= 1'b0;
       wb_except_syscall_o    <= 1'b0;
       wb_except_trap_o       <= 1'b0;
+      // Combined DECODE/IFETCH exceptions 
+      wb_fd_an_except_o      <= 1'b0;
     end
     else if (padv_wb_i) begin
       // RFE
@@ -508,12 +508,12 @@ module mor1kx_oman_marocchino
       wb_except_ipagefault_o <= ocbo00[5];
       wb_except_itlb_miss_o  <= ocbo00[4];
       wb_except_ibus_align_o <= ocbo00[3];
-      // Combined IFETCH exceptions 
-      wb_an_except_fetch_o   <= (|ocbo00[6:3]);
-      //
+      // DECODE exceptions
       wb_except_illegal_o    <= ocbo00[2];
       wb_except_syscall_o    <= ocbo00[1];
       wb_except_trap_o       <= ocbo00[0];
+      // Combined DECODE/IFETCH exceptions 
+      wb_fd_an_except_o      <= ocbo00[OCBT_FD_AN_EXCEPT_POS];
     end
   end // @clock
 

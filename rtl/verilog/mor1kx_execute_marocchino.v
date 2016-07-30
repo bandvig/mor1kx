@@ -58,7 +58,6 @@ module mor1kx_execute_marocchino
   input                                 dcod_op_1clk_i,
   output                                op_1clk_busy_o,
   //  # opcode for alu
-  input       [`OR1K_ALU_OPC_WIDTH-1:0] dcod_opc_alu_i,
   input       [`OR1K_ALU_OPC_WIDTH-1:0] dcod_opc_alu_secondary_i,
   //  # adder's inputs
   input                                 dcod_op_add_i,
@@ -70,6 +69,8 @@ module mor1kx_execute_marocchino
   input                                 dcod_op_ffl1_i,
   input                                 dcod_op_movhi_i,
   input                                 dcod_op_cmov_i,
+  //  # logic
+  input       [`OR1K_ALU_OPC_WIDTH-1:0] dcod_opc_logic_i,
   //  # jump & link
   input                                 dcod_op_jal_i,
   input      [OPTION_OPERAND_WIDTH-1:0] dcod_jal_result_i,
@@ -132,7 +133,6 @@ module mor1kx_execute_marocchino
 
   // single clock operations controls
   //  # opcode for alu
-  reg [`OR1K_ALU_OPC_WIDTH-1:0] opc_alu_r;
   reg [`OR1K_ALU_OPC_WIDTH-1:0] opc_alu_secondary_r;
   //  # adder's inputs
   reg                           op_add_r;
@@ -143,6 +143,9 @@ module mor1kx_execute_marocchino
   reg                           op_ffl1_r;
   reg                           op_movhi_r;
   reg                           op_cmov_r;
+  //  # logic
+  reg                           op_logic_r;
+  reg [`OR1K_ALU_OPC_WIDTH-1:0] opc_logic_r;
   //  # jump & link
   reg                           op_jal_r;
   reg               [EXEDW-1:0] jal_result_r;
@@ -171,7 +174,6 @@ module mor1kx_execute_marocchino
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst) begin
       // opcode for alu
-      opc_alu_r           <= {`OR1K_ALU_OPC_WIDTH{1'b0}};
       opc_alu_secondary_r <= {`OR1K_ALU_OPC_WIDTH{1'b0}};
       // adder's inputs
       op_add_r            <= 1'b0;
@@ -182,6 +184,9 @@ module mor1kx_execute_marocchino
       op_ffl1_r           <= 1'b0;
       op_movhi_r          <= 1'b0;
       op_cmov_r           <= 1'b0;
+      // logic
+      op_logic_r          <= 1'b0;
+      opc_logic_r         <= {`OR1K_ALU_OPC_WIDTH{1'b0}};
       // jump & link
       op_jal_r            <= 1'b0;
       jal_result_r        <= {EXEDW{1'b0}};
@@ -191,7 +196,6 @@ module mor1kx_execute_marocchino
     end
     else if (pipeline_flush_i) begin
       // opcode for alu
-      opc_alu_r           <= {`OR1K_ALU_OPC_WIDTH{1'b0}};
       opc_alu_secondary_r <= {`OR1K_ALU_OPC_WIDTH{1'b0}};
       // adder's inputs
       op_add_r            <= 1'b0;
@@ -202,6 +206,9 @@ module mor1kx_execute_marocchino
       op_ffl1_r           <= 1'b0;
       op_movhi_r          <= 1'b0;
       op_cmov_r           <= 1'b0;
+      // logic
+      op_logic_r          <= 1'b0;
+      opc_logic_r         <= {`OR1K_ALU_OPC_WIDTH{1'b0}};
       // jump & link
       op_jal_r            <= 1'b0;
       jal_result_r        <= {EXEDW{1'b0}};
@@ -211,7 +218,6 @@ module mor1kx_execute_marocchino
     end
     else if (padv_decode_i & dcod_op_1clk_i) begin
       // opcode for alu
-      opc_alu_r           <= dcod_opc_alu_i;
       opc_alu_secondary_r <= dcod_opc_alu_secondary_i;
       // adder's inputs
       op_add_r            <= dcod_op_add_i;
@@ -222,6 +228,9 @@ module mor1kx_execute_marocchino
       op_ffl1_r           <= dcod_op_ffl1_i;
       op_movhi_r          <= dcod_op_movhi_i;
       op_cmov_r           <= dcod_op_cmov_i;
+      // logic
+      op_logic_r          <= (|dcod_opc_logic_i);
+      opc_logic_r         <= dcod_opc_logic_i;
       // jump & link
       op_jal_r            <= dcod_op_jal_i;
       jal_result_r        <= dcod_jal_result_i;
@@ -450,40 +459,37 @@ module mor1kx_execute_marocchino
   // Logical operations //
   //--------------------//
   // Logic wires
-  wire             op_logic;
   reg [EXEDW-1:0]  logic_result;
   // Create a look-up-table for AND/OR/XOR
   reg [3:0] logic_lut;
   always @(*) begin
-    case(opc_alu_r)
+    case(opc_logic_r)
       `OR1K_ALU_OPC_AND: logic_lut = 4'b1000;
       `OR1K_ALU_OPC_OR:  logic_lut = 4'b1110;
       `OR1K_ALU_OPC_XOR: logic_lut = 4'b0110;
       default:           logic_lut = 4'd0;
     endcase
   end
-
   // Extract the result, bit-for-bit, from the look-up-table
   integer i;
-  always @(*)
+  always @(*) begin
     for (i = 0; i < EXEDW; i=i+1) begin
       logic_result[i] = logic_lut[{alu_1clk_a[i], alu_1clk_b[i]}];
     end
-
-  assign op_logic = |logic_lut;
+  end
 
 
   //------------------------------------------------------------------//
   // Muxing and registering 1-clk results and integer comparison flag //
   //------------------------------------------------------------------//
-  wire [EXEDW-1:0] alu_1clk_result_mux = op_shift_r ? shift_result :
-                                         op_ffl1_r  ? ffl1_result  :
-                                         op_add_r   ? adder_result :
-                                         op_logic   ? logic_result :
-                                         op_cmov_r  ? cmov_result  :
-                                         op_movhi_r ? alu_1clk_b   :
-                                         op_jal_r   ? jal_result_r : // for GPR[9]
-                                                      {EXEDW{1'b0}};
+  wire [EXEDW-1:0] alu_1clk_result_mux = ({EXEDW{op_shift_r}} & shift_result ) |
+                                         ({EXEDW{op_ffl1_r}}  & ffl1_result  ) |
+                                         ({EXEDW{op_add_r}}   & adder_result ) |
+                                         ({EXEDW{op_logic_r}} & logic_result ) |
+                                         ({EXEDW{op_cmov_r}}  & cmov_result  ) |
+                                         ({EXEDW{op_movhi_r}} & alu_1clk_b   ) |
+                                         ({EXEDW{op_jal_r}}   & jal_result_r ); // for GPR[9]
+
   //  registering output for 1-clock operations
   //  # pay attention that WB-access is granted to 1-clock
   //    either for RF-WB or for SR[F] update, so we

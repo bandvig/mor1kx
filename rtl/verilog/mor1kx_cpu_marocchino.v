@@ -235,8 +235,6 @@ module mor1kx_cpu_marocchino
 
   wire                            dcod_op_1clk;
   wire                            op_1clk_busy;
-
-  wire  [`OR1K_ALU_OPC_WIDTH-1:0] dcod_opc_alu;
   wire  [`OR1K_ALU_OPC_WIDTH-1:0] dcod_opc_alu_secondary;
 
   wire                            dcod_op_add;
@@ -250,6 +248,8 @@ module mor1kx_cpu_marocchino
   wire                            dcod_op_ffl1;
   wire                            dcod_op_movhi;
   wire                            dcod_op_cmov;
+
+  wire  [`OR1K_ALU_OPC_WIDTH-1:0] dcod_opc_logic;
 
   wire                            dcod_op_setflag;
 
@@ -336,18 +336,21 @@ module mor1kx_cpu_marocchino
   wire wb_except_ipagefault;
   wire wb_except_itlb_miss;
   wire wb_except_ibus_align;
-  //  # combined IFETCH exceptions flag
-  wire wb_an_except_fetch;
-
 
   // Exceptions: reported from DECODE to OMAN
   wire dcod_except_illegal;
   wire dcod_except_syscall;
   wire dcod_except_trap;
+  // Enable l.trap exception
+  wire du_trap_enable;
   // Exceptions: latched by WB latches for processing in CONTROL-unit
   wire wb_except_illegal;
   wire wb_except_syscall;
   wire wb_except_trap;
+
+  //  # combined IFETCH exceptions flag
+  wire wb_fd_an_except;
+
 
 
   // Exceptions: reported by LSU
@@ -534,7 +537,6 @@ module mor1kx_cpu_marocchino
     // 1-clock instruction
     .dcod_op_1clk_o                   (dcod_op_1clk), // DECODE & DECODE->EXE
     // ALU related opc
-    .dcod_opc_alu_o                   (dcod_opc_alu), // DECODE & DECODE->EXE
     .dcod_opc_alu_secondary_o         (dcod_opc_alu_secondary), // DECODE & DECODE->EXE
     // Adder related
     .dcod_op_add_o                    (dcod_op_add), // DECODE & DECODE->EXE
@@ -545,6 +547,8 @@ module mor1kx_cpu_marocchino
     .dcod_op_ffl1_o                   (dcod_op_ffl1), // DECODE & DECODE->EXE
     .dcod_op_movhi_o                  (dcod_op_movhi), // DECODE & DECODE->EXE
     .dcod_op_cmov_o                   (dcod_op_cmov), // DECODE & DECODE->EXE
+    // Logic
+    .dcod_opc_logic_o                 (dcod_opc_logic), // DECODE & DECODE->EXE
     // Jump & Link
     .dcod_op_jal_o                    (dcod_op_jal), // DECODE & DECODE->EXE
     .dcod_jal_result_o                (dcod_jal_result), // DECODE & DECODE->EXE
@@ -563,7 +567,9 @@ module mor1kx_cpu_marocchino
     .dcod_op_mfspr_o                  (dcod_op_mfspr), // DECODE & DECODE->EXE
     .dcod_op_mtspr_o                  (dcod_op_mtspr), // DECODE & DECODE->EXE
     // Exception flags
-    //   outcome latched exception flags
+    //  ## enable l.trap exception
+    .du_trap_enable_i                 (du_trap_enable), // DECODE & DECODE->EXE
+    //  ## outcome exception flags
     .fetch_except_ibus_align_o        (fetch_except_ibus_align), // DECODE & DECODE->EXE
     .dcod_except_illegal_o            (dcod_except_illegal), // DECODE & DECODE->EXE
     .dcod_except_syscall_o            (dcod_except_syscall), // DECODE & DECODE->EXE
@@ -607,7 +613,6 @@ module mor1kx_cpu_marocchino
     .dcod_op_1clk_i                   (dcod_op_1clk), // EXE
     .op_1clk_busy_o                   (op_1clk_busy), // EXE
     //  # opcode for alu
-    .dcod_opc_alu_i                   (dcod_opc_alu), // EXE
     .dcod_opc_alu_secondary_i         (dcod_opc_alu_secondary), // EXE
     //  # adder's inputs
     .dcod_op_add_i                    (dcod_op_add), // EXE
@@ -619,6 +624,8 @@ module mor1kx_cpu_marocchino
     .dcod_op_ffl1_i                   (dcod_op_ffl1), // EXE
     .dcod_op_movhi_i                  (dcod_op_movhi), // EXE
     .dcod_op_cmov_i                   (dcod_op_cmov), // EXE
+    // # logic
+    .dcod_opc_logic_i                 (dcod_opc_logic), // EXE
     //  # jump & link
     .dcod_op_jal_i                    (dcod_op_jal), // EXE
     .dcod_jal_result_i                (dcod_jal_result), // EXE
@@ -968,12 +975,12 @@ module mor1kx_cpu_marocchino
     .wb_except_ipagefault_o     (wb_except_ipagefault), // OMAN
     .wb_except_itlb_miss_o      (wb_except_itlb_miss), // OMAN
     .wb_except_ibus_align_o     (wb_except_ibus_align), // OMAN
-    //  ## combined IFETCH exceptions
-    .wb_an_except_fetch_o       (wb_an_except_fetch), // OMAN
-
+    //  ## DECODE exceptions
     .wb_except_illegal_o        (wb_except_illegal), // OMAN
     .wb_except_syscall_o        (wb_except_syscall), // OMAN
-    .wb_except_trap_o           (wb_except_trap) // OMAN
+    .wb_except_trap_o           (wb_except_trap), // OMAN
+    //  ## combined DECODE/IFETCH exceptions
+    .wb_fd_an_except_o          (wb_fd_an_except) // OMAN
   );
 
 
@@ -1106,8 +1113,11 @@ module mor1kx_cpu_marocchino
     .du_we_i                          (du_we_i), // CTRL
     .du_dat_o                         (du_dat_o), // CTRL
     .du_ack_o                         (du_ack_o), // CTRL
+    // Stall control from debug interface
     .du_stall_i                       (du_stall_i), // CTRL
     .du_stall_o                       (du_stall_o), // CTRL
+    // Enable l.trap exception
+    .du_trap_enable_o                 (du_trap_enable), // CTRL
 
     // SPR accesses to external units (cache, mmu, etc.)
     .spr_bus_addr_o                   (spr_bus_addr_o), // CTRL
@@ -1173,12 +1183,13 @@ module mor1kx_cpu_marocchino
     .wb_except_ipagefault_i           (wb_except_ipagefault), // CTRL
     .wb_except_ibus_align_i           (wb_except_ibus_align), // CTRL
     .wb_lsu_except_addr_i             (wb_lsu_except_addr), // CTRL
-    //  # combined IFETCH exceptions flag
-    .wb_an_except_fetch_i             (wb_an_except_fetch), // CTRL
+    //  # particular DECODE exception flags
+    .wb_except_illegal_i              (wb_except_illegal), // CTRL
+    .wb_except_syscall_i              (wb_except_syscall), // CTRL
+    .wb_except_trap_i                 (wb_except_trap), // CTRL
+    //  # combined DECODE/IFETCH exceptions flag
+    .wb_fd_an_except_i                (wb_fd_an_except), // CTRL
 
-    .except_illegal_i                 (wb_except_illegal), // CTRL
-    .except_syscall_i                 (wb_except_syscall), // CTRL
-    .except_trap_i                    (wb_except_trap), // CTRL
 
     //  # particular LSU exception flags
     .wb_except_dbus_err_i             (wb_except_dbus_err), // CTRL

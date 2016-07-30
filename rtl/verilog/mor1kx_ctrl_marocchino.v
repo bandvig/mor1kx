@@ -106,6 +106,8 @@ module mor1kx_ctrl_marocchino
   // Stall control from debug interface
   input                                 du_stall_i,
   output                                du_stall_o,
+  // Enable l.trap exception
+  output                                du_trap_enable_o,
 
   // SPR accesses to external units (cache, mmu, etc.)
   output reg                     [15:0] spr_bus_addr_o,
@@ -173,12 +175,12 @@ module mor1kx_ctrl_marocchino
   input                                 wb_except_ipagefault_i,
   input                                 wb_except_ibus_align_i,
   input      [OPTION_OPERAND_WIDTH-1:0] wb_lsu_except_addr_i,
-  //  # combined IFETCH exceptions flag
-  input                                 wb_an_except_fetch_i,
-
-  input                                 except_illegal_i,
-  input                                 except_syscall_i,
-  input                                 except_trap_i,
+  //  # particular DECODE exception flags
+  input                                 wb_except_illegal_i,
+  input                                 wb_except_syscall_i,
+  input                                 wb_except_trap_i,
+  //  # combined DECODE/IFETCH exceptions flag
+  input                                 wb_fd_an_except_i,
 
   //  # particular LSU exception flags
   input                                 wb_except_dbus_err_i,
@@ -246,7 +248,6 @@ module mor1kx_ctrl_marocchino
   wire                              du_npc_we;
   reg                               du_npc_hold; // till restart command from Debug System
   // stall / unstall
-  wire                              du_stall_on_trap;
   reg                               du_cpu_flush_r;
   reg                               du_cpu_stall_r;
   reg                               du_cpu_unstall_r;
@@ -317,10 +318,8 @@ module mor1kx_ctrl_marocchino
 
   // exceptions detection and processing
   wire except_range     = ctrl_overflow;
-  wire except_trap      = except_trap_i & du_stall_on_trap;
 
-  wire exception = wb_an_except_fetch_i |
-    except_illegal_i   | except_syscall_i    | except_trap        |
+  wire exception = wb_fd_an_except_i |
     except_range       | except_fpu          |
     wb_an_except_lsu_i | sbuf_err_i         |
     wb_an_interrupt_i;
@@ -346,13 +345,13 @@ module mor1kx_ctrl_marocchino
       casez({wb_except_itlb_miss_i,
              wb_except_ipagefault_i,
              wb_except_ibus_err_i,
-             except_illegal_i,
+             wb_except_illegal_i,
              wb_except_dbus_align_i,
              wb_except_ibus_align_i,
-             except_syscall_i,
+             wb_except_syscall_i,
              wb_except_dtlb_miss_i,
              wb_except_dpagefault_i,
-             except_trap,
+             wb_except_trap_i,
              (wb_except_dbus_err_i | sbuf_err_i),
              except_range,
              except_fpu,
@@ -615,14 +614,14 @@ module mor1kx_ctrl_marocchino
     if (exception_re) begin
       // Syscall is a special case, we return back to the instruction _after_
       // the syscall instruction, unless the syscall was in a delay slot
-      if (except_syscall_i)
+      if (wb_except_syscall_i)
         spr_epcr <= wb_delay_slot_i ? pc_pre_wb : pc_nxt_wb;
       else if (wb_except_ibus_err_i)
         spr_epcr <= last_jump_or_branch_pc; // IBUS error
       else if (sbuf_err_i)
         spr_epcr <= sbuf_epcr_i;
       // Don't update EPCR on software breakpoint
-      else if (~except_trap)
+      else if (~wb_except_trap_i)
         spr_epcr <= wb_delay_slot_i ? pc_pre_wb : pc_wb_i;
     end
     else if (spr_sys_group_cs & (`SPR_OFFSET(spr_bus_addr_o) == `SPR_OFFSET(`OR1K_SPR_EPCR0_ADDR)) &
@@ -677,9 +676,9 @@ module mor1kx_ctrl_marocchino
       spr_npc <= du_dat_i;
     else if (~du_npc_hold) begin // ... hold it till restart command from Debug System
       if (doing_wb_r) begin
-        spr_npc <= except_trap     ? pc_wb_i            :
-                   wb_delay_slot_i ? last_branch_target :
-                                     pc_nxt_wb;
+        spr_npc <= wb_except_trap_i ? pc_wb_i            :
+                   wb_delay_slot_i  ? last_branch_target :
+                                      pc_nxt_wb;
       end
       else begin
         // any "stepped_into_*" is 1-clock delayed "doing_wb_r"
@@ -1078,7 +1077,7 @@ module mor1kx_ctrl_marocchino
     end // @ clock
 
     // Pick the traps-cause-stall bit out of the DSR
-    assign du_stall_on_trap = spr_dsr[`OR1K_SPR_DSR_TE];
+    assign du_trap_enable_o = spr_dsr[`OR1K_SPR_DSR_TE];
 
 
     /* DRR */
@@ -1087,7 +1086,7 @@ module mor1kx_ctrl_marocchino
         spr_drr <= 32'd0;
       else if (spr_du_wr_r & spr_bus_cs_du_drr)
         spr_drr[13:0] <= spr_bus_dat_o[13:0];
-      else if (except_trap) // DU
+      else if (wb_except_trap_i) // DU
         spr_drr[`OR1K_SPR_DRR_TE] <= 1'b1;
     end // @ clock
 
@@ -1102,7 +1101,7 @@ module mor1kx_ctrl_marocchino
     //
     wire du_cpu_stall_by_cmd      = doing_wb_r & du_stall_i;
     wire du_cpu_stall_by_stepping = doing_wb_r & stepping;
-    wire du_spu_stall_by_trap     = except_trap;
+    wire du_spu_stall_by_trap     = wb_except_trap_i;
 
     //
     // Generate 1-clok length pipe flusing signal from DU
@@ -1263,7 +1262,7 @@ module mor1kx_ctrl_marocchino
 
     // stall / unstall
     assign du_stall_o       = 1'b0;
-    assign du_stall_on_trap = 1'b0;
+    assign du_trap_enable_o = 1'b0;
     // ---
     always @(posedge clk) begin
       du_npc_hold      <= 1'b0;
