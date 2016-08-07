@@ -144,23 +144,39 @@ module mor1kx_ctrl_marocchino
   input                                 wb_pic_interrupt_i,
   input                                 wb_an_interrupt_i,
 
-  // WB & Exceptions
-  //  # PC of completed instruction
+  // WB: programm counter
   input      [OPTION_OPERAND_WIDTH-1:0] pc_wb_i,
-  //  # flag / carry / overflow bits
+
+  // WB: flag
   input                                 wb_int_flag_set_i,
   input                                 wb_int_flag_clear_i,
   input                                 wb_fp32_flag_set_i,
   input                                 wb_fp32_flag_clear_i,
   input                                 wb_atomic_flag_set_i,
   input                                 wb_atomic_flag_clear_i,
-  input                                 wb_carry_set_i,
-  input                                 wb_carry_clear_i,
-  input                                 wb_overflow_set_i,
-  input                                 wb_overflow_clear_i,
+
+  // WB: carry
+  input                                 wb_div_carry_set_i,
+  input                                 wb_div_carry_clear_i,
+  input                                 wb_1clk_carry_set_i,
+  input                                 wb_1clk_carry_clear_i,
+
+  // WB: overflow
+  input                                 wb_div_overflow_set_i,
+  input                                 wb_div_overflow_clear_i,
+  input                                 wb_1clk_overflow_set_i,
+  input                                 wb_1clk_overflow_clear_i,
+
   //  # FPX32 related flags
-  input         [`OR1K_FPCSR_WIDTH-1:0] wb_fp32_arith_fpcsr_i,
-  input         [`OR1K_FPCSR_WIDTH-1:0] wb_fp32_cmp_fpcsr_i,
+  //    ## arithmetic part
+  input     [`OR1K_FPCSR_ALLF_SIZE-1:0] wb_fp32_arith_fpcsr_i,
+  input                                 wb_fp32_arith_wb_fpcsr_i,
+  input                                 wb_except_fp32_arith_i,
+  //    ## comparison part
+  input                                 wb_fp32_cmp_inv_i,
+  input                                 wb_fp32_cmp_inf_i,
+  input                                 wb_fp32_cmp_wb_fpcsr_i,
+  input                                 wb_except_fp32_cmp_i,
   //  # Excepion processing auxiliaries
   //    ## Exception PC input coming from the store buffer
   input      [OPTION_OPERAND_WIDTH-1:0] sbuf_eear_i,
@@ -190,6 +206,10 @@ module mor1kx_ctrl_marocchino
   //  # combined LSU exceptions flag
   input                                 wb_an_except_lsu_i,
 
+  //  # overflow exception processing
+  output                                except_overflow_enable_o,
+  input                                 wb_except_overflow_div_i,
+  input                                 wb_except_overflow_1clk_i,
 
   //  # Branch to exception/rfe processing address
   output                                ctrl_branch_exception_o,
@@ -213,7 +233,9 @@ module mor1kx_ctrl_marocchino
   output                                dmmu_enable_o,
   output                                supervisor_mode_o,
 
-  // FPU rounding mode
+  // FPU related controls
+  output                                except_fpu_enable_o,
+  output    [`OR1K_FPCSR_ALLF_SIZE-1:0] ctrl_fpu_mask_flags_o,
   output      [`OR1K_FPCSR_RM_SIZE-1:0] ctrl_fpu_round_mode_o
 );
 
@@ -227,16 +249,11 @@ module mor1kx_ctrl_marocchino
   // FPU Control & Status Register
   // and related exeption signals
   reg [`OR1K_FPCSR_WIDTH-1:0]       spr_fpcsr;
-  wire                              except_fpu;
 
   reg [OPTION_OPERAND_WIDTH-1:0]    spr_ppc;
   reg [OPTION_OPERAND_WIDTH-1:0]    spr_npc;
 
-  reg                               exception_r;
   reg [OPTION_OPERAND_WIDTH-1:0]    exception_pc_addr;
-  wire                              exception_re;
-
-  reg                               doing_rfe_r;
 
 
   /* DU internal control signals */
@@ -288,56 +305,41 @@ module mor1kx_ctrl_marocchino
 
   // Flag output
   wire   ctrl_flag_clear = wb_int_flag_clear_i | wb_fp32_flag_clear_i | wb_atomic_flag_clear_i;
-  wire   ctrl_flag_set   = wb_int_flag_set_i | wb_fp32_flag_set_i | wb_atomic_flag_set_i;
+  wire   ctrl_flag_set   = wb_int_flag_set_i   | wb_fp32_flag_set_i   | wb_atomic_flag_set_i;
+  // ---
+  assign ctrl_flag_o     = (~ctrl_flag_clear) & (ctrl_flag_set | spr_sr[`OR1K_SPR_SR_F]);
 
-  assign ctrl_flag_o     = (~ctrl_flag_clear) &
-                           (ctrl_flag_set | spr_sr[`OR1K_SPR_SR_F]);
 
   // Carry output
-  assign ctrl_carry_o = (~wb_carry_clear_i) &
-                        (wb_carry_set_i | spr_sr[`OR1K_SPR_SR_CY]);
+  wire   ctrl_carry_clear = wb_div_carry_clear_i | wb_1clk_carry_clear_i;
+  wire   ctrl_carry_set   = wb_div_carry_set_i   | wb_1clk_carry_set_i;
+  // ---
+  assign ctrl_carry_o = (~ctrl_carry_clear) & (ctrl_carry_set | spr_sr[`OR1K_SPR_SR_CY]);
 
-  // Overflow
-  wire ctrl_overflow = spr_sr[`OR1K_SPR_SR_OVE] &
-                       (~wb_overflow_clear_i) &
-                       (wb_overflow_set_i | spr_sr[`OR1K_SPR_SR_OV]);
+
+  // Overflow flag
+  wire ctrl_overflow_clear = wb_div_overflow_clear_i | wb_1clk_overflow_clear_i;
+  wire ctrl_overflow_set   = wb_div_overflow_set_i   | wb_1clk_overflow_set_i;
+  // ---
+  wire ctrl_overflow = (~ctrl_overflow_clear) & (ctrl_overflow_set | spr_sr[`OR1K_SPR_SR_OV]);
+
+
+  // Overflow flag cause exception
+  assign except_overflow_enable_o = spr_sr[`OR1K_SPR_SR_OVE];
 
 
   //-------------------------------------//
   // Exceptions processing support logic //
   //-------------------------------------//
 
-  // To FETCH:
-  //   Flag to use DU/exceptions/rfe provided address
-  assign ctrl_branch_exception_o = du_cpu_unstall_r | exception_r | doing_rfe_r;
-  //   DU/exceptions/rfe provided address itself
-  assign ctrl_branch_except_pc_o = du_cpu_unstall_r ? spr_npc           :
-                                   exception_r      ? exception_pc_addr :
-                                                      spr_epcr;
+  // collect exceptions from all units
+  wire exception_re = wb_fd_an_except_i        |
+                      wb_except_overflow_div_i | wb_except_overflow_1clk_i |
+                      wb_except_fp32_cmp_i     | wb_except_fp32_arith_i    |
+                      wb_an_except_lsu_i       | sbuf_err_i                |
+                      wb_an_interrupt_i;
 
-
-  // exceptions detection and processing
-  wire except_range     = ctrl_overflow;
-
-  wire exception = wb_fd_an_except_i |
-    except_range       | except_fpu          |
-    wb_an_except_lsu_i | sbuf_err_i         |
-    wb_an_interrupt_i;
-
-
-  assign exception_re = exception & (~exception_r);
-
-
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      exception_r <= 1'b0;
-    else if ((exception_r | du_cpu_unstall_r) & fetch_exception_taken_i)
-      exception_r <= 1'b0;
-    else if (~exception_r)
-      exception_r <= exception;
-  end // @ clock
-
-
+  // Store exception vector
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
       exception_pc_addr <= {19'd0,`OR1K_RESET_VECTOR,8'd0};
@@ -352,9 +354,9 @@ module mor1kx_ctrl_marocchino
              wb_except_dtlb_miss_i,
              wb_except_dpagefault_i,
              wb_except_trap_i,
-             (wb_except_dbus_err_i | sbuf_err_i),
-             except_range,
-             except_fpu,
+             (wb_except_dbus_err_i     | sbuf_err_i),
+             (wb_except_overflow_div_i | wb_except_overflow_1clk_i),
+             (wb_except_fp32_cmp_i     | wb_except_fp32_arith_i),
              wb_pic_interrupt_i,
              wb_tt_interrupt_i
             })
@@ -378,17 +380,37 @@ module mor1kx_ctrl_marocchino
     end
   end // @ clock
 
-
-  // RFE related logic
+  // flag to select l.rfe related branch vector
+  reg doing_rfe_r;
+  // ---
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
       doing_rfe_r <= 1'b0;
-    else if (doing_rfe_r & fetch_exception_taken_i)
+    else if ((doing_rfe_r | du_cpu_unstall_r) & fetch_exception_taken_i)
       doing_rfe_r <= 1'b0;
     else if (wb_op_rfe_i)
       doing_rfe_r <= 1'b1;
   end // @ clock
 
+  // flag to select exception related branch vector
+  reg doing_exception_r;
+  // ---
+  always @(posedge clk `OR_ASYNC_RST) begin
+    if (rst)
+      doing_exception_r <= 1'b0;
+    else if ((doing_exception_r | du_cpu_unstall_r) & fetch_exception_taken_i)
+      doing_exception_r <= 1'b0;
+    else if (exception_re)
+      doing_exception_r <= 1'b1;
+  end // @ clock
+
+  // To FETCH:
+  //   Flag to use DU/exceptions/rfe provided address
+  assign ctrl_branch_exception_o = du_cpu_unstall_r | doing_exception_r | doing_rfe_r;
+  //   DU/exceptions/rfe provided address itself
+  assign ctrl_branch_except_pc_o = du_cpu_unstall_r  ? spr_npc           :
+                                   doing_exception_r ? exception_pc_addr :
+                                                       spr_epcr;
 
 
   //------------------------//
@@ -452,70 +474,61 @@ module mor1kx_ctrl_marocchino
   end // @ clock
 
 
-  // FPU related: FPCSR and exceptions
+  //-----------------------------------//
+  // FPU related: FPCSR and exceptions //
+  //-----------------------------------//
+
+  assign except_fpu_enable_o = spr_fpcsr[`OR1K_FPCSR_FPEE];
+  
   generate
-
- `ifdef OR1K_FPCSR_MASK_FLAGS
-  reg [`OR1K_FPCSR_ALLF_SIZE-1:0] spr_fpcsr_mf; // mask for FPU flags
- `endif
-
   /* verilator lint_off WIDTH */
-  if (FEATURE_FPU != "NONE") begin : fpu_csr_gen
+  if (FEATURE_FPU != "NONE") begin : fpu_csr_en
   /* verilator lint_on WIDTH */
+
+    wire spr_fpcsr_we = spr_sys_group_cs &
+                        (`SPR_OFFSET(spr_bus_addr_o) == `SPR_OFFSET(`OR1K_SPR_FPCSR_ADDR)) &
+                        spr_sys_group_wr_r &  spr_sr[`OR1K_SPR_SR_SM];
+
+   `ifdef OR1K_FPCSR_MASK_FLAGS
+    reg [`OR1K_FPCSR_ALLF_SIZE-1:0] ctrl_fpu_mask_flags_r;
+    // ---
+    always @(posedge clk `OR_ASYNC_RST) begin
+      if (rst)
+        ctrl_fpu_mask_flags_r <= {`OR1K_FPCSR_ALLF_SIZE{1'b1}};
+      else if (spr_fpcsr_we)
+        ctrl_fpu_mask_flags_r <= spr_bus_dat_o[`OR1K_FPCSR_MASK_ALL];
+    end // FPCSR reg's always(@posedge clk)
+    // ---
+    assign ctrl_fpu_mask_flags_o = ctrl_fpu_mask_flags_r;         // FPU-enabled, "masking FPU flags" enabled
+   `else
+    assign ctrl_fpu_mask_flags_o = {`OR1K_FPCSR_ALLF_SIZE{1'b1}}; // FPU-enabled, "masking FPU flags" disabled
+   `endif
 
     assign ctrl_fpu_round_mode_o = spr_fpcsr[`OR1K_FPCSR_RM];
 
-    // select all flags
-    // (1) Before issuing l.rfe, an exeption FPU handler
-    //     must clean up all exeption flags in FPCSR.
-    // (2) Only new arrived flags make sense to detect
-    //     FPU exceptions.
-   `ifdef OR1K_FPCSR_MASK_FLAGS
-    wire [`OR1K_FPCSR_ALLF_SIZE-1:0] fpu_allf = spr_fpcsr_mf &
-      (wb_fp32_arith_fpcsr_i[`OR1K_FPCSR_ALLF] | wb_fp32_cmp_fpcsr_i[`OR1K_FPCSR_ALLF]);
-   `else
-    wire [`OR1K_FPCSR_ALLF_SIZE-1:0] fpu_allf =
-      (wb_fp32_arith_fpcsr_i[`OR1K_FPCSR_ALLF] | wb_fp32_cmp_fpcsr_i[`OR1K_FPCSR_ALLF]);
-   `endif
+    // collect FPx flags
+    wire [`OR1K_FPCSR_ALLF_SIZE-1:0] fpx_flags = {1'b0, wb_fp32_cmp_inf_i, wb_fp32_cmp_inv_i, 6'd0} |
+                                                 wb_fp32_arith_fpcsr_i;
 
-    assign except_fpu = spr_fpcsr[`OR1K_FPCSR_FPEE] & (|fpu_allf);
-
-    // FPU Control & status register
+    // FPU Control & Status Register
     always @(posedge clk `OR_ASYNC_RST) begin
-      if (rst) begin
+      if (rst)
         spr_fpcsr <= `OR1K_FPCSR_RESET_VALUE;
-       `ifdef OR1K_FPCSR_MASK_FLAGS
-        spr_fpcsr_mf <= `OR1K_FPCSR_MASK_RESET_VALUE;
-       `endif
-      end
-      else if (exception_re) begin
-        spr_fpcsr[`OR1K_FPCSR_ALLF] <= fpu_allf;
-        spr_fpcsr[`OR1K_FPCSR_RM]   <= spr_fpcsr[`OR1K_FPCSR_RM];
-        spr_fpcsr[`OR1K_FPCSR_FPEE] <= 1'b0;
-      end
-      else if (spr_sys_group_cs & (`SPR_OFFSET(spr_bus_addr_o) == `SPR_OFFSET(`OR1K_SPR_FPCSR_ADDR)) &
-               spr_sys_group_wr_r &
-               spr_sr[`OR1K_SPR_SR_SM]) begin
+      else if (spr_fpcsr_we)
         spr_fpcsr <= spr_bus_dat_o[`OR1K_FPCSR_WIDTH-1:0]; // update all fields
-       `ifdef OR1K_FPCSR_MASK_FLAGS
-        spr_fpcsr_mf <= spr_bus_dat_o[`OR1K_FPCSR_MASK_ALL];
-       `endif
-      end
-    end // FPCSR reg's always(@posedge clk)
+      else if (wb_fp32_cmp_wb_fpcsr_i | wb_fp32_arith_wb_fpcsr_i)
+        spr_fpcsr <= {fpx_flags, spr_fpcsr[`OR1K_FPCSR_RM], spr_fpcsr[`OR1K_FPCSR_FPEE]};
+    end
 
   end
   else begin : fpu_csr_none
 
-    assign ctrl_fpu_round_mode_o = {`OR1K_FPCSR_RM_SIZE{1'b0}};
-    assign except_fpu = 1'b0;
+    assign ctrl_fpu_mask_flags_o = {`OR1K_FPCSR_ALLF_SIZE{1'b0}}; // FPU-disabled
+    assign ctrl_fpu_round_mode_o = {`OR1K_FPCSR_RM_SIZE{1'b0}}; // FPU-disabled
+
     // FPU Control & status register
     always @(posedge clk `OR_ASYNC_RST) begin
-      if (rst) begin
-        spr_fpcsr <= {`OR1K_FPCSR_WIDTH{1'b0}};
-       `ifdef OR1K_FPCSR_MASK_FLAGS
-        spr_fpcsr_mf <= {`OR1K_FPCSR_ALLF_SIZE{1'b0}};
-       `endif
-      end
+      spr_fpcsr <= {`OR1K_FPCSR_WIDTH{1'b0}};
     end // FPCSR reg's always(@posedge clk)
 
   end
@@ -545,7 +558,7 @@ module mor1kx_ctrl_marocchino
       spr_sr[`OR1K_SPR_SR_DME] <= 1'b0; // D-MMU is off
       spr_sr[`OR1K_SPR_SR_IME] <= 1'b0; // I-MMU is off
       spr_sr[`OR1K_SPR_SR_OVE] <= 1'b0; // block overflow excep.
-      spr_sr[`OR1K_SPR_SR_OV ] <= ctrl_overflow; // but save overflow flag
+      spr_sr[`OR1K_SPR_SR_OV ] <= wb_except_overflow_div_i | wb_except_overflow_1clk_i;
       spr_sr[`OR1K_SPR_SR_DSX] <= wb_delay_slot_i;
     end
     else if (spr_sys_group_cs & (`SPR_OFFSET(spr_bus_addr_o) == `SPR_OFFSET(`OR1K_SPR_SR_ADDR)) &
@@ -573,8 +586,9 @@ module mor1kx_ctrl_marocchino
         spr_sr[14:0] <= spr_esr[14:0];
       end
       else begin
-        spr_sr[`OR1K_SPR_SR_F ] <= ctrl_flag_o;
-        spr_sr[`OR1K_SPR_SR_CY] <= ctrl_carry_o;
+        spr_sr[`OR1K_SPR_SR_F ]  <= ctrl_flag_o;
+        spr_sr[`OR1K_SPR_SR_CY]  <= ctrl_carry_o;
+        spr_sr[`OR1K_SPR_SR_OV ] <= ctrl_overflow;
       end
     end
   end // @ clock
@@ -871,7 +885,7 @@ module mor1kx_ctrl_marocchino
       `SPR_OFFSET(`OR1K_SPR_PPC_ADDR)     : spr_sys_group_dat = spr_ppc;
      `ifdef OR1K_FPCSR_MASK_FLAGS
       `SPR_OFFSET(`OR1K_SPR_FPCSR_ADDR)   : spr_sys_group_dat = {{(OPTION_OPERAND_WIDTH-`OR1K_FPCSR_WIDTH-`OR1K_FPCSR_ALLF_SIZE){1'b0}},
-                                                                  spr_fpcsr_mf,spr_fpcsr};
+                                                                  ctrl_fpu_mask_flags_o,spr_fpcsr};
      `else
       `SPR_OFFSET(`OR1K_SPR_FPCSR_ADDR)   : spr_sys_group_dat = {{(OPTION_OPERAND_WIDTH-`OR1K_FPCSR_WIDTH){1'b0}},
                                                                   spr_fpcsr};

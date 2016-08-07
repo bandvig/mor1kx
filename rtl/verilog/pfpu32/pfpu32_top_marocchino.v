@@ -51,13 +51,22 @@ module pfpu32_top_marocchino
   // clock & reset
   input                             clk,
   input                             rst,
+
   // pipeline control
   input                             flush_i,
   input                             padv_decode_i,
   input                             padv_wb_i,
-  input                             do_rf_wb_i,
+  input                             grant_wb_to_fp32_arith_i,
+
+  // pipeline control outputs
+  output                            fp32_arith_busy_o,     // idicates that arihmetic units are busy
+  output                            fp32_arith_valid_o,    // WB-latching ahead arithmetic ready flag
+
   // Configuration
   input   [`OR1K_FPCSR_RM_SIZE-1:0] round_mode_i,
+  input                             except_fpu_enable_i,
+  input [`OR1K_FPCSR_ALLF_SIZE-1:0] ctrl_fpu_mask_flags_i,
+
   // Operands and commands
   input     [`OR1K_FPUOP_WIDTH-1:0] dcod_op_fp32_arith_i,
   //   from DECODE
@@ -67,13 +76,15 @@ module pfpu32_top_marocchino
   input                             exe2dec_hazard_a_i,
   input                             exe2dec_hazard_b_i,
   input                      [31:0] wb_result_i,
+
   // FPU-32 arithmetic part
-  output                            fp32_arith_busy_o,     // idicates that arihmetic units are busy
-  output                            fp32_arith_valid_o,    // WB-latching ahead arithmetic ready flag
-  input                             grant_wb_to_fp32_arith_i,
-  output                     [31:0] wb_fp32_arith_res_o,   // arithmetic result
-  output    [`OR1K_FPCSR_WIDTH-1:0] wb_fp32_arith_fpcsr_o  // arithmetic exceptions
+  output                      [31:0] wb_fp32_arith_res_o,      // arithmetic result
+  output [`OR1K_FPCSR_ALLF_SIZE-1:0] wb_fp32_arith_fpcsr_o,    // arithmetic exceptions
+  output                             wb_fp32_arith_wb_fpcsr_o, // update FPCSR
+  output                             wb_except_fp32_arith_o    // generate exception
+
 );
+
 // fp32 arithmetic controls
 reg   [`OR1K_FPUOP_WIDTH-1:0] op_fp32_arith_r;
 wire                          take_op_fp32_arith;
@@ -431,9 +442,10 @@ pfpu32_rnd_marocchino u_f32_rnd
   .flush_i                  (flush_i),         // flush pipe
   .adv_i                    (arith_adv),       // advance pipe
   .padv_wb_i                (padv_wb_i),       // arith. advance output latches
-  .do_rf_wb_i               (do_rf_wb_i),
   .grant_wb_to_fp32_arith_i (grant_wb_to_fp32_arith_i),
   .rmode_i                  (round_mode_i),    // rounding mode
+  .except_fpu_enable_i      (except_fpu_enable_i),
+  .ctrl_fpu_mask_flags_i    (ctrl_fpu_mask_flags_i),
   // from add/sub
   .add_rdy_i       (add_rdy_o),       // add/sub is ready
   .add_sign_i      (add_sign_o),      // add/sub signum
@@ -482,9 +494,11 @@ pfpu32_rnd_marocchino u_f32_rnd
   .f2i_ovf_i       (f2i_ovf_o),       // f2i overflow flag
   .f2i_snan_i      (f2i_snan_o),      // f2i signaling NaN
   // outputs
-  .fp32_arith_valid_o     (fp32_arith_valid_o),
-  .wb_fp32_arith_res_o    (wb_fp32_arith_res_o),
-  .wb_fp32_arith_fpcsr_o  (wb_fp32_arith_fpcsr_o)
+  .fp32_arith_valid_o       (fp32_arith_valid_o),
+  .wb_fp32_arith_res_o      (wb_fp32_arith_res_o),
+  .wb_fp32_arith_fpcsr_o    (wb_fp32_arith_fpcsr_o),
+  .wb_fp32_arith_wb_fpcsr_o (wb_fp32_arith_wb_fpcsr_o), // update FPCSR
+  .wb_except_fp32_arith_o   (wb_except_fp32_arith_o)    // generate exception
 );
 
 endmodule // pfpu32_top_marocchino
