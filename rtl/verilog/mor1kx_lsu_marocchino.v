@@ -423,7 +423,6 @@ module mor1kx_lsu_marocchino
       // forwarding flags
       lsu_fwd_wb_a_r  <= 1'b0;
       lsu_fwd_wb_b_r  <= 1'b0;
-      lsu_new_input_r <= 1'b0;
       // operands
       lsu_a_r         <= {LSUOOW{1'b0}};
       lsu_b_r         <= {LSUOOW{1'b0}};
@@ -432,7 +431,6 @@ module mor1kx_lsu_marocchino
       // forwarding flags
       lsu_fwd_wb_a_r  <= 1'b0;
       lsu_fwd_wb_b_r  <= 1'b0;
-      lsu_new_input_r <= 1'b0;
       // operands
       lsu_a_r         <= {LSUOOW{1'b0}};
       lsu_b_r         <= {LSUOOW{1'b0}};
@@ -441,16 +439,14 @@ module mor1kx_lsu_marocchino
       // forwarding flags
       lsu_fwd_wb_a_r  <= exe2dec_hazard_a_i;
       lsu_fwd_wb_b_r  <= exe2dec_hazard_b_i;
-      lsu_new_input_r <= 1'b1;
       // operands
       lsu_a_r         <= dcod_rfa_i;
       lsu_b_r         <= dcod_rfb_i;
     end
-    else if (lsu_new_input_r) begin // complete forwarding from WB
+    else if (lsu_fwd_wb_a_r | lsu_fwd_wb_b_r) begin // complete forwarding from WB
       // forwarding flags
       lsu_fwd_wb_a_r  <= 1'b0;
       lsu_fwd_wb_b_r  <= 1'b0;
-      lsu_new_input_r <= 1'b0;
       // operands
       lsu_a_r         <= lsu_a;
       lsu_b_r         <= lsu_b;

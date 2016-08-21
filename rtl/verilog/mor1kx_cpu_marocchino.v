@@ -256,10 +256,6 @@ module mor1kx_cpu_marocchino
   wire                            div_busy;
   wire                            div_valid;
   wire                            grant_wb_to_div;
-  wire                            exec_div_overflow_set;
-  wire                            exec_div_overflow_clear;
-  wire                            exec_div_carry_set;
-  wire                            exec_div_carry_clear;
 
 
   // Pipelined multiplier

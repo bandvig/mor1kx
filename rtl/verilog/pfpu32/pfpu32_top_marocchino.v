@@ -108,30 +108,24 @@ wire [31:0] fp32_arith_a;          // with forwarding from WB
 reg  [31:0] fp32_arith_b_r;        // latched from decode
 reg         fp32_arith_fwd_wb_b_r; // use WB result
 wire [31:0] fp32_arith_b;          // with forwarding from WB
-// new FP-32 arith input
-reg         fp32_arith_new_insn_r;
 // !!! pay attention that B-operand related hazard is
 // !!! overriden already in OMAN if immediate is used
 always @(posedge clk `OR_ASYNC_RST) begin
   if (rst) begin
     fp32_arith_fwd_wb_a_r <= 1'b0;
     fp32_arith_fwd_wb_b_r <= 1'b0;
-    fp32_arith_new_insn_r <= 1'b0;
   end
   else if (flush_i) begin
     fp32_arith_fwd_wb_a_r <= 1'b0;
     fp32_arith_fwd_wb_b_r <= 1'b0;
-    fp32_arith_new_insn_r <= 1'b0;
   end
   else if (padv_decode_i & dcod_op_fp32_arith_i[`OR1K_FPUOP_WIDTH-1]) begin
     fp32_arith_fwd_wb_a_r <= exe2dec_hazard_a_i;
     fp32_arith_fwd_wb_b_r <= exe2dec_hazard_b_i;
-    fp32_arith_new_insn_r <= 1'b1;
   end
-  else if (fp32_arith_new_insn_r) begin // complete forwarding from WB
+  else if (fp32_arith_fwd_wb_a_r | fp32_arith_fwd_wb_b_r) begin // complete forwarding from WB
     fp32_arith_fwd_wb_a_r <= 1'b0;
     fp32_arith_fwd_wb_b_r <= 1'b0;
-    fp32_arith_new_insn_r <= 1'b0;
   end
 end // @clock
 // ---
@@ -140,7 +134,7 @@ always @(posedge clk) begin
     fp32_arith_a_r <= dcod_rfa_i;
     fp32_arith_b_r <= dcod_rfb_i;
   end
-  else if (fp32_arith_new_insn_r) begin // complete forwarding from WB
+  else if (fp32_arith_fwd_wb_a_r | fp32_arith_fwd_wb_b_r) begin // complete forwarding from WB
     fp32_arith_a_r <= fp32_arith_a;
     fp32_arith_b_r <= fp32_arith_b;
   end
