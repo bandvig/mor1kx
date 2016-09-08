@@ -73,76 +73,60 @@ module mor1kx_multiplier_marocchino
   //                  {AlBl[hdw-1:0],{hdw{0}}} +
   //                  AlBl;
 
+  // Outputs of reservation station
+  //  ## operands A and B
+  wire [MULDW-1:0] mul_a;
+  wire [MULDW-1:0] mul_b;
+  //  ## operation is MUL
+  wire             exec_op_mul;
+
   // multiplier controls
-  //  ## register for input command
-  reg    op_mul_r;
   //  ## multiplier stage ready flags
   reg    mul_s1_rdy;
   reg    mul_s2_rdy;
   assign mul_valid_o = mul_s2_rdy; // valid flag is 1-clock ahead of latching for WB
   //  ## stage busy signals
-  wire   mul_s2_busy = mul_s2_rdy & ~(padv_wb_i & grant_wb_to_mul_i);
-  wire   mul_s1_busy = mul_s1_rdy & mul_s2_busy;
-  assign mul_busy_o  = op_mul_r   & mul_s1_busy;
+  wire   mul_s2_busy = mul_s2_rdy  & ~(padv_wb_i & grant_wb_to_mul_i);
+  wire   mul_s1_busy = mul_s1_rdy  & mul_s2_busy;
   //  ## stage advance signals
-  wire   mul_adv_s2  = mul_s1_rdy & ~mul_s2_busy;
-  wire   mul_adv_s1  = op_mul_r   & ~mul_s1_busy;
+  wire   mul_adv_s2  = mul_s1_rdy  & ~mul_s2_busy;
+  wire   mul_adv_s1  = exec_op_mul & ~mul_s1_busy;
 
-  // ---
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      op_mul_r <= 1'b0;
-    else if (pipeline_flush_i)
-      op_mul_r <= 1'b0;
-    else if (padv_decode_i & dcod_op_mul_i)
-      op_mul_r <= 1'b1;
-    else if (mul_adv_s1)
-      op_mul_r <= 1'b0;
-  end // posedge clock
-
-  // operand A latches
-  reg  [MULDW-1:0] mul_a_r;        // latched from decode
-  reg              mul_fwd_wb_a_r; // use WB result
-  wire [MULDW-1:0] mul_a;          // with forwarding from WB
-  // operand B latches
-  reg  [MULDW-1:0] mul_b_r;        // latched from decode
-  reg              mul_fwd_wb_b_r; // use WB result
-  wire [MULDW-1:0] mul_b;          // with forwarding from WB
-  // !!! pay attention that B-operand related hazard is
-  // !!! overriden already in OMAN if immediate is used
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst) begin
-      mul_fwd_wb_a_r <= 1'b0;
-      mul_fwd_wb_b_r <= 1'b0;
-    end
-    else if (pipeline_flush_i) begin
-      mul_fwd_wb_a_r <= 1'b0;
-      mul_fwd_wb_b_r <= 1'b0;
-    end
-    else if (padv_decode_i & dcod_op_mul_i) begin
-      mul_fwd_wb_a_r <= exe2dec_hazard_a_i;
-      mul_fwd_wb_b_r <= exe2dec_hazard_b_i;
-    end
-    else if (mul_fwd_wb_a_r | mul_fwd_wb_b_r) begin // complete forwarding from WB
-      mul_fwd_wb_a_r <= 1'b0;
-      mul_fwd_wb_b_r <= 1'b0;
-    end
-  end // @clock
-  // ---
-  always @(posedge clk) begin
-    if (padv_decode_i & dcod_op_mul_i) begin
-      mul_a_r <= dcod_rfa_i;
-      mul_b_r <= dcod_rfb_i;
-    end
-    else if (mul_fwd_wb_a_r | mul_fwd_wb_b_r) begin // complete forwarding from WB
-      mul_a_r <= mul_a;
-      mul_b_r <= mul_b;
-    end
-  end // @clock
-  // last forward (from WB)
-  assign mul_a = mul_fwd_wb_a_r ? wb_result_i : mul_a_r;
-  assign mul_b = mul_fwd_wb_b_r ? wb_result_i : mul_b_r;
-
+  // reservation station insrtance
+  mor1kx_rsrvs_marocchino
+  #(
+    .OPTION_OPERAND_WIDTH (OPTION_OPERAND_WIDTH)
+  )
+  u_mul_rsrvs
+  (
+    // clocks and resets
+    .clk                  (clk),
+    .rst                  (rst),
+    // pipeline control signals in
+    .pipeline_flush_i     (pipeline_flush_i), // MUL_RSVRS
+    .padv_decode_i        (padv_decode_i), // MUL_RSVRS
+    .take_op_i            (mul_adv_s1), // MUL_RSVRS
+    // input data
+    //   from DECODE
+    .dcod_rfa_i           (dcod_rfa_i), // MUL_RSVRS
+    .dcod_rfb_i           (dcod_rfb_i), // MUL_RSVRS
+    //   forwarding from WB
+    .exe2dec_hazard_a_i   (exe2dec_hazard_a_i), // MUL_RSVRS
+    .exe2dec_hazard_b_i   (exe2dec_hazard_b_i), // MUL_RSVRS
+    .wb_result_i          (wb_result_i), // MUL_RSVRS
+    // command and its additional attributes
+    .dcod_op_i            (dcod_op_mul_i), // MUL_RSVRS
+    .dcod_opc_i           (1'b0), // MUL_RSVRS
+    // outputs
+    //   command and its additional attributes
+    .exec_op_o            (exec_op_mul), // MUL_RSVRS
+    .exec_opc_o           (),
+    //   operands
+    .exec_rfa_o           (mul_a), // MUL_RSVRS
+    .exec_rfb_o           (mul_b), // MUL_RSVRS
+    //   unit-is-busy flag
+    .unit_busy_o          (mul_busy_o) // MUL_RSVRS
+  );
 
   // stage #1: register inputs & split them on halfed parts
   reg [MULHDW-1:0] mul_s1_al;
