@@ -248,84 +248,58 @@ module mor1kx_divider_marocchino
 
   localparam DIVDW  = OPTION_OPERAND_WIDTH; // short name
 
+  // operands A and B with forwarding from WB
+  wire [DIVDW-1:0] div_a;          // with forwarding from WB
+  wire [DIVDW-1:0] div_b;          // with forwarding from WB
+
   // divider controls
   //  ## register for input command
-  reg  op_div_r;
-  reg  op_div_signed_r;
-  reg  op_div_unsigned_r;
+  wire  exec_op_div;
+  wire  exec_op_div_signed;
+  wire  exec_op_div_unsigned;
   //  ## iterations counter
   reg [5:0] div_count;
   reg       div_proc_r;
   //  ## start division
-  wire take_op_div = op_div_r & (div_valid_o ? (padv_wb_i & grant_wb_to_div_i) : ~div_proc_r);
-  //  ## outbut busy flag
-  assign div_busy_o = op_div_r & ~(div_valid_o ? (padv_wb_i & grant_wb_to_div_i) : ~div_proc_r);
+  wire take_op_div = exec_op_div & (div_valid_o ? (padv_wb_i & grant_wb_to_div_i) : (~div_proc_r));
 
-  // ---
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst) begin
-      op_div_r          <= 1'b0;
-      op_div_signed_r   <= 1'b0;
-      op_div_unsigned_r <= 1'b0;
-    end
-    else if (pipeline_flush_i) begin
-      op_div_r          <= 1'b0;
-      op_div_signed_r   <= 1'b0;
-      op_div_unsigned_r <= 1'b0;
-    end
-    else if (padv_decode_i & dcod_op_div_i) begin
-      op_div_r          <= 1'b1;
-      op_div_signed_r   <= dcod_op_div_signed_i;
-      op_div_unsigned_r <= dcod_op_div_unsigned_i;
-    end
-    else if (take_op_div) begin
-      op_div_r          <= 1'b0;
-      op_div_signed_r   <= 1'b0;
-      op_div_unsigned_r <= 1'b0;
-    end
-  end // posedge clock
 
-  // operand A latches
-  reg [DIVDW-1:0]  div_a_r;        // latched from decode
-  reg              div_fwd_wb_a_r; // use WB result
-  wire [DIVDW-1:0] div_a;          // with forwarding from WB
-  // operand B latches
-  reg [DIVDW-1:0]  div_b_r;        // latched from decode
-  reg              div_fwd_wb_b_r; // use WB result
-  wire [DIVDW-1:0] div_b;          // with forwarding from WB
-  // ---
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst) begin
-      div_fwd_wb_a_r <= 1'b0;
-      div_fwd_wb_b_r <= 1'b0;
-    end
-    else if (pipeline_flush_i) begin
-      div_fwd_wb_a_r <= 1'b0;
-      div_fwd_wb_b_r <= 1'b0;
-    end
-    else if (padv_decode_i & dcod_op_div_i) begin
-      div_fwd_wb_a_r <= exe2dec_hazard_a_i;
-      div_fwd_wb_b_r <= exe2dec_hazard_b_i;
-    end
-    else if (div_fwd_wb_a_r | div_fwd_wb_b_r) begin // complete forwarding from WB
-      div_fwd_wb_a_r <= 1'b0;
-      div_fwd_wb_b_r <= 1'b0;
-    end
-  end // @clock
-  // ---
-  always @(posedge clk) begin
-    if (padv_decode_i & dcod_op_div_i) begin
-      div_a_r <= dcod_rfa_i;
-      div_b_r <= dcod_rfb_i; // opposite to multiply, no IMM as operand
-    end
-    else if (div_fwd_wb_a_r | div_fwd_wb_b_r) begin // complete forwarding from WB
-      div_a_r <= div_a;
-      div_b_r <= div_b;
-    end
-  end // @clock
-  // last forward (from WB)
-  assign div_a = div_fwd_wb_a_r ? wb_result_i : div_a_r;
-  assign div_b = div_fwd_wb_b_r ? wb_result_i : div_b_r;
+  // reservation station insrtance
+  mor1kx_rsrvs_marocchino
+  #(
+    .OPTION_OPERAND_WIDTH (OPTION_OPERAND_WIDTH), // DIV_RSVRS
+    .OPC_WIDTH            (2) // DIV_RSVRS
+  )
+  u_div_rsrvs
+  (
+    // clocks and resets
+    .clk                  (clk),
+    .rst                  (rst),
+    // pipeline control signals in
+    .pipeline_flush_i     (pipeline_flush_i), // DIV_RSVRS
+    .padv_decode_i        (padv_decode_i), // DIV_RSVRS
+    .take_op_i            (take_op_div), // DIV_RSVRS
+    // input data
+    //   from DECODE
+    .dcod_rfa_i           (dcod_rfa_i), // DIV_RSVRS
+    .dcod_rfb_i           (dcod_rfb_i), // DIV_RSVRS
+    //   forwarding from WB
+    .exe2dec_hazard_a_i   (exe2dec_hazard_a_i), // DIV_RSVRS
+    .exe2dec_hazard_b_i   (exe2dec_hazard_b_i), // DIV_RSVRS
+    .wb_result_i          (wb_result_i), // DIV_RSVRS
+    // command and its additional attributes
+    .dcod_op_i            (dcod_op_div_i), // DIV_RSVRS
+    .dcod_opc_i           ({dcod_op_div_signed_i, dcod_op_div_unsigned_i}), // DIV_RSVRS
+    // outputs
+    //   command and its additional attributes
+    .exec_op_o            (exec_op_div), // DIV_RSVRS
+    .exec_opc_o           ({exec_op_div_signed, exec_op_div_unsigned}),
+    //   operands
+    .exec_rfa_o           (div_a), // DIV_RSVRS
+    .exec_rfb_o           (div_b), // DIV_RSVRS
+    //   unit-is-busy flag
+    .unit_busy_o          (div_busy_o) // DIV_RSVRS
+  );
 
   // division controller
   always @(posedge clk `OR_ASYNC_RST) begin
@@ -346,8 +320,8 @@ module mor1kx_divider_marocchino
     end
     else if (div_valid_o & padv_wb_i & grant_wb_to_div_i) begin
       div_valid_o <= 1'b0;
-      div_proc_r  <= div_busy_o;
-      div_count   <= div_count;
+      div_proc_r  <= 1'b0;
+      div_count   <= 6'd0;
     end
     else if (div_proc_r) begin
       if (div_count == 6'd1) begin
@@ -367,8 +341,8 @@ module mor1kx_divider_marocchino
   reg             dbz_r;
 
   // signums of input operands
-  wire op_div_sign_a = div_a[DIVDW-1] & op_div_signed_r;
-  wire op_div_sign_b = div_b[DIVDW-1] & op_div_signed_r;
+  wire op_div_sign_a = div_a[DIVDW-1] & exec_op_div_signed;
+  wire op_div_sign_b = div_b[DIVDW-1] & exec_op_div_signed;
 
   // partial reminder
   wire [DIVDW:0] div_sub = {div_r[DIVDW-2:0],div_n[DIVDW-1]} - div_d;
@@ -383,8 +357,8 @@ module mor1kx_divider_marocchino
       div_r   <= {DIVDW{1'b0}};
       div_neg <= (op_div_sign_a ^ op_div_sign_b);
       dbz_r   <= ~(|div_b);
-      div_signed   <= op_div_signed_r;
-      div_unsigned <= op_div_unsigned_r;
+      div_signed   <= exec_op_div_signed;
+      div_unsigned <= exec_op_div_unsigned;
     end
     else if (~div_valid_o) begin
       if (~div_sub[DIVDW]) begin // div_sub >= 0
