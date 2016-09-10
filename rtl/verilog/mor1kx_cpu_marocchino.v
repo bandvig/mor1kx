@@ -182,7 +182,6 @@ module mor1kx_cpu_marocchino
 
   wire [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfd_adr;
   wire                            dcod_rf_wb;
-  wire                            do_rf_wb;
   wire [OPTION_RF_ADDR_WIDTH-1:0] wb_rfd_adr;
   wire                            wb_rf_wb;
 
@@ -265,7 +264,8 @@ module mor1kx_cpu_marocchino
   wire                            grant_wb_to_mul;
 
   // FPU-32 arithmetic part
-  wire      [`OR1K_FPUOP_WIDTH-1:0] dcod_op_fp32_arith;
+  wire                              dcod_op_fp32_arith;
+  wire                        [2:0] dcod_opc_fp32_arith;
   wire                              fp32_arith_busy; // idicates that arihmetic units are busy
   wire                              fp32_arith_valid;
   wire                              grant_wb_to_fp32_arith;
@@ -570,6 +570,7 @@ module mor1kx_cpu_marocchino
     .dcod_op_div_unsigned_o           (dcod_op_div_unsigned), // DECODE & DECODE->EXE
     // FPU arithmmetic related
     .dcod_op_fp32_arith_o             (dcod_op_fp32_arith), // DECODE & DECODE->EXE
+    .dcod_opc_fp32_arith_o            (dcod_opc_fp32_arith), // DECODE & DECODE->EXE
     // MTSPR / MFSPR
     .dcod_op_mfspr_o                  (dcod_op_mfspr), // DECODE & DECODE->EXE
     .dcod_op_mtspr_o                  (dcod_op_mtspr), // DECODE & DECODE->EXE
@@ -806,6 +807,7 @@ module mor1kx_cpu_marocchino
 
       // Operands and commands
       .dcod_op_fp32_arith_i     (dcod_op_fp32_arith), // FPU32_ARITH
+      .dcod_opc_fp32_arith_i    (dcod_opc_fp32_arith), // FPU32_ARITH
       //   from DECODE
       .dcod_rfa_i               (dcod_rfa), // FPU32_ARITH
       .dcod_rfb_i               (dcod_rfb), // FPU32_ARITH
@@ -1030,7 +1032,7 @@ module mor1kx_cpu_marocchino
     .dcod_op_1clk_i             (dcod_op_1clk), // OMAN
     .dcod_op_div_i              (dcod_op_div), // OMAN
     .dcod_op_mul_i              (dcod_op_mul), // OMAN
-    .dcod_op_fp32_arith_i       (dcod_op_fp32_arith[(`OR1K_FPUOP_WIDTH-1)]), // OMAN
+    .dcod_op_fp32_arith_i       (dcod_op_fp32_arith), // OMAN
     .dcod_op_ls_i               (dcod_op_lsu_load | dcod_op_lsu_store), // OMAN
     .dcod_op_lsu_atomic_i       (dcod_op_lsu_atomic), // OMAN
     .dcod_op_rfe_i              (dcod_op_rfe), // OMAN
@@ -1100,8 +1102,6 @@ module mor1kx_cpu_marocchino
     .grant_wb_to_mul_o          (grant_wb_to_mul), // OMAN
     .grant_wb_to_fp32_arith_o   (grant_wb_to_fp32_arith), // OMAN
     .grant_wb_to_lsu_o          (grant_wb_to_lsu), // OMAN
-    // common flag signaling that WB ir required
-    .do_rf_wb_o                 (do_rf_wb), // OMAN
 
     // Support IBUS error handling in CTRL
     .exec_jump_or_branch_o      (exec_jump_or_branch), // OMAN

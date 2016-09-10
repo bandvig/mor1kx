@@ -115,8 +115,6 @@ module mor1kx_oman_marocchino
   output                                grant_wb_to_mul_o,
   output                                grant_wb_to_fp32_arith_o,
   output                                grant_wb_to_lsu_o,
-  // common flag signaling that WB ir required
-  output                                do_rf_wb_o,
 
   // Support IBUS error handling in CTRL
   output                                exec_jump_or_branch_o,
@@ -296,8 +294,6 @@ module mor1kx_oman_marocchino
   assign grant_wb_to_mul_o         = ocbo00[OCBT_OP_MUL_POS];
   assign grant_wb_to_fp32_arith_o  = ocbo00[OCBT_OP_FP32_POS];
   assign grant_wb_to_lsu_o         = ocbo00[OCBT_OP_LS_POS];
-  // common flag signaling that WB is required
-  assign do_rf_wb_o                = ocbo00[OCBT_RF_WB_POS];
 
   // EXECUTE-to-DECODE hazards
   //  # WB address and flag
@@ -339,7 +335,7 @@ module mor1kx_oman_marocchino
     (dcod_op_1clk_i & op_1clk_busy_i) |
     (dcod_op_div_i  & div_busy_i) |
     (dcod_op_mul_i  & mul_busy_i) |
-    (dcod_op_fp32_arith_i & (fp32_arith_busy_i | (fp32_arith_valid_i & ~ocbo00[OCBT_OP_FP32_POS]))) |
+    (dcod_op_fp32_arith_i & fp32_arith_busy_i) |
     ((dcod_op_ls_i | dcod_op_msync_i) & lsu_busy_i);
 
   //  stall by operand A hazard

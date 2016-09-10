@@ -127,8 +127,9 @@ module mor1kx_decode_marocchino
   output                                dcod_op_div_signed_o,
   output                                dcod_op_div_unsigned_o,
 
-  // FPU related
-  output        [`OR1K_FPUOP_WIDTH-1:0] dcod_op_fp32_arith_o,
+  // FPU arithmetic part related
+  output                                dcod_op_fp32_arith_o,
+  output                          [2:0] dcod_opc_fp32_arith_o,
 
   // MTSPR / MFSPR
   output                                dcod_op_mfspr_o,
@@ -262,9 +263,16 @@ module mor1kx_decode_marocchino
 
 
   // --- FPU-32 arithmetic part ---
-  assign dcod_op_fp32_arith_o =
-    {(FEATURE_FPU != "NONE") & (opc_insn == `OR1K_OPCODE_FPU) & ~dcod_insn_i[3],
-     dcod_insn_i[`OR1K_FPUOP_WIDTH-2:0]};
+  assign dcod_op_fp32_arith_o = (FEATURE_FPU != "NONE") & (opc_insn == `OR1K_OPCODE_FPU) & (~dcod_insn_i[3]);
+  // fpu arithmetic opc:
+  // ===================
+  // 0000 = add
+  // 0001 = substract
+  // 0010 = multiply
+  // 0011 = divide
+  // 0100 = i2f
+  // 0101 = f2i
+  assign dcod_opc_fp32_arith_o = dcod_insn_i[2:0];
 
   // --- FPU-32 comparison part ---
   assign dcod_op_fp32_cmp_o =

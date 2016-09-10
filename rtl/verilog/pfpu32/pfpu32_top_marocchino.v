@@ -33,11 +33,11 @@
 /////////////////////////////////////////////////////////////////////
 
 // fpu operations:
-// ==========================
-// 0000 = add,
-// 0001 = substract,
-// 0010 = multiply,
-// 0011 = divide,
+// ===================
+// 0000 = add
+// 0001 = substract
+// 0010 = multiply
+// 0011 = divide
 // 0100 = i2f
 // 0101 = f2i
 // 0110 = unused (rem)
@@ -68,7 +68,8 @@ module pfpu32_top_marocchino
   input [`OR1K_FPCSR_ALLF_SIZE-1:0] ctrl_fpu_mask_flags_i,
 
   // Operands and commands
-  input     [`OR1K_FPUOP_WIDTH-1:0] dcod_op_fp32_arith_i,
+  input                             dcod_op_fp32_arith_i,
+  input                       [2:0] dcod_opc_fp32_arith_i, // [000]...[101] : add...f2i
   //   from DECODE
   input                      [31:0] dcod_rfa_i,
   input                      [31:0] dcod_rfb_i,
@@ -85,64 +86,54 @@ module pfpu32_top_marocchino
 
 );
 
-// fp32 arithmetic controls
-reg   [`OR1K_FPUOP_WIDTH-1:0] op_fp32_arith_r;
-wire                          take_op_fp32_arith;
-// ---
-always @(posedge clk `OR_ASYNC_RST) begin
-  if (rst)
-    op_fp32_arith_r <= {`OR1K_FPUOP_WIDTH{1'b0}};
-  else if (flush_i)
-    op_fp32_arith_r <= {`OR1K_FPUOP_WIDTH{1'b0}};
-  else if (padv_decode_i & dcod_op_fp32_arith_i[`OR1K_FPUOP_WIDTH-1])
-    op_fp32_arith_r <= dcod_op_fp32_arith_i;
-  else if (take_op_fp32_arith)
-    op_fp32_arith_r <= {`OR1K_FPUOP_WIDTH{1'b0}};
-end // posedge clock
+// fp32 arithmetic command
+wire        op_fp32_arith;
+wire  [2:0] opc_fp32_arith;
 
-// operand A latches
-reg  [31:0] fp32_arith_a_r;        // latched from decode
-reg         fp32_arith_fwd_wb_a_r; // use WB result
-wire [31:0] fp32_arith_a;          // with forwarding from WB
-// operand B latches
-reg  [31:0] fp32_arith_b_r;        // latched from decode
-reg         fp32_arith_fwd_wb_b_r; // use WB result
-wire [31:0] fp32_arith_b;          // with forwarding from WB
-// !!! pay attention that B-operand related hazard is
-// !!! overriden already in OMAN if immediate is used
-always @(posedge clk `OR_ASYNC_RST) begin
-  if (rst) begin
-    fp32_arith_fwd_wb_a_r <= 1'b0;
-    fp32_arith_fwd_wb_b_r <= 1'b0;
-  end
-  else if (flush_i) begin
-    fp32_arith_fwd_wb_a_r <= 1'b0;
-    fp32_arith_fwd_wb_b_r <= 1'b0;
-  end
-  else if (padv_decode_i & dcod_op_fp32_arith_i[`OR1K_FPUOP_WIDTH-1]) begin
-    fp32_arith_fwd_wb_a_r <= exe2dec_hazard_a_i;
-    fp32_arith_fwd_wb_b_r <= exe2dec_hazard_b_i;
-  end
-  else if (fp32_arith_fwd_wb_a_r | fp32_arith_fwd_wb_b_r) begin // complete forwarding from WB
-    fp32_arith_fwd_wb_a_r <= 1'b0;
-    fp32_arith_fwd_wb_b_r <= 1'b0;
-  end
-end // @clock
-// ---
-always @(posedge clk) begin
-  if (padv_decode_i & dcod_op_fp32_arith_i[`OR1K_FPUOP_WIDTH-1]) begin
-    fp32_arith_a_r <= dcod_rfa_i;
-    fp32_arith_b_r <= dcod_rfb_i;
-  end
-  else if (fp32_arith_fwd_wb_a_r | fp32_arith_fwd_wb_b_r) begin // complete forwarding from WB
-    fp32_arith_a_r <= fp32_arith_a;
-    fp32_arith_b_r <= fp32_arith_b;
-  end
-end // @clock
-// last forward (from WB)
-assign fp32_arith_a = fp32_arith_fwd_wb_a_r ? wb_result_i : fp32_arith_a_r;
-assign fp32_arith_b = fp32_arith_fwd_wb_b_r ? wb_result_i : fp32_arith_b_r;
+// fp32 pipes controls
+wire        arith_adv;
+wire        take_op_fp32_arith;
 
+// operand A and B  with forwarding from WB
+wire [31:0] fp32_arith_a;
+wire [31:0] fp32_arith_b;
+
+// reservation station insrtance
+mor1kx_rsrvs_marocchino
+#(
+  .OPTION_OPERAND_WIDTH (32), // FP32_ARITH_RSVRS
+  .OPC_WIDTH            (3) // FP32_ARITH_RSVRS
+)
+u_fp32_arith_rsrvs
+(
+  // clocks and resets
+  .clk                  (clk),
+  .rst                  (rst),
+  // pipeline control signals in
+  .pipeline_flush_i     (flush_i), // FP32_ARITH_RSVRS
+  .padv_decode_i        (padv_decode_i), // FP32_ARITH_RSVRS
+  .take_op_i            (take_op_fp32_arith), // FP32_ARITH_RSVRS
+  // input data
+  //   from DECODE
+  .dcod_rfa_i           (dcod_rfa_i), // FP32_ARITH_RSVRS
+  .dcod_rfb_i           (dcod_rfb_i), // FP32_ARITH_RSVRS
+  //   forwarding from WB
+  .exe2dec_hazard_a_i   (exe2dec_hazard_a_i), // FP32_ARITH_RSVRS
+  .exe2dec_hazard_b_i   (exe2dec_hazard_b_i), // FP32_ARITH_RSVRS
+  .wb_result_i          (wb_result_i), // FP32_ARITH_RSVRS
+  // command and its additional attributes
+  .dcod_op_i            (dcod_op_fp32_arith_i), // FP32_ARITH_RSVRS
+  .dcod_opc_i           (dcod_opc_fp32_arith_i), // FP32_ARITH_RSVRS
+  // outputs
+  //   command and its additional attributes
+  .exec_op_o            (op_fp32_arith), // FP32_ARITH_RSVRS
+  .exec_opc_o           (opc_fp32_arith),
+  //   operands
+  .exec_rfa_o           (fp32_arith_a), // FP32_ARITH_RSVRS
+  .exec_rfb_o           (fp32_arith_b), // FP32_ARITH_RSVRS
+  //   unit-is-busy flag
+  .unit_busy_o          () // FP32_ARITH_RSVRS : MAROCCHINO_TODO: potential performance improvement
+);
 
 // analysis of input values
 //   split input a
@@ -203,17 +194,6 @@ wire addsub_agtb = exp_gt | (exp_eq & fract_gt);
 wire addsub_aeqb = exp_eq & fract_eq;
 
 
-// MSB (set by decode stage) indicates FPU instruction
-wire op_arith = op_fp32_arith_r[`OR1K_FPUOP_WIDTH-1];
-// alias to extract operation type
-wire [2:0] op_arith_type = op_fp32_arith_r[2:0];
-
-// advance arithmetic FPU units
-wire arith_adv = ~fp32_arith_valid_o | (padv_wb_i & grant_wb_to_fp32_arith_i);
-
-// feedback to drop FP32 arithmetic related command
-assign take_op_fp32_arith = op_arith & arith_adv;
-
 // idicates that arihmetic units are busy
 //   MAROCCHINO_TODO: potential performance improvement
 //                    more sofisticated unit-wise control
@@ -235,17 +215,25 @@ always @(posedge clk `OR_ASYNC_RST) begin
     op_arith_taken_r <= 1'b0;
   else if (take_op_fp32_arith)
     op_arith_taken_r <= 1'b1;
-  else if (arith_rdy)
+  else if (arith_adv & arith_rdy)
     op_arith_taken_r <= 1'b0;
 end // posedge clock
-//   busy indicator
-assign fp32_arith_busy_o = op_arith | (op_arith_taken_r & ~arith_rdy);
+
+// advance arithmetic FPU units
+assign arith_adv = (~fp32_arith_valid_o) | (padv_wb_i & grant_wb_to_fp32_arith_i);
+
+// feedback to drop FP32 arithmetic related command
+assign take_op_fp32_arith = op_fp32_arith & arith_adv;
+
+// MAROCCHINO_TODO: potential performance improvement
+assign fp32_arith_busy_o = op_fp32_arith | (op_arith_taken_r & (~arith_rdy));
+
 
 
 // addition / substraction
 //   command detection
-wire op_sub    = (op_arith_type == 3'd1) & op_arith;
-wire op_add    = (op_arith_type == 3'd0) & op_arith;
+wire op_sub    = (opc_fp32_arith == 3'd1) & op_fp32_arith;
+wire op_add    = (opc_fp32_arith == 3'd0) & op_fp32_arith;
 wire add_start = op_add | op_sub;
 //   connection wires
 wire        add_sign_o;      // add/sub signum
@@ -301,8 +289,8 @@ pfpu32_addsub u_f32_addsub
 
 // MUL/DIV combined pipeline
 //   command detection
-wire op_mul    = (op_arith_type == 3'd2) & op_arith;
-wire op_div    = (op_arith_type == 3'd3) & op_arith;
+wire op_mul    = (opc_fp32_arith == 3'd2) & op_fp32_arith;
+wire op_div    = (opc_fp32_arith == 3'd3) & op_fp32_arith;
 wire mul_start = op_mul | op_div;
 //   MUL/DIV common outputs
 wire        mul_sign_o;      // mul signum
@@ -368,7 +356,7 @@ pfpu32_muldiv u_f32_muldiv
 
 // convertor
 //   i2f command detection
-wire i2f_start = (op_arith_type == 3'd4) & op_arith;
+wire i2f_start = (opc_fp32_arith == 3'd4) & op_fp32_arith;
 //   i2f connection wires
 wire        i2f_sign_o;      // i2f signum
 wire  [3:0] i2f_shr_o;
@@ -396,7 +384,7 @@ pfpu32_i2f u_i2f_cnv
   .i2f_fract32_o  (i2f_fract32_o)
 );
 //   f2i signals
-wire f2i_start = (op_arith_type == 3'd5) & op_arith;
+wire f2i_start = (opc_fp32_arith == 3'd5) & op_fp32_arith;
 //   f2i connection wires
 wire        f2i_sign_o;      // f2i signum
 wire [23:0] f2i_int24_o;     // f2i fractional
