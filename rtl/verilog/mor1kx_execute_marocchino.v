@@ -505,7 +505,8 @@ module mor1kx_exec_1clk_marocchino
   output reg                            wb_int_flag_clear_o,
 
   // FP32 comparison flag
-  input         [`OR1K_FPUOP_WIDTH-1:0] dcod_op_fp32_cmp_i,
+  input                                 dcod_op_fp32_cmp_i,
+  input                           [2:0] dcod_opc_fp32_cmp_i,
   input                                 except_fpu_enable_i,
   input                                 ctrl_fpu_mask_flags_inv_i,
   input                                 ctrl_fpu_mask_flags_inf_i,
@@ -545,7 +546,8 @@ module mor1kx_exec_1clk_marocchino
   reg               [EXEDW-1:0] jal_result_r;
   //  # flag related inputs
   reg                           op_setflag_r;
-  reg   [`OR1K_FPUOP_WIDTH-1:0] op_fp32_cmp_r;
+  reg                           op_fp32_cmp_r;
+  reg                     [2:0] opc_fp32_cmp_r;
 
   // flag that 1-clock instruction is executed
   reg op_1clk_r;
@@ -586,7 +588,8 @@ module mor1kx_exec_1clk_marocchino
       jal_result_r        <= {EXEDW{1'b0}};
       // flag related inputs
       op_setflag_r        <= 1'b0;
-      op_fp32_cmp_r       <= {`OR1K_FPUOP_WIDTH{1'b0}};
+      op_fp32_cmp_r       <= 1'b0;
+      opc_fp32_cmp_r      <= 3'd0;
     end
     else if (pipeline_flush_i) begin
       // opcode for alu
@@ -608,7 +611,8 @@ module mor1kx_exec_1clk_marocchino
       jal_result_r        <= {EXEDW{1'b0}};
       // flag related inputs
       op_setflag_r        <= 1'b0;
-      op_fp32_cmp_r       <= {`OR1K_FPUOP_WIDTH{1'b0}};
+      op_fp32_cmp_r       <= 1'b0;
+      opc_fp32_cmp_r      <= 3'd0;
     end
     else if (padv_decode_i & dcod_op_1clk_i) begin
       // opcode for alu
@@ -631,6 +635,7 @@ module mor1kx_exec_1clk_marocchino
       // flag related inputs
       op_setflag_r        <= dcod_op_setflag_i;
       op_fp32_cmp_r       <= dcod_op_fp32_cmp_i;
+      opc_fp32_cmp_r      <= dcod_opc_fp32_cmp_i;
     end
   end // posedge clock
 
@@ -920,8 +925,8 @@ module mor1kx_exec_1clk_marocchino
       .padv_wb_i              (padv_wb_i),          // fp32-cmp. advance output latches
       .grant_wb_to_1clk_i     (grant_wb_to_1clk_i), // fp32-cmp
       // command
-      .fpu_op_is_comp_i       (op_fp32_cmp_r[`OR1K_FPUOP_WIDTH-1]), // fp32-cmp
-      .cmp_type_i             ({1'b0,op_fp32_cmp_r[`OR1K_FPUOP_WIDTH-2:0]}), // fp32-cmp
+      .op_fp32_cmp_i          (op_fp32_cmp_r), // fp32-cmp
+      .opc_fp32_cmp_i         (opc_fp32_cmp_r), // fp32-cmp
       // Operands
       .rfa_i                  (alu_1clk_a), // fp32-cmp
       .rfb_i                  (alu_1clk_b), // fp32-cmp
@@ -956,7 +961,7 @@ module mor1kx_exec_1clk_marocchino
   //--------------------------------------------------//
   // Forwarding comparision flag to branch prediction //
   //--------------------------------------------------//
-  assign exec_op_1clk_cmp_o = op_setflag_r | op_fp32_cmp_r[`OR1K_FPUOP_WIDTH-1];
-  assign exec_flag_set_o    = (op_setflag_r & flag_set) | (op_fp32_cmp_r[`OR1K_FPUOP_WIDTH-1] & fp32_flag_set);
+  assign exec_op_1clk_cmp_o = op_setflag_r | op_fp32_cmp_r;
+  assign exec_flag_set_o    = (op_setflag_r & flag_set) | (op_fp32_cmp_r & fp32_flag_set);
 
 endmodule // mor1kx_exec_1clk_marocchino

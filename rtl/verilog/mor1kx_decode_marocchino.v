@@ -117,7 +117,8 @@ module mor1kx_decode_marocchino
   output     [OPTION_OPERAND_WIDTH-1:0] dcod_jal_result_o,
   // Set flag related
   output                                dcod_op_setflag_o,
-  output        [`OR1K_FPUOP_WIDTH-1:0] dcod_op_fp32_cmp_o,
+  output                                dcod_op_fp32_cmp_o,
+  output                          [2:0] dcod_opc_fp32_cmp_o,
 
   // Multiplier related
   output                                dcod_op_mul_o,
@@ -266,18 +267,26 @@ module mor1kx_decode_marocchino
   assign dcod_op_fp32_arith_o = (FEATURE_FPU != "NONE") & (opc_insn == `OR1K_OPCODE_FPU) & (~dcod_insn_i[3]);
   // fpu arithmetic opc:
   // ===================
-  // 0000 = add
-  // 0001 = substract
-  // 0010 = multiply
-  // 0011 = divide
-  // 0100 = i2f
-  // 0101 = f2i
+  // 000 = add
+  // 001 = substract
+  // 010 = multiply
+  // 011 = divide
+  // 100 = i2f
+  // 101 = f2i
   assign dcod_opc_fp32_arith_o = dcod_insn_i[2:0];
 
   // --- FPU-32 comparison part ---
-  assign dcod_op_fp32_cmp_o =
-    {(FEATURE_FPU != "NONE") & (opc_insn == `OR1K_OPCODE_FPU) & dcod_insn_i[3],
-      dcod_insn_i[`OR1K_FPUOP_WIDTH-2:0]};
+  assign dcod_op_fp32_cmp_o = (FEATURE_FPU != "NONE") & (opc_insn == `OR1K_OPCODE_FPU) & dcod_insn_i[3];
+  // fpu comparison opc:
+  // ===================
+  // 000 = EQ
+  // 001 = NE
+  // 010 = GT
+  // 011 = GE
+  // 100 = LT
+  // 101 = LE
+  assign dcod_opc_fp32_cmp_o = dcod_insn_i[2:0];
+
 
 
   // Immediate in l.mtspr is broken up, reassemble
@@ -695,8 +704,8 @@ module mor1kx_decode_marocchino
 
 
   // Which instructions writes comparison flag?
-  assign dcod_flag_wb_o = dcod_op_setflag_o |
-                          dcod_op_fp32_cmp_o[(`OR1K_FPUOP_WIDTH-1)] |
+  assign dcod_flag_wb_o = dcod_op_setflag_o  |
+                          dcod_op_fp32_cmp_o |
                           (opc_insn == `OR1K_OPCODE_SWA);
   // Which instructions require comparison flag?
   //  # l.cmov

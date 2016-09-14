@@ -274,7 +274,8 @@ module mor1kx_cpu_marocchino
   wire                              wb_except_fp32_arith;   // generate FPx exception by FPx flags
 
   // FPU-32 comparison part
-  wire    [`OR1K_FPUOP_WIDTH-1:0] dcod_op_fp32_cmp;
+  wire                            dcod_op_fp32_cmp;
+  wire                      [2:0] dcod_opc_fp32_cmp;
   wire                            wb_fp32_flag_set;
   wire                            wb_fp32_flag_clear;
   wire                            wb_fp32_cmp_inv;
@@ -562,6 +563,7 @@ module mor1kx_cpu_marocchino
     // Set flag related
     .dcod_op_setflag_o                (dcod_op_setflag), // DECODE & DECODE->EXE
     .dcod_op_fp32_cmp_o               (dcod_op_fp32_cmp), // DECODE & DECODE->EXE
+    .dcod_opc_fp32_cmp_o              (dcod_opc_fp32_cmp), // DECODE & DECODE->EXE
     // Multiplier related
     .dcod_op_mul_o                    (dcod_op_mul), // DECODE & DECODE->EXE
     // Divider related
@@ -759,6 +761,7 @@ module mor1kx_cpu_marocchino
 
     // FP32 comparison flag
     .dcod_op_fp32_cmp_i               (dcod_op_fp32_cmp), // 1CLK
+    .dcod_opc_fp32_cmp_i              (dcod_opc_fp32_cmp), // 1CLK
     .except_fpu_enable_i              (except_fpu_enable), // 1CLK
     .ctrl_fpu_mask_flags_inv_i        (ctrl_fpu_mask_flags[`OR1K_FPCSR_IVF - `OR1K_FPCSR_OVF]), // 1CLK
     .ctrl_fpu_mask_flags_inf_i        (ctrl_fpu_mask_flags[`OR1K_FPCSR_INF - `OR1K_FPCSR_OVF]), // 1CLK
