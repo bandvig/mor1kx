@@ -161,14 +161,12 @@ module mor1kx_oman_marocchino
   localparam  OCBT_OP_MUL_POS         = OCBT_OP_DIV_POS         + 1;
   localparam  OCBT_OP_FP32_POS        = OCBT_OP_MUL_POS         + 1; // arithmetic part only, FP comparison is 1-clock
   localparam  OCBT_OP_LS_POS          = OCBT_OP_FP32_POS        + 1; // load / store (we need it for pushing LSU exceptions)
-  localparam  OCBT_OP_LSU_ATOMIC_POS  = OCBT_OP_LS_POS          + 1;
-  localparam  OCBT_OP_RFE_POS         = OCBT_OP_LSU_ATOMIC_POS  + 1; // l.rfe
+  localparam  OCBT_OP_LSU_SWA_POS     = OCBT_OP_LS_POS          + 1;
+  localparam  OCBT_OP_RFE_POS         = OCBT_OP_LSU_SWA_POS     + 1; // l.rfe
   //  Instruction is in delay slot
   localparam  OCBT_DELAY_SLOT_POS     = OCBT_OP_RFE_POS         + 1;
-  //  Instruction is multi-cycle computation of flag
-  localparam  OCBT_FLAG_AWAIT_POS     = OCBT_DELAY_SLOT_POS     + 1;
   //  Instruction affect comparison flag
-  localparam  OCBT_FLAG_WB_POS        = OCBT_FLAG_AWAIT_POS     + 1;
+  localparam  OCBT_FLAG_WB_POS        = OCBT_DELAY_SLOT_POS     + 1;
   //  Instruction affect carry flag
   localparam  OCBT_CARRY_WB_POS       = OCBT_FLAG_WB_POS        + 1;
   //  Instruction generates WB
@@ -218,7 +216,6 @@ module mor1kx_oman_marocchino
                   dcod_rf_wb_i,      // instruction generates WB
                   dcod_carry_wb_i,   // istruction affects carry flag
                   dcod_flag_wb_i,    // istruction affects comparison flag
-                  dcod_flag_await_i, // instruction is multi-cycle computation of flag
                   dcod_delay_slot_i, // istruction is in delay slot
                   // unit that must be granted for WB
                   dcod_op_rfe_i,     // l.rfe
@@ -370,7 +367,7 @@ module mor1kx_oman_marocchino
                   ocbo04[OCBT_FLAG_WB_POS] | ocbo03[OCBT_FLAG_WB_POS] | ocbo02[OCBT_FLAG_WB_POS] |
                   ocbo01[OCBT_FLAG_WB_POS];
   //    waiting completion of atomic instruction (others WB-flag instructions are 1-clk)
-  wire flag_waiting = ~lsu_valid_i & ocbo00[OCBT_OP_LSU_ATOMIC_POS];
+  wire flag_waiting = ~lsu_valid_i & ocbo00[OCBT_OP_LSU_SWA_POS];
   //    combine with DECODE-to-EXECUTE hazard
   wire stall_by_flag = dcod_flag_req_i & (ocb_flag | flag_waiting);
 
@@ -399,27 +396,21 @@ module mor1kx_oman_marocchino
                         ~stall_by_mXspr;
 
 
-  //   Stall FETCH advance (CTRL).
-  //   a) Detect the situation where there is a jump to register in decode
+  // Stall FETCH advance (CTRL).
+  //  (a) Detect the situation where l.jr is in decode
   // stage and an instruction in execute stage that will write to that
   // register.
-  //   b) l.bf/l.bnf waiting flag if it should be computed by multi-cycle
-  //      instruction like l.swa of float64 comparison.
+  //  (b) l.bf/l.bnf waiting flag
   //      MAROCCHINO_TODO: performance improvement is possible with
-  //                       forwarding of result of these instructions. 
-  //   c) When an l.rfe/ecxeptions are in decode stage.
+  //                       forwarding of result of multi-cycle instructions
+  //                       like l.swa of float64 comparison.
+  //  (c) When an l.rfe/ecxeptions are in decode stage.
   // The main purpose of this is waiting till l.rfe/exceptions propagate
   // up to WB stage.
-  //   d) And the final reason to stop FETCH is l.mf(t)spr execution.
   //
-  // auxiliary
-  wire flag_await = ocbo07[OCBT_FLAG_AWAIT_POS] | ocbo06[OCBT_FLAG_AWAIT_POS] | ocbo05[OCBT_FLAG_AWAIT_POS] |
-                    ocbo04[OCBT_FLAG_AWAIT_POS] | ocbo03[OCBT_FLAG_AWAIT_POS] | ocbo02[OCBT_FLAG_AWAIT_POS] |
-                    ocbo01[OCBT_FLAG_AWAIT_POS] | ocbo00[OCBT_FLAG_AWAIT_POS];
-  // stall fetch combination
-  assign stall_fetch_o = ((ocb_hazard_b | exe2dec_hazard_b_o) & dcod_op_jr_i) | // stall FETCH
-                         (flag_await & dcod_op_brcond_i) |                      // stall FETCH
-                         dcod_op_rfe_i | dcod_an_except;                        // stall FETCH
+  assign stall_fetch_o = ((ocb_hazard_b | exe2dec_hazard_b_o) & dcod_op_jr_i)          | // stall FETCH
+                         ((ocb_flag | ocbo00[OCBT_OP_LSU_SWA_POS]) & dcod_op_brcond_i) | // stall FETCH
+                         dcod_op_rfe_i | dcod_an_except;                                 // stall FETCH
 
 
   // Support IBUS error handling in CTRL

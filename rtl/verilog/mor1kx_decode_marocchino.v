@@ -81,8 +81,7 @@ module mor1kx_decode_marocchino
   output                                dcod_do_branch_o,
   output     [OPTION_OPERAND_WIDTH-1:0] dcod_do_branch_target_o,
 
-  // Delay conditional fetching till flag computation completion (see OMAN for details)
-  output                                dcod_flag_await_o, // wait till flag ready & WB
+  // stall conditional fetching till flag computation completion (see OMAN for details)
   output                                dcod_op_brcond_o,  // l.bf or l.bnf
 
   // LSU related
@@ -712,10 +711,6 @@ module mor1kx_decode_marocchino
   assign dcod_flag_req_o = dcod_op_cmov_o;
 
 
-  //  Multicycle instructions which cause stall branch taking in FETCH
-  //  They are multicycle "set flag" like l.swa or float64 comparison,
-  // so they couldn't be forwarded into FETCH immediately from EXECUTE.
-  assign dcod_flag_await_o = (opc_insn == `OR1K_OPCODE_SWA);
   //  Conditional branches to stall FETCH if we are waiting flag
   assign dcod_op_brcond_o  = dcod_op_bf | dcod_op_bnf;
 

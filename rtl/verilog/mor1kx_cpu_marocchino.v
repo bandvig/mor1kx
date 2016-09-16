@@ -205,8 +205,7 @@ module mor1kx_cpu_marocchino
   wire                            dcod_do_branch;
   wire [OPTION_OPERAND_WIDTH-1:0] dcod_do_branch_target;
 
-  // Delay conditional fetching till flag computation completion (see OMAN for details)
-  wire                            dcod_flag_await; // wait till flag ready & WB
+  // stall conditional fetching till flag computation completion (see OMAN for details)
   wire                            dcod_op_brcond;  // l.bf or l.bnf
 
 
@@ -529,8 +528,7 @@ module mor1kx_cpu_marocchino
     .dcod_rfb_i                       (dcod_rfb), // DECODE & DECODE->EXE
     .dcod_do_branch_o                 (dcod_do_branch), // DECODE & DECODE->EXE
     .dcod_do_branch_target_o          (dcod_do_branch_target), // DECODE & DECODE->EXE
-    // Delay conditional fetching till flag computation completion (see OMAN for details)
-    .dcod_flag_await_o                (dcod_flag_await), // DECODE & DECODE->EXE
+    // stall conditional fetching till flag computation completion (see OMAN for details)
     .dcod_op_brcond_o                 (dcod_op_brcond), // DECODE & DECODE->EXE
     // LSU related
     .dcod_imm16_o                     (dcod_imm16), // DECODE & DECODE->EXE
@@ -1043,7 +1041,6 @@ module mor1kx_cpu_marocchino
     // DECODE non-latched additional information related instruction
     //  part #1: iformation stored in order control buffer
     .dcod_delay_slot_i          (dcod_delay_slot), // OMAN
-    .dcod_flag_await_i          (dcod_flag_await), // OMAN
     .dcod_flag_wb_i             (dcod_flag_wb), // OMAN
     .dcod_carry_wb_i            (dcod_carry_wb), // OMAN
     .dcod_rf_wb_i               (dcod_rf_wb), // OMAN

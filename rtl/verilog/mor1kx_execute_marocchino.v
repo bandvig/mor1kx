@@ -528,159 +528,80 @@ module mor1kx_exec_1clk_marocchino
 
   // single clock operations controls
   //  # opcode for alu
-  reg [`OR1K_ALU_OPC_WIDTH-1:0] opc_alu_secondary_r;
+  wire [`OR1K_ALU_OPC_WIDTH-1:0] opc_alu_secondary_w;
   //  # adder's inputs
-  reg                           op_add_r;
-  reg                           adder_do_sub_r;
-  reg                           adder_do_carry_r;
+  wire                           op_add_w;
+  wire                           adder_do_sub_w;
+  wire                           adder_do_carry_w;
   //  # shift, ffl1, movhi, cmov
-  reg                           op_shift_r;
-  reg                           op_ffl1_r;
-  reg                           op_movhi_r;
-  reg                           op_cmov_r;
+  wire                           op_shift_w;
+  wire                           op_ffl1_w;
+  wire                           op_movhi_w;
+  wire                           op_cmov_w;
   //  # logic
-  reg                           op_logic_r;
-  reg [`OR1K_ALU_OPC_WIDTH-1:0] opc_logic_r;
+  wire                           op_logic_w;
+  wire [`OR1K_ALU_OPC_WIDTH-1:0] opc_logic_w;
   //  # jump & link
-  reg                           op_jal_r;
-  reg               [EXEDW-1:0] jal_result_r;
+  wire                           op_jal_w;
+  wire               [EXEDW-1:0] jal_result_w;
   //  # flag related inputs
-  reg                           op_setflag_r;
-  reg                           op_fp32_cmp_r;
-  reg                     [2:0] opc_fp32_cmp_r;
+  wire                           op_setflag_w;
+  wire                           op_fp32_cmp_w;
+  wire                     [2:0] opc_fp32_cmp_w;
 
-  // flag that 1-clock instruction is executed
-  reg op_1clk_r;
-  // ---
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      op_1clk_r <= 1'b0;
-    else if (pipeline_flush_i)
-      op_1clk_r <= 1'b0;
-    else if (padv_decode_i & dcod_op_1clk_i)
-      op_1clk_r <= 1'b1;
-    else if (padv_wb_i & grant_wb_to_1clk_i)
-      op_1clk_r <= 1'b0;
-  end // posedge clock
+  // attributes include all of earlier components
+  localparam ONE_CLK_ATTR_WIDTH = 14 + (2 * `OR1K_ALU_OPC_WIDTH) + OPTION_OPERAND_WIDTH;
 
-  // busy signal for 1-clock units
-  assign op_1clk_busy_o = op_1clk_r & ~(padv_wb_i & grant_wb_to_1clk_i);
+  // operands A and B  with forwarding from WB
+  wire [EXEDW-1:0] alu_1clk_a;
+  wire [EXEDW-1:0] alu_1clk_b;
 
-  // ---
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst) begin
-      // opcode for alu
-      opc_alu_secondary_r <= {`OR1K_ALU_OPC_WIDTH{1'b0}};
-      // adder's inputs
-      op_add_r            <= 1'b0;
-      adder_do_sub_r      <= 1'b0;
-      adder_do_carry_r    <= 1'b0;
-      // shift, ffl1, movhi, cmov
-      op_shift_r          <= 1'b0;
-      op_ffl1_r           <= 1'b0;
-      op_movhi_r          <= 1'b0;
-      op_cmov_r           <= 1'b0;
-      // logic
-      op_logic_r          <= 1'b0;
-      opc_logic_r         <= {`OR1K_ALU_OPC_WIDTH{1'b0}};
-      // jump & link
-      op_jal_r            <= 1'b0;
-      jal_result_r        <= {EXEDW{1'b0}};
-      // flag related inputs
-      op_setflag_r        <= 1'b0;
-      op_fp32_cmp_r       <= 1'b0;
-      opc_fp32_cmp_r      <= 3'd0;
-    end
-    else if (pipeline_flush_i) begin
-      // opcode for alu
-      opc_alu_secondary_r <= {`OR1K_ALU_OPC_WIDTH{1'b0}};
-      // adder's inputs
-      op_add_r            <= 1'b0;
-      adder_do_sub_r      <= 1'b0;
-      adder_do_carry_r    <= 1'b0;
-      // shift, ffl1, movhi, cmov
-      op_shift_r          <= 1'b0;
-      op_ffl1_r           <= 1'b0;
-      op_movhi_r          <= 1'b0;
-      op_cmov_r           <= 1'b0;
-      // logic
-      op_logic_r          <= 1'b0;
-      opc_logic_r         <= {`OR1K_ALU_OPC_WIDTH{1'b0}};
-      // jump & link
-      op_jal_r            <= 1'b0;
-      jal_result_r        <= {EXEDW{1'b0}};
-      // flag related inputs
-      op_setflag_r        <= 1'b0;
-      op_fp32_cmp_r       <= 1'b0;
-      opc_fp32_cmp_r      <= 3'd0;
-    end
-    else if (padv_decode_i & dcod_op_1clk_i) begin
-      // opcode for alu
-      opc_alu_secondary_r <= dcod_opc_alu_secondary_i;
-      // adder's inputs
-      op_add_r            <= dcod_op_add_i;
-      adder_do_sub_r      <= dcod_adder_do_sub_i;
-      adder_do_carry_r    <= dcod_adder_do_carry_i;
-      // shift, ffl1, movhi, cmov
-      op_shift_r          <= dcod_op_shift_i;
-      op_ffl1_r           <= dcod_op_ffl1_i;
-      op_movhi_r          <= dcod_op_movhi_i;
-      op_cmov_r           <= dcod_op_cmov_i;
-      // logic
-      op_logic_r          <= (|dcod_opc_logic_i);
-      opc_logic_r         <= dcod_opc_logic_i;
-      // jump & link
-      op_jal_r            <= dcod_op_jal_i;
-      jal_result_r        <= dcod_jal_result_i;
-      // flag related inputs
-      op_setflag_r        <= dcod_op_setflag_i;
-      op_fp32_cmp_r       <= dcod_op_fp32_cmp_i;
-      opc_fp32_cmp_r      <= dcod_opc_fp32_cmp_i;
-    end
-  end // posedge clock
-
-  // operand A latches
-  reg  [EXEDW-1:0] alu_1clk_a_r;        // latched from decode
-  reg              alu_1clk_fwd_wb_a_r; // use WB result
-  wire [EXEDW-1:0] alu_1clk_a;          // with forwarding from WB
-  // operand B latches
-  reg  [EXEDW-1:0] alu_1clk_b_r;        // latched from decode
-  reg              alu_1clk_fwd_wb_b_r; // use WB result
-  wire [EXEDW-1:0] alu_1clk_b;          // with forwarding from WB
-  // !!! pay attention that B-operand related hazard is
-  // !!! overriden already in OMAN if immediate is used
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst) begin
-      alu_1clk_fwd_wb_a_r <= 1'b0;
-      alu_1clk_fwd_wb_b_r <= 1'b0;
-    end
-    else if (pipeline_flush_i) begin
-      alu_1clk_fwd_wb_a_r <= 1'b0;
-      alu_1clk_fwd_wb_b_r <= 1'b0;
-    end
-    else if (padv_decode_i & dcod_op_1clk_i) begin
-      alu_1clk_fwd_wb_a_r <= exe2dec_hazard_a_i;
-      alu_1clk_fwd_wb_b_r <= exe2dec_hazard_b_i;
-    end
-    else if (alu_1clk_fwd_wb_a_r | alu_1clk_fwd_wb_b_r) begin // complete forwarding from WB
-      alu_1clk_fwd_wb_a_r <= 1'b0;
-      alu_1clk_fwd_wb_b_r <= 1'b0;
-    end
-  end // @clock
-  // ---
-  always @(posedge clk) begin
-    if (padv_decode_i & dcod_op_1clk_i) begin
-      alu_1clk_a_r <= dcod_rfa_i;
-      alu_1clk_b_r <= dcod_rfb_i;
-    end
-    else if (alu_1clk_fwd_wb_a_r | alu_1clk_fwd_wb_b_r) begin // complete forwarding from WB
-      alu_1clk_a_r <= alu_1clk_a;
-      alu_1clk_b_r <= alu_1clk_b;
-    end
-  end // @clock
-  // last forward (from WB)
-  assign alu_1clk_a = alu_1clk_fwd_wb_a_r ? wb_result_i : alu_1clk_a_r;
-  assign alu_1clk_b = alu_1clk_fwd_wb_b_r ? wb_result_i : alu_1clk_b_r;
+  // reservation station insrtance
+  mor1kx_rsrvs_marocchino
+  #(
+    .OPTION_OPERAND_WIDTH (OPTION_OPERAND_WIDTH), // 1CLK_RSVRS
+    .OPC_WIDTH            (ONE_CLK_ATTR_WIDTH) // 1CLK_RSVRS
+  )
+  u_1clk_rsrvs
+  (
+    // clocks and resets
+    .clk                  (clk),
+    .rst                  (rst),
+    // pipeline control signals in
+    .pipeline_flush_i     (pipeline_flush_i), // 1CLK_RSVRS
+    .padv_decode_i        (padv_decode_i), // 1CLK_RSVRS
+    .take_op_i            (padv_wb_i & grant_wb_to_1clk_i), // 1CLK_RSVRS
+    // input data
+    //   from DECODE
+    .dcod_rfa_i           (dcod_rfa_i), // 1CLK_RSVRS
+    .dcod_rfb_i           (dcod_rfb_i), // 1CLK_RSVRS
+    //   forwarding from WB
+    .exe2dec_hazard_a_i   (exe2dec_hazard_a_i), // 1CLK_RSVRS
+    .exe2dec_hazard_b_i   (exe2dec_hazard_b_i), // 1CLK_RSVRS
+    .wb_result_i          (wb_result_i), // 1CLK_RSVRS
+    // command and its additional attributes
+    .dcod_op_i            (dcod_op_1clk_i), // 1CLK_RSVRS
+    .dcod_opc_i           ({dcod_opc_alu_secondary_i, // 1CLK_RSVRS
+                            dcod_op_add_i, dcod_adder_do_sub_i, dcod_adder_do_carry_i, // 1CLK_RSVRS
+                            dcod_op_shift_i, dcod_op_ffl1_i, dcod_op_movhi_i, dcod_op_cmov_i, // 1CLK_RSVRS
+                            (|dcod_opc_logic_i), dcod_opc_logic_i, // 1CLK_RSVRS
+                            dcod_op_jal_i, dcod_jal_result_i, // 1CLK_RSVRS
+                            dcod_op_setflag_i, dcod_op_fp32_cmp_i, dcod_opc_fp32_cmp_i}), // 1CLK_RSVRS
+    // outputs
+    //   command and its additional attributes
+    .exec_op_o            (), // 1CLK_RSVRS
+    .exec_opc_o           ({opc_alu_secondary_w, // 1CLK_RSVRS
+                            op_add_w, adder_do_sub_w, adder_do_carry_w, // 1CLK_RSVRS
+                            op_shift_w, op_ffl1_w, op_movhi_w, op_cmov_w, // 1CLK_RSVRS
+                            op_logic_w, opc_logic_w, // 1CLK_RSVRS
+                            op_jal_w, jal_result_w, // 1CLK_RSVRS
+                            op_setflag_w, op_fp32_cmp_w, opc_fp32_cmp_w}), // 1CLK_RSVRS
+    //   operands
+    .exec_rfa_o           (alu_1clk_a), // 1CLK_RSVRS
+    .exec_rfb_o           (alu_1clk_b), // 1CLK_RSVRS
+    //   unit-is-busy flag
+    .unit_busy_o          (op_1clk_busy_o) // 1CLK_RSVRS
+  );
 
 
   //------------------//
@@ -690,8 +611,8 @@ module mor1kx_exec_1clk_marocchino
   wire             adder_carryout;
   wire [EXEDW-1:0] adder_result;
   // inputs
-  wire [EXEDW-1:0] b_mux = adder_do_sub_r ? (~alu_1clk_b) : alu_1clk_b;
-  wire carry_in = adder_do_sub_r | (adder_do_carry_r & carry_i);
+  wire [EXEDW-1:0] b_mux = adder_do_sub_w ? (~alu_1clk_b) : alu_1clk_b;
+  wire carry_in = adder_do_sub_w | (adder_do_carry_w & carry_i);
   // Adder
   assign {adder_carryout, adder_result} =
            alu_1clk_a + b_mux + {{(EXEDW-1){1'b0}},carry_in};
@@ -710,7 +631,7 @@ module mor1kx_exec_1clk_marocchino
   // FFL1 //
   //------//
   wire [EXEDW-1:0] ffl1_result;
-  assign ffl1_result = (opc_alu_secondary_r[2]) ?
+  assign ffl1_result = (opc_alu_secondary_w[2]) ?
            (alu_1clk_a[31] ? 32 : alu_1clk_a[30] ? 31 : alu_1clk_a[29] ? 30 :
             alu_1clk_a[28] ? 29 : alu_1clk_a[27] ? 28 : alu_1clk_a[26] ? 27 :
             alu_1clk_a[25] ? 26 : alu_1clk_a[24] ? 25 : alu_1clk_a[23] ? 24 :
@@ -750,10 +671,10 @@ module mor1kx_exec_1clk_marocchino
   end
   endfunction
 
-  wire op_sll = (opc_alu_secondary_r == `OR1K_ALU_OPC_SECONDARY_SHRT_SLL);
-  wire op_srl = (opc_alu_secondary_r == `OR1K_ALU_OPC_SECONDARY_SHRT_SRL);
-  wire op_sra = (opc_alu_secondary_r == `OR1K_ALU_OPC_SECONDARY_SHRT_SRA);
-  wire op_ror = (opc_alu_secondary_r == `OR1K_ALU_OPC_SECONDARY_SHRT_ROR);
+  wire op_sll = (opc_alu_secondary_w == `OR1K_ALU_OPC_SECONDARY_SHRT_SLL);
+  wire op_srl = (opc_alu_secondary_w == `OR1K_ALU_OPC_SECONDARY_SHRT_SRL);
+  wire op_sra = (opc_alu_secondary_w == `OR1K_ALU_OPC_SECONDARY_SHRT_SRA);
+  wire op_ror = (opc_alu_secondary_w == `OR1K_ALU_OPC_SECONDARY_SHRT_ROR);
 
   wire [EXEDW-1:0] shift_right;
   wire [EXEDW-1:0] shift_lsw;
@@ -784,7 +705,7 @@ module mor1kx_exec_1clk_marocchino
   // Create a look-up-table for AND/OR/XOR
   reg [3:0] logic_lut;
   always @(*) begin
-    case(opc_logic_r)
+    case(opc_logic_w)
       `OR1K_ALU_OPC_AND: logic_lut = 4'b1000;
       `OR1K_ALU_OPC_OR:  logic_lut = 4'b1110;
       `OR1K_ALU_OPC_XOR: logic_lut = 4'b0110;
@@ -803,13 +724,13 @@ module mor1kx_exec_1clk_marocchino
   //------------------------------------------------------------------//
   // Muxing and registering 1-clk results and integer comparison flag //
   //------------------------------------------------------------------//
-  wire [EXEDW-1:0] alu_1clk_result_mux = ({EXEDW{op_shift_r}} & shift_result ) |
-                                         ({EXEDW{op_ffl1_r}}  & ffl1_result  ) |
-                                         ({EXEDW{op_add_r}}   & adder_result ) |
-                                         ({EXEDW{op_logic_r}} & logic_result ) |
-                                         ({EXEDW{op_cmov_r}}  & cmov_result  ) |
-                                         ({EXEDW{op_movhi_r}} & alu_1clk_b   ) |
-                                         ({EXEDW{op_jal_r}}   & jal_result_r ); // for GPR[9]
+  wire [EXEDW-1:0] alu_1clk_result_mux = ({EXEDW{op_shift_w}} & shift_result ) |
+                                         ({EXEDW{op_ffl1_w}}  & ffl1_result  ) |
+                                         ({EXEDW{op_add_w}}   & adder_result ) |
+                                         ({EXEDW{op_logic_w}} & logic_result ) |
+                                         ({EXEDW{op_cmov_w}}  & cmov_result  ) |
+                                         ({EXEDW{op_movhi_w}} & alu_1clk_b   ) |
+                                         ({EXEDW{op_jal_w}}   & jal_result_w ); // for GPR[9]
 
   //  registering output for 1-clock operations
   always @(posedge clk `OR_ASYNC_RST) begin
@@ -822,12 +743,12 @@ module mor1kx_exec_1clk_marocchino
   /****  1CLK Write Back flags ****/
 
   //  # update carry flag by 1clk-operation
-  wire exec_1clk_carry_set      = grant_wb_to_1clk_i & op_add_r &   adder_u_ovf;
-  wire exec_1clk_carry_clear    = grant_wb_to_1clk_i & op_add_r & (~adder_u_ovf);
+  wire exec_1clk_carry_set      = grant_wb_to_1clk_i & op_add_w &   adder_u_ovf;
+  wire exec_1clk_carry_clear    = grant_wb_to_1clk_i & op_add_w & (~adder_u_ovf);
 
   //  # update overflow flag by 1clk-operation
-  wire exec_1clk_overflow_set   = grant_wb_to_1clk_i & op_add_r &   adder_s_ovf;
-  wire exec_1clk_overflow_clear = grant_wb_to_1clk_i & op_add_r & (~adder_s_ovf);
+  wire exec_1clk_overflow_set   = grant_wb_to_1clk_i & op_add_w &   adder_s_ovf;
+  wire exec_1clk_overflow_clear = grant_wb_to_1clk_i & op_add_w & (~adder_s_ovf);
 
   //  # generate overflow exception by 1clk-operation
   wire exec_except_overflow_1clk = except_overflow_enable_i & exec_1clk_overflow_set;
@@ -876,7 +797,7 @@ module mor1kx_exec_1clk_marocchino
   // comb.
   reg flag_set;
   always @* begin
-    case(opc_alu_secondary_r)
+    case(opc_alu_secondary_w)
       `OR1K_COMP_OPC_EQ:  flag_set = a_eq_b;
       `OR1K_COMP_OPC_NE:  flag_set = ~a_eq_b;
       `OR1K_COMP_OPC_GTU: flag_set = ~(a_eq_b | a_ltu_b);
@@ -901,8 +822,8 @@ module mor1kx_exec_1clk_marocchino
       wb_int_flag_clear_o <= 1'b0;
     end
     else if (padv_wb_i) begin
-      wb_int_flag_set_o   <= op_setflag_r & grant_wb_to_1clk_i &   flag_set;
-      wb_int_flag_clear_o <= op_setflag_r & grant_wb_to_1clk_i & (~flag_set);
+      wb_int_flag_set_o   <= op_setflag_w & grant_wb_to_1clk_i &   flag_set;
+      wb_int_flag_clear_o <= op_setflag_w & grant_wb_to_1clk_i & (~flag_set);
     end // wb advance
   end // @clock
 
@@ -925,8 +846,8 @@ module mor1kx_exec_1clk_marocchino
       .padv_wb_i              (padv_wb_i),          // fp32-cmp. advance output latches
       .grant_wb_to_1clk_i     (grant_wb_to_1clk_i), // fp32-cmp
       // command
-      .op_fp32_cmp_i          (op_fp32_cmp_r), // fp32-cmp
-      .opc_fp32_cmp_i         (opc_fp32_cmp_r), // fp32-cmp
+      .op_fp32_cmp_i          (op_fp32_cmp_w), // fp32-cmp
+      .opc_fp32_cmp_i         (opc_fp32_cmp_w), // fp32-cmp
       // Operands
       .rfa_i                  (alu_1clk_a), // fp32-cmp
       .rfb_i                  (alu_1clk_b), // fp32-cmp
@@ -961,7 +882,7 @@ module mor1kx_exec_1clk_marocchino
   //--------------------------------------------------//
   // Forwarding comparision flag to branch prediction //
   //--------------------------------------------------//
-  assign exec_op_1clk_cmp_o = op_setflag_r | op_fp32_cmp_r;
-  assign exec_flag_set_o    = (op_setflag_r & flag_set) | (op_fp32_cmp_r & fp32_flag_set);
+  assign exec_op_1clk_cmp_o = op_setflag_w | op_fp32_cmp_w;
+  assign exec_flag_set_o    = (op_setflag_w & flag_set) | (op_fp32_cmp_w & fp32_flag_set);
 
 endmodule // mor1kx_exec_1clk_marocchino
