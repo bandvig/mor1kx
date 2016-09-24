@@ -53,7 +53,6 @@ module mor1kx_oman_marocchino
   // DECODE non-latched additional information related instruction
   //  part #1: iformation stored in order control buffer
   input                                 dcod_delay_slot_i, // instruction is in delay slot
-  input                                 dcod_flag_await_i, // instruction is multi-cycle computation of flag
   input                                 dcod_flag_wb_i,    // instruction affects comparison flag
   input                                 dcod_carry_wb_i,   // instruction affects carry flag
   input                                 dcod_rf_wb_i,      // instruction generates WB
