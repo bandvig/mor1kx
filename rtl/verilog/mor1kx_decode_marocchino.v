@@ -129,7 +129,12 @@ module mor1kx_decode_marocchino
 
   // FPU arithmetic part related
   output                                dcod_op_fp32_arith_o,
-  output                          [2:0] dcod_opc_fp32_arith_o,
+  output                                dcod_op_fp32_add_o,
+  output                                dcod_op_fp32_sub_o,
+  output                                dcod_op_fp32_mul_o,
+  output                                dcod_op_fp32_div_o,
+  output                                dcod_op_fp32_i2f_o,
+  output                                dcod_op_fp32_f2i_o,
 
   // MTSPR / MFSPR
   output                                dcod_op_mfspr_o,
@@ -266,24 +271,29 @@ module mor1kx_decode_marocchino
   assign dcod_op_fp32_arith_o = (FEATURE_FPU != "NONE") & (opc_insn == `OR1K_OPCODE_FPU) & (~dcod_insn_i[3]);
   // fpu arithmetic opc:
   // ===================
-  // 000 = add
-  // 001 = substract
-  // 010 = multiply
-  // 011 = divide
-  // 100 = i2f
-  // 101 = f2i
-  assign dcod_opc_fp32_arith_o = dcod_insn_i[2:0];
+  // 0000 = add
+  // 0001 = substract
+  // 0010 = multiply
+  // 0011 = divide
+  // 0100 = i2f
+  // 0101 = f2i
+  assign dcod_op_fp32_add_o = dcod_op_fp32_arith_o & (dcod_insn_i[2:0] == 3'd0);
+  assign dcod_op_fp32_sub_o = dcod_op_fp32_arith_o & (dcod_insn_i[2:0] == 3'd1);
+  assign dcod_op_fp32_mul_o = dcod_op_fp32_arith_o & (dcod_insn_i[2:0] == 3'd2);
+  assign dcod_op_fp32_div_o = dcod_op_fp32_arith_o & (dcod_insn_i[2:0] == 3'd3);
+  assign dcod_op_fp32_i2f_o = dcod_op_fp32_arith_o & (dcod_insn_i[2:0] == 3'd4);
+  assign dcod_op_fp32_f2i_o = dcod_op_fp32_arith_o & (dcod_insn_i[2:0] == 3'd5);
 
   // --- FPU-32 comparison part ---
   assign dcod_op_fp32_cmp_o = (FEATURE_FPU != "NONE") & (opc_insn == `OR1K_OPCODE_FPU) & dcod_insn_i[3];
   // fpu comparison opc:
   // ===================
-  // 000 = EQ
-  // 001 = NE
-  // 010 = GT
-  // 011 = GE
-  // 100 = LT
-  // 101 = LE
+  // 1000 = EQ
+  // 1001 = NE
+  // 1010 = GT
+  // 1011 = GE
+  // 1100 = LT
+  // 1101 = LE
   assign dcod_opc_fp32_cmp_o = dcod_insn_i[2:0];
 
 

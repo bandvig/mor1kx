@@ -43,10 +43,9 @@ module pfpu32_f2i_marocchino
   // pipe controls
   input             pipeline_flush_i,
   input             start_i,
-  output            f2i_busy_o,
   output            f2i_takes_op_o,
   output reg        f2i_rdy_o,
-  input             rnd_takes_f2i_i,
+  input             rnd_taking_f2i_i,
   // input data
   input             signa_i,
   input       [9:0] exp10a_i,
@@ -72,12 +71,9 @@ module pfpu32_f2i_marocchino
 
   // F2I pipe controls
   //  ## per stage busy flags
-  wire s1_busy = f2i_rdy_o & ~rnd_takes_f2i_i;
+  wire s1_busy = f2i_rdy_o & ~rnd_taking_f2i_i;
   //  ## per stage advance
   wire s1_adv  = start_i   & ~s1_busy;
-
-  // F2I pipe is busy
-  assign f2i_busy_o = s1_busy;
 
   // F2I pipe takes operands for computation
   assign f2i_takes_op_o = s1_adv;
@@ -126,7 +122,7 @@ module pfpu32_f2i_marocchino
       f2i_rdy_o <= 1'b0;
     else if (s1_adv)
       f2i_rdy_o <= 1'b1;
-    else if (rnd_takes_f2i_i)
+    else if (rnd_taking_f2i_i)
       f2i_rdy_o <= 1'b0;
   end // posedge clock
 

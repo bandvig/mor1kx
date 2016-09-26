@@ -48,10 +48,9 @@ module pfpu32_muldiv_marocchino
   input             pipeline_flush_i,  // flushe pipe
   input             is_mul_i,
   input             is_div_i,
-  output            muldiv_busy_o,
   output            muldiv_takes_op_o,
   output reg        muldiv_rdy_o,       // ready
-  input             rnd_takes_muldiv_i,
+  input             rnd_taking_muldiv_i,
   // input 'a' related values
   input             signa_i,
   input       [9:0] exp10a_i,
@@ -104,7 +103,7 @@ module pfpu32_muldiv_marocchino
   //  ## Goldshmidt division iterations are in proceess
   reg  itr_Proc;
   //  ## per stage busy flags
-  wire s4_busy  =  muldiv_rdy_o  & ~rnd_takes_muldiv_i;
+  wire s4_busy  =  muldiv_rdy_o  & ~rnd_taking_muldiv_i;
   // ---
   wire s3_busy  =  s3o_div_ready & s4_busy;
   // ---
@@ -139,9 +138,6 @@ module pfpu32_muldiv_marocchino
   wire m1_adv  = s1_adv | itr_adv;
   wire m2_adv  = s2_adv | itr_adv;
   wire m3_adv  = s3_adv | itr_adv;
-
-  // MUL/DIV pipe is busy
-  assign muldiv_busy_o = s0_busy;
 
   // MUL/DIV pipe takes operands for computation
   assign muldiv_takes_op_o = s0_adv;
@@ -749,7 +745,7 @@ module pfpu32_muldiv_marocchino
       muldiv_rdy_o <= 1'b0;
     else if (s4_adv)
       muldiv_rdy_o <= 1'b1;
-    else if (rnd_takes_muldiv_i)
+    else if (rnd_taking_muldiv_i)
       muldiv_rdy_o <= 1'b0;
   end // posedge clock
 

@@ -43,10 +43,9 @@ module pfpu32_i2f_marocchino
   // I2F pipe controls
   input             pipeline_flush_i,
   input             start_i,
-  output            i2f_busy_o,
   output            i2f_takes_op_o,
   output reg        i2f_rdy_o,
-  input             rnd_takes_i2f_i,
+  input             rnd_taking_i2f_i,
   // operand for conversion
   input      [31:0] opa_i,
   // ouputs for rounding
@@ -69,12 +68,9 @@ module pfpu32_i2f_marocchino
 
   // I2F pipe controls
   //  ## per stage busy flags
-  wire s1_busy = i2f_rdy_o & ~rnd_takes_i2f_i;
+  wire s1_busy = i2f_rdy_o & ~rnd_taking_i2f_i;
   //  ## per stage advance
   wire s1_adv  = start_i   & ~s1_busy;
-
-  // I2F pipe is busy
-  assign i2f_busy_o = s1_busy;
 
   // I2F pipe takes operands for computation
   assign i2f_takes_op_o = s1_adv;
@@ -160,7 +156,7 @@ module pfpu32_i2f_marocchino
       i2f_rdy_o <= 1'b0;
     else if (s1_adv)
       i2f_rdy_o <= 1'b1;
-    else if (rnd_takes_i2f_i)
+    else if (rnd_taking_i2f_i)
       i2f_rdy_o <= 1'b0;
   end // posedge clock
 

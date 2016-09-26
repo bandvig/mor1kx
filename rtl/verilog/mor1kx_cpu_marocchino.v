@@ -263,8 +263,13 @@ module mor1kx_cpu_marocchino
   wire                            grant_wb_to_mul;
 
   // FPU-32 arithmetic part
-  wire                              dcod_op_fp32_arith;
-  wire                        [2:0] dcod_opc_fp32_arith;
+  wire                              dcod_op_fp32_arith; // to OMAN and FPU32_ARITH
+  wire                              dcod_op_fp32_add; // to FPU32_ARITH
+  wire                              dcod_op_fp32_sub; // to FPU32_ARITH
+  wire                              dcod_op_fp32_mul; // to FPU32_ARITH
+  wire                              dcod_op_fp32_div; // to FPU32_ARITH
+  wire                              dcod_op_fp32_i2f; // to FPU32_ARITH
+  wire                              dcod_op_fp32_f2i; // to FPU32_ARITH
   wire                              fp32_arith_busy; // idicates that arihmetic units are busy
   wire                              fp32_arith_valid;
   wire                              grant_wb_to_fp32_arith;
@@ -570,7 +575,12 @@ module mor1kx_cpu_marocchino
     .dcod_op_div_unsigned_o           (dcod_op_div_unsigned), // DECODE & DECODE->EXE
     // FPU arithmmetic related
     .dcod_op_fp32_arith_o             (dcod_op_fp32_arith), // DECODE & DECODE->EXE
-    .dcod_opc_fp32_arith_o            (dcod_opc_fp32_arith), // DECODE & DECODE->EXE
+    .dcod_op_fp32_add_o               (dcod_op_fp32_add), // DECODE & DECODE->EXE
+    .dcod_op_fp32_sub_o               (dcod_op_fp32_sub), // DECODE & DECODE->EXE
+    .dcod_op_fp32_mul_o               (dcod_op_fp32_mul), // DECODE & DECODE->EXE
+    .dcod_op_fp32_div_o               (dcod_op_fp32_div), // DECODE & DECODE->EXE
+    .dcod_op_fp32_i2f_o               (dcod_op_fp32_i2f), // DECODE & DECODE->EXE
+    .dcod_op_fp32_f2i_o               (dcod_op_fp32_f2i), // DECODE & DECODE->EXE
     // MTSPR / MFSPR
     .dcod_op_mfspr_o                  (dcod_op_mfspr), // DECODE & DECODE->EXE
     .dcod_op_mtspr_o                  (dcod_op_mtspr), // DECODE & DECODE->EXE
@@ -792,7 +802,7 @@ module mor1kx_cpu_marocchino
       .rst                      (rst), // FPU32_ARITH
 
       // pipeline control inputs
-      .flush_i                  (pipeline_flush), // FPU32_ARITH
+      .pipeline_flush_i         (pipeline_flush), // FPU32_ARITH
       .padv_decode_i            (padv_decode), // FPU32_ARITH
       .padv_wb_i                (padv_wb), // FPU32_ARITH
       .grant_wb_to_fp32_arith_i (grant_wb_to_fp32_arith), // FPU32_ARITH
@@ -808,7 +818,12 @@ module mor1kx_cpu_marocchino
 
       // Operands and commands
       .dcod_op_fp32_arith_i     (dcod_op_fp32_arith), // FPU32_ARITH
-      .dcod_opc_fp32_arith_i    (dcod_opc_fp32_arith), // FPU32_ARITH
+      .dcod_op_fp32_add_i       (dcod_op_fp32_add), // FPU32_ARITH
+      .dcod_op_fp32_sub_i       (dcod_op_fp32_sub), // FPU32_ARITH
+      .dcod_op_fp32_mul_i       (dcod_op_fp32_mul), // FPU32_ARITH
+      .dcod_op_fp32_div_i       (dcod_op_fp32_div), // FPU32_ARITH
+      .dcod_op_fp32_i2f_i       (dcod_op_fp32_i2f), // FPU32_ARITH
+      .dcod_op_fp32_f2i_i       (dcod_op_fp32_f2i), // FPU32_ARITH
       //   from DECODE
       .dcod_rfa_i               (dcod_rfa), // FPU32_ARITH
       .dcod_rfb_i               (dcod_rfb), // FPU32_ARITH

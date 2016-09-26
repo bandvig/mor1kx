@@ -54,10 +54,9 @@ module pfpu32_addsub_marocchino
   input             pipeline_flush_i,
   input             start_i,
   input             is_sub_i,         // 1: substruction, 0: addition
-  output            add_busy_o,
   output            add_takes_op_o,
   output reg        add_rdy_o,        // ready
-  input             rnd_takes_add_i,
+  input             rnd_taking_add_i,
   // input 'a' related values
   input             signa_i,
   input       [9:0] exp10a_i,
@@ -100,16 +99,13 @@ module pfpu32_addsub_marocchino
   reg s1o_ready;
   reg s2o_ready;
   //  ## per stage busy flags
-  wire s3_busy = add_rdy_o & ~rnd_takes_add_i;
+  wire s3_busy = add_rdy_o & ~rnd_taking_add_i;
   wire s2_busy = s2o_ready & s3_busy;
   wire s1_busy = s1o_ready & s2_busy;
   //  ## per stage advance
   wire s1_adv  = start_i   & ~s1_busy;
   wire s2_adv  = s1o_ready & ~s2_busy;
   wire s3_adv  = s2o_ready & ~s3_busy;
-
-  // ADD/SUB pipe is busy
-  assign add_busy_o = s1_busy;
 
   // ADD/SUB pipe takes operands for computation
   assign add_takes_op_o = s1_adv;
@@ -360,7 +356,7 @@ module pfpu32_addsub_marocchino
       add_rdy_o <= 1'b0;
     else if (s3_adv)
       add_rdy_o <= 1'b1;
-    else if (rnd_takes_add_i)
+    else if (rnd_taking_add_i)
       add_rdy_o <= 1'b0;
   end // posedge clock
 

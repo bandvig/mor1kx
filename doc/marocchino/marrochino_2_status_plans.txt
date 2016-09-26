@@ -1,0 +1,103 @@
+             MAROCCHINO Pipeline Status & Plans
+
+23 June 2015
+  Initial variant of pipeline. The variant was converted from
+CAPPUCCINO by the following steps:
+  a) mor1kx_decode & mor1kx_decode_execute_cappuccino were combined
+     into one mor1kx_decode_marocchino
+  b) mor1kx_execute_alu and mor1kx_execute_ctrl_cappuccino were
+     combined into one mor1kx_execute_marocchino
+  c) LSU related operations and l.mf(t)spr processing were moved from
+     CTRL stage to EXECUTE one. So LSU & CTRL modules were modified
+     appropriately.
+  d) CTRL-stage related registers were removed
+  e) The logic for bubble generation, forwarding results, pipeline
+     control signals generation were significantly simplified
+  f) Exceptions are taken on WB-stage now
+  g) WB registers were extended to handle flags and exceptions
+     additionally to result
+  h) Debug unit support was damaged
+
+
+23 July 2015
+  FETCH refactored. However, the main achievement is simplification
+of logic for generation padv-* and exception processing.
+
+
+14 August 2015
+  Some improvement for fetch. As a result, we don't need "fetch_valid"
+flag to control pipeline.
+
+
+6 September 2015
+  Pipelined multiplier. Some adaptation for FPU pipelines. Move WB
+latches into mor1kx_execute_marocchino to prepare implementation of
+control for paralleled execution units. So, mor1kx_wbmux_marocchino
+has been removed from design.
+
+
+6 November 2015
+  First variant with out-of-order completion and 8-taps
+Order Control Buffer (OCB).
+
+
+31 December 2015
+ The major achievement is that all modules, including LSU, DCACHE,
+Store Buffer, etc. are ready for more pipelinization. All RAM blocks are
+replaced with ones containing "enable" signal. And Read/Write conflict
+resolving is moved out from RAM modules. Both of these modifications are
+essential steps toward design of pipeline control logic for each
+pipelined module.
+
+
+5 March 2016
+ (a) Restore LSU pipelinization
+ (b) Remove last stage of FETCH to improve performance
+ (c) Branch prediction is replaced by branch forwarding from EXECUTE
+(in fact most of instructions those affect flag are 1-clock length, so
+flag is usually computed by EXECUTE while FETCH is fetching delay slot)
+ (d) CoreMark 109 Iterations/sec, i.e. 109/50 = 2.18 CoreMark/MHz
+
+
+7 August 2016
+ (a) Make FEATURE_PIC and FEATURE_TIMER "enabled" permanently
+ (b) Decouple PIC and TIMER from CTRL
+ (c) Re-Factoring SPR bus to make all modules data outputs registered
+ (d) DU updated to be compliant to MAROCCHINO pipeline, but not
+     verified because I have not got a JTAG dongle
+ (e) Multi-cycle execution units (MUL, DIV and FP32-arithmetic) were
+     moved out of mor1kx_excecute_maroccchino module. The rest part of
+     mor1kx_excecute_maroccchino were re-named to
+     mor1kx_exec_1clk_marocchino
+ (f) WB- registers in all execution modules were re-designed to make
+     exception processing more straight
+
+
+Further development ideas:
+  Design is moving toward Tomasulo algorithm by natural reasons.
+For example, to simplify logic that detects "unit busy" it would be
+useful to add one extra input latches in each execution unit. If these
+latches is filled, than unit is busy. The logic would be better
+localized than analysis off all stages of long pipelines like FPU's
+ones. Coupling them with already implemented input latches we get
+a kind of two stages "reservation stations" at the input of each
+execution module. So, the obvious next steps are:
+ (a) implement register re-naming logic to mark destination
+     register with extra bits
+ (b) use the extended addresses in the reservation stations
+     for forwarding
+ (c) remove data hazard detection in OMAN (order manager)
+     from pipeline control, because just "unit busy" flags from each
+     execution unit should be enough to push pipe
+
+
+Primary TODOs:
+  - Implement two stages reservation stations at input of each
+    execution unit
+  - Implement destination register re-naming, use the extended addresses
+    for forwarding in reservation stations and remove data hazard
+    detection from pipe control. Use just "unit busy" flags from
+    reservation stations instead.
+  - Improvement control of FPU-32 pipelines
+  - Verify DU
+

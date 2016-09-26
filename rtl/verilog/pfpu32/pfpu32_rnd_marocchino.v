@@ -48,11 +48,10 @@ module pfpu32_rnd_marocchino
   input                             rst,
   // pipe controls
   input                             pipeline_flush_i,
-  output                            fp32_rnd_busy_o,
-  output                            rnd_takes_add_o,
-  output                            rnd_takes_mul_o,
-  output                            rnd_takes_i2f_o,
-  output                            rnd_takes_f2i_o,
+  output                            rnd_taking_add_o,
+  output                            rnd_taking_mul_o,
+  output                            rnd_taking_i2f_o,
+  output                            rnd_taking_f2i_o,
   output                            fp32_arith_valid_o,
   input                             padv_wb_i,
   input                             grant_wb_to_fp32_arith_i,
@@ -141,13 +140,12 @@ module pfpu32_rnd_marocchino
   //  ## per stage advance
   wire s1_adv  = (add_rdy_i | mul_rdy_i | i2f_rdy_i | f2i_rdy_i) & ~s1_busy;
   // ## per execution unit reporting
-  assign rnd_takes_add_o = add_rdy_i & ~s1_busy;
-  assign rnd_takes_mul_o = mul_rdy_i & ~s1_busy;
-  assign rnd_takes_i2f_o = i2f_rdy_i & ~s1_busy;
-  assign rnd_takes_f2i_o = f2i_rdy_i & ~s1_busy;
+  assign rnd_taking_add_o = add_rdy_i & ~s1_busy;
+  assign rnd_taking_mul_o = mul_rdy_i & ~s1_busy;
+  assign rnd_taking_i2f_o = i2f_rdy_i & ~s1_busy;
+  assign rnd_taking_f2i_o = f2i_rdy_i & ~s1_busy;
 
   // output of rounding pipe state
-  assign fp32_rnd_busy_o    = s1_busy;
   assign fp32_arith_valid_o = s1o_ready;
 
 
