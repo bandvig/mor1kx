@@ -118,6 +118,8 @@ module mor1kx_multiplier_marocchino
     .dcod_op_i            (dcod_op_mul_i), // MUL_RSVRS
     .dcod_opc_i           (1'b0), // MUL_RSVRS
     // outputs
+    //   command attributes from busy stage
+    .busy_opc_o           (), // MUL_RSVRS
     //   command and its additional attributes
     .exec_op_o            (exec_op_mul), // MUL_RSVRS
     .exec_opc_o           (),
@@ -291,6 +293,8 @@ module mor1kx_divider_marocchino
     .dcod_op_i            (dcod_op_div_i), // DIV_RSVRS
     .dcod_opc_i           ({dcod_op_div_signed_i, dcod_op_div_unsigned_i}), // DIV_RSVRS
     // outputs
+    //   command attributes from busy stage
+    .busy_opc_o           (), // DIV_RSVRS
     //   command and its additional attributes
     .exec_op_o            (exec_op_div), // DIV_RSVRS
     .exec_opc_o           ({exec_op_div_signed, exec_op_div_unsigned}),
@@ -519,6 +523,7 @@ module mor1kx_exec_1clk_marocchino
   output                                wb_except_fp32_cmp_o,
 
   // Forwarding comparision flag result for conditional branch take/not
+  output                                busy_op_1clk_cmp_o, // integer or fp32
   output                                exec_op_1clk_cmp_o, // integer or fp32
   output                                exec_flag_set_o     // integer or fp32 comparison result
 );
@@ -548,9 +553,15 @@ module mor1kx_exec_1clk_marocchino
   wire                           op_setflag_w;
   wire                           op_fp32_cmp_w;
   wire                     [2:0] opc_fp32_cmp_w;
+   // # either l.sf* or lf.sf*
+   //   !!! MUST BE in [0] of OPC-word of reservation station
+  wire                           op_1clk_cmp_w;
 
   // attributes include all of earlier components
-  localparam ONE_CLK_ATTR_WIDTH = 14 + (2 * `OR1K_ALU_OPC_WIDTH) + OPTION_OPERAND_WIDTH;
+  localparam ONE_CLK_ATTR_WIDTH = 15 + (2 * `OR1K_ALU_OPC_WIDTH) + EXEDW;
+
+  // from BUSY stage of reservation station
+  wire [ONE_CLK_ATTR_WIDTH-1:0] busy_opc;
 
   // operands A and B  with forwarding from WB
   wire [EXEDW-1:0] alu_1clk_a;
@@ -579,6 +590,8 @@ module mor1kx_exec_1clk_marocchino
     .exe2dec_hazard_a_i   (exe2dec_hazard_a_i), // 1CLK_RSVRS
     .exe2dec_hazard_b_i   (exe2dec_hazard_b_i), // 1CLK_RSVRS
     .wb_result_i          (wb_result_i), // 1CLK_RSVRS
+    //   command attributes from busy stage
+    .busy_opc_o           (busy_opc), // 1CLK_RSVRS
     // command and its additional attributes
     .dcod_op_i            (dcod_op_1clk_i), // 1CLK_RSVRS
     .dcod_opc_i           ({dcod_opc_alu_secondary_i, // 1CLK_RSVRS
@@ -586,7 +599,8 @@ module mor1kx_exec_1clk_marocchino
                             dcod_op_shift_i, dcod_op_ffl1_i, dcod_op_movhi_i, dcod_op_cmov_i, // 1CLK_RSVRS
                             (|dcod_opc_logic_i), dcod_opc_logic_i, // 1CLK_RSVRS
                             dcod_op_jal_i, dcod_jal_result_i, // 1CLK_RSVRS
-                            dcod_op_setflag_i, dcod_op_fp32_cmp_i, dcod_opc_fp32_cmp_i}), // 1CLK_RSVRS
+                            dcod_op_setflag_i, dcod_op_fp32_cmp_i, dcod_opc_fp32_cmp_i, // 1CLK_RSVRS
+                            (dcod_op_setflag_i | dcod_op_fp32_cmp_i)}), // 1CLK_RSVRS
     // outputs
     //   command and its additional attributes
     .exec_op_o            (), // 1CLK_RSVRS
@@ -595,7 +609,8 @@ module mor1kx_exec_1clk_marocchino
                             op_shift_w, op_ffl1_w, op_movhi_w, op_cmov_w, // 1CLK_RSVRS
                             op_logic_w, opc_logic_w, // 1CLK_RSVRS
                             op_jal_w, jal_result_w, // 1CLK_RSVRS
-                            op_setflag_w, op_fp32_cmp_w, opc_fp32_cmp_w}), // 1CLK_RSVRS
+                            op_setflag_w, op_fp32_cmp_w, opc_fp32_cmp_w, // 1CLK_RSVRS
+                            op_1clk_cmp_w}), // 1CLK_RSVRS
     //   operands
     .exec_rfa_o           (alu_1clk_a), // 1CLK_RSVRS
     .exec_rfb_o           (alu_1clk_b), // 1CLK_RSVRS
@@ -879,10 +894,11 @@ module mor1kx_exec_1clk_marocchino
   endgenerate // FP-32 comparison part related
 
 
-  //--------------------------------------------------//
-  // Forwarding comparision flag to branch prediction //
-  //--------------------------------------------------//
-  assign exec_op_1clk_cmp_o = op_setflag_w | op_fp32_cmp_w;
+  //--------------------------------------------------------------------//
+  // Forwarding comparision flag result for conditional branch take/not //
+  //--------------------------------------------------------------------//
+  assign busy_op_1clk_cmp_o = busy_opc[0];
+  assign exec_op_1clk_cmp_o = op_1clk_cmp_w;
   assign exec_flag_set_o    = (op_setflag_w & flag_set) | (op_fp32_cmp_w & fp32_flag_set);
 
 endmodule // mor1kx_exec_1clk_marocchino

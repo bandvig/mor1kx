@@ -52,21 +52,23 @@ module mor1kx_oman_marocchino
 
   // DECODE non-latched additional information related instruction
   //  part #1: iformation stored in order control buffer
-  input                                 dcod_delay_slot_i, // instruction is in delay slot
-  input                                 dcod_flag_wb_i,    // instruction affects comparison flag
-  input                                 dcod_carry_wb_i,   // instruction affects carry flag
-  input                                 dcod_rf_wb_i,      // instruction generates WB
-  input      [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfd_adr_i,    // WB address
-  input      [OPTION_OPERAND_WIDTH-1:0] pc_decode_i,       // instruction virtual address
+  input      [OPTION_OPERAND_WIDTH-1:0] pc_decode_i,            // instruction virtual address
+  input      [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfd_adr_i,         // WB address
+  input                                 dcod_rf_wb_i,           // instruction generates WB
+  input                                 dcod_carry_wb_i,        // instruction affects carry flag
+  input                                 dcod_flag_wb_mcycle_i,  // the multy-cycle instruction affects comparison flag 
+  input                                 dcod_flag_wb_i,         // any instruction which affects comparison flag
+  input                                 dcod_delay_slot_i,      // instruction is in delay slot
   //  part #2: information required for data dependancy detection
-  input                                 dcod_rfa_req_i,    // instruction requires operand A
-  input      [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfa_adr_i,    // source of operand A
-  input                                 dcod_rfb_req_i,    // instruction requires operand B
-  input      [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfb_adr_i,    // source of operand B
-  input                                 dcod_flag_req_i,   // need comparison flag (l.cmov)
-  input                                 dcod_carry_req_i,  // need carry flag
-  input                                 dcod_op_jr_i,      // l.jr/l.jalr require operand B (potentially hazard)
-  input                                 dcod_op_brcond_i,  // l.bf/l.bnf require awaited flag (stall fetch)
+  input                                 dcod_rfa_req_i,     // instruction requires operand A
+  input      [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfa_adr_i,     // source of operand A
+  input                                 dcod_rfb_req_i,     // instruction requires operand B
+  input      [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfb_adr_i,     // source of operand B
+  input                                 dcod_flag_req_i,    // need comparison flag (l.cmov)
+  input                                 dcod_carry_req_i,   // need carry flag
+  input                                 dcod_op_jr_i,       // l.jr/l.jalr require operand B (potentially hazard)
+  input                                 dcod_op_brcond_i,   // l.bf/l.bnf require awaited flag (stall fetch)
+  input                                 busy_op_1clk_cmp_i, // 1-clk flag not computed yet (stall fetch)
   //  part #3: information required for create enable for
   //           for external (timer/ethernet/uart/etc) interrupts
   input                                 dcod_op_lsu_store_i,
@@ -164,10 +166,12 @@ module mor1kx_oman_marocchino
   localparam  OCBT_OP_RFE_POS         = OCBT_OP_LSU_SWA_POS     + 1; // l.rfe
   //  Instruction is in delay slot
   localparam  OCBT_DELAY_SLOT_POS     = OCBT_OP_RFE_POS         + 1;
-  //  Instruction affect comparison flag
+  //  Any instruction wich affects comparison flag
   localparam  OCBT_FLAG_WB_POS        = OCBT_DELAY_SLOT_POS     + 1;
+  //  The multi-cycle instruction affects comparison flag
+  localparam  OCBT_FLAG_WB_MCYCLE_POS = OCBT_FLAG_WB_POS        + 1;
   //  Instruction affect carry flag
-  localparam  OCBT_CARRY_WB_POS       = OCBT_FLAG_WB_POS        + 1;
+  localparam  OCBT_CARRY_WB_POS       = OCBT_FLAG_WB_MCYCLE_POS + 1;
   //  Instruction generates WB
   localparam  OCBT_RF_WB_POS          = OCBT_CARRY_WB_POS       + 1;
   localparam  OCBT_RFD_ADR_LSB        = OCBT_RF_WB_POS          + 1;
@@ -210,12 +214,13 @@ module mor1kx_oman_marocchino
   // input pack
   wire  [OCBT_MSB:0] ocbi;
   assign ocbi = { // various instruction related information
-                  pc_decode_i,       // instruction virtual address
-                  dcod_rfd_adr_i,    // WB address
-                  dcod_rf_wb_i,      // instruction generates WB
-                  dcod_carry_wb_i,   // istruction affects carry flag
-                  dcod_flag_wb_i,    // istruction affects comparison flag
-                  dcod_delay_slot_i, // istruction is in delay slot
+                  pc_decode_i,            // instruction virtual address
+                  dcod_rfd_adr_i,         // WB address
+                  dcod_rf_wb_i,           // instruction generates WB
+                  dcod_carry_wb_i,        // istruction affects carry flag
+                  dcod_flag_wb_mcycle_i,  // the multy-cycle instruction affects comparison flag 
+                  dcod_flag_wb_i,         // any instruction which affects comparison flag
+                  dcod_delay_slot_i,      // istruction is in delay slot
                   // unit that must be granted for WB
                   dcod_op_rfe_i,     // l.rfe
                   (dcod_op_lsu_store_i & dcod_op_lsu_atomic_i), // l.swa affects flag
@@ -366,9 +371,13 @@ module mor1kx_oman_marocchino
                   ocbo04[OCBT_FLAG_WB_POS] | ocbo03[OCBT_FLAG_WB_POS] | ocbo02[OCBT_FLAG_WB_POS] |
                   ocbo01[OCBT_FLAG_WB_POS];
   //    waiting completion of atomic instruction (others WB-flag instructions are 1-clk)
-  wire flag_waiting = ~lsu_valid_i & ocbo00[OCBT_OP_LSU_SWA_POS];
+  wire dcod_waiting_flag = ~lsu_valid_i & ocbo00[OCBT_OP_LSU_SWA_POS];
+  //                     MAROCCHINO_TODO: ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  //                                      performance improvement is possible with
+  //                                      forwarding of result of multi-cycle instructions
+  //                                      like l.swa of float64 comparison.
   //    combine with DECODE-to-EXECUTE hazard
-  wire stall_by_flag = dcod_flag_req_i & (ocb_flag | flag_waiting);
+  wire stall_by_flag = dcod_flag_req_i & (ocb_flag | dcod_waiting_flag);
 
   //  stall by carry flag hazard
   //    hazard has occured inside OCB
@@ -399,17 +408,26 @@ module mor1kx_oman_marocchino
   //  (a) Detect the situation where l.jr is in decode
   // stage and an instruction in execute stage that will write to that
   // register.
-  //  (b) l.bf/l.bnf waiting flag
-  //      MAROCCHINO_TODO: performance improvement is possible with
-  //                       forwarding of result of multi-cycle instructions
-  //                       like l.swa of float64 comparison.
+  //  (b) l.bf/l.bnf waiting computation of
+  //      either multi-cycle flag or pending 1-clk flag
+  //
+  wire ocb_flag_mcycle = ocbo07[OCBT_FLAG_WB_MCYCLE_POS] | ocbo06[OCBT_FLAG_WB_MCYCLE_POS] |
+                         ocbo05[OCBT_FLAG_WB_MCYCLE_POS] | ocbo04[OCBT_FLAG_WB_MCYCLE_POS] |
+                         ocbo03[OCBT_FLAG_WB_MCYCLE_POS] | ocbo02[OCBT_FLAG_WB_MCYCLE_POS] |
+                         ocbo01[OCBT_FLAG_WB_MCYCLE_POS] |
+                         ocbo00[OCBT_FLAG_WB_MCYCLE_POS];
+  //    MAROCCHINO_TODO: ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  //                     performance improvement is possible with
+  //                     forwarding of result of multi-cycle instructions
+  //                     like l.swa of float64 comparison.
+  //
   //  (c) When an l.rfe/ecxeptions are in decode stage.
   // The main purpose of this is waiting till l.rfe/exceptions propagate
   // up to WB stage.
   //
-  assign stall_fetch_o = ((ocb_hazard_b | exe2dec_hazard_b_o) & dcod_op_jr_i)          | // stall FETCH
-                         ((ocb_flag | ocbo00[OCBT_OP_LSU_SWA_POS]) & dcod_op_brcond_i) | // stall FETCH
-                         dcod_op_rfe_i | dcod_an_except;                                 // stall FETCH
+  assign stall_fetch_o = ((ocb_hazard_b | exe2dec_hazard_b_o) & dcod_op_jr_i)        | // stall FETCH
+                         ((busy_op_1clk_cmp_i | ocb_flag_mcycle) & dcod_op_brcond_i) | // stall FETCH
+                         dcod_op_rfe_i | dcod_an_except;                               // stall FETCH
 
 
   // Support IBUS error handling in CTRL

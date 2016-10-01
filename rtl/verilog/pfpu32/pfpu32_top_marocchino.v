@@ -324,6 +324,8 @@ u_fp32_arith_rsrvs
   .dcod_opc_i           ({dcod_op_fp32_add_i, dcod_op_fp32_sub_i, dcod_op_fp32_mul_i, // FP32_ARITH_RSVRS
                           dcod_op_fp32_div_i, dcod_op_fp32_i2f_i, dcod_op_fp32_f2i_i}), // FP32_ARITH_RSVRS
   // outputs
+  //   command attributes from busy stage
+  .busy_opc_o           (), // FP32_ARITH_RSVRS
   //   command and its additional attributes
   .exec_op_o            (), // FP32_ARITH_RSVRS
   .exec_opc_o           ({exec_op_fp32_add, exec_op_fp32_sub, exec_op_fp32_mul, // FP32_ARITH_RSVRS

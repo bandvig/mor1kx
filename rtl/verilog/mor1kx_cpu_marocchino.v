@@ -205,8 +205,12 @@ module mor1kx_cpu_marocchino
   wire                            dcod_do_branch;
   wire [OPTION_OPERAND_WIDTH-1:0] dcod_do_branch_target;
 
-  // stall conditional fetching till flag computation completion (see OMAN for details)
-  wire                            dcod_op_brcond;  // l.bf or l.bnf
+  // Signals to stall FETCH if we are waiting flag
+  //  # flag is going to be written by multi-cycle instruction
+  //  # like 64-bit FPU comparison or l.swa
+  wire                            dcod_flag_wb_mcycle;
+  //  # conditional branch: l.bf or l.bnf
+  wire                            dcod_op_brcond;
 
 
 
@@ -288,6 +292,7 @@ module mor1kx_cpu_marocchino
   wire                            wb_except_fp32_cmp;
 
   // Forwarding comparision flag
+  wire                            busy_op_1clk_cmp; // integer or fp32
   wire                            exec_op_1clk_cmp; // integer or fp32
   wire                            exec_flag_set;    // integer or fp32 comparison result
 
@@ -533,7 +538,11 @@ module mor1kx_cpu_marocchino
     .dcod_rfb_i                       (dcod_rfb), // DECODE & DECODE->EXE
     .dcod_do_branch_o                 (dcod_do_branch), // DECODE & DECODE->EXE
     .dcod_do_branch_target_o          (dcod_do_branch_target), // DECODE & DECODE->EXE
-    // stall conditional fetching till flag computation completion (see OMAN for details)
+    // Signals to stall FETCH if we are waiting flag
+    //  # flag is going to be written by multi-cycle instruction
+    //  # like 64-bit FPU comparison or l.swa
+    .dcod_flag_wb_mcycle_o            (dcod_flag_wb_mcycle), // DECODE & DECODE->EXE
+    //  # conditional branch
     .dcod_op_brcond_o                 (dcod_op_brcond), // DECODE & DECODE->EXE
     // LSU related
     .dcod_imm16_o                     (dcod_imm16), // DECODE & DECODE->EXE
@@ -782,6 +791,7 @@ module mor1kx_cpu_marocchino
     .wb_except_fp32_cmp_o             (wb_except_fp32_cmp), // 1CLK
 
     // Forwarding comparision flag result for conditional branch take/not
+    .busy_op_1clk_cmp_o               (busy_op_1clk_cmp), // 1CLK
     .exec_op_1clk_cmp_o               (exec_op_1clk_cmp), // 1CLK
     .exec_flag_set_o                  (exec_flag_set) // 1CLK
   );
@@ -1055,12 +1065,13 @@ module mor1kx_cpu_marocchino
 
     // DECODE non-latched additional information related instruction
     //  part #1: iformation stored in order control buffer
-    .dcod_delay_slot_i          (dcod_delay_slot), // OMAN
-    .dcod_flag_wb_i             (dcod_flag_wb), // OMAN
-    .dcod_carry_wb_i            (dcod_carry_wb), // OMAN
-    .dcod_rf_wb_i               (dcod_rf_wb), // OMAN
-    .dcod_rfd_adr_i             (dcod_rfd_adr), // OMAN
     .pc_decode_i                (pc_decode), // OMAN
+    .dcod_rfd_adr_i             (dcod_rfd_adr), // OMAN
+    .dcod_rf_wb_i               (dcod_rf_wb), // OMAN
+    .dcod_carry_wb_i            (dcod_carry_wb), // OMAN
+    .dcod_flag_wb_mcycle_i      (dcod_flag_wb_mcycle), // OMAN
+    .dcod_flag_wb_i             (dcod_flag_wb), // OMAN
+    .dcod_delay_slot_i          (dcod_delay_slot), // OMAN
     //  part #2: information required for data dependancy detection
     .dcod_rfa_req_i             (dcod_rfa_req), // OMAN
     .dcod_rfa_adr_i             (dcod_rfa_adr), // OMAN
@@ -1070,6 +1081,7 @@ module mor1kx_cpu_marocchino
     .dcod_carry_req_i           (dcod_carry_req), // OMAN
     .dcod_op_jr_i               (dcod_op_jr), // OMAN
     .dcod_op_brcond_i           (dcod_op_brcond), // OMAN
+    .busy_op_1clk_cmp_i         (busy_op_1clk_cmp), // OMAN
     //  part #3: information required for create enable for
     //           for external (timer/ethernet/uart/etc) interrupts
     .dcod_op_lsu_store_i        (dcod_op_lsu_store), // OMAN

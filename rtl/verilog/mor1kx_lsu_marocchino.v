@@ -387,6 +387,8 @@ module mor1kx_lsu_marocchino
     .dcod_opc_i           ({dcod_op_lsu_load_i,dcod_op_lsu_store_i,dcod_op_lsu_atomic_i, // LSU_RSVRS
                             dcod_lsu_length_i,dcod_lsu_zext_i,dcod_imm16_i,pc_decode_ds}), // LSU_RSVRS
     // outputs
+    //   command attributes from busy stage
+    .busy_opc_o           (), // LSU_RSVRS
     //   command and its additional attributes
     .exec_op_o            (), // LSU_RSVRS
     .exec_opc_o           ({lsu_load_w,lsu_store_w,lsu_atomic_w, // LSU_RSVRS

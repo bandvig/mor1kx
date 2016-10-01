@@ -361,6 +361,8 @@ module mor1kx_rsrvs_marocchino
   input                 [OPC_WIDTH-1:0] dcod_opc_i,   // additional attributes for command
 
   // outputs
+  //   command attributes from busy stage
+  output                [OPC_WIDTH-1:0] busy_opc_o,
   //   command and its additional attributes
   output                                exec_op_o,    // request the unit command
   output                [OPC_WIDTH-1:0] exec_opc_o,   // additional attributes for command
@@ -443,6 +445,9 @@ module mor1kx_rsrvs_marocchino
   assign busy_rfb = busy_hazard_b_r ? wb_result_i : busy_rfb_r;
 
   // output from busy stage
+  //  ## command attributes from busy stage
+  assign busy_opc_o  = busy_opc_r;
+  //  ## unit-is-busy flag
   assign unit_busy_o = busy_op_r;
 
 

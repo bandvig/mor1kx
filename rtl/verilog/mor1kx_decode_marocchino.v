@@ -81,8 +81,12 @@ module mor1kx_decode_marocchino
   output                                dcod_do_branch_o,
   output     [OPTION_OPERAND_WIDTH-1:0] dcod_do_branch_target_o,
 
-  // stall conditional fetching till flag computation completion (see OMAN for details)
-  output                                dcod_op_brcond_o,  // l.bf or l.bnf
+  // Signals to stall FETCH if we are waiting flag
+  //  # flag is going to be written by multi-cycle instruction
+  //  # like 64-bit FPU comparison or l.swa
+  output                                dcod_flag_wb_mcycle_o,
+  //  # conditional branch: l.bf or l.bnf
+  output                                dcod_op_brcond_o,
 
   // LSU related
   output          [`OR1K_IMM_WIDTH-1:0] dcod_imm16_o,
@@ -721,7 +725,11 @@ module mor1kx_decode_marocchino
   assign dcod_flag_req_o = dcod_op_cmov_o;
 
 
-  //  Conditional branches to stall FETCH if we are waiting flag
+  // Signals to stall FETCH if we are waiting flag
+  //  # flag is going to be written by multi-cycle instruction
+  //  # like 64-bit FPU comparison or l.swa
+  assign dcod_flag_wb_mcycle_o = (opc_insn == `OR1K_OPCODE_SWA);
+  //  # conditional branch
   assign dcod_op_brcond_o  = dcod_op_bf | dcod_op_bnf;
 
 
