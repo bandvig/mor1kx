@@ -507,70 +507,58 @@ module mor1kx_fetch_marocchino
     else begin
       case (ibus_state)
         IBUS_IDLE: begin
-          ibus_req_o <= 1'b0;           // idle defaults
-          ibus_adr_o <= {IFOOW{1'b0}};  // idle defaults
-          ibus_state <= IBUS_IDLE;      // idle defaults
-          // ---
           if (padv_fetch_i & ~flush_by_ctrl) // eq. padv_s1 (in IDLE state of IBUS FSM)
-            ibus_state <= IMEM_REQ;
+            ibus_state <= IMEM_REQ;  // idling -> memory system request
         end
       
         IMEM_REQ: begin
-          ibus_req_o <= 1'b0;           // imem req defaults
-          ibus_adr_o <= {IFOOW{1'b0}};  // imem req defaults
-          ibus_state <= IMEM_REQ;       // imem req defaults
-          // ---
           if (fetch_excepts | flush_by_ctrl) begin
-            ibus_state <= IBUS_IDLE;
+            ibus_state <= IBUS_IDLE;  // memory system request -> idling (exceptions or flushing)
           end
           else if (padv_fetch_i & (flush_by_branch | ic_ack)) begin // eq. padv_s1 (in IMEM-REQ state of IBUS FSM)
-            ibus_state <= IMEM_REQ;
+            ibus_state <= IMEM_REQ;  // keep memory system request
           end
           else if (ic_refill_req) begin
-            ibus_req_o <= 1'b1;
-            ibus_adr_o <= phys_addr_fetch;
-            ibus_state <= IBUS_IC_REFILL;
+            ibus_req_o <= 1'b1;             // memory system request -> ICACHE refill
+            ibus_adr_o <= phys_addr_fetch;  // memory system request -> ICACHE refill
+            ibus_state <= IBUS_IC_REFILL;   // memory system request -> ICACHE refill
           end
           else if (~ic_access) begin
-            ibus_req_o <= 1'b1;
-            ibus_adr_o <= phys_addr_fetch;
-            ibus_state <= IBUS_READ;
+            ibus_req_o <= 1'b1;             // memory system request -> IBUS read
+            ibus_adr_o <= phys_addr_fetch;  // memory system request -> IBUS read
+            ibus_state <= IBUS_READ;        // memory system request -> IBUS read
           end
           else
             ibus_state <= IBUS_IDLE;
         end
   
         IBUS_IC_REFILL: begin
-          ibus_req_o <= 1'b1;           // re-fill defaults
-          ibus_adr_o <= ibus_adr_o;     // re-fill defaults
-          ibus_state <= IBUS_IC_REFILL; // re-fill defaults
-          // ---
           if (ibus_ack_i) begin
-            ibus_adr_o <= next_refill_adr;
+            ibus_adr_o <= next_refill_adr;  // ICACHE refill: next address
             if (ic_refill_last) begin
-              ibus_req_o <= 1'b0;
-              ibus_adr_o <= {IFOOW{1'b0}};
-              ibus_state <= IBUS_IDLE;
+              ibus_req_o <= 1'b0;           // ICACHE refill -> idling
+              ibus_adr_o <= {IFOOW{1'b0}};  // ICACHE refill -> idling
+              ibus_state <= IBUS_IDLE;      // ICACHE refill -> idling
             end
           end
         end // ic-refill
   
         IBUS_READ: begin
-          ibus_req_o <= 1'b1;       // read defaults
-          ibus_adr_o <= ibus_adr_o; // read defaults
-          ibus_state <= IBUS_READ;  // read defaults
-          // ---
           if (ibus_ack_i) begin
-            ibus_req_o <= 1'b0;
-            ibus_adr_o <= {IFOOW{1'b0}};
-            if (padv_fetch_i & ~flush_by_ctrl)  // IBUS READ -> IMEM REQUEST (eq. padv_s1)
-              ibus_state <= IMEM_REQ;           // IBUS READ -> IMEM REQUEST
+            ibus_req_o <= 1'b0;                 // IBUS read: complete
+            ibus_adr_o <= {IFOOW{1'b0}};        // IBUS read: complete
+            if (padv_fetch_i & ~flush_by_ctrl)  // IBUS read -> IMEM REQUEST (eq. padv_s1)
+              ibus_state <= IMEM_REQ;           // IBUS read -> IMEM REQUEST
             else
-              ibus_state <= IBUS_IDLE; // IBUS READ -> IDLE
+              ibus_state <= IBUS_IDLE;          // IBUS READ -> IDLE
           end
         end // read
   
-        default:;
+        default: begin
+          ibus_req_o <= 1'b0;           // default
+          ibus_adr_o <= {IFOOW{1'b0}};  // default
+          ibus_state <= IBUS_IDLE;      // default
+        end
       endcase // case (state)
     end // reset / regular update
   end // @ clock
