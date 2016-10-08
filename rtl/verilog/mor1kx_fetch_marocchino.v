@@ -54,7 +54,7 @@ module mor1kx_fetch_marocchino
 
   // pipeline control
   input                                 padv_fetch_i,
-  input                                 stall_fetch_i,
+  input                                 fetch_waiting_target_i,
   input                                 pipeline_flush_i,
 
   // configuration
@@ -293,7 +293,7 @@ module mor1kx_fetch_marocchino
       branch_stored        <= 1'b0;           // take stored branch or flush by pipe-flushing
       branch_target_stored <= {IFOOW{1'b0}};  // take stored branch or flush by pipe-flushing
     end
-    else if (dcod_do_branch_i & ~stall_fetch_i & ~branch_stored) begin
+    else if (dcod_do_branch_i & ~fetch_waiting_target_i & ~branch_stored) begin
       branch_stored        <= 1'b1;
       branch_target_stored <= dcod_do_branch_target_i;
     end

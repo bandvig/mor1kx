@@ -30,8 +30,9 @@
 
 module mor1kx_lsu_marocchino
 #(
-  // data cache
   parameter OPTION_OPERAND_WIDTH        = 32,
+  parameter DEST_REG_ADDR_WIDTH         =  8, // OPTION_RF_ADDR_WIDTH + log2(Re-Ordering buffer width)
+  // data cache
   parameter OPTION_DCACHE_BLOCK_WIDTH   = 5,
   parameter OPTION_DCACHE_SET_WIDTH     = 9,
   parameter OPTION_DCACHE_WAYS          = 2,
@@ -72,9 +73,27 @@ module mor1kx_lsu_marocchino
   input                           [1:0] dcod_lsu_length_i,
   input                                 dcod_lsu_zext_i,
   input                                 dcod_op_msync_i,
-  //   forwarding from WB
+  // OMAN-to-DECODE hazards
+  //  combined flag
+  input                                 omn2dec_hazards_i,
+  //  by operands
+  input                                 busy_hazard_a_i,
+  input       [DEST_REG_ADDR_WIDTH-1:0] busy_hazard_a_adr_i,
+  input                                 busy_hazard_b_i,
+  input       [DEST_REG_ADDR_WIDTH-1:0] busy_hazard_b_adr_i,
+  // EXEC-to-DECODE hazards
+  //  combined flag
+  input                                 exe2dec_hazards_i,
+  //  by operands
   input                                 exe2dec_hazard_a_i,
   input                                 exe2dec_hazard_b_i,
+  // Data for hazards resolving
+  //  hazard could be passed from DECODE to EXECUTE
+  input                                 exec_rf_wb_i,
+  input       [DEST_REG_ADDR_WIDTH-1:0] exec_rfd_adr_i,
+  //  hazard could be resolving
+  input                                 wb_rf_wb_i,
+  input       [DEST_REG_ADDR_WIDTH-1:0] wb_rfd_adr_i,
   input      [OPTION_OPERAND_WIDTH-1:0] wb_result_i,
   // SPR interface
   input                          [15:0] spr_bus_addr_i,
@@ -362,42 +381,75 @@ module mor1kx_lsu_marocchino
   // reservation station insrtance
   mor1kx_rsrvs_marocchino
   #(
-    .OPTION_OPERAND_WIDTH (OPTION_OPERAND_WIDTH), // LSU_RSVRS
-    .OPC_WIDTH            (LSU_ATTR_WIDTH) // LSU_RSVRS
+    .OPTION_OPERAND_WIDTH     (OPTION_OPERAND_WIDTH), // LSU_RSVRS
+    .USE_OPC                  (1), // LSU_RSVRS
+    .OPC_WIDTH                (LSU_ATTR_WIDTH), // LSU_RSVRS
+    .DEST_REG_ADDR_WIDTH      (DEST_REG_ADDR_WIDTH), // LSU_RSVRS
+    .USE_RSVRS_FLAG_CARRY     (0), // LSU_RSVRS
+    .DEST_FLAG_ADDR_WIDTH     (1) // LSU_RSVRS
   )
   u_lsu_rsrvs
   (
     // clocks and resets
-    .clk                  (clk),
-    .rst                  (rst),
+    .clk                      (clk),
+    .rst                      (rst),
     // pipeline control signals in
-    .pipeline_flush_i     (excepts_any | pipeline_flush_i), // LSU_RSVRS
-    .padv_decode_i        (padv_decode_i), // LSU_RSVRS
-    .take_op_i            (lsu_takes_ls), // LSU_RSVRS
-    // input data
-    //   from DECODE
-    .dcod_rfa_i           (dcod_rfa_i), // LSU_RSVRS
-    .dcod_rfb_i           (dcod_rfb_i), // LSU_RSVRS
-    //   forwarding from WB
-    .exe2dec_hazard_a_i   (exe2dec_hazard_a_i), // LSU_RSVRS
-    .exe2dec_hazard_b_i   (exe2dec_hazard_b_i), // LSU_RSVRS
-    .wb_result_i          (wb_result_i), // LSU_RSVRS
+    .pipeline_flush_i         (excepts_any | pipeline_flush_i), // LSU_RSVRS
+    .padv_decode_i            (padv_decode_i), // LSU_RSVRS
+    .taking_op_i              (lsu_takes_ls), // LSU_RSVRS
+    // input data from DECODE
+    .dcod_rfa_i               (dcod_rfa_i), // LSU_RSVRS
+    .dcod_rfb_i               (dcod_rfb_i), // LSU_RSVRS
+    // OMAN-to-DECODE hazards
+    //  combined flag
+    .omn2dec_hazards_i        (omn2dec_hazards_i), // LSU_RSVRS
+    //  by FLAG and CARRY
+    .busy_hazard_f_i          (1'b0), // LSU_RSVRS
+    .busy_hazard_f_adr_i      (1'b0), // LSU_RSVRS
+    .busy_hazard_c_i          (1'b0), // LSU_RSVRS
+    .busy_hazard_c_adr_i      (1'b0), // LSU_RSVRS
+    //  by operands
+    .busy_hazard_a_i          (busy_hazard_a_i), // LSU_RSVRS
+    .busy_hazard_a_adr_i      (busy_hazard_a_adr_i), // LSU_RSVRS
+    .busy_hazard_b_i          (busy_hazard_b_i), // LSU_RSVRS
+    .busy_hazard_b_adr_i      (busy_hazard_b_adr_i), // LSU_RSVRS
+    // EXEC-to-DECODE hazards
+    //  combined flag
+    .exe2dec_hazards_i        (exe2dec_hazards_i), // LSU_RSVRS
+    //  by operands
+    .exe2dec_hazard_a_i       (exe2dec_hazard_a_i), // LSU_RSVRS
+    .exe2dec_hazard_b_i       (exe2dec_hazard_b_i), // LSU_RSVRS
+    // Data for hazards resolving
+    //  hazard could be passed from DECODE to EXECUTE
+    .exec_flag_wb_i           (1'b0), // LSU_RSVRS
+    .exec_carry_wb_i          (1'b0), // LSU_RSVRS
+    .exec_flag_carry_adr_i    (1'b0), // LSU_RSVRS
+    .exec_rf_wb_i             (exec_rf_wb_i), // LSU_RSVRS
+    .exec_rfd_adr_i           (exec_rfd_adr_i), // LSU_RSVRS
+    .padv_wb_i                (padv_wb_i), // LSU_RSVRS
+    //  hazard could be resolving
+    .wb_flag_wb_i             (1'b0), // LSU_RSVRS
+    .wb_carry_wb_i            (1'b0), // LSU_RSVRS
+    .wb_flag_carry_adr_i      (1'b0), // LSU_RSVRS
+    .wb_rf_wb_i               (wb_rf_wb_i), // LSU_RSVRS
+    .wb_rfd_adr_i             (wb_rfd_adr_i), // LSU_RSVRS
+    .wb_result_i              (wb_result_i), // LSU_RSVRS
     // command and its additional attributes
-    .dcod_op_i            (dcod_op_lsu_load_i | dcod_op_lsu_store_i), // LSU_RSVRS
-    .dcod_opc_i           ({dcod_op_lsu_load_i,dcod_op_lsu_store_i,dcod_op_lsu_atomic_i, // LSU_RSVRS
-                            dcod_lsu_length_i,dcod_lsu_zext_i,dcod_imm16_i,pc_decode_ds}), // LSU_RSVRS
+    .dcod_op_i                (dcod_op_lsu_load_i | dcod_op_lsu_store_i), // LSU_RSVRS
+    .dcod_opc_i               ({dcod_op_lsu_load_i,dcod_op_lsu_store_i,dcod_op_lsu_atomic_i, // LSU_RSVRS
+                                dcod_lsu_length_i,dcod_lsu_zext_i,dcod_imm16_i,pc_decode_ds}), // LSU_RSVRS
     // outputs
     //   command attributes from busy stage
-    .busy_opc_o           (), // LSU_RSVRS
+    .busy_opc_o               (), // LSU_RSVRS
     //   command and its additional attributes
-    .exec_op_o            (), // LSU_RSVRS
-    .exec_opc_o           ({lsu_load_w,lsu_store_w,lsu_atomic_w, // LSU_RSVRS
-                            lsu_length_w,lsu_zext_w,lsu_imm16_w,pc_decode_w}), // LSU_RSVRS
+    .exec_op_o                (), // LSU_RSVRS
+    .exec_opc_o               ({lsu_load_w,lsu_store_w,lsu_atomic_w, // LSU_RSVRS
+                                lsu_length_w,lsu_zext_w,lsu_imm16_w,pc_decode_w}), // LSU_RSVRS
     //   operands
-    .exec_rfa_o           (lsu_a), // LSU_RSVRS
-    .exec_rfb_o           (lsu_b), // LSU_RSVRS
+    .exec_rfa_o               (lsu_a), // LSU_RSVRS
+    .exec_rfb_o               (lsu_b), // LSU_RSVRS
     //   unit-is-busy flag
-    .unit_busy_o          (lsu_busy_rsrvs) // LSU_RSVRS
+    .unit_busy_o              (lsu_busy_rsrvs) // LSU_RSVRS
   );
 
   // compute address
