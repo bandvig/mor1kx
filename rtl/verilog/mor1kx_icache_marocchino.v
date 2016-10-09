@@ -146,9 +146,6 @@ module mor1kx_icache_marocchino
   reg                          tag_we;
 
   // Access to the way memories
-  wire   [OPTION_ICACHE_WAYS-1:0] way_en; // WAY-RAM block enable
-  wire   [OPTION_ICACHE_WAYS-1:0] way_we; // WAY-RAM write command
-  wire            [WAY_WIDTH-3:0] way_addr [OPTION_ICACHE_WAYS-1:0];
   wire [OPTION_OPERAND_WIDTH-1:0] way_dout [OPTION_ICACHE_WAYS-1:0];
 
   // FETCH reads ICACHE (doesn't include exceptions or flushing control)
@@ -333,7 +330,10 @@ module mor1kx_icache_marocchino
             if (refill_last_o) begin
               refill_done <= 0;
               lru_way_r   <= {OPTION_ICACHE_WAYS{1'b0}}; // last re-fill
-              ic_state    <= IC_IDLE;
+              if (ic_fsm_adv & ~flush_by_ctrl_i)
+                ic_state  <= IC_READ;
+              else
+                ic_state  <= IC_IDLE;
             end
             else begin
               refill_done[curr_refill_adr[OPTION_ICACHE_BLOCK_WIDTH-1:2]] <= 1'b1;
@@ -362,35 +362,63 @@ module mor1kx_icache_marocchino
   end // @ clock
 
 
-  // WAY-RAM write signal (for RE-FILL only)
-  assign way_we = {OPTION_ICACHE_WAYS{ibus_ack_i}} & lru_way_r;
+  // WAY writting reqiest
+  wire [OPTION_ICACHE_WAYS-1:0] way_wr_req;
+  
+  // Read / Write port (*_rwp_*) controls
+  wire [OPTION_ICACHE_WAYS-1:0] way_rwp_en;
+  wire [OPTION_ICACHE_WAYS-1:0] way_rwp_we;
+  // Write-only port (*_wp_*) controls
+  wire [OPTION_ICACHE_WAYS-1:0] way_wp_en;
 
-  // WAY-RAM enable
-  assign way_en = {OPTION_ICACHE_WAYS{ic_ram_re}} | way_we;
+  // On 1st re-fill we force using RW-port for 1st writting
+  // to provide correct read-hit
+  wire ic_refill_1st = (ic_state == IC_REFILL) & (refill_done == 0);
+  // WAY-RAM rading address
+  wire [WAY_WIDTH-3:0] way_raddr = ic_refill_1st ? curr_refill_adr[WAY_WIDTH-1:2] :
+                                                   virt_addr_i[WAY_WIDTH-1:2];
+  // WAY-RAM writting address is equal to re-fill one
+  wire [WAY_WIDTH-3:0] way_waddr = curr_refill_adr[WAY_WIDTH-1:2];
+
+  // support RW-conflict detection
+  wire way_rw_same_addr = (way_raddr == way_waddr);
 
   generate
   for (i = 0; i < OPTION_ICACHE_WAYS; i=i+1) begin : ways_ram
-    // WAY-RAM input data and addresses
-    assign way_addr[i] = way_we[i] ? curr_refill_adr[WAY_WIDTH-1:2] : // for RE-FILL only
-                                     virt_addr_i[WAY_WIDTH-1:2];
+    // WAY writting reqiest
+    assign way_wr_req[i] = ibus_ack_i & lru_way_r[i];
 
-    // WAY-RAM instance
-    mor1kx_spram_en_w1st
+    // Read / Write port (*_rwp_*) controls
+    //  # on 1st re-fill we force using RW-port to provide correct read-hit
+    assign way_rwp_en[i] =  ic_ram_re | (way_wr_req[i] & ic_refill_1st);
+    assign way_rwp_we[i] = (ic_ram_re | ic_refill_1st) & way_wr_req[i] & way_rw_same_addr;
+
+    // Write-only port (*_wp_*) controls
+    assign way_wp_en[i]  = way_wr_req[i] & (~ic_ram_re | ~way_rw_same_addr);
+
+    // WAY-RAM instances
+    mor1kx_dpram_en_w1st_sclk
     #(
-      .ADDR_WIDTH    (WAY_WIDTH-2),
-      .DATA_WIDTH    (OPTION_OPERAND_WIDTH),
-      .CLEAR_ON_INIT (OPTION_ICACHE_CLEAR_ON_INIT)
+      .ADDR_WIDTH     (WAY_WIDTH-2),
+      .DATA_WIDTH     (OPTION_OPERAND_WIDTH),
+      .CLEAR_ON_INIT  (OPTION_ICACHE_CLEAR_ON_INIT)
     )
     ic_way_ram
     (
-      // clock
-      .clk  (clk),
-      // port
-      .en   (way_en[i]),  // enable
-      .we   (way_we[i]),  // operation is write
-      .addr (way_addr[i]),
-      .din  (ibus_dat_i),
-      .dout (way_dout[i])
+      // common clock
+      .clk    (clk),
+      // port "a": Read / Write (for RW-conflict case)
+      .en_a   (way_rwp_en[i]), // enable port "a"
+      .we_a   (way_rwp_we[i]), // operation is "write"
+      .addr_a (way_raddr),
+      .din_a  (ibus_dat_i),
+      .dout_a (way_dout[i]),
+      // port "b": Write if no RW-conflict
+      .en_b   (way_wp_en[i]),  // enable port "b"
+      .we_b   (way_wr_req[i]), // operation is "write"
+      .addr_b (way_waddr),
+      .din_b  (ibus_dat_i),
+      .dout_b ()            // not used
     );
   end // block: way_memories
   endgenerate

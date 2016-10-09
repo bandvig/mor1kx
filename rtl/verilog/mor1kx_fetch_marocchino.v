@@ -470,9 +470,10 @@ module mor1kx_fetch_marocchino
   // !!! should follows appropriate FSM condition,
   //     but without taking into account exceptions
   assign ibus_fsm_free =
-    (ibus_state == IBUS_IDLE) |                                // IBUS FSM is free
-    ((ibus_state == IMEM_REQ) & (flush_by_branch | ic_ack)) |  // IBUS FSM is free
-    ibus_ack;                                                  // IBUS FSM is free
+    (ibus_state == IBUS_IDLE)                                      | // IBUS FSM is free
+    ((ibus_state == IMEM_REQ) & (flush_by_branch | ic_ack))        | // IBUS FSM is free
+    ((ibus_state == IBUS_IC_REFILL) & ic_refill_last & ibus_ack_i) | // IBUS FSM is free
+    ibus_ack;                                                        // IBUS FSM is free
 
 
   // ICACHE re-fill-allowed corresponds to refill-request position in IBUS FSM
@@ -534,11 +535,14 @@ module mor1kx_fetch_marocchino
   
         IBUS_IC_REFILL: begin
           if (ibus_ack_i) begin
-            ibus_adr_o <= next_refill_adr;  // ICACHE refill: next address
+            ibus_adr_o <= next_refill_adr;        // ICACHE refill: next address
             if (ic_refill_last) begin
-              ibus_req_o <= 1'b0;           // ICACHE refill -> idling
-              ibus_adr_o <= {IFOOW{1'b0}};  // ICACHE refill -> idling
-              ibus_state <= IBUS_IDLE;      // ICACHE refill -> idling
+              ibus_req_o <= 1'b0;                 // ICACHE refill -> idling
+              ibus_adr_o <= {IFOOW{1'b0}};        // ICACHE refill -> idling
+              if (padv_fetch_i & ~flush_by_ctrl)  // ICACHE refill -> IMEM REQUEST (eq. padv_s1)
+                ibus_state <= IMEM_REQ;           // ICACHE refill -> IMEM REQUEST
+              else
+                ibus_state <= IBUS_IDLE;          // ICACHE refill -> idling
             end
           end
         end // ic-refill
