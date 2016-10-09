@@ -820,43 +820,32 @@ module mor1kx_lsu_marocchino
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst) begin
       // DBUS controls
-      dbus_req_o  <= 1'b0; // reset
-      dbus_we     <= 1'b0; // reset
-      dbus_bsel_o <= 4'hf; // reset
-      dbus_adr_o  <= {LSUOOW{1'b0}}; // reset
-      dbus_dat_o  <= {LSUOOW{1'b0}}; // reset
-      dbus_atomic <= 1'b0; // reset
-      sbuf_odata  <= 1'b0; // reset
+      dbus_req_o  <= 1'b0;            // DBUS reset
+      dbus_we     <= 1'b0;            // DBUS reset
+      dbus_bsel_o <= 4'hf;            // DBUS reset
+      dbus_adr_o  <= {LSUOOW{1'b0}};  // DBUS reset
+      dbus_dat_o  <= {LSUOOW{1'b0}};  // DBUS reset
+      dbus_atomic <= 1'b0;            // DBUS reset
+      sbuf_odata  <= 1'b0;            // DBUS reset
       // DBUS FSM state
-      dbus_state  <= DBUS_IDLE; // reset
+      dbus_state  <= DBUS_IDLE;       // DBUS reset
     end
     else if (dbus_err_instant) begin // in DBUS FSM: highest priority
       // DBUS controls
-      dbus_req_o  <= 1'b0; // bus error
-      dbus_we     <= 1'b0; // bus error
-      dbus_bsel_o <= 4'hf; // bus error
-      dbus_adr_o  <= {LSUOOW{1'b0}}; // bus error
-      dbus_dat_o  <= {LSUOOW{1'b0}}; // bus error
-      dbus_atomic <= 1'b0; // bus error
-      sbuf_odata  <= 1'b0; // bus error; MAROCCHINO_TODO: force buffer empty by DBUS error ?
+      dbus_req_o  <= 1'b0;            // DBUS error
+      dbus_we     <= 1'b0;            // DBUS error
+      dbus_bsel_o <= 4'hf;            // DBUS error
+      dbus_adr_o  <= {LSUOOW{1'b0}};  // DBUS error
+      dbus_dat_o  <= {LSUOOW{1'b0}};  // DBUS error
+      dbus_atomic <= 1'b0;            // DBUS error
+      sbuf_odata  <= 1'b0;            // DBUS error; MAROCCHINO_TODO: force buffer empty by DBUS error ?
       // DBUS FSM state
-      dbus_state  <= DBUS_IDLE; // bus error
+      dbus_state  <= DBUS_IDLE;       // DBUS error
     end
     else begin
       // process
       case (dbus_state)
         DBUS_IDLE: begin
-          // DBUS controls
-          dbus_req_o  <= 1'b0; // idle default
-          dbus_we     <= 1'b0; // idle default
-          dbus_bsel_o <= 4'hf; // idle default
-          dbus_adr_o  <= {LSUOOW{1'b0}}; // idle default
-          dbus_dat_o  <= {LSUOOW{1'b0}}; // idle default
-          dbus_atomic <= 1'b0; // idle default
-          sbuf_odata  <= sbuf_odata; // idle default
-          // DBUS FSM state
-          dbus_state  <= DBUS_IDLE; // idle default
-          // ---
           if (excepts_any_r | spr_bus_stb_i| pipeline_flush_i) // DBUS FSM keep idling
             dbus_state <= DBUS_IDLE;
           else if (lsu_takes_ls | sbuf_odata) // idle -> dmem req
@@ -864,17 +853,6 @@ module mor1kx_lsu_marocchino
         end
 
         DMEM_REQ: begin
-          // DBUS controls
-          dbus_req_o  <= 1'b0; // dmem req default
-          dbus_we     <= 1'b0; // dmem req default
-          dbus_bsel_o <= 4'hf; // dmem req default
-          dbus_adr_o  <= {LSUOOW{1'b0}}; // dmem req default
-          dbus_dat_o  <= {LSUOOW{1'b0}}; // dmem req default
-          dbus_atomic <= 1'b0;        // dmem req default
-          sbuf_odata  <= sbuf_odata;  // dmem req default
-          // DBUS FSM state
-          dbus_state  <= DMEM_REQ;    // dmem req default
-          // ---
           if (lsu_excepts_addr | pipeline_flush_i) begin // dmem req
             dbus_state  <= DBUS_IDLE; // dmem req -> exceptions or pipe flush
           end
@@ -888,20 +866,18 @@ module mor1kx_lsu_marocchino
               dbus_adr_o  <= sbuf_odata ? sbuf_phys_addr : phys_addr_cmd;
               dbus_dat_o  <= sbuf_odata ? sbuf_dat       : lsu_sdat;
               dbus_atomic <= sbuf_odata ? 1'b0           : cmd_swa_r; // we execute store conditional around store buffer
+              sbuf_odata  <= 1'b0; // DBUS: dmem-req - > write
               // DBUS FSM state
               dbus_state  <= DBUS_WRITE;
             end
           end
           else if (dc_refill_req) begin // it automatically means (l.load & dc-access)
             dbus_req_o  <= 1'b1;
-            dbus_we     <= 1'b0;
             dbus_adr_o  <= phys_addr_cmd;
-            dbus_bsel_o <= 4'hf;
             dbus_state  <= DBUS_DC_REFILL;
           end
           else if (cmd_load_r & ~dc_access) begin
             dbus_req_o  <= 1'b1;
-            dbus_we     <= 1'b0;
             dbus_adr_o  <= phys_addr_cmd;
             dbus_bsel_o <= dbus_bsel;
             dbus_state  <= DBUS_READ;
@@ -912,82 +888,62 @@ module mor1kx_lsu_marocchino
         end // idle
 
         DBUS_DC_REFILL: begin
-          // DBUS controls
-          dbus_req_o  <= 1'b1;            // re-fill default
-          dbus_adr_o  <= dbus_adr_o;      // re-fill default
-          // DBUS FSM state
-          dbus_state  <= DBUS_DC_REFILL;  // re-fill default
-          // ---
-          if (dbus_ack_i) begin
-            dbus_adr_o <= next_refill_adr;
-            if (dc_refill_last) begin
-              // DBUS controls
-              dbus_req_o  <= 1'b0;
-              dbus_adr_o  <= {LSUOOW{1'b0}};
-              // DBUS FSM state
-              dbus_state  <= DBUS_IDLE; // re-fill complete
-            end
-          end
-          // TODO: only abort on snoop-hits to refill address
           if (snoop_hit) begin
-            // DBUS controls
-            dbus_req_o  <= 1'b0;
-            dbus_adr_o  <= {LSUOOW{1'b0}};
-            // DBUS FSM state
-            dbus_state  <= flush_by_ctrl ? DBUS_IDLE : DMEM_REQ; // snoop-hit on re-fill
+            dbus_req_o  <= 1'b0;                                  // DC-REFILL: snoop-hit
+            dbus_adr_o  <= {LSUOOW{1'b0}};                        // DC-REFILL: snoop-hit
+            dbus_state  <= flush_by_ctrl ? DBUS_IDLE : DMEM_REQ;  // DC-REFILL: snoop-hit
+          end
+          else if (dbus_ack_i) begin
+            dbus_adr_o <= next_refill_adr;    // DC-REFILL: DBUS-ack
+            if (dc_refill_last) begin
+              dbus_req_o  <= 1'b0;            // DC-REFILL: DBUS-last-ack
+              dbus_adr_o  <= {LSUOOW{1'b0}};  // DC-REFILL: DBUS-last-ack
+              dbus_state  <= DBUS_IDLE;       // DC-REFILL: DBUS-last-ack
+            end
           end
         end // dc-refill
 
         DBUS_READ: begin
-          // DBUS controls
-          dbus_req_o  <= 1'b1;        // read default
-          dbus_bsel_o <= dbus_bsel_o; // read default
-          dbus_adr_o  <= dbus_adr_o;  // read default
-          // DBUS FSM state
-          dbus_state  <= DBUS_READ;   // read default
-          // ---
           if (dbus_ack_i) begin
-            // DBUS controls
-            dbus_req_o  <= 1'b0;
-            dbus_bsel_o <= 4'hf;
-            dbus_adr_o  <= {LSUOOW{1'b0}};
-            // DBUS FSM next state
-            dbus_state  <= flush_by_ctrl ? DBUS_IDLE : DMEM_REQ; // read complete
+            dbus_req_o  <= 1'b0;                                 // DBUS: read complete
+            dbus_bsel_o <= 4'hf;                                 // DBUS: read complete
+            dbus_adr_o  <= {LSUOOW{1'b0}};                       // DBUS: read complete                       
+            dbus_state  <= flush_by_ctrl ? DBUS_IDLE : DMEM_REQ; // DBUS: read complete
           end
         end // read
 
         DBUS_WRITE: begin
-          // DBUS controls
-          dbus_req_o  <= 1'b1;        // write default
-          dbus_we     <= 1'b1;        // write default
-          dbus_bsel_o <= dbus_bsel_o; // write default
-          dbus_adr_o  <= dbus_adr_o;  // write default
-          dbus_dat_o  <= dbus_dat_o;  // write default
-          dbus_atomic <= dbus_atomic; // write default
-          sbuf_odata  <= 1'b0;        // write default
-          // DBUS FSM state
-          dbus_state  <= DBUS_WRITE;  // write default
-          //---
-          if (dbus_ack_i) begin
+           if (dbus_ack_i) begin
             // DBUS controls
-            dbus_req_o  <= 1'b0;
-            dbus_we     <= 1'b0;
-            dbus_bsel_o <= 4'hf;
-            dbus_adr_o  <= {LSUOOW{1'b0}};
-            dbus_dat_o  <= {LSUOOW{1'b0}};
+            dbus_req_o  <= 1'b0;           // DBUS: write complete
+            dbus_we     <= 1'b0;           // DBUS: write complete
+            dbus_bsel_o <= 4'hf;           // DBUS: write complete
+            dbus_adr_o  <= {LSUOOW{1'b0}}; // DBUS: write complete
+            dbus_dat_o  <= {LSUOOW{1'b0}}; // DBUS: write complete
             dbus_atomic <= 1'b0;
             // pending data for write (see also sbuf_re)
-            if ((~sbuf_empty) | (sbuf_rdwr_empty & ~(lsu_excepts_addr | pipeline_flush_i))) // write complete
-              sbuf_odata  <= 1'b1;  // write complete
+            if ((~sbuf_empty) | (sbuf_rdwr_empty & ~(lsu_excepts_addr | pipeline_flush_i))) // DBUS: write complete
+              sbuf_odata  <= 1'b1;  // DBUS: write complete
             // DBUS FSM next state
             if (lsu_excepts_addr | flush_by_ctrl)
-              dbus_state <= DBUS_IDLE; // write complete, exceptions or flushing
+              dbus_state <= DBUS_IDLE; // DBUS: write complete, exceptions or flushing
             else
-              dbus_state <= DMEM_REQ;  // write complete, no exceptions, no flushing
+              dbus_state <= DMEM_REQ;  // DBUS: write complete, no exceptions, no flushing
           end
         end // write-state
 
-        default:;
+        default: begin
+          // DBUS controls
+          dbus_req_o  <= 1'b0;            // DBUS deault
+          dbus_we     <= 1'b0;            // DBUS deault
+          dbus_bsel_o <= 4'hf;            // DBUS deault
+          dbus_adr_o  <= {LSUOOW{1'b0}};  // DBUS deault
+          dbus_dat_o  <= {LSUOOW{1'b0}};  // DBUS deault
+          dbus_atomic <= 1'b0;            // DBUS deault
+          sbuf_odata  <= 1'b0;            // DBUS deault
+          // DBUS FSM state
+          dbus_state  <= DBUS_IDLE;       // DBUS deault
+        end
       endcase
     end
   end // @ clock state machine
