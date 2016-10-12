@@ -528,17 +528,6 @@ module mor1kx_oman_marocchino
   assign pc_exec_o             = ocbo00[OCBT_PC_MSB:OCBT_PC_LSB];
 
 
-  // debug
-  wire [OPTION_OPERAND_WIDTH-1:0] pc7 = ocbo07[OCBT_PC_MSB:OCBT_PC_LSB];
-  wire [OPTION_OPERAND_WIDTH-1:0] pc6 = ocbo06[OCBT_PC_MSB:OCBT_PC_LSB];
-  wire [OPTION_OPERAND_WIDTH-1:0] pc5 = ocbo05[OCBT_PC_MSB:OCBT_PC_LSB];
-  wire [OPTION_OPERAND_WIDTH-1:0] pc4 = ocbo04[OCBT_PC_MSB:OCBT_PC_LSB];
-  wire [OPTION_OPERAND_WIDTH-1:0] pc3 = ocbo03[OCBT_PC_MSB:OCBT_PC_LSB];
-  wire [OPTION_OPERAND_WIDTH-1:0] pc2 = ocbo02[OCBT_PC_MSB:OCBT_PC_LSB];
-  wire [OPTION_OPERAND_WIDTH-1:0] pc1 = ocbo01[OCBT_PC_MSB:OCBT_PC_LSB];
-  wire [OPTION_OPERAND_WIDTH-1:0] pc0 = ocbo00[OCBT_PC_MSB:OCBT_PC_LSB];
-
-
   //   Flag to enabel/disable exterlal interrupts processing
   // depending on the fact is instructions restartable or not
   assign exec_interrupts_en_o = ocbo00[OCBT_INTERRUPTS_EN_POS];
