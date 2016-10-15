@@ -1355,10 +1355,11 @@ module mor1kx_exec_1clk_marocchino
   /* verilator lint_on WIDTH */
     pfpu32_fcmp_marocchino u_f32_cmp
     (
-      // clocks, resets and other controls
-      .clk                    (clk),
+      // clock and reset
+      .clk                    (clk), // fp32-cmp
       .rst                    (rst),
-      .flush_i                (pipeline_flush_i),   // fp32-cmp flush pipe
+      // pipeline controls
+      .pipeline_flush_i       (pipeline_flush_i),   // fp32-cmp.flush pipe
       .padv_wb_i              (padv_wb_i),          // fp32-cmp. advance output latches
       .grant_wb_to_1clk_i     (grant_wb_to_1clk_i), // fp32-cmp
       // command
