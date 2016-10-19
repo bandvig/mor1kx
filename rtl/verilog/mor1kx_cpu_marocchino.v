@@ -945,25 +945,25 @@ module mor1kx_cpu_marocchino
       .dcod_rfb_i               (dcod_rfb), // FPU32_ARITH
       // OMAN-to-DECODE hazards
       //  combined flag
-      .omn2dec_hazards_i                (omn2dec_hazards), // FPU32_ARITH
+      .omn2dec_hazards_i        (omn2dec_hazards), // FPU32_ARITH
       //  by operands
-      .busy_hazard_a_i                  (busy_hazard_a), // FPU32_ARITH
-      .busy_hazard_a_adr_i              (busy_hazard_a_adr), // FPU32_ARITH
-      .busy_hazard_b_i                  (busy_hazard_b), // FPU32_ARITH
-      .busy_hazard_b_adr_i              (busy_hazard_b_adr), // FPU32_ARITH
+      .busy_hazard_a_i          (busy_hazard_a), // FPU32_ARITH
+      .busy_hazard_a_adr_i      (busy_hazard_a_adr), // FPU32_ARITH
+      .busy_hazard_b_i          (busy_hazard_b), // FPU32_ARITH
+      .busy_hazard_b_adr_i      (busy_hazard_b_adr), // FPU32_ARITH
       // EXEC-to-DECODE hazards
       //  combined flag
-      .exe2dec_hazards_i                (exe2dec_hazards), // FPU32_ARITH
+      .exe2dec_hazards_i        (exe2dec_hazards), // FPU32_ARITH
       //  by operands
-      .exe2dec_hazard_a_i               (exe2dec_hazard_a), // FPU32_ARITH
-      .exe2dec_hazard_b_i               (exe2dec_hazard_b), // FPU32_ARITH
+      .exe2dec_hazard_a_i       (exe2dec_hazard_a), // FPU32_ARITH
+      .exe2dec_hazard_b_i       (exe2dec_hazard_b), // FPU32_ARITH
       // Data for hazards resolving
       //  hazard could be passed from DECODE to EXECUTE
-      .exec_rf_wb_i                     (exec_rf_wb), // FPU32_ARITH
-      .exec_rfd_adr_i                   (exec_rfd_adr), // FPU32_ARITH
+      .exec_rf_wb_i             (exec_rf_wb), // FPU32_ARITH
+      .exec_rfd_adr_i           (exec_rfd_adr), // FPU32_ARITH
       //  hazard could be resolving
-      .wb_rf_wb_i                       (wb_rf_wb), // FPU32_ARITH
-      .wb_rfd_adr_i                     (wb_rfd_adr[DEST_REG_ADDR_WIDTH-1:0]), // FPU32_ARITH
+      .wb_rf_wb_i               (wb_rf_wb), // FPU32_ARITH
+      .wb_rfd_adr_i             (wb_rfd_adr[DEST_REG_ADDR_WIDTH-1:0]), // FPU32_ARITH
       .wb_result_i              (wb_result), // FPU32_ARITH
 
       // FPU-32 arithmetic part

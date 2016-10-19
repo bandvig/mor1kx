@@ -453,23 +453,6 @@ module mor1kx_decode_marocchino
           dcod_rf_wb_o          = 1'b0;
         end
 
-      `OR1K_OPCODE_CUST1,
-      `OR1K_OPCODE_CUST2,
-      `OR1K_OPCODE_CUST3,
-      `OR1K_OPCODE_CUST4,
-      `OR1K_OPCODE_CUST5,
-      `OR1K_OPCODE_CUST6,
-      `OR1K_OPCODE_CUST7,
-      `OR1K_OPCODE_CUST8:
-        begin
-          dcod_except_illegal_o = 1'b1;
-          dcod_op_1clk_o        = 1'b0;
-          dcod_op_pass_exec_o   = 1'b0;
-          dcod_rfa_req_o        = 1'b0;
-          dcod_rfb_req_o        = 1'b0;
-          dcod_rf_wb_o          = 1'b0;
-        end
-
       // MAROCCHINO_TODO: there are not supported ORFPX32
       //                  and ORFPX64 instruction which
       //                  arn't correctly reflected here.
