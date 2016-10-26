@@ -81,7 +81,8 @@ module mor1kx_marocchino_alone
   parameter FEATURE_PSYNC              = "NONE",
   parameter FEATURE_CSYNC              = "NONE",
 
-  parameter FEATURE_FPU                = "NONE", // ENABLED|NONE: actual for cappuccino pipeline only
+  parameter FEATURE_FPU                = "NONE", // ENABLED|NONE: actual for cappuccino/marocchino pipelines
+  parameter FEATURE_FPU64              = "NONE", // ENABLED|NONE: actual for marocchino pipeline only
 
   parameter FEATURE_MULTICORE          = "NONE",
 
@@ -299,7 +300,8 @@ module mor1kx_marocchino_alone
      // arithmetic modules
     .FEATURE_PSYNC                    (FEATURE_PSYNC),
     .FEATURE_CSYNC                    (FEATURE_CSYNC),
-    .FEATURE_FPU                      (FEATURE_FPU)
+    .FEATURE_FPU                      (FEATURE_FPU),
+    .FEATURE_FPU64                    (FEATURE_FPU64)
   )
   u_cpu_marocchino
   (

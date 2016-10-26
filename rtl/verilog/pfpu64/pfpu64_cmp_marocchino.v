@@ -56,7 +56,6 @@ module pfpu64_fcmp_marocchino
   input              padv_wb_i,            // advance output latches
   input              grant_wb_to_fp64_cmp_i,
   // command
-  input              op_fp64_cmp_i,
   input        [2:0] opc_fp64_cmp_i,
   // data related to operand A
   input              in_signa_i,
@@ -184,7 +183,7 @@ end // always@ *
 ////////////////////////////////////////////////////////////////////////
 // Just before latching
 //  # access to WB
-wire exec_fp64_cmp_wb     = op_fp64_cmp_i & grant_wb_to_fp64_cmp_i;
+wire exec_fp64_cmp_wb     = grant_wb_to_fp64_cmp_i;
 //  # set/slear commands
 wire exec_fp64_flag_set   = exec_fp64_cmp_wb &   cmp_flag;
 wire exec_fp64_flag_clear = exec_fp64_cmp_wb & (~cmp_flag);

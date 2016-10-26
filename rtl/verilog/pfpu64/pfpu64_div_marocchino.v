@@ -318,7 +318,7 @@ module pfpu64_div_marocchino
   // stage #2 outputs
   //   input related
   reg s2o_inv, s2o_inf,
-      s2o_snan, s2o_qnan, s2o_anan_sign_i;
+      s2o_snan, s2o_qnan, s2o_anan_sign;
   //   computation related
   reg        s2o_opc_0;
   reg        s2o_signc;
@@ -369,8 +369,8 @@ module pfpu64_div_marocchino
     .div_valid_o        (s2o_div_ready), // SRT4-FRACT
     .wb_taking_div_i    (out_adv),
     // numerator and denominator
-    .num_i              (1'b0,s1o_fract53a_i,4'd0), // SRT4-FRACT
-    .den_i              (s1o_fract53a_i,5'd0), // SRT4-FRACT
+    .num_i              ({1'b0,s1o_fract53a_i,4'd0}), // SRT4-FRACT
+    .den_i              ({s1o_fract53a_i,5'd0}), // SRT4-FRACT
     // outputs
     .dbz_o              (s2o_dbz), // SRT4-FRACT
     .rem_o              (s3t_rem58), // SRT4-FRACT

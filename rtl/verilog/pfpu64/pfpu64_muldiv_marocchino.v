@@ -285,7 +285,7 @@ module pfpu64_muldiv_marocchino
       s0o_fract53a  <= fract53a_i;
       s0o_shla      <= s0t_nlza;
       s0o_exp13b    <= exp13b_i;
-      s0o_frac534b  <= fract53b_i;
+      s0o_fract53b  <= fract53b_i;
       s0o_shlb      <= s0t_nlzb;
     end // push pipe
   end

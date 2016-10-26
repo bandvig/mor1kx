@@ -278,7 +278,7 @@ module pfpu64_rnd_marocchino
 
   // update sticky bit for left shift case.
   reg s1l_sticky;
-  always @(s1t_fract35 or s1t_shl) begin
+  always @(s1t_fract67 or s1t_shl) begin
     case (s1t_shl)
       5'd0   : s1l_sticky = |s1t_fract67[1:0];
       5'd1   : s1l_sticky =  s1t_fract67[0];
@@ -307,7 +307,7 @@ module pfpu64_rnd_marocchino
   // output of align stage
   reg        s1o_sign;
   reg [12:0] s1o_exp13;
-  reg [66:0] s1o_fract67;
+  reg [63:0] s1o_fract64;
   reg  [1:0] s1o_rs;
   reg        s1o_inv;
   reg        s1o_inf;
@@ -401,7 +401,7 @@ module pfpu64_rnd_marocchino
   // int32 output
   wire [63:0] s2t_i64_opc;
   assign s2t_i64_opc =
-    s2t_i64_inv ? (64'h7fffffffffffffff ^ {64{s1o_sign}}) : s2t_i64_int32;
+    s2t_i64_inv ? (64'h7fffffffffffffff ^ {64{s1o_sign}}) : s2t_i64_int64;
 
 
    // Generate result and flags
@@ -418,7 +418,7 @@ module pfpu64_rnd_marocchino
     s1o_inv ?        // ine  ovf  inf  unf  zer
       {{s1o_sign,SNAN},1'b0,1'b0,1'b0,1'b0,1'b0} :
     // overflow and infinity
-    ((s2t_f64_exp13 > 13'd20146) | s1o_inf | s2t_dbz) ? // ine                     ovf  inf  unf  zer
+    ((s2t_f64_exp13 > 13'd2046) | s1o_inf | s2t_dbz) ? // ine                     ovf  inf  unf  zer
       {{s1o_sign,INF},((s2t_lost | (~s1o_inf)) & (~s2t_dbz)),((~s1o_inf) & (~s2t_dbz)),1'b1,1'b0,1'b0} :
     // denormalized or zero
     (s2t_f64_fract53_dn) ?                     // ine  ovf  inf
@@ -431,7 +431,7 @@ module pfpu64_rnd_marocchino
 
   // EXECUTE level FP32 arithmetic flags
   wire [`OR1K_FPCSR_ALLF_SIZE-1:0] exec_fp64_arith_fpcsr =
-    {s2t_dbz, s2t_inf, (s1o_inv | (s2t_i32_inv & s1o_f2i) | s1o_snan_i),
+    {s2t_dbz, s2t_inf, (s1o_inv | (s2t_i64_inv & s1o_f2i) | s1o_snan_i),
      s2t_ine, s2t_zer, s1o_qnan_i,
      (s1o_inv | (s1o_snan_i & s1o_f2i)), s2t_unf, s2t_ovf} &
     ctrl_fpu_mask_flags_i & {`OR1K_FPCSR_ALLF_SIZE{grant_wb_to_fp64_arith_i}};

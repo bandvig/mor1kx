@@ -341,7 +341,6 @@ module pfpu64_mul_marocchino
   reg s5o_inv, s5o_inf,
       s5o_snan, s5o_qnan, s5o_anan_sign;
   //   computation related
-  reg        s5o_opc_0;
   reg        s5o_signc;
   reg [12:0] s5o_exp13c;
   reg  [5:0] s5o_shrx;
@@ -362,7 +361,6 @@ module pfpu64_mul_marocchino
       s5o_qnan      <= s4o_qnan;
       s5o_anan_sign <= s4o_anan_sign;
         // computation related
-      s5o_opc_0   <= s4o_opc_0;
       s5o_signc   <= s4o_signc;
       s5o_exp13c  <= s4o_exp13c;
       s5o_shrx    <= s4o_shrx;
@@ -427,7 +425,7 @@ module pfpu64_mul_marocchino
       mul_rdy_o <= 1'b0;
     else if (out_adv)
       mul_rdy_o <= 1'b1;
-    else if (rnd_taking_muldiv_i)
+    else if (rnd_taking_mul_i)
       mul_rdy_o <= 1'b0;
   end // posedge clock
 

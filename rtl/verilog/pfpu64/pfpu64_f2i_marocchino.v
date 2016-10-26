@@ -84,13 +84,13 @@ module pfpu64_f2i_marocchino
   wire [12:0] s1t_exp13m = exp13a_i - 13'd1075; // (- 1023 - 52)
 
   // detect if now shift right is required
-  wire [12:0] s1t_shr_t = {13{s1t_exp10m[12]}} & (13'd1075 - exp13a_i);
+  wire [12:0] s1t_shr_t = {13{s1t_exp13m[12]}} & (13'd1075 - exp13a_i);
   // limit right shift by 64
   wire  [5:0] s1t_shr = s1t_shr_t[5:0] | {6{|s1t_shr_t[12:6]}};
 
   // detect if left shift required for mantissa
   // (limited by 15)
-  wire [3:0] s1t_shl = {4{~s1t_exp13m[12]}} & (s1t_exp13m[3:0] | {4{|s1t_exp10m[12:4]}});
+  wire [3:0] s1t_shl = {4{~s1t_exp13m[12]}} & (s1t_exp13m[3:0] | {4{|s1t_exp13m[12:4]}});
   // check overflow
   wire s1t_is_shl_gt11 = (s1t_shl  > 4'd11);
   wire s1t_is_shl_eq11 = (s1t_shl == 4'd11);

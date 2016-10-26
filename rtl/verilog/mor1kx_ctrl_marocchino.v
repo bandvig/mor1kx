@@ -57,6 +57,7 @@ module mor1kx_ctrl_marocchino
   parameter FEATURE_PMU               = "NONE",
   parameter FEATURE_MAC               = "NONE",
   parameter FEATURE_FPU               = "NONE",
+  parameter FEATURE_FPU64             = "NONE",
   parameter FEATURE_MULTICORE         = "NONE",
 
   parameter OPTION_PIC_TRIGGER        = "LEVEL",
@@ -152,6 +153,8 @@ module mor1kx_ctrl_marocchino
   input                                 wb_int_flag_clear_i,
   input                                 wb_fp32_flag_set_i,
   input                                 wb_fp32_flag_clear_i,
+  input                                 wb_fp64_flag_set_i,
+  input                                 wb_fp64_flag_clear_i,
   input                                 wb_atomic_flag_set_i,
   input                                 wb_atomic_flag_clear_i,
 
@@ -177,6 +180,18 @@ module mor1kx_ctrl_marocchino
   input                                 wb_fp32_cmp_inf_i,
   input                                 wb_fp32_cmp_wb_fpcsr_i,
   input                                 wb_except_fp32_cmp_i,
+
+  //  # FPX64 related flags
+  //    ## arithmetic part
+  input     [`OR1K_FPCSR_ALLF_SIZE-1:0] wb_fp64_arith_fpcsr_i,
+  input                                 wb_fp64_arith_wb_fpcsr_i,
+  input                                 wb_except_fp64_arith_i,
+  //    ## comparison part
+  input                                 wb_fp64_cmp_inv_i,
+  input                                 wb_fp64_cmp_inf_i,
+  input                                 wb_fp64_cmp_wb_fpcsr_i,
+  input                                 wb_except_fp64_cmp_i,
+
   //  # Excepion processing auxiliaries
   //    ## Exception PC input coming from the store buffer
   input      [OPTION_OPERAND_WIDTH-1:0] sbuf_eear_i,
@@ -304,8 +319,8 @@ module mor1kx_ctrl_marocchino
 
 
   // Flag output
-  wire   ctrl_flag_clear = wb_int_flag_clear_i | wb_fp32_flag_clear_i | wb_atomic_flag_clear_i;
-  wire   ctrl_flag_set   = wb_int_flag_set_i   | wb_fp32_flag_set_i   | wb_atomic_flag_set_i;
+  wire   ctrl_flag_clear = wb_int_flag_clear_i | wb_fp32_flag_clear_i | wb_fp64_flag_clear_i | wb_atomic_flag_clear_i;
+  wire   ctrl_flag_set   = wb_int_flag_set_i   | wb_fp32_flag_set_i   | wb_fp64_flag_set_i   | wb_atomic_flag_set_i;
   // ---
   assign ctrl_flag_o     = (~ctrl_flag_clear) & (ctrl_flag_set | spr_sr[`OR1K_SPR_SR_F]);
 
@@ -336,6 +351,7 @@ module mor1kx_ctrl_marocchino
   wire exception_re = wb_fd_an_except_i        |
                       wb_except_overflow_div_i | wb_except_overflow_1clk_i |
                       wb_except_fp32_cmp_i     | wb_except_fp32_arith_i    |
+                      wb_except_fp64_cmp_i     | wb_except_fp64_arith_i    |
                       wb_an_except_lsu_i       | sbuf_err_i                |
                       wb_an_interrupt_i;
 
@@ -354,9 +370,9 @@ module mor1kx_ctrl_marocchino
              wb_except_dtlb_miss_i,
              wb_except_dpagefault_i,
              wb_except_trap_i,
-             (wb_except_dbus_err_i     | sbuf_err_i),
+             (wb_except_dbus_err_i | sbuf_err_i),
              (wb_except_overflow_div_i | wb_except_overflow_1clk_i),
-             (wb_except_fp32_cmp_i     | wb_except_fp32_arith_i),
+             (wb_except_fp32_cmp_i | wb_except_fp32_arith_i | wb_except_fp64_cmp_i | wb_except_fp64_arith_i),
              wb_pic_interrupt_i,
              wb_tt_interrupt_i
             })
@@ -479,7 +495,7 @@ module mor1kx_ctrl_marocchino
   //-----------------------------------//
 
   assign except_fpu_enable_o = spr_fpcsr[`OR1K_FPCSR_FPEE];
-  
+
   generate
   /* verilator lint_off WIDTH */
   if (FEATURE_FPU != "NONE") begin : fpu_csr_en
@@ -508,7 +524,9 @@ module mor1kx_ctrl_marocchino
 
     // collect FPx flags
     wire [`OR1K_FPCSR_ALLF_SIZE-1:0] fpx_flags = {1'b0, wb_fp32_cmp_inf_i, wb_fp32_cmp_inv_i, 6'd0} |
-                                                 wb_fp32_arith_fpcsr_i;
+                                                 wb_fp32_arith_fpcsr_i                              |
+                                                 {1'b0, wb_fp64_cmp_inf_i, wb_fp64_cmp_inv_i, 6'd0} |
+                                                 wb_fp64_arith_fpcsr_i;
 
     // FPU Control & Status Register
     always @(posedge clk `OR_ASYNC_RST) begin
@@ -516,7 +534,8 @@ module mor1kx_ctrl_marocchino
         spr_fpcsr <= `OR1K_FPCSR_RESET_VALUE;
       else if (spr_fpcsr_we)
         spr_fpcsr <= spr_bus_dat_o[`OR1K_FPCSR_WIDTH-1:0]; // update all fields
-      else if (wb_fp32_cmp_wb_fpcsr_i | wb_fp32_arith_wb_fpcsr_i)
+      else if (wb_fp32_cmp_wb_fpcsr_i | wb_fp32_arith_wb_fpcsr_i |
+               wb_fp64_cmp_wb_fpcsr_i | wb_fp64_arith_wb_fpcsr_i)
         spr_fpcsr <= {fpx_flags, spr_fpcsr[`OR1K_FPCSR_RM], spr_fpcsr[`OR1K_FPCSR_FPEE]};
     end
 
@@ -699,7 +718,7 @@ module mor1kx_ctrl_marocchino
         spr_npc <= stepped_into_exception  ? exception_pc_addr  :
                    stepped_into_rfe        ? spr_epcr           :
                    stepped_into_delay_slot ? last_branch_target :
-                                             spr_npc;      
+                                             spr_npc;
       end
     end
   end // @ clock
@@ -724,23 +743,24 @@ module mor1kx_ctrl_marocchino
     .OPTION_RF_NUM_SHADOW_GPR        (0), // mor1kx_cfgrs instance: marocchino
     .FEATURE_OVERFLOW                ("ENABLED"), // mor1kx_cfgrs instance: marocchino
     .FEATURE_DATACACHE               ("ENABLED"), // mor1kx_cfgrs instance: marocchino
-    .OPTION_DCACHE_BLOCK_WIDTH       (OPTION_DCACHE_BLOCK_WIDTH), // mor1kx_cfgrs instance: 
-    .OPTION_DCACHE_SET_WIDTH         (OPTION_DCACHE_SET_WIDTH), // mor1kx_cfgrs instance: 
-    .OPTION_DCACHE_WAYS              (OPTION_DCACHE_WAYS), // mor1kx_cfgrs instance: 
+    .OPTION_DCACHE_BLOCK_WIDTH       (OPTION_DCACHE_BLOCK_WIDTH), // mor1kx_cfgrs instance:
+    .OPTION_DCACHE_SET_WIDTH         (OPTION_DCACHE_SET_WIDTH), // mor1kx_cfgrs instance:
+    .OPTION_DCACHE_WAYS              (OPTION_DCACHE_WAYS), // mor1kx_cfgrs instance:
     .FEATURE_DMMU                    ("ENABLED"), // mor1kx_cfgrs instance: marocchino
-    .OPTION_DMMU_SET_WIDTH           (OPTION_DMMU_SET_WIDTH), // mor1kx_cfgrs instance: 
-    .OPTION_DMMU_WAYS                (OPTION_DMMU_WAYS), // mor1kx_cfgrs instance: 
+    .OPTION_DMMU_SET_WIDTH           (OPTION_DMMU_SET_WIDTH), // mor1kx_cfgrs instance:
+    .OPTION_DMMU_WAYS                (OPTION_DMMU_WAYS), // mor1kx_cfgrs instance:
     .FEATURE_INSTRUCTIONCACHE        ("ENABLED"), // mor1kx_cfgrs instance: marocchino
-    .OPTION_ICACHE_BLOCK_WIDTH       (OPTION_ICACHE_BLOCK_WIDTH), // mor1kx_cfgrs instance: 
-    .OPTION_ICACHE_SET_WIDTH         (OPTION_ICACHE_SET_WIDTH), // mor1kx_cfgrs instance: 
-    .OPTION_ICACHE_WAYS              (OPTION_ICACHE_WAYS), // mor1kx_cfgrs instance: 
+    .OPTION_ICACHE_BLOCK_WIDTH       (OPTION_ICACHE_BLOCK_WIDTH), // mor1kx_cfgrs instance:
+    .OPTION_ICACHE_SET_WIDTH         (OPTION_ICACHE_SET_WIDTH), // mor1kx_cfgrs instance:
+    .OPTION_ICACHE_WAYS              (OPTION_ICACHE_WAYS), // mor1kx_cfgrs instance:
     .FEATURE_IMMU                    ("ENABLED"), // mor1kx_cfgrs instance: marocchino
-    .OPTION_IMMU_SET_WIDTH           (OPTION_IMMU_SET_WIDTH), // mor1kx_cfgrs instance: 
-    .OPTION_IMMU_WAYS                (OPTION_IMMU_WAYS), // mor1kx_cfgrs instance: 
-    .FEATURE_DEBUGUNIT               (FEATURE_DEBUGUNIT), // mor1kx_cfgrs instance: 
-    .FEATURE_PERFCOUNTERS            (FEATURE_PERFCOUNTERS), // mor1kx_cfgrs instance: 
-    .FEATURE_MAC                     (FEATURE_MAC), // mor1kx_cfgrs instance: 
+    .OPTION_IMMU_SET_WIDTH           (OPTION_IMMU_SET_WIDTH), // mor1kx_cfgrs instance:
+    .OPTION_IMMU_WAYS                (OPTION_IMMU_WAYS), // mor1kx_cfgrs instance:
+    .FEATURE_DEBUGUNIT               (FEATURE_DEBUGUNIT), // mor1kx_cfgrs instance:
+    .FEATURE_PERFCOUNTERS            (FEATURE_PERFCOUNTERS), // mor1kx_cfgrs instance:
+    .FEATURE_MAC                     (FEATURE_MAC), // mor1kx_cfgrs instance:
     .FEATURE_FPU                     (FEATURE_FPU), // mor1kx_cfgrs instance: marocchino
+    .FEATURE_FPU64                   (FEATURE_FPU64), // mor1kx_cfgrs instance: marocchino
     .FEATURE_SYSCALL                 ("ENABLED"), // mor1kx_cfgrs instance: marocchino
     .FEATURE_TRAP                    ("ENABLED"), // mor1kx_cfgrs instance: marocchino
     .FEATURE_RANGE                   ("ENABLED"), // mor1kx_cfgrs instance: marocchino
@@ -931,8 +951,7 @@ module mor1kx_ctrl_marocchino
       spr_bus_ack_sys_group <=  1'b0;
       spr_bus_dat_sys_group <= 32'd0;
     end
-    else if (spr_sys_group_cs &
-             (`SPR_OFFSET(spr_bus_addr_o) != `SPR_OFFSET(`OR1K_SPR_GPR0_ADDR))) begin
+    else if (spr_sys_group_cs & (spr_bus_addr_o[15:10] != 6'b000001)) begin // and not acceess to GPR (see OR1K_SPR_GPR0_ADDR)
       if (spr_bus_we_o) begin
         spr_sys_group_wr_r    <=  1'b1;
         spr_bus_ack_sys_group <=  1'b1;

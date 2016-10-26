@@ -296,7 +296,7 @@ module mor1kx_lsu_marocchino
   // Exceptions detected on DCACHE/DBUS access stage
   //  # exceptions related to address computation and conversion
   assign lsu_excepts_addr = except_align | except_dtlb_miss | except_dpagefault;
-  //  # all exceptions 
+  //  # all exceptions
   assign excepts_any  = lsu_excepts_addr | dbus_err_instant;
 
 
@@ -385,6 +385,7 @@ module mor1kx_lsu_marocchino
     .USE_OPC                  (1), // LSU_RSVRS
     .OPC_WIDTH                (LSU_ATTR_WIDTH), // LSU_RSVRS
     .DEST_REG_ADDR_WIDTH      (DEST_REG_ADDR_WIDTH), // LSU_RSVRS
+    .FEATURE_FPU64            ("NONE"), // LSU_RSVRS
     .USE_RSVRS_FLAG_CARRY     (0), // LSU_RSVRS
     .DEST_FLAG_ADDR_WIDTH     (1) // LSU_RSVRS
   )
@@ -400,6 +401,9 @@ module mor1kx_lsu_marocchino
     // input data from DECODE
     .dcod_rfa_i               (dcod_rfa_i), // LSU_RSVRS
     .dcod_rfb_i               (dcod_rfb_i), // LSU_RSVRS
+    // for FPU64
+    .dcod_rfa2_i              ({OPTION_OPERAND_WIDTH{1'b0}}), // LSU_RSVRS
+    .dcod_rfb2_i              ({OPTION_OPERAND_WIDTH{1'b0}}), // LSU_RSVRS
     // OMAN-to-DECODE hazards
     //  combined flag
     .omn2dec_hazards_i        (omn2dec_hazards_i), // LSU_RSVRS
@@ -413,27 +417,46 @@ module mor1kx_lsu_marocchino
     .busy_hazard_a_adr_i      (busy_hazard_a_adr_i), // LSU_RSVRS
     .busy_hazard_b_i          (busy_hazard_b_i), // LSU_RSVRS
     .busy_hazard_b_adr_i      (busy_hazard_b_adr_i), // LSU_RSVRS
+    // for FPU64
+    .busy_hazard_a2_i         (1'b0), // LSU_RSVRS
+    .busy_hazard_a2_adr_i     ({DEST_REG_ADDR_WIDTH{1'b0}}), // LSU_RSVRS
+    .busy_hazard_b2_i         (1'b0), // LSU_RSVRS
+    .busy_hazard_b2_adr_i     ({DEST_REG_ADDR_WIDTH{1'b0}}), // LSU_RSVRS
     // EXEC-to-DECODE hazards
     //  combined flag
     .exe2dec_hazards_i        (exe2dec_hazards_i), // LSU_RSVRS
     //  by operands
     .exe2dec_hazard_a_i       (exe2dec_hazard_a_i), // LSU_RSVRS
     .exe2dec_hazard_b_i       (exe2dec_hazard_b_i), // LSU_RSVRS
-    // Data for hazards resolving
-    //  hazard could be passed from DECODE to EXECUTE
+    // for FPU64
+    .exe2dec_hazard_a2_i      (1'b0), // LSU_RSVRS
+    .exe2dec_hazard_b2_i      (1'b0), // LSU_RSVRS
+    // Hazard could be passed from DECODE to EXECUTE
+    //  ## FLAG or CARRY
     .exec_flag_wb_i           (1'b0), // LSU_RSVRS
     .exec_carry_wb_i          (1'b0), // LSU_RSVRS
     .exec_flag_carry_adr_i    (1'b0), // LSU_RSVRS
+    //  ## A or B operand
     .exec_rf_wb_i             (exec_rf_wb_i), // LSU_RSVRS
     .exec_rfd_adr_i           (exec_rfd_adr_i), // LSU_RSVRS
+    //  ## for FPU64
+    .exec_rf_wb2_i            (1'b0), // LSU_RSVRS
+    .exec_rfd2_adr_i          ({DEST_REG_ADDR_WIDTH{1'b0}}), // LSU_RSVRS
+    //  ## passing only with writting back
     .padv_wb_i                (padv_wb_i), // LSU_RSVRS
-    //  hazard could be resolving
+    // Hazard could be resolving
+    //  ## FLAG or CARRY
     .wb_flag_wb_i             (1'b0), // LSU_RSVRS
     .wb_carry_wb_i            (1'b0), // LSU_RSVRS
     .wb_flag_carry_adr_i      (1'b0), // LSU_RSVRS
+    //  ## A or B operand
     .wb_rf_wb_i               (wb_rf_wb_i), // LSU_RSVRS
     .wb_rfd_adr_i             (wb_rfd_adr_i), // LSU_RSVRS
     .wb_result_i              (wb_result_i), // LSU_RSVRS
+    //  ## for FPU64
+    .wb_rf_wb2_i              (1'b0), // LSU_RSVRS
+    .wb_rfd2_adr_i            ({DEST_REG_ADDR_WIDTH{1'b0}}), // LSU_RSVRS
+    .wb_result2_i             ({LSUOOW{1'b0}}), // LSU_RSVRS
     // command and its additional attributes
     .dcod_op_i                (dcod_op_lsu_load_i | dcod_op_lsu_store_i), // LSU_RSVRS
     .dcod_opc_i               ({dcod_op_lsu_load_i,dcod_op_lsu_store_i,dcod_op_lsu_atomic_i, // LSU_RSVRS
@@ -448,6 +471,9 @@ module mor1kx_lsu_marocchino
     //   operands
     .exec_rfa_o               (lsu_a), // LSU_RSVRS
     .exec_rfb_o               (lsu_b), // LSU_RSVRS
+    //  ## for FPU64
+    .exec_rfa2_o              (), // LSU_RSVRS
+    .exec_rfb2_o              (), // LSU_RSVRS
     //   unit-is-busy flag
     .unit_busy_o              (lsu_busy_rsrvs) // LSU_RSVRS
   );
@@ -907,7 +933,7 @@ module mor1kx_lsu_marocchino
           if (dbus_ack_i) begin
             dbus_req_o  <= 1'b0;                                 // DBUS: read complete
             dbus_bsel_o <= 4'hf;                                 // DBUS: read complete
-            dbus_adr_o  <= {LSUOOW{1'b0}};                       // DBUS: read complete                       
+            dbus_adr_o  <= {LSUOOW{1'b0}};                       // DBUS: read complete
             dbus_state  <= flush_by_ctrl ? DBUS_IDLE : DMEM_REQ; // DBUS: read complete
           end
         end // read
