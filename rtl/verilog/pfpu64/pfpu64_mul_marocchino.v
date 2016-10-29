@@ -353,7 +353,7 @@ module pfpu64_mul_marocchino
   reg  [2:0] s5o_qrs;
   //   registering
   always @(posedge clk) begin
-    if (s4_adv) begin
+    if (s5_adv) begin
         // input related
       s5o_inv       <= s4o_inv;
       s5o_inf       <= s4o_inf;
@@ -382,9 +382,9 @@ module pfpu64_mul_marocchino
       s5o_mul_ready <= 1'b0;
     else if (pipeline_flush_i)
       s5o_mul_ready <= 1'b0;
-    else if (s4_adv)
-      s5o_mul_ready <= 1'b1;
     else if (s5_adv)
+      s5o_mul_ready <= 1'b1;
+    else if (out_adv)
       s5o_mul_ready <= 1'b0;
   end // posedge clock
 

@@ -198,7 +198,7 @@ module srt4_fract58
   //  # 0/0 is invalid
   wire dbz = (|num_i) & (~(|den_i)); // division by zero
   // ---
-  localparam [LOG2N2-1:0] DIV_COUNT_MAX = (N >> 1) - 1;
+  localparam [LOG2N2-1:0] DIV_COUNT_MAX = ((N / 2) - 1);
   // ---
   reg [LOG2N2-1:0] div_count_r;
   // division controller
@@ -370,7 +370,7 @@ module pfpu64_div_marocchino
     .wb_taking_div_i    (out_adv),
     // numerator and denominator
     .num_i              ({1'b0,s1o_fract53a_i,4'd0}), // SRT4-FRACT
-    .den_i              ({s1o_fract53a_i,5'd0}), // SRT4-FRACT
+    .den_i              ({s1o_fract53b_i,5'd0}), // SRT4-FRACT
     // outputs
     .dbz_o              (s2o_dbz), // SRT4-FRACT
     .rem_o              (s3t_rem58), // SRT4-FRACT

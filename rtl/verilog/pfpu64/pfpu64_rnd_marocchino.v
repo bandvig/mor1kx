@@ -426,7 +426,7 @@ module pfpu64_rnd_marocchino
                                 // unf        zer
        (s2t_lost & s2t_f64_fract53_dn),~(|s2t_f64_fract53)} :
     // normal result                                           ine  ovf  inf  unf  zer
-    {{s1o_sign,s2t_f64_exp13[12:0],s2t_f64_fract53[51:0]},s2t_lost,1'b0,1'b0,1'b0,1'b0};
+    {{s1o_sign,s2t_f64_exp13[10:0],s2t_f64_fract53[51:0]},s2t_lost,1'b0,1'b0,1'b0,1'b0};
 
 
   // EXECUTE level FP32 arithmetic flags

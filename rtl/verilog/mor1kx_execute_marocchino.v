@@ -457,7 +457,7 @@ module srt4_kernel
   // iterations controller
   wire dbz = ~(|den_i); // division by zero
   // ---
-  localparam [LOG2N2-1:0] DIV_COUNT_MAX = (N >> 1) - 1;
+  localparam [LOG2N2-1:0] DIV_COUNT_MAX = ((N / 2) - 1);
   // ---
   reg [LOG2N2-1:0] div_count_r;
   // division controller
