@@ -184,7 +184,7 @@ module pfpu64_mul_marocchino
                       {14'd0, s2o_a0b1} +
                       {27'd0, s2o_a0b0[25:13]};
   // start sticky bit computation
-  wire s3t_sticky = (|s3t_psum40[25:13]) | (|s2o_a0b0[12:0]);
+  wire s3t_sticky = (|s3t_psum40[12:0]) | (|s2o_a0b0[12:0]);
 
   // stage #3 outputs
   //   input related

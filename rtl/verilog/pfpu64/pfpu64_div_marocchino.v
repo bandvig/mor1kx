@@ -61,6 +61,9 @@ module srt4_fract58
   output reg         div_proc_o,       // iterator busy
   output reg         div_valid_o,      // result ready
   input              wb_taking_div_i,  // Write Back is taking result
+  // force zero result
+  input              s1o_opc_0_i, // SRT4(fractionals)
+  input              s1o_dbz_i, // SRT4(fractionals)
   // numerator and denominator
   input      [N-1:0] num_i,
   input      [N-1:0] den_i,
@@ -75,6 +78,9 @@ module srt4_fract58
   wire   [N:0] nrem;       // next reminder (4*rem - q_digit*den)
   reg    [N:0] prem_hi_r;  // partial reminder: initially = {0,num(2n-1)...num(n)}
   wire   [3:0] trunc_rem;  // truncated partial reminder
+
+  // force results to zero and skip iterations
+  wire zer = s1o_dbz_i | s1o_opc_0_i; // in SRT4(fractionals)
 
 
   // Each iteration starts from qoutient digit selection
@@ -141,7 +147,7 @@ module srt4_fract58
   // and partial reminder update
   always @(posedge clk) begin
     if (div_start_i)
-      prem_hi_r <= {1'b0,num_i};
+      prem_hi_r <= {1'b0,({N{~zer}} & num_i)};
     else if (div_proc_o)
       prem_hi_r <= nrem;
   end // @clock
@@ -194,9 +200,6 @@ module srt4_fract58
 
 
   // iterations controller
-  //  # division by zero: (num!=0) && (den==0)
-  //  # 0/0 is invalid
-  wire dbz = (|num_i) & (~(|den_i)); // division by zero
   // ---
   localparam [LOG2N2-1:0] DIV_COUNT_MAX = ((N / 2) - 1);
   // ---
@@ -216,9 +219,9 @@ module srt4_fract58
       div_count_r <= {LOG2N2{1'b0}};
     end
     else if (div_start_i) begin
-      if (dbz) begin
+      if (zer) begin
         div_valid_o <= 1'b1;
-        dbz_o       <= 1'b1;
+        dbz_o       <= s1o_dbz_i; // in SRT4(fractionals)
         div_proc_o  <= 1'b0;
         div_count_r <= {LOG2N2{1'b0}};
       end
@@ -272,6 +275,7 @@ module pfpu64_div_marocchino
   input      [52:0] s1o_fract53a_i,
   input      [52:0] s1o_fract53b_i,
   input             s1o_opc_0_i,
+  input             s1o_dbz_i,
   // 'a'/'b' related
   input             s1o_inv_i,
   input             s1o_inf_i,
@@ -348,10 +352,8 @@ module pfpu64_div_marocchino
   wire [57:0] s3t_rem58;
   wire [57:0] s3t_qtnt58;
 
-  // we use 1-bit right shifted numenator to guarantee
+  // we use right shifted numenator to guarantee
   // (numenator < denominator) condition
-  // as aresult the reminder and quatient are
-  // 1-bit right shifted too.
   srt4_fract58
   #(
     .N      (58), // SRT4-FRACT
@@ -368,8 +370,11 @@ module pfpu64_div_marocchino
     .div_proc_o         (s2o_proc), // SRT4-FRACT
     .div_valid_o        (s2o_div_ready), // SRT4-FRACT
     .wb_taking_div_i    (out_adv),
+    // force zero result
+    .s1o_opc_0_i        (s1o_opc_0_i), // SRT4-FRACT
+    .s1o_dbz_i          (s1o_dbz_i), // SRT4-FRACT
     // numerator and denominator
-    .num_i              ({1'b0,s1o_fract53a_i,4'd0}), // SRT4-FRACT
+    .num_i              ({2'b0,s1o_fract53a_i,3'd0}), // SRT4-FRACT
     .den_i              ({s1o_fract53b_i,5'd0}), // SRT4-FRACT
     // outputs
     .dbz_o              (s2o_dbz), // SRT4-FRACT
@@ -420,9 +425,16 @@ module pfpu64_div_marocchino
       div_exp13shl_o <= s3t_exp13lx;
       div_exp13sh0_o <= s2o_exp13c;
       div_fract57_o  <= s3t_qtnt57;
-      div_dbz_o      <= s2o_dbz;
     end // advance pipe
   end // posedge clock
+  // division by zero flag
+  always @(posedge clk `OR_ASYNC_RST) begin
+    if (rst)
+      div_dbz_o <= 1'b0;
+    else if (out_adv)
+      div_dbz_o <= s2o_dbz;
+  end // posedge clock
+
 
   // ready is special case
   always @(posedge clk `OR_ASYNC_RST) begin

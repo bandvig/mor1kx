@@ -128,6 +128,8 @@ module pfpu64_muldiv_marocchino
     // detection of some exceptions
   wire s0t_inv = (is_div_i & ((zeroa_i & zerob_i) | (infa_i & infb_i))) | // div: 0/0, inf/inf -> invalid operation; snan output
                  (is_mul_i & ((zeroa_i & infb_i) | (zerob_i & infa_i)));  // mul: 0 * inf -> invalid operation; snan output
+    // division by zero
+  wire s0t_dbz = is_div_i & (~zeroa_i) & (~infa_i) & zerob_i;
     // inf input
   wire s0t_inf = infa_i | (infb_i & is_mul_i); // for DIV only infA is used
 
@@ -269,6 +271,7 @@ module pfpu64_muldiv_marocchino
   reg [12:0] s0o_exp13b;
   reg [52:0] s0o_fract53b;
   reg  [5:0] s0o_shlb;
+  reg        s0o_dbz;
   // registering
   always @(posedge clk) begin
     if (s0_adv) begin
@@ -287,6 +290,7 @@ module pfpu64_muldiv_marocchino
       s0o_exp13b    <= exp13b_i;
       s0o_fract53b  <= fract53b_i;
       s0o_shlb      <= s0t_nlzb;
+      s0o_dbz       <= s0t_dbz;
     end // push pipe
   end
 
@@ -336,6 +340,7 @@ module pfpu64_muldiv_marocchino
   reg [12:0] s1o_exp13c;
   reg [52:0] s1o_fract53a;
   reg [52:0] s1o_fract53b;
+  reg        s1o_dbz;
   //   registering
   always @(posedge clk) begin
     if (s1_adv) begin
@@ -351,6 +356,7 @@ module pfpu64_muldiv_marocchino
       s1o_exp13c    <= s1t_exp13c;
       s1o_fract53a  <= s1t_fract53a;
       s1o_fract53b  <= s1t_fract53b;
+      s1o_dbz       <= s0o_dbz;
     end // advance pipe
   end // posedge clock
 
@@ -465,6 +471,7 @@ module pfpu64_muldiv_marocchino
     .s1o_fract53a_i     (s1o_fract53a), // FP64_DIV
     .s1o_fract53b_i     (s1o_fract53b), // FP64_DIV
     .s1o_opc_0_i        (s1o_opc_0), // FP64_DIV
+    .s1o_dbz_i          (s1o_dbz), // FP64_DIV
     // 'a'/'b' related
     .s1o_inv_i          (s1o_inv), // FP64_DIV
     .s1o_inf_i          (s1o_inf), // FP64_DIV

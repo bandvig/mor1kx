@@ -149,7 +149,7 @@ module pfpu64_rnd_marocchino
   //  ## per stage busy flags
   wire s1_busy = s1o_ready & ~(padv_wb_i & grant_wb_to_fp64_arith_i);
   //  ## per stage advance
-  wire s1_adv  = (add_rdy_i | mul_rdy_i | i2f_rdy_i | f2i_rdy_i) & ~s1_busy;
+  wire s1_adv  = (add_rdy_i | mul_rdy_i | div_rdy_i | i2f_rdy_i | f2i_rdy_i) & ~s1_busy;
   // ## per execution unit reporting
   assign rnd_taking_add_o = add_rdy_i & ~s1_busy;
   assign rnd_taking_mul_o = mul_rdy_i & ~s1_busy;

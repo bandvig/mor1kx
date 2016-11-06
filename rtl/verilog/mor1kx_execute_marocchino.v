@@ -393,7 +393,7 @@ module srt4_kernel
   always @(posedge clk) begin
     if (div_start_i) begin
       prem_hi_r <= {1'b0,num_i[2*N-1:N]};
-      prem_lo_r <= {num_i[N-1:0]};
+      prem_lo_r <= num_i[N-1:0];
     end
     else if (div_proc_o) begin
       prem_hi_r <= nrem;
