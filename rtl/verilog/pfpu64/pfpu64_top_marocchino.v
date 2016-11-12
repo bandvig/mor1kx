@@ -56,12 +56,22 @@ module pfpu64_ocb_marocchino
   input   div_start_i,
   input   i2f_start_i,
   input   f2i_start_i,
+  input   res_inv_i,
+  input   res_inf_i,
+  input   res_snan_i,
+  input   res_qnan_i,
+  input   res_anan_sign_i,
   // data ouputs
   output  grant_rnd_to_add_o,
   output  grant_rnd_to_mul_o,
   output  grant_rnd_to_div_o,
   output  grant_rnd_to_i2f_o,
   output  grant_rnd_to_f2i_o,
+  output  ocb_inv_o,
+  output  ocb_inf_o,
+  output  ocb_snan_o,
+  output  ocb_qnan_o,
+  output  ocb_anan_sign_o,
   // "OCB is full" flag
   //   (a) external control logic must stop the "writing without reading"
   //       operation if OCB is full
@@ -70,8 +80,8 @@ module pfpu64_ocb_marocchino
   output  pfpu64_ocb_full_o
 );
 
-  localparam NUM_TAPS = 4;
-  localparam TAP_DW   = 5; // add/mul/div/i2f/f2i
+  localparam NUM_TAPS =  4;
+  localparam TAP_DW   = 10; // add/mul/div/i2f/f2i
 
   // "pointers"
   reg   [NUM_TAPS:0] ptr_curr; // on current active tap
@@ -148,7 +158,8 @@ module pfpu64_ocb_marocchino
 
 
   // order input
-  wire [(TAP_DW-1):0] ocbi = {add_start_i, mul_start_i, div_start_i, i2f_start_i, f2i_start_i};
+  wire [(TAP_DW-1):0] ocbi = {add_start_i, mul_start_i, div_start_i, i2f_start_i, f2i_start_i,
+                              res_inv_i, res_inf_i, res_snan_i, res_qnan_i, res_anan_sign_i};
 
   // taps ouputs
   wire [(TAP_DW-1):0] ocbo00; // OCB output
@@ -157,7 +168,8 @@ module pfpu64_ocb_marocchino
   wire [(TAP_DW-1):0] ocbo03; // OCB entrance
 
   // granting flags output
-  assign {grant_rnd_to_add_o, grant_rnd_to_mul_o, grant_rnd_to_div_o, grant_rnd_to_i2f_o, grant_rnd_to_f2i_o} = ocbo00;
+  assign {grant_rnd_to_add_o, grant_rnd_to_mul_o, grant_rnd_to_div_o, grant_rnd_to_i2f_o, grant_rnd_to_f2i_o,
+          ocb_inv_o, ocb_inf_o, ocb_snan_o, ocb_qnan_o, ocb_anan_sign_o} = ocbo00;
 
   // taps
   //   tap #00
@@ -522,6 +534,42 @@ wire addsub_agtb = exp_gt | (exp_eq & fract_gt);
 wire addsub_aeqb = exp_eq & fract_eq;
 
 
+// Calculate INV,INF,SNaN,QNaN and signum(NaN)
+// flags here and push them into Order Control Buffer
+// till rounding engine (i.e. around computational modules).
+//   ## INV:
+//      ADD/SUB : (inf - inf)  -> invalid operation, snan output
+//      DIV:      0/0, inf/inf -> invalid operation; snan output
+//      MUL:      0 * inf      -> invalid operation; snan output
+wire res_inv = ( (exec_op_fp64_add | exec_op_fp64_sub) &
+                 in_infa & in_infb & (in_signa ^ (exec_op_fp64_sub ^ in_signb)) ) |
+               (  exec_op_fp64_div &
+                 ((in_opa_0 & in_opb_0) | (in_infa & in_infb)) )                  |
+               (  exec_op_fp64_mul &
+                 ((in_opa_0 & in_infb) | (in_opb_0 & in_infa)) );
+wire ocb_inv;
+//   ## INF:
+wire res_inf = ( (exec_op_fp64_add | exec_op_fp64_sub | exec_op_fp64_mul) &
+                 (in_infa | in_infb) ) |
+               (  exec_op_fp64_div &
+                  in_infa );
+wire ocb_inf;
+//   ## SNaN:
+wire res_snan = ( (exec_op_fp64_add | exec_op_fp64_sub |
+                   exec_op_fp64_mul | exec_op_fp64_div |
+                   exec_op_fp64_f2i) ) & in_snan;
+wire ocb_snan;
+//   ## QNaN:
+wire res_qnan = ( (exec_op_fp64_add | exec_op_fp64_sub |
+                   exec_op_fp64_mul | exec_op_fp64_div |
+                   exec_op_fp64_f2i) ) & in_qnan;
+wire ocb_qnan;
+//   ## Signum (NaN):
+wire res_anan_sign = ( (exec_op_fp64_add | exec_op_fp64_sub |
+                        exec_op_fp64_mul | exec_op_fp64_div) ) & in_anan_sign;
+wire ocb_anan_sign;
+
+
 // order control buffer is full:
 // we are waiting an arithmetic pipe result for rounding
 wire pfpu64_ocb_full;
@@ -594,12 +642,22 @@ pfpu64_ocb_marocchino  u_pfpu64_ocb
   .div_start_i            (op_div), // PFPU64_OCB
   .i2f_start_i            (i2f_start), // PFPU64_OCB
   .f2i_start_i            (f2i_start), // PFPU64_OCB
+  .res_inv_i              (res_inv), // PFPU64_OCB
+  .res_inf_i              (res_inf), // PFPU64_OCB
+  .res_snan_i             (res_snan), // PFPU64_OCB
+  .res_qnan_i             (res_qnan), // PFPU64_OCB
+  .res_anan_sign_i        (res_anan_sign), // PFPU64_OCB
   // data ouputs
   .grant_rnd_to_add_o     (grant_rnd_to_add), // PFPU64_OCB
   .grant_rnd_to_mul_o     (grant_rnd_to_mul), // PFPU64_OCB
   .grant_rnd_to_div_o     (grant_rnd_to_div), // PFPU64_OCB
   .grant_rnd_to_i2f_o     (grant_rnd_to_i2f), // PFPU64_OCB
   .grant_rnd_to_f2i_o     (grant_rnd_to_f2i), // PFPU64_OCB
+  .ocb_inv_o              (ocb_inv), // PFPU64_OCB
+  .ocb_inf_o              (ocb_inf), // PFPU64_OCB
+  .ocb_snan_o             (ocb_snan), // PFPU64_OCB
+  .ocb_qnan_o             (ocb_qnan), // PFPU64_OCB
+  .ocb_anan_sign_o        (ocb_anan_sign), // PFPU64_OCB
   // "OCB is full" flag
   .pfpu64_ocb_full_o      (pfpu64_ocb_full) // PFPU64_OCB
 );
@@ -613,11 +671,6 @@ wire  [5:0] add_shl;       // do left shift in align stage
 wire [12:0] add_exp13shl;  // exponent for left shift align
 wire [12:0] add_exp13sh0;  // exponent for no shift in align
 wire [56:0] add_fract57;   // fractional with appended {r,s} bits
-wire        add_inv;       // add/sub invalid operation flag
-wire        add_inf;       // add/sub infinity output reg
-wire        add_snan;      // add/sub signaling NaN output reg
-wire        add_qnan;      // add/sub quiet NaN output reg
-wire        add_anan_sign; // add/sub signum for output nan
 //   module istance
 pfpu64_addsub_marocchino u_fp64_addsub
 (
@@ -635,16 +688,12 @@ pfpu64_addsub_marocchino u_fp64_addsub
   .signa_i          (in_signa), // FP64_ADDSUB
   .exp13a_i         (in_exp13a), // FP64_ADDSUB
   .fract53a_i       (in_fract53a), // FP64_ADDSUB
-  .infa_i           (in_infa), // FP64_ADDSUB
   // input 'b' related values
   .signb_i          (in_signb), // FP64_ADDSUB
   .exp13b_i         (in_exp13b), // FP64_ADDSUB
   .fract53b_i       (in_fract53b), // FP64_ADDSUB
-  .infb_i           (in_infb), // FP64_ADDSUB
   // 'a'/'b' related
-  .snan_i           (in_snan), // FP64_ADDSUB
-  .qnan_i           (in_qnan), // FP64_ADDSUB
-  .anan_sign_i      (in_anan_sign), // FP64_ADDSUB
+  .opc_0_i          (in_infa | in_infb), // FP64_ADDSUB
   .addsub_agtb_i    (addsub_agtb), // FP64_ADDSUB
   .addsub_aeqb_i    (addsub_aeqb), // FP64_ADDSUB
   // outputs
@@ -653,12 +702,7 @@ pfpu64_addsub_marocchino u_fp64_addsub
   .add_shl_o        (add_shl), // FP64_ADDSUB
   .add_exp13shl_o   (add_exp13shl), // FP64_ADDSUB
   .add_exp13sh0_o   (add_exp13sh0), // FP64_ADDSUB
-  .add_fract57_o    (add_fract57), // FP64_ADDSUB
-  .add_inv_o        (add_inv), // FP64_ADDSUB
-  .add_inf_o        (add_inf), // FP64_ADDSUB
-  .add_snan_o       (add_snan), // FP64_ADDSUB
-  .add_qnan_o       (add_qnan), // FP64_ADDSUB
-  .add_anan_sign_o  (add_anan_sign) // FP64_ADDSUB
+  .add_fract57_o    (add_fract57) // FP64_ADDSUB
 );
 
 // MUL/DIV pipeline
@@ -668,11 +712,6 @@ wire  [5:0] mul_shr;       // do right shift in align stage
 wire [12:0] mul_exp13shr;  // exponent for right shift align
 wire [12:0] mul_exp13sh0;  // exponent for no shift in align
 wire [56:0] mul_fract57;   // fractional with appended {r,s} bits
-wire        mul_inv;       // mul invalid operation flag
-wire        mul_inf;       // mul infinity output reg
-wire        mul_snan;      // mul signaling NaN output reg
-wire        mul_qnan;      // mul quiet NaN output reg
-wire        mul_anan_sign; // mul signum for output nan
 // DIV outputs
 wire        div_sign;      // signum
 wire  [5:0] div_shr;       // do right shift in align stage
@@ -682,11 +721,6 @@ wire [12:0] div_exp13shl;  // exponent for left shift align
 wire [12:0] div_exp13sh0;  // exponent for no shift in align
 wire [56:0] div_fract57;   // fractional with appended {r,s} bits
 wire        div_dbz;        // div division by zero flag
-wire        div_inv;       // invalid operation flag
-wire        div_inf;       // infinity wire reg
-wire        div_snan;      // signaling NaN wire reg
-wire        div_qnan;      // quiet NaN wire reg
-wire        div_anan_sign;  // signum for wire nan
 //   module istance
 pfpu64_muldiv_marocchino u_fp64_muldiv
 (
@@ -706,29 +740,19 @@ pfpu64_muldiv_marocchino u_fp64_muldiv
   .signa_i              (in_signa), // FP64_MULDIV
   .exp13a_i             (in_exp13a), // FP64_MULDIV
   .fract53a_i           (in_fract53a), // FP64_MULDIV
-  .infa_i               (in_infa), // FP64_MULDIV
-  .zeroa_i              (in_opa_0), // FP64_MULDIV
   // input 'b' related values
   .signb_i              (in_signb), // FP64_MULDIV
   .exp13b_i             (in_exp13b), // FP64_MULDIV
   .fract53b_i           (in_fract53b), // FP64_MULDIV
-  .infb_i               (in_infb), // FP64_MULDIV
-  .zerob_i              (in_opb_0), // FP64_MULDIV
   // 'a'/'b' related
-  .snan_i               (in_snan), // FP64_MULDIV
-  .qnan_i               (in_qnan), // FP64_MULDIV
-  .anan_sign_i          (in_anan_sign), // FP64_MULDIV
+  .dbz_i                (op_div & (~in_opa_0) & (~in_infa) & in_opb_0), // FP64_MULDIV
+  .opc_0_i              (in_opa_0 | in_opb_0 | (op_div & (in_infa | in_infb))), // FP64_MULDIV
   // MUL outputs
   .mul_sign_o           (mul_sign), // FP64_MULDIV
   .mul_shr_o            (mul_shr), // FP64_MULDIV
   .mul_exp13shr_o       (mul_exp13shr), // FP64_MULDIV
   .mul_exp13sh0_o       (mul_exp13sh0), // FP64_MULDIV
   .mul_fract57_o        (mul_fract57), // FP64_MULDIV
-  .mul_inv_o            (mul_inv), // FP64_MULDIV
-  .mul_inf_o            (mul_inf), // FP64_MULDIV
-  .mul_snan_o           (mul_snan), // FP64_MULDIV
-  .mul_qnan_o           (mul_qnan), // FP64_MULDIV
-  .mul_anan_sign_o      (mul_anan_sign), // FP64_MULDIV
   // DIV outputs
   .div_sign_o           (div_sign), // FP64_MULDIV
   .div_shr_o            (div_shr), // FP64_MULDIV
@@ -737,12 +761,7 @@ pfpu64_muldiv_marocchino u_fp64_muldiv
   .div_exp13shl_o       (div_exp13shl), // FP64_MULDIV
   .div_exp13sh0_o       (div_exp13sh0), // FP64_MULDIV
   .div_fract57_o        (div_fract57), // FP64_MULDIV
-  .div_dbz_o            (div_dbz), // FP64_MULDIV
-  .div_inv_o            (div_inv), // FP64_MULDIV
-  .div_inf_o            (div_inf), // FP64_MULDIV
-  .div_snan_o           (div_snan), // FP64_MULDIV
-  .div_qnan_o           (div_qnan), // FP64_MULDIV
-  .div_anan_sign_o      (div_anan_sign) // FP64_MULDIV
+  .div_dbz_o            (div_dbz) // FP64_MULDIV
 );
 
 // convertors
@@ -783,7 +802,6 @@ wire [52:0] f2i_int53;     // f2i fractional
 wire  [5:0] f2i_shr;       // f2i required shift right value
 wire  [3:0] f2i_shl;       // f2i required shift left value
 wire        f2i_ovf;       // f2i overflow flag
-wire        f2i_snan;      // f2i signaling NaN output reg
 //    f2i module instance
 pfpu64_f2i_marocchino u_fp64_f2i_cnv
 (
@@ -807,8 +825,7 @@ pfpu64_f2i_marocchino u_fp64_f2i_cnv
   .f2i_int53_o          (f2i_int53), // FP64_F2I
   .f2i_shr_o            (f2i_shr), // FP64_F2I
   .f2i_shl_o            (f2i_shl), // FP64_F2I
-  .f2i_ovf_o            (f2i_ovf), // FP64_F2I
-  .f2i_snan_o           (f2i_snan) // FP64_F2I
+  .f2i_ovf_o            (f2i_ovf) // FP64_F2I
 );
 
 
@@ -840,11 +857,6 @@ pfpu64_rnd_marocchino u_fp64_rnd
   .add_exp13shl_i  (add_exp13shl), // FP64_RND
   .add_exp13sh0_i  (add_exp13sh0), // FP64_RND
   .add_fract57_i   (add_fract57), // FP64_RND
-  .add_inv_i       (add_inv), // FP64_RND
-  .add_inf_i       (add_inf), // FP64_RND
-  .add_snan_i      (add_snan), // FP64_RND
-  .add_qnan_i      (add_qnan), // FP64_RND
-  .add_anan_sign_i (add_anan_sign), // FP64_RND
   // from mul
   .mul_rdy_i       (rnd_muxing_mul), // FP64_RND
   .mul_sign_i      (mul_sign), // FP64_RND
@@ -852,11 +864,6 @@ pfpu64_rnd_marocchino u_fp64_rnd
   .mul_exp13shr_i  (mul_exp13shr), // FP64_RND
   .mul_exp13sh0_i  (mul_exp13sh0), // FP64_RND
   .mul_fract57_i   (mul_fract57), // FP64_RND
-  .mul_inv_i       (mul_inv), // FP64_RND
-  .mul_inf_i       (mul_inf), // FP64_RND
-  .mul_snan_i      (mul_snan), // FP64_RND
-  .mul_qnan_i      (mul_qnan), // FP64_RND
-  .mul_anan_sign_i (mul_anan_sign), // FP64_RND
   // from div
   .div_rdy_i        (rnd_muxing_div), // FP64_RND
   .div_sign_i       (div_sign), // FP64_RND
@@ -867,11 +874,6 @@ pfpu64_rnd_marocchino u_fp64_rnd
   .div_exp13sh0_i   (div_exp13sh0), // FP64_RND
   .div_fract57_i    (div_fract57), // FP64_RND
   .div_dbz_i        (div_dbz), // FP64_RND
-  .div_inv_i        (div_inv), // FP64_RND
-  .div_inf_i        (div_inf), // FP64_RND
-  .div_snan_i       (div_snan), // FP64_RND
-  .div_qnan_i       (div_qnan), // FP64_RND
-  .div_anan_sign_i  (div_anan_sign), // FP64_RND
   // from i2f
   .i2f_rdy_i       (rnd_muxing_i2f), // FP64_RND
   .i2f_sign_i      (i2f_sign), // FP64_RND
@@ -888,7 +890,12 @@ pfpu64_rnd_marocchino u_fp64_rnd
   .f2i_shr_i       (f2i_shr), // FP64_RND
   .f2i_shl_i       (f2i_shl), // FP64_RND
   .f2i_ovf_i       (f2i_ovf), // FP64_RND
-  .f2i_snan_i      (f2i_snan), // FP64_RND
+  // from order control buffer
+  .ocb_inv_i       (ocb_inv), // FP64_RND
+  .ocb_inf_i       (ocb_inf), // FP64_RND
+  .ocb_snan_i      (ocb_snan), // FP64_RND
+  .ocb_qnan_i      (ocb_qnan), // FP64_RND
+  .ocb_anan_sign_i (ocb_anan_sign), // FP64_RND
   // output WB latches
   .wb_fp64_arith_res_hi_o   (wb_fp64_arith_res_hi_o), // FP64_RND
   .wb_fp64_arith_res_lo_o   (wb_fp64_arith_res_lo_o), // FP64_RND

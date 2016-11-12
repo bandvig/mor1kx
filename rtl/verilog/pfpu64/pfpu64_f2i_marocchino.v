@@ -57,8 +57,7 @@ module pfpu64_f2i_marocchino
   output reg [52:0] f2i_int53_o,
   output reg  [5:0] f2i_shr_o,
   output reg  [3:0] f2i_shl_o,
-  output reg        f2i_ovf_o,
-  output reg        f2i_snan_o
+  output reg        f2i_ovf_o
 );
 
   /*
@@ -103,9 +102,6 @@ module pfpu64_f2i_marocchino
   // registering output
   always @(posedge clk) begin
     if (s1_adv) begin
-        // input related
-      f2i_snan_o  <= snan_i;
-        // computation related
       f2i_sign_o  <= signa_i & (!(qnan_i | snan_i)); // if 'a' is a NaN than ouput is max. positive
       f2i_int53_o <= fract53a_i;
       f2i_shr_o   <= s1t_shr;

@@ -57,29 +57,19 @@ module pfpu64_muldiv_marocchino
   input             signa_i,
   input      [12:0] exp13a_i,
   input      [52:0] fract53a_i,
-  input             infa_i,
-  input             zeroa_i,
   // input 'b' related values
   input             signb_i,
   input      [12:0] exp13b_i,
   input      [52:0] fract53b_i,
-  input             infb_i,
-  input             zerob_i,
   // 'a'/'b' related
-  input             snan_i,
-  input             qnan_i,
-  input             anan_sign_i,
+  input             dbz_i,           // devision by zero detection
+  input             opc_0_i,         // force intermediate results to zero
   // MUL outputs
   output            mul_sign_o,      // signum
   output      [5:0] mul_shr_o,       // do right shift in align stage
   output     [12:0] mul_exp13shr_o,  // exponent for right shift align
   output     [12:0] mul_exp13sh0_o,  // exponent for no shift in align
   output     [56:0] mul_fract57_o,   // fractional with appended {r,s} bits
-  output            mul_inv_o,       // invalid operation flag
-  output            mul_inf_o,       // infinity output reg
-  output            mul_snan_o,      // signaling NaN output reg
-  output            mul_qnan_o,      // quiet NaN output reg
-  output            mul_anan_sign_o, // signum for output nan
   // DIV outputs
   output            div_sign_o,      // signum
   output      [5:0] div_shr_o,       // do right shift in align stage
@@ -88,12 +78,7 @@ module pfpu64_muldiv_marocchino
   output     [12:0] div_exp13shl_o,  // exponent for left shift align
   output     [12:0] div_exp13sh0_o,  // exponent for no shift in align
   output     [56:0] div_fract57_o,   // fractional with appended {r,s} bits
-  output            div_dbz_o,       // div division by zero flag
-  output            div_inv_o,       // invalid operation flag
-  output            div_inf_o,       // infinity output reg
-  output            div_snan_o,      // signaling NaN output reg
-  output            div_qnan_o,      // quiet NaN output reg
-  output            div_anan_sign_o  // signum for output nan
+  output            div_dbz_o        // div division by zero flag
 );
 
   /*
@@ -124,17 +109,6 @@ module pfpu64_muldiv_marocchino
 
   /**** Stage #0: pre-normalization stage ****/
 
-
-    // detection of some exceptions
-  wire s0t_inv = (is_div_i & ((zeroa_i & zerob_i) | (infa_i & infb_i))) | // div: 0/0, inf/inf -> invalid operation; snan output
-                 (is_mul_i & ((zeroa_i & infb_i) | (zerob_i & infa_i)));  // mul: 0 * inf -> invalid operation; snan output
-    // division by zero
-  wire s0t_dbz = is_div_i & (~zeroa_i) & (~infa_i) & zerob_i;
-    // inf input
-  wire s0t_inf = infa_i | (infb_i & is_mul_i); // for DIV only infA is used
-
-    // force intermediate results to zero
-  wire s0t_opc_0 = zeroa_i | zerob_i | (is_div_i & (infa_i | infb_i));
 
   // count leading zeros
   reg [5:0] s0t_nlza;
@@ -259,10 +233,6 @@ module pfpu64_muldiv_marocchino
   end // nlz of 'b'
 
   // pre-norm stage outputs
-  //   input related
-  reg s0o_inv, s0o_inf,
-      s0o_snan, s0o_qnan, s0o_anan_sign;
-  //   computation related
   reg        s0o_opc_0;
   reg        s0o_signc;
   reg [12:0] s0o_exp13a;
@@ -275,14 +245,7 @@ module pfpu64_muldiv_marocchino
   // registering
   always @(posedge clk) begin
     if (s0_adv) begin
-        // input related
-      s0o_inv       <= s0t_inv;
-      s0o_inf       <= s0t_inf;
-      s0o_snan      <= snan_i;
-      s0o_qnan      <= qnan_i;
-      s0o_anan_sign <= anan_sign_i;
-        // computation related
-      s0o_opc_0     <= s0t_opc_0;
+      s0o_opc_0     <= opc_0_i;
       s0o_signc     <= signa_i ^ signb_i;
       s0o_exp13a    <= exp13a_i;
       s0o_fract53a  <= fract53a_i;
@@ -290,7 +253,7 @@ module pfpu64_muldiv_marocchino
       s0o_exp13b    <= exp13b_i;
       s0o_fract53b  <= fract53b_i;
       s0o_shlb      <= s0t_nlzb;
-      s0o_dbz       <= s0t_dbz;
+      s0o_dbz       <= dbz_i;
     end // push pipe
   end
 
@@ -331,10 +294,6 @@ module pfpu64_muldiv_marocchino
   wire [12:0] s1t_exp13c = s1t_exp13mux & {13{~s0o_opc_0}};
 
   // stage #1 outputs
-  //   input related
-  reg s1o_inv, s1o_inf,
-      s1o_snan, s1o_qnan, s1o_anan_sign;
-  //   computation related
   reg        s1o_opc_0;
   reg        s1o_signc;
   reg [12:0] s1o_exp13c;
@@ -344,13 +303,6 @@ module pfpu64_muldiv_marocchino
   //   registering
   always @(posedge clk) begin
     if (s1_adv) begin
-        // input related
-      s1o_inv       <= s0o_inv;
-      s1o_inf       <= s0o_inf;
-      s1o_snan      <= s0o_snan;
-      s1o_qnan      <= s0o_qnan;
-      s1o_anan_sign <= s0o_anan_sign;
-        // computation related
       s1o_opc_0     <= s0o_opc_0;
       s1o_signc     <= s0o_signc;
       s1o_exp13c    <= s1t_exp13c;
@@ -428,23 +380,12 @@ module pfpu64_muldiv_marocchino
     .s2t_exp13rx_i      (s2t_exp13rx), // FP64_MUL
     .s1o_fract53a_i     (s1o_fract53a), // FP64_MUL
     .s1o_fract53b_i     (s1o_fract53b), // FP64_MUL
-    // 'a'/'b' related
-    .s1o_inv_i          (s1o_inv), // FP64_MUL
-    .s1o_inf_i          (s1o_inf), // FP64_MUL
-    .s1o_snan_i         (s1o_snan), // FP64_MUL
-    .s1o_qnan_i         (s1o_qnan), // FP64_MUL
-    .s1o_anan_sign_i    (s1o_anan_sign), // FP64_MUL
     // MUL outputs
     .mul_sign_o         (mul_sign_o), // FP64_MUL
     .mul_shr_o          (mul_shr_o), // FP64_MUL
     .mul_exp13shr_o     (mul_exp13shr_o), // FP64_MUL
     .mul_exp13sh0_o     (mul_exp13sh0_o), // FP64_MUL
-    .mul_fract57_o      (mul_fract57_o), // FP64_MUL
-    .mul_inv_o          (mul_inv_o), // FP64_MUL
-    .mul_inf_o          (mul_inf_o), // FP64_MUL
-    .mul_snan_o         (mul_snan_o), // FP64_MUL
-    .mul_qnan_o         (mul_qnan_o), // FP64_MUL
-    .mul_anan_sign_o    (mul_anan_sign_o) // FP64_MUL
+    .mul_fract57_o      (mul_fract57_o) // FP64_MUL
   );
 
 
@@ -472,13 +413,7 @@ module pfpu64_muldiv_marocchino
     .s1o_fract53b_i     (s1o_fract53b), // FP64_DIV
     .s1o_opc_0_i        (s1o_opc_0), // FP64_DIV
     .s1o_dbz_i          (s1o_dbz), // FP64_DIV
-    // 'a'/'b' related
-    .s1o_inv_i          (s1o_inv), // FP64_DIV
-    .s1o_inf_i          (s1o_inf), // FP64_DIV
-    .s1o_snan_i         (s1o_snan), // FP64_DIV
-    .s1o_qnan_i         (s1o_qnan), // FP64_DIV
-    .s1o_anan_sign_i    (s1o_anan_sign), // FP64_DIV
-    // MUL outputs
+    // DIV outputs
     .div_sign_o         (div_sign_o), // FP64_DIV
     .div_shr_o          (div_shr_o), // FP64_DIV
     .div_exp13shr_o     (div_exp13shr_o), // FP64_DIV
@@ -486,12 +421,7 @@ module pfpu64_muldiv_marocchino
     .div_exp13shl_o     (div_exp13shl_o), // FP64_DIV
     .div_exp13sh0_o     (div_exp13sh0_o), // FP64_DIV
     .div_fract57_o      (div_fract57_o), // FP64_DIV
-    .div_dbz_o          (div_dbz_o), // FP64_DIV
-    .div_inv_o          (div_inv_o), // FP64_DIV
-    .div_inf_o          (div_inf_o), // FP64_DIV
-    .div_snan_o         (div_snan_o), // FP64_DIV
-    .div_qnan_o         (div_qnan_o), // FP64_DIV
-    .div_anan_sign_o    (div_anan_sign_o) // FP64_DIV
+    .div_dbz_o          (div_dbz_o) // FP64_DIV
   );
 
 endmodule // pfpu64_muldiv_marocchino

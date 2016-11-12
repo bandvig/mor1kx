@@ -57,23 +57,12 @@ module pfpu64_mul_marocchino
   input      [12:0] s2t_exp13rx_i,
   input      [52:0] s1o_fract53a_i,
   input      [52:0] s1o_fract53b_i,
-  // 'a'/'b' related
-  input             s1o_inv_i,
-  input             s1o_inf_i,
-  input             s1o_snan_i,
-  input             s1o_qnan_i,
-  input             s1o_anan_sign_i,
   // MUL outputs
   output reg        mul_sign_o,      // signum
   output reg  [5:0] mul_shr_o,       // do right shift in align stage
   output reg [12:0] mul_exp13shr_o,  // exponent for right shift align
   output reg [12:0] mul_exp13sh0_o,  // exponent for no shift in align
-  output reg [56:0] mul_fract57_o,   // fractional with appended {r,s} bits
-  output reg        mul_inv_o,       // invalid operation flag
-  output reg        mul_inf_o,       // infinity output reg
-  output reg        mul_snan_o,      // signaling NaN output reg
-  output reg        mul_qnan_o,      // quiet NaN output reg
-  output reg        mul_anan_sign_o  // signum for output nan
+  output reg [56:0] mul_fract57_o    // fractional with appended {r,s} bits
 );
 
   /*
@@ -117,9 +106,6 @@ module pfpu64_mul_marocchino
 
 
   // stage #2 outputs
-  //   input related
-  reg s2o_inv, s2o_inf,
-      s2o_snan, s2o_qnan, s2o_anan_sign;
   //   computation related
   reg        s2o_signc;
   reg [12:0] s2o_exp13c;
@@ -133,12 +119,6 @@ module pfpu64_mul_marocchino
   //   registering
   always @(posedge clk) begin
     if (s2_adv) begin
-        // input related
-      s2o_inv       <= s1o_inv_i;
-      s2o_inf       <= s1o_inf_i;
-      s2o_snan      <= s1o_snan_i;
-      s2o_qnan      <= s1o_qnan_i;
-      s2o_anan_sign <= s1o_anan_sign_i;
         // computation related
       s2o_signc   <= s1o_signc_i;
       s2o_exp13c  <= s1o_exp13c_i;
@@ -187,9 +167,6 @@ module pfpu64_mul_marocchino
   wire s3t_sticky = (|s3t_psum40[12:0]) | (|s2o_a0b0[12:0]);
 
   // stage #3 outputs
-  //   input related
-  reg s3o_inv, s3o_inf,
-      s3o_snan, s3o_qnan, s3o_anan_sign;
   //   computation related
   reg        s3o_signc;
   reg [12:0] s3o_exp13c;
@@ -207,12 +184,6 @@ module pfpu64_mul_marocchino
   //   registering
   always @(posedge clk) begin
     if (s3_adv) begin
-        // input related
-      s3o_inv       <= s2o_inv;
-      s3o_inf       <= s2o_inf;
-      s3o_snan      <= s2o_snan;
-      s3o_qnan      <= s2o_qnan;
-      s3o_anan_sign <= s2o_anan_sign;
         // computation related
       s3o_signc   <= s2o_signc;
       s3o_exp13c  <= s2o_exp13c;
@@ -263,9 +234,6 @@ module pfpu64_mul_marocchino
   wire s4t_sticky = (|s4t_psum41[12:0]) | s3o_sticky;
 
   // stage #3 outputs
-  //   input related
-  reg s4o_inv, s4o_inf,
-      s4o_snan, s4o_qnan, s4o_anan_sign;
   //   computation related
   reg        s4o_signc;
   reg [12:0] s4o_exp13c;
@@ -283,12 +251,6 @@ module pfpu64_mul_marocchino
   //   registering
   always @(posedge clk) begin
     if (s4_adv) begin
-        // input related
-      s4o_inv       <= s3o_inv;
-      s4o_inf       <= s3o_inf;
-      s4o_snan      <= s3o_snan;
-      s4o_qnan      <= s3o_qnan;
-      s4o_anan_sign <= s3o_anan_sign;
         // computation related
       s4o_signc   <= s3o_signc;
       s4o_exp13c  <= s3o_exp13c;
@@ -337,9 +299,6 @@ module pfpu64_mul_marocchino
   wire [2:0] s5t_qrs = {s5t_psum41[12:11],((|s5t_psum41[10:0]) | s4o_sticky)};
 
   // stage #3 outputs
-  //   input related
-  reg s5o_inv, s5o_inf,
-      s5o_snan, s5o_qnan, s5o_anan_sign;
   //   computation related
   reg        s5o_signc;
   reg [12:0] s5o_exp13c;
@@ -354,12 +313,6 @@ module pfpu64_mul_marocchino
   //   registering
   always @(posedge clk) begin
     if (s5_adv) begin
-        // input related
-      s5o_inv       <= s4o_inv;
-      s5o_inf       <= s4o_inf;
-      s5o_snan      <= s4o_snan;
-      s5o_qnan      <= s4o_qnan;
-      s5o_anan_sign <= s4o_anan_sign;
         // computation related
       s5o_signc   <= s4o_signc;
       s5o_exp13c  <= s4o_exp13c;
@@ -402,13 +355,6 @@ module pfpu64_mul_marocchino
   // output
   always @(posedge clk) begin
     if (out_adv) begin
-        // input related
-      mul_inv_o       <= s5o_inv;
-      mul_inf_o       <= s5o_inf;
-      mul_snan_o      <= s5o_snan;
-      mul_qnan_o      <= s5o_qnan;
-      mul_anan_sign_o <= s5o_anan_sign;
-        // computation related
       mul_sign_o     <= s5o_signc;
       mul_shr_o      <= s5o_shrx;
       mul_exp13shr_o <= s5o_exp13rx;

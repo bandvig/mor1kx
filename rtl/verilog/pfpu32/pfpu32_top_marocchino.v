@@ -55,11 +55,21 @@ module pfpu32_ocb_marocchino
   input   mul_start_i,
   input   i2f_start_i,
   input   f2i_start_i,
+  input   res_inv_i,
+  input   res_inf_i,
+  input   res_snan_i,
+  input   res_qnan_i,
+  input   res_anan_sign_i,
   // data ouputs
   output  grant_rnd_to_add_o,
   output  grant_rnd_to_mul_o,
   output  grant_rnd_to_i2f_o,
   output  grant_rnd_to_f2i_o,
+  output  ocb_inv_o,
+  output  ocb_inf_o,
+  output  ocb_snan_o,
+  output  ocb_qnan_o,
+  output  ocb_anan_sign_o,
   // "OCB is full" flag
   //   (a) external control logic must stop the "writing without reading"
   //       operation if OCB is full
@@ -69,10 +79,11 @@ module pfpu32_ocb_marocchino
 );
 
   localparam NUM_TAPS = 4;
+  localparam TAP_DW   = 9;
 
   // "pointers"
-  reg   [NUM_TAPS:0] ptr_curr; // on current active tap
-  reg [NUM_TAPS-1:0] ptr_prev; // on previous active tap
+  reg     [NUM_TAPS:0] ptr_curr; // on current active tap
+  reg [(NUM_TAPS-1):0] ptr_prev; // on previous active tap
 
   // pointers are zero: tap #0 (output) is active
   wire ptr_curr_0 = ptr_curr[0];
@@ -145,22 +156,25 @@ module pfpu32_ocb_marocchino
 
 
   // order input
-  wire [3:0] ocbi = {add_start_i, mul_start_i, i2f_start_i, f2i_start_i};
+  wire [(TAP_DW-1):0] ocbi = {add_start_i, mul_start_i, i2f_start_i, f2i_start_i,
+                              res_inv_i, res_inf_i, res_snan_i, res_qnan_i, res_anan_sign_i};
 
   // taps ouputs
-  wire [3:0] ocbo00; // OCB output
-  wire [3:0] ocbo01; // ...
-  wire [3:0] ocbo02; // ...
-  wire [3:0] ocbo03; // OCB entrance
+  wire [(TAP_DW-1):0] ocbo00; // OCB output
+  wire [(TAP_DW-1):0] ocbo01; // ...
+  wire [(TAP_DW-1):0] ocbo02; // ...
+  wire [(TAP_DW-1):0] ocbo03; // OCB entrance
 
   // granting flags output
-  assign {grant_rnd_to_add_o, grant_rnd_to_mul_o, grant_rnd_to_i2f_o, grant_rnd_to_f2i_o} = ocbo00;
+  assign {grant_rnd_to_add_o, grant_rnd_to_mul_o, grant_rnd_to_i2f_o, grant_rnd_to_f2i_o,
+          ocb_inv_o, ocb_inf_o, ocb_snan_o, ocb_qnan_o, ocb_anan_sign_o} = ocbo00;
+
 
   // taps
   //   tap #00
   ocb_tap
   #(
-    .DATA_SIZE (4)
+    .DATA_SIZE (TAP_DW)
   )
   u_tap_00
   (
@@ -177,7 +191,7 @@ module pfpu32_ocb_marocchino
   //   tap #01
   ocb_tap
   #(
-    .DATA_SIZE (4)
+    .DATA_SIZE (TAP_DW)
   )
   u_tap_01
   (
@@ -194,7 +208,7 @@ module pfpu32_ocb_marocchino
   //   tap #02
   ocb_tap
   #(
-    .DATA_SIZE (4)
+    .DATA_SIZE (TAP_DW)
   )
   u_tap_02
   (
@@ -211,7 +225,7 @@ module pfpu32_ocb_marocchino
   //   tap #03 (entrance)
   ocb_tap
   #(
-    .DATA_SIZE (4)
+    .DATA_SIZE (TAP_DW)
   )
   u_tap_03
   (
@@ -219,7 +233,7 @@ module pfpu32_ocb_marocchino
     .rst                    (rst),
     .flush_i                (pipeline_flush_i),
     .push_i                 (push_taps[3]),
-    .prev_tap_out_i         (4'd0),
+    .prev_tap_out_i         ({TAP_DW{1'b0}}),
     .forwarded_value_i      (ocbi),
     .use_forwarded_value_i  (use_forwarded_value[3]),
     .out_o                  (ocbo03)
@@ -479,6 +493,42 @@ wire addsub_agtb = exp_gt | (exp_eq & fract_gt);
 wire addsub_aeqb = exp_eq & fract_eq;
 
 
+// Calculate INV,INF,SNaN,QNaN and signum(NaN)
+// flags here and push them into Order Control Buffer
+// till rounding engine (i.e. around computational modules).
+//   ## INV:
+//      ADD/SUB : (inf - inf)  -> invalid operation, snan output
+//      DIV:      0/0, inf/inf -> invalid operation; snan output
+//      MUL:      0 * inf      -> invalid operation; snan output
+wire res_inv = ( (exec_op_fp32_add | exec_op_fp32_sub) &
+                 in_infa & in_infb & (in_signa ^ (exec_op_fp32_sub ^ in_signb)) ) |
+               (  exec_op_fp32_div &
+                 ((in_opa_0 & in_opb_0) | (in_infa & in_infb)) )                  |
+               (  exec_op_fp32_mul &
+                 ((in_opa_0 & in_infb) | (in_opb_0 & in_infa)) );
+wire ocb_inv;
+//   ## INF:
+wire res_inf = ( (exec_op_fp32_add | exec_op_fp32_sub | exec_op_fp32_mul) &
+                 (in_infa | in_infb) ) |
+               (  exec_op_fp32_div &
+                  in_infa );
+wire ocb_inf;
+//   ## SNaN:
+wire res_snan = ( (exec_op_fp32_add | exec_op_fp32_sub |
+                   exec_op_fp32_mul | exec_op_fp32_div |
+                   exec_op_fp32_f2i) ) & in_snan;
+wire ocb_snan;
+//   ## QNaN:
+wire res_qnan = ( (exec_op_fp32_add | exec_op_fp32_sub |
+                   exec_op_fp32_mul | exec_op_fp32_div |
+                   exec_op_fp32_f2i) ) & in_qnan;
+wire ocb_qnan;
+//   ## Signum (NaN):
+wire res_anan_sign = ( (exec_op_fp32_add | exec_op_fp32_sub |
+                        exec_op_fp32_mul | exec_op_fp32_div) ) & in_anan_sign;
+wire ocb_anan_sign;
+
+
 // order control buffer is full:
 // we are waiting an arithmetic pipe result for rounding
 wire pfpu32_ocb_full;
@@ -539,11 +589,21 @@ pfpu32_ocb_marocchino  u_pfpu32_ocb
   .mul_start_i            (mul_start), // PFPU32_OCB
   .i2f_start_i            (i2f_start), // PFPU32_OCB
   .f2i_start_i            (f2i_start), // PFPU32_OCB
+  .res_inv_i              (res_inv), // PFPU32_OCB
+  .res_inf_i              (res_inf), // PFPU32_OCB
+  .res_snan_i             (res_snan), // PFPU32_OCB
+  .res_qnan_i             (res_qnan), // PFPU32_OCB
+  .res_anan_sign_i        (res_anan_sign), // PFPU32_OCB
   // data ouputs
   .grant_rnd_to_add_o     (grant_rnd_to_add), // PFPU32_OCB
   .grant_rnd_to_mul_o     (grant_rnd_to_mul), // PFPU32_OCB
   .grant_rnd_to_i2f_o     (grant_rnd_to_i2f), // PFPU32_OCB
   .grant_rnd_to_f2i_o     (grant_rnd_to_f2i), // PFPU32_OCB
+  .ocb_inv_o              (ocb_inv), // PFPU32_OCB
+  .ocb_inf_o              (ocb_inf), // PFPU32_OCB
+  .ocb_snan_o             (ocb_snan), // PFPU32_OCB
+  .ocb_qnan_o             (ocb_qnan), // PFPU32_OCB
+  .ocb_anan_sign_o        (ocb_anan_sign), // PFPU32_OCB
   // "OCB is full" flag
   .pfpu32_ocb_full_o      (pfpu32_ocb_full) // PFPU32_OCB
 );
@@ -557,11 +617,6 @@ wire  [4:0] add_shl;       // do left shift in align stage
 wire  [9:0] add_exp10shl;  // exponent for left shift align
 wire  [9:0] add_exp10sh0;  // exponent for no shift in align
 wire [27:0] add_fract28;   // fractional with appended {r,s} bits
-wire        add_inv;       // add/sub invalid operation flag
-wire        add_inf;       // add/sub infinity output reg
-wire        add_snan;      // add/sub signaling NaN output reg
-wire        add_qnan;      // add/sub quiet NaN output reg
-wire        add_anan_sign; // add/sub signum for output nan
 //   module istance
 pfpu32_addsub_marocchino u_f32_addsub
 (
@@ -579,16 +634,12 @@ pfpu32_addsub_marocchino u_f32_addsub
   .signa_i          (in_signa), // FP32_ADDSUB
   .exp10a_i         (in_exp10a), // FP32_ADDSUB
   .fract24a_i       (in_fract24a), // FP32_ADDSUB
-  .infa_i           (in_infa), // FP32_ADDSUB
   // input 'b' related values
   .signb_i          (in_signb), // FP32_ADDSUB
   .exp10b_i         (in_exp10b), // FP32_ADDSUB
   .fract24b_i       (in_fract24b), // FP32_ADDSUB
-  .infb_i           (in_infb), // FP32_ADDSUB
   // 'a'/'b' related
-  .snan_i           (in_snan), // FP32_ADDSUB
-  .qnan_i           (in_qnan), // FP32_ADDSUB
-  .anan_sign_i      (in_anan_sign), // FP32_ADDSUB
+  .opc_0_i          (in_infa | in_infb), // FP32_ADDSUB
   .addsub_agtb_i    (addsub_agtb), // FP32_ADDSUB
   .addsub_aeqb_i    (addsub_aeqb), // FP32_ADDSUB
   // outputs
@@ -597,12 +648,7 @@ pfpu32_addsub_marocchino u_f32_addsub
   .add_shl_o        (add_shl), // FP32_ADDSUB
   .add_exp10shl_o   (add_exp10shl), // FP32_ADDSUB
   .add_exp10sh0_o   (add_exp10sh0), // FP32_ADDSUB
-  .add_fract28_o    (add_fract28), // FP32_ADDSUB
-  .add_inv_o        (add_inv), // FP32_ADDSUB
-  .add_inf_o        (add_inf), // FP32_ADDSUB
-  .add_snan_o       (add_snan), // FP32_ADDSUB
-  .add_qnan_o       (add_qnan), // FP32_ADDSUB
-  .add_anan_sign_o  (add_anan_sign) // FP32_ADDSUB
+  .add_fract28_o    (add_fract28) // FP32_ADDSUB
 );
 
 // MUL/DIV combined pipeline
@@ -614,11 +660,6 @@ wire        mul_shl;       // do left shift in align stage
 wire  [9:0] mul_exp10shl;  // exponent for left shift align
 wire  [9:0] mul_exp10sh0;  // exponent for no shift in align
 wire [27:0] mul_fract28;   // fractional with appended {r,s} bits
-wire        mul_inv;       // mul invalid operation flag
-wire        mul_inf;       // mul infinity output reg
-wire        mul_snan;      // mul signaling NaN output reg
-wire        mul_qnan;      // mul quiet NaN output reg
-wire        mul_anan_sign; // mul signum for output nan
 //   DIV additional outputs
 wire        div_op;        // operation is division
 wire        div_sign_rmnd; // signum or reminder for IEEE compliant rounding
@@ -640,18 +681,13 @@ pfpu32_muldiv_marocchino u_f32_muldiv
   .signa_i              (in_signa), // FP32_MULDIV
   .exp10a_i             (in_exp10a), // FP32_MULDIV
   .fract24a_i           (in_fract24a), // FP32_MULDIV
-  .infa_i               (in_infa), // FP32_MULDIV
-  .zeroa_i              (in_opa_0), // FP32_MULDIV
   // input 'b' related values
   .signb_i              (in_signb), // FP32_MULDIV
   .exp10b_i             (in_exp10b), // FP32_MULDIV
   .fract24b_i           (in_fract24b), // FP32_MULDIV
-  .infb_i               (in_infb), // FP32_MULDIV
-  .zerob_i              (in_opb_0), // FP32_MULDIV
   // 'a'/'b' related
-  .snan_i               (in_snan), // FP32_MULDIV
-  .qnan_i               (in_qnan), // FP32_MULDIV
-  .anan_sign_i          (in_anan_sign), // FP32_MULDIV
+  .dbz_i                (op_div & (~in_opa_0) & (~in_infa) & in_opb_0), // FP32_MULDIV
+  .opc_0_i              (in_opa_0 | in_opb_0 | (op_div & (in_infa | in_infb))), // FP32_MULDIV
   // MUL/DIV common outputs
   .muldiv_sign_o        (mul_sign), // FP32_MULDIV
   .muldiv_shr_o         (mul_shr), // FP32_MULDIV
@@ -660,11 +696,6 @@ pfpu32_muldiv_marocchino u_f32_muldiv
   .muldiv_exp10shl_o    (mul_exp10shl), // FP32_MULDIV
   .muldiv_exp10sh0_o    (mul_exp10sh0), // FP32_MULDIV
   .muldiv_fract28_o     (mul_fract28), // FP32_MULDIV
-  .muldiv_inv_o         (mul_inv), // FP32_MULDIV
-  .muldiv_inf_o         (mul_inf), // FP32_MULDIV
-  .muldiv_snan_o        (mul_snan), // FP32_MULDIV
-  .muldiv_qnan_o        (mul_qnan), // FP32_MULDIV
-  .muldiv_anan_sign_o   (mul_anan_sign), // FP32_MULDIV
   // DIV additional outputs
   .div_op_o             (div_op), // FP32_MULDIV
   .div_sign_rmnd_o      (div_sign_rmnd), // FP32_MULDIV
@@ -733,8 +764,7 @@ pfpu32_f2i_marocchino u_f2i_cnv
   .f2i_int24_o          (f2i_int24), // FP32_F2I
   .f2i_shr_o            (f2i_shr), // FP32_F2I
   .f2i_shl_o            (f2i_shl), // FP32_F2I
-  .f2i_ovf_o            (f2i_ovf), // FP32_F2I
-  .f2i_snan_o           (f2i_snan) // FP32_F2I
+  .f2i_ovf_o            (f2i_ovf) // FP32_F2I
 );
 
 
@@ -765,11 +795,6 @@ pfpu32_rnd_marocchino u_f32_rnd
   .add_exp10shl_i  (add_exp10shl), // FP32_RND
   .add_exp10sh0_i  (add_exp10sh0), // FP32_RND
   .add_fract28_i   (add_fract28), // FP32_RND
-  .add_inv_i       (add_inv), // FP32_RND
-  .add_inf_i       (add_inf), // FP32_RND
-  .add_snan_i      (add_snan), // FP32_RND
-  .add_qnan_i      (add_qnan), // FP32_RND
-  .add_anan_sign_i (add_anan_sign), // FP32_RND
   // from mul
   .mul_rdy_i       (rnd_muxing_muldiv), // FP32_RND
   .mul_sign_i      (mul_sign), // FP32_RND
@@ -779,11 +804,6 @@ pfpu32_rnd_marocchino u_f32_rnd
   .mul_exp10shl_i  (mul_exp10shl), // FP32_RND
   .mul_exp10sh0_i  (mul_exp10sh0), // FP32_RND
   .mul_fract28_i   (mul_fract28), // FP32_RND
-  .mul_inv_i       (mul_inv), // FP32_RND
-  .mul_inf_i       (mul_inf), // FP32_RND
-  .mul_snan_i      (mul_snan), // FP32_RND
-  .mul_qnan_i      (mul_qnan), // FP32_RND
-  .mul_anan_sign_i (mul_anan_sign), // FP32_RND
   .div_op_i        (div_op), // FP32_RND
   .div_sign_rmnd_i (div_sign_rmnd), // FP32_RND
   .div_dbz_i       (div_dbz), // FP32_RND
@@ -803,7 +823,12 @@ pfpu32_rnd_marocchino u_f32_rnd
   .f2i_shr_i       (f2i_shr), // FP32_RND
   .f2i_shl_i       (f2i_shl), // FP32_RND
   .f2i_ovf_i       (f2i_ovf), // FP32_RND
-  .f2i_snan_i      (f2i_snan), // FP32_RND
+  // from order control buffer
+  .ocb_inv_i       (ocb_inv), // FP32_RND
+  .ocb_inf_i       (ocb_inf), // FP32_RND
+  .ocb_snan_i      (ocb_snan), // FP32_RND
+  .ocb_qnan_i      (ocb_qnan), // FP32_RND
+  .ocb_anan_sign_i (ocb_anan_sign), // FP32_RND
   // output WB latches
   .wb_fp32_arith_res_o      (wb_fp32_arith_res_o), // FP32_RND
   .wb_fp32_arith_fpcsr_o    (wb_fp32_arith_fpcsr_o), // FP32_RND

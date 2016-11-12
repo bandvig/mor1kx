@@ -61,16 +61,12 @@ module pfpu64_addsub_marocchino
   input             signa_i,
   input      [12:0] exp13a_i,
   input      [52:0] fract53a_i,
-  input             infa_i,
   // input 'b' related values
   input             signb_i,
   input      [12:0] exp13b_i,
   input      [52:0] fract53b_i,
-  input             infb_i,
   // 'a'/'b' related
-  input             snan_i,
-  input             qnan_i,
-  input             anan_sign_i,
+  input             opc_0_i,         // force intrmadiate result to 0
   input             addsub_agtb_i,
   input             addsub_aeqb_i,
   // outputs
@@ -79,12 +75,7 @@ module pfpu64_addsub_marocchino
   output reg  [5:0] add_shl_o,       // do left shift in align stage
   output reg [12:0] add_exp13shl_o,  // exponent for left shift align
   output reg [12:0] add_exp13sh0_o,  // exponent for no shift in align
-  output reg [56:0] add_fract57_o,   // fractional with appended {r,s} bits
-  output reg        add_inv_o,       // invalid operation flag
-  output reg        add_inf_o,       // infinity output reg
-  output reg        add_snan_o,      // signaling NaN output reg
-  output reg        add_qnan_o,      // quiet NaN output reg
-  output reg        add_anan_sign_o  // signum for output nan
+  output reg [56:0] add_fract57_o    // fractional with appended {r,s} bits
 );
   /*
      Any stage's output is registered.
@@ -113,12 +104,6 @@ module pfpu64_addsub_marocchino
 
   /* Stage #1: pre addition / substraction align */
 
-    // detection of some exceptions
-    //   inf - inf -> invalid operation; snan output
-  wire s1t_inv = infa_i & infb_i &
-                 (signa_i ^ (is_sub_i ^ signb_i));
-    //   inf input
-  wire s1t_inf_i = infa_i | infb_i;
 
     // signums for calculation
   wire s1t_calc_signa = signa_i;
@@ -141,10 +126,6 @@ module pfpu64_addsub_marocchino
   wire [5:0] s1t_shr = s1t_exp_diff[5:0] | {6{|s1t_exp_diff[12:6]}};
 
   // stage #1 outputs
-  //  input related
-  reg s1o_inv, s1o_inf_i,
-      s1o_snan_i, s1o_qnan_i, s1o_anan_i_sign;
-  //  computation related
   reg        s1o_aeqb;
   reg  [5:0] s1o_shr;
   reg        s1o_sign_nsh;
@@ -155,20 +136,13 @@ module pfpu64_addsub_marocchino
   //  registering
   always @(posedge clk) begin
     if (s1_adv) begin
-        // input related
-      s1o_inv         <= s1t_inv;
-      s1o_inf_i       <= s1t_inf_i;
-      s1o_snan_i      <= snan_i;
-      s1o_qnan_i      <= qnan_i;
-      s1o_anan_i_sign <= anan_sign_i;
-        // computation related
       s1o_aeqb        <= addsub_aeqb_i;
-      s1o_shr         <= s1t_shr & {6{~s1t_inf_i}};
+      s1o_shr         <= s1t_shr & {6{~opc_0_i}};
       s1o_sign_nsh    <= addsub_agtb_i ? s1t_calc_signa : s1t_calc_signb;
       s1o_op_sub      <= s1t_calc_signa ^ s1t_calc_signb;
       s1o_exp13c      <= addsub_agtb_i ? exp13a_i : exp13b_i;
-      s1o_fract53_nsh <= s1t_fract53_nsh & {53{~s1t_inf_i}};
-      s1o_fract53_fsh <= s1t_fract53_fsh & {53{~s1t_inf_i}};
+      s1o_fract53_nsh <= s1t_fract53_nsh & {53{~opc_0_i}};
+      s1o_fract53_fsh <= s1t_fract53_fsh & {53{~opc_0_i}};
     end // advance
   end // posedge clock
 
@@ -248,7 +222,7 @@ module pfpu64_addsub_marocchino
       6'd51: s2t_sticky = |s1o_fract53_fsh[48:0];
       6'd52: s2t_sticky = |s1o_fract53_fsh[49:0];
       6'd53: s2t_sticky = |s1o_fract53_fsh[50:0];
-      6'd54: s2t_sticky = |s1o_fract53_fsh[51:0];      
+      6'd54: s2t_sticky = |s1o_fract53_fsh[51:0];
       default: s2t_sticky = |s1o_fract53_fsh[52:0];
     endcase
   end
@@ -262,10 +236,6 @@ module pfpu64_addsub_marocchino
 
 
   // stage #2 outputs
-  //  input related
-  reg s2o_inv, s2o_inf_i,
-      s2o_snan_i, s2o_qnan_i, s2o_anan_i_sign;
-  //  computational related
   reg        s2o_signc;
   reg [12:0] s2o_exp13c;
   reg [55:0] s2o_fract56;
@@ -274,13 +244,6 @@ module pfpu64_addsub_marocchino
   //  registering
   always @(posedge clk) begin
     if (s2_adv) begin
-        // input related
-      s2o_inv         <= s1o_inv;
-      s2o_inf_i       <= s1o_inf_i;
-      s2o_snan_i      <= s1o_snan_i;
-      s2o_qnan_i      <= s1o_qnan_i;
-      s2o_anan_i_sign <= s1o_anan_i_sign;
-        // computation related
       s2o_signc       <= s1o_sign_nsh;
       s2o_exp13c      <= s1o_exp13c;
       s2o_fract56     <= s2t_fract57_add[56:1];
@@ -390,13 +353,6 @@ module pfpu64_addsub_marocchino
   // registering output
   always @(posedge clk) begin
     if (s3_adv) begin
-        // input related
-      add_inv_o       <= s2o_inv;
-      add_inf_o       <= s2o_inf_i;
-      add_snan_o      <= s2o_snan_i;
-      add_qnan_o      <= s2o_qnan_i;
-      add_anan_sign_o <= s2o_anan_i_sign;
-        // computation related
       add_sign_o      <= s2o_signc;
       add_sub_0_o     <= s2o_sub_0;
       add_shl_o       <= s3t_shl;

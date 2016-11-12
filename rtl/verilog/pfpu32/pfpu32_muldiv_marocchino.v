@@ -55,18 +55,13 @@ module pfpu32_muldiv_marocchino
   input             signa_i,
   input       [9:0] exp10a_i,
   input      [23:0] fract24a_i,
-  input             infa_i,
-  input             zeroa_i,
   // input 'b' related values
   input             signb_i,
   input       [9:0] exp10b_i,
   input      [23:0] fract24b_i,
-  input             infb_i,
-  input             zerob_i,
   // 'a'/'b' related
-  input             snan_i,
-  input             qnan_i,
-  input             anan_sign_i,
+  input             dbz_i,              // devision by zero detection
+  input             opc_0_i,            // force intermediate results to zero
   // MUL/DIV common outputs
   output reg        muldiv_sign_o,      // signum
   output reg  [4:0] muldiv_shr_o,       // do right shift in align stage
@@ -75,11 +70,6 @@ module pfpu32_muldiv_marocchino
   output reg  [9:0] muldiv_exp10shl_o,  // exponent for left shift align
   output reg  [9:0] muldiv_exp10sh0_o,  // exponent for no shift in align
   output reg [27:0] muldiv_fract28_o,   // fractional with appended {r,s} bits
-  output reg        muldiv_inv_o,       // invalid operation flag
-  output reg        muldiv_inf_o,       // infinity output reg
-  output reg        muldiv_snan_o,      // signaling NaN output reg
-  output reg        muldiv_qnan_o,      // quiet NaN output reg
-  output reg        muldiv_anan_sign_o, // signum for output nan
   // DIV additional outputs
   output reg        div_op_o,           // operation is division
   output reg        div_sign_rmnd_o,    // signum of reminder for IEEE compliant rounding
@@ -125,7 +115,7 @@ module pfpu32_muldiv_marocchino
                    s3_busy;                                   //                  duting reminder computation
   //  ## per stage advance flags
   wire s0_adv  = (is_mul_i      | is_div_i)      & ~s0_busy;
-  wire s1_adv  = (s0o_mul_ready | s0o_div_ready) & ~s1_busy; 
+  wire s1_adv  = (s0o_mul_ready | s0o_div_ready) & ~s1_busy;
   wire s2_adv  = (s1o_mul_ready | s1o_div_ready) & ~s2_busy;
   wire s3_adv  = s2o_div_ready                   & ~s3_busy;
   wire s4_adv  = (s3o_div_ready | s2o_mul_ready) & ~s4_busy;
@@ -145,17 +135,6 @@ module pfpu32_muldiv_marocchino
 
   /* Stage #1: pre-operation stage */
 
-
-    // detection of some exceptions
-  wire s0t_inv = (is_div_i & ((zeroa_i & zerob_i) | (infa_i & infb_i))) | // div: 0/0, inf/inf -> invalid operation; snan output
-                 (is_mul_i & ((zeroa_i & infb_i) | (zerob_i & infa_i)));  // mul: 0 * inf -> invalid operation; snan output
-    // division by zero
-  wire s0t_dbz   = is_div_i & (~zeroa_i) & (~infa_i) & zerob_i;
-    //   inf input
-  wire s0t_inf_i = infa_i | (infb_i & is_mul_i); // for DIV only infA is used
-
-    // force intermediate results to zero
-  wire s0t_opc_0 = zeroa_i | zerob_i | (is_div_i & (infa_i | infb_i));
 
   // count leading zeros
   reg [4:0] s0t_nlza;
@@ -223,9 +202,6 @@ module pfpu32_muldiv_marocchino
 
 
   // pre-norm stage outputs
-  //   input related
-  reg s0o_inv, s0o_inf_i,
-      s0o_snan_i, s0o_qnan_i, s0o_anan_i_sign;
   //   computation related
   reg        s0o_opc_0;
   reg        s0o_signc;
@@ -240,14 +216,8 @@ module pfpu32_muldiv_marocchino
   // registering
   always @(posedge clk) begin
     if (s0_adv) begin
-        // input related
-      s0o_inv         <= s0t_inv;
-      s0o_inf_i       <= s0t_inf_i;
-      s0o_snan_i      <= snan_i;
-      s0o_qnan_i      <= qnan_i;
-      s0o_anan_i_sign <= anan_sign_i;
         // computation related
-      s0o_opc_0    <= s0t_opc_0;
+      s0o_opc_0    <= opc_0_i;
       s0o_signc    <= signa_i ^ signb_i;
       s0o_exp10a   <= exp10a_i;
       s0o_fract24a <= fract24a_i;
@@ -256,7 +226,7 @@ module pfpu32_muldiv_marocchino
       s0o_fract24b <= fract24b_i;
       s0o_shlb     <= s0t_nlzb;
         // DIV additional outputs
-      s0o_dbz   <= s0t_dbz;
+      s0o_dbz   <= dbz_i;
     end // push pipe
   end
 
@@ -284,7 +254,7 @@ module pfpu32_muldiv_marocchino
   // left-shift the dividend and divisor
   wire [23:0] s1t_fract24a_shl = s0o_fract24a << s0o_shla;
   wire [23:0] s1t_fract24b_shl = s0o_fract24b << s0o_shlb;
-  
+
   // force result to zero
   wire [23:0] s1t_fract24a = s1t_fract24a_shl & {24{~s0o_opc_0}};
   wire [23:0] s1t_fract24b = s1t_fract24b_shl & {24{~s0o_opc_0}};
@@ -293,7 +263,7 @@ module pfpu32_muldiv_marocchino
   wire [9:0] s1t_exp10mux =
     ({10{s0o_div_ready}} & (s0o_exp10a - {5'd0,s0o_shla} - s0o_exp10b + {5'd0,s0o_shlb} + 10'd127)) |
     ({10{s0o_mul_ready}} & (s0o_exp10a - {5'd0,s0o_shla} + s0o_exp10b - {5'd0,s0o_shlb} - 10'd127));
-  
+
   // force result to zero
   wire [9:0] s1t_exp10c = s1t_exp10mux & {10{~s0o_opc_0}};
 
@@ -323,12 +293,9 @@ module pfpu32_muldiv_marocchino
     else if (s1_adv)
       itr_Proc <= s0o_div_ready;
   end // posedge clock
-  
+
 
   // stage #1 outputs
-  //   input related
-  reg s1o_inv, s1o_inf_i,
-      s1o_snan_i, s1o_qnan_i, s1o_anan_i_sign;
   //   computation related
   reg        s1o_opc_0;
   reg        s1o_signc;
@@ -340,12 +307,6 @@ module pfpu32_muldiv_marocchino
   //   registering
   always @(posedge clk) begin
     if (s1_adv) begin
-        // input related
-      s1o_inv         <= s0o_inv;
-      s1o_inf_i       <= s0o_inf_i;
-      s1o_snan_i      <= s0o_snan_i;
-      s1o_qnan_i      <= s0o_qnan_i;
-      s1o_anan_i_sign <= s0o_anan_i_sign;
         // computation related
       s1o_opc_0    <= s0o_opc_0;
       s1o_signc    <= s0o_signc;
@@ -444,7 +405,7 @@ module pfpu32_muldiv_marocchino
   // control for multiplier's input 'A'
   //   the register also contains quotient to output
   wire itr_uinA = s0o_mul_ready |
-                  itr_state[0]  | itr_state[3] | 
+                  itr_state[0]  | itr_state[3] |
                   itr_state[6]  | itr_rndQ;
   // multiplexer for multiplier's input 'A'
   wire [31:0] itr_mul32a =
@@ -488,9 +449,6 @@ module pfpu32_muldiv_marocchino
 
 
   // stage #2 outputs
-  //   input related
-  reg s2o_inv, s2o_inf_i,
-      s2o_snan_i, s2o_qnan_i, s2o_anan_i_sign;
   // DIV additional outputs
   reg        s2o_dbz;
   reg [23:0] s2o_fract24a;
@@ -504,12 +462,6 @@ module pfpu32_muldiv_marocchino
   //   registering
   always @(posedge clk) begin
     if (s2_adv) begin
-        // input related
-      s2o_inv         <= s1o_inv;
-      s2o_inf_i       <= s1o_inf_i;
-      s2o_snan_i      <= s1o_snan_i;
-      s2o_qnan_i      <= s1o_qnan_i;
-      s2o_anan_i_sign <= s1o_anan_i_sign;
         // DIV additional outputs
       s2o_dbz      <= s1o_dbz;
       s2o_fract24a <= s1o_fract24a;
@@ -573,7 +525,7 @@ module pfpu32_muldiv_marocchino
                        {32'd0, m2o_fract32_albl[31:16]};
 
   // stage #3 outputs (for division support)
-  
+
   // full product
   reg [32:0] m3o_mul33o; // output
   reg        m3o_mul33s; // sticky
@@ -586,9 +538,6 @@ module pfpu32_muldiv_marocchino
   end // posedge clock
 
   // For pipelinization of division final stage
-  //   input related
-  reg s3o_inv, s3o_inf_i,
-      s3o_snan_i, s3o_qnan_i, s3o_anan_i_sign;
   //   DIV computation related
   reg        s3o_dbz;
   reg [23:0] s3o_fract24a;
@@ -601,12 +550,6 @@ module pfpu32_muldiv_marocchino
   // registering
   always @(posedge clk) begin
     if (s3_adv) begin
-        // input related
-      s3o_inv         <= s2o_inv;
-      s3o_inf_i       <= s2o_inf_i;
-      s3o_snan_i      <= s2o_snan_i;
-      s3o_qnan_i      <= s2o_qnan_i;
-      s3o_anan_i_sign <= s2o_anan_i_sign;
         // DIV computation related
       s3o_dbz      <= s2o_dbz;
       s3o_fract24a <= s2o_fract24a;
@@ -618,7 +561,7 @@ module pfpu32_muldiv_marocchino
       s3o_exp10rx  <= s2o_exp10rx;
     end // advance pipe
   end // @clock
-  
+
   // stage 3 ready makes sense for division only
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
@@ -679,7 +622,7 @@ module pfpu32_muldiv_marocchino
       s3o_res_qtnt26 <= itr_res_qtnt26;
     end
   end
-  
+
   // Possible left shift computation.
   // In fact, as the dividend and divisor was normalized
   //   and the result is non-zero
@@ -714,12 +657,6 @@ module pfpu32_muldiv_marocchino
   // output
   always @(posedge clk) begin
     if (s4_adv) begin
-        // input related
-      muldiv_inv_o       <= s3o_div_ready ? s3o_inv : s2o_inv;
-      muldiv_inf_o       <= s3o_div_ready ? s3o_inf_i : s2o_inf_i;
-      muldiv_snan_o      <= s3o_div_ready ? s3o_snan_i : s2o_snan_i;
-      muldiv_qnan_o      <= s3o_div_ready ? s3o_qnan_i : s2o_qnan_i;
-      muldiv_anan_sign_o <= s3o_div_ready ? s3o_anan_i_sign : s2o_anan_i_sign;
         // computation related
       muldiv_sign_o     <= s3o_div_ready ? s3o_signc : s2o_signc;
       muldiv_shr_o      <= s3o_div_ready ? s3o_shrx : s2o_shrx;

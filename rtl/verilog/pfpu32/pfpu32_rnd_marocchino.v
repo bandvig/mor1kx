@@ -67,11 +67,6 @@ module pfpu32_rnd_marocchino
   input  [9:0] add_exp10shl_i,  // exponent for left shift align
   input  [9:0] add_exp10sh0_i,  // exponent for no shift in align
   input [27:0] add_fract28_i,   // fractional with appended {r,s} bits
-  input        add_inv_i,       // add/sub invalid operation flag
-  input        add_inf_i,       // add/sub infinity input
-  input        add_snan_i,      // add/sub signaling NaN input
-  input        add_qnan_i,      // add/sub quiet NaN input
-  input        add_anan_sign_i, // add/sub signum for output nan
   // input from mul
   input        mul_rdy_i,       // mul is ready
   input        mul_sign_i,      // mul signum
@@ -81,11 +76,6 @@ module pfpu32_rnd_marocchino
   input  [9:0] mul_exp10shl_i,  // exponent for left shift align
   input  [9:0] mul_exp10sh0_i,  // exponent for no shift in align
   input [27:0] mul_fract28_i,   // fractional with appended {r,s} bits
-  input        mul_inv_i,       // mul invalid operation flag
-  input        mul_inf_i,       // mul infinity input
-  input        mul_snan_i,      // mul signaling NaN input
-  input        mul_qnan_i,      // mul quiet NaN input
-  input        mul_anan_sign_i, // mul signum for output nan
   // input from div
   input        div_op_i,        // MUL/DIV output is division
   input        div_sign_rmnd_i, // signum or reminder for IEEE compliant rounding
@@ -106,7 +96,12 @@ module pfpu32_rnd_marocchino
   input  [4:0] f2i_shr_i,       // f2i required shift right value
   input  [3:0] f2i_shl_i,       // f2i required shift left value
   input        f2i_ovf_i,       // f2i overflow flag
-  input        f2i_snan_i,      // f2i signaling NaN input
+  // from order control buffer
+  input        ocb_inv_i,
+  input        ocb_inf_i,
+  input        ocb_snan_i,
+  input        ocb_qnan_i,
+  input        ocb_anan_sign_i,
   // output WB latches
   output reg                      [31:0] wb_fp32_arith_res_o,      // result
   output reg [`OR1K_FPCSR_ALLF_SIZE-1:0] wb_fp32_arith_fpcsr_o,    // fp32 arithmetic flags
@@ -153,22 +148,16 @@ module pfpu32_rnd_marocchino
 
   wire        s1t_sign;
   wire [34:0] s1t_fract35;
-  wire        s1t_inv;
-  wire        s1t_inf;
-  wire        s1t_snan;
-  wire        s1t_qnan;
-  wire        s1t_anan_sign;
   wire  [4:0] s1t_shr;
   wire  [4:0] s1t_shl;
 
   // multiplexer for signums and flags
   wire s1t_add_sign = add_sub_0_i ? rm_to_infm : add_sign_i;
 
-  assign {s1t_sign,s1t_inv,s1t_inf,s1t_snan,s1t_qnan,s1t_anan_sign} =
-    ({6{add_rdy_i}} & {s1t_add_sign,add_inv_i,add_inf_i,add_snan_i,add_qnan_i,add_anan_sign_i}) |
-    ({6{mul_rdy_i}} & {mul_sign_i,mul_inv_i,mul_inf_i,mul_snan_i,mul_qnan_i,mul_anan_sign_i}) |
-    ({6{f2i_rdy_i}} & {f2i_sign_i,1'b0,1'b0,f2i_snan_i,1'b0,f2i_sign_i}) |
-    ({6{i2f_rdy_i}} & {i2f_sign_i,1'b0,1'b0,1'b0,1'b0,1'b0});
+  assign s1t_sign = (add_rdy_i & s1t_add_sign) |
+                    (mul_rdy_i & mul_sign_i)   |
+                    (f2i_rdy_i & f2i_sign_i)   |
+                    (i2f_rdy_i & i2f_sign_i);
 
   // multiplexer for fractionals
   assign s1t_fract35 =
@@ -280,11 +269,11 @@ module pfpu32_rnd_marocchino
       s1o_fract32 <= s1t_fract35sh[34:3];
       s1o_rs      <= {s1t_fract35sh[2],s1t_sticky};
       // various flags:
-      s1o_inv         <= s1t_inv;
-      s1o_inf         <= s1t_inf;
-      s1o_snan_i      <= s1t_snan;
-      s1o_qnan_i      <= s1t_qnan;
-      s1o_anan_sign_i <= s1t_anan_sign;
+      s1o_inv         <= ocb_inv_i;
+      s1o_inf         <= ocb_inf_i;
+      s1o_snan_i      <= ocb_snan_i;
+      s1o_qnan_i      <= ocb_qnan_i;
+      s1o_anan_sign_i <= ocb_anan_sign_i;
       // DIV specials
       s1o_div_op        <= mul_rdy_i & div_op_i;
       s1o_div_sign_rmnd <= div_sign_rmnd_i;

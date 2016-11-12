@@ -276,12 +276,6 @@ module pfpu64_div_marocchino
   input      [52:0] s1o_fract53b_i,
   input             s1o_opc_0_i,
   input             s1o_dbz_i,
-  // 'a'/'b' related
-  input             s1o_inv_i,
-  input             s1o_inf_i,
-  input             s1o_snan_i,
-  input             s1o_qnan_i,
-  input             s1o_anan_sign_i,
   // MUL outputs
   output reg        div_sign_o,      // signum
   output reg  [5:0] div_shr_o,       // do right shift in align stage
@@ -290,12 +284,7 @@ module pfpu64_div_marocchino
   output reg [12:0] div_exp13shl_o,  // exponent for left align
   output reg [12:0] div_exp13sh0_o,  // exponent for no shift in align
   output reg [56:0] div_fract57_o,   // fractional with appended {r,s} bits
-  output reg        div_dbz_o,       // divisin by zero
-  output reg        div_inv_o,       // invalid operation flag
-  output reg        div_inf_o,       // infinity output reg
-  output reg        div_snan_o,      // signaling NaN output reg
-  output reg        div_qnan_o,      // quiet NaN output reg
-  output reg        div_anan_sign_o  // signum for output nan
+  output reg        div_dbz_o        // divisin by zero
 );
 
   /*
@@ -320,10 +309,6 @@ module pfpu64_div_marocchino
 
 
   // stage #2 outputs
-  //   input related
-  reg s2o_inv, s2o_inf,
-      s2o_snan, s2o_qnan, s2o_anan_sign;
-  //   computation related
   reg        s2o_opc_0;
   reg        s2o_signc;
   reg [12:0] s2o_exp13c;
@@ -334,13 +319,6 @@ module pfpu64_div_marocchino
   //   registering
   always @(posedge clk) begin
     if (s2_adv) begin
-        // input related
-      s2o_inv       <= s1o_inv_i;
-      s2o_inf       <= s1o_inf_i;
-      s2o_snan      <= s1o_snan_i;
-      s2o_qnan      <= s1o_qnan_i;
-      s2o_anan_sign <= s1o_anan_sign_i;
-        // computation related
       s2o_opc_0   <= s1o_opc_0_i;
       s2o_signc   <= s1o_signc_i;
       s2o_exp13c  <= s1o_exp13c_i;
@@ -411,13 +389,6 @@ module pfpu64_div_marocchino
   // output
   always @(posedge clk) begin
     if (out_adv) begin
-        // input related
-      div_inv_o       <= s2o_inv;
-      div_inf_o       <= s2o_inf;
-      div_snan_o      <= s2o_snan;
-      div_qnan_o      <= s2o_qnan;
-      div_anan_sign_o <= s2o_anan_sign;
-        // computation related
       div_sign_o     <= s2o_signc;
       div_shr_o      <= s2o_shrx;
       div_exp13shr_o <= s2o_exp13rx;

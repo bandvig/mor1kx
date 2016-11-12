@@ -61,16 +61,12 @@ module pfpu32_addsub_marocchino
   input             signa_i,
   input       [9:0] exp10a_i,
   input      [23:0] fract24a_i,
-  input             infa_i,
   // input 'b' related values
   input             signb_i,
   input       [9:0] exp10b_i,
   input      [23:0] fract24b_i,
-  input             infb_i,
   // 'a'/'b' related
-  input             snan_i,
-  input             qnan_i,
-  input             anan_sign_i,
+  input             opc_0_i,         // force intrmadiate result to 0
   input             addsub_agtb_i,
   input             addsub_aeqb_i,
   // outputs
@@ -79,12 +75,7 @@ module pfpu32_addsub_marocchino
   output reg  [4:0] add_shl_o,       // do left shift in align stage
   output reg  [9:0] add_exp10shl_o,  // exponent for left shift align
   output reg  [9:0] add_exp10sh0_o,  // exponent for no shift in align
-  output reg [27:0] add_fract28_o,   // fractional with appended {r,s} bits
-  output reg        add_inv_o,       // invalid operation flag
-  output reg        add_inf_o,       // infinity output reg
-  output reg        add_snan_o,      // signaling NaN output reg
-  output reg        add_qnan_o,      // quiet NaN output reg
-  output reg        add_anan_sign_o  // signum for output nan
+  output reg [27:0] add_fract28_o    // fractional with appended {r,s} bits
 );
   /*
      Any stage's output is registered.
@@ -113,12 +104,6 @@ module pfpu32_addsub_marocchino
 
   /* Stage #1: pre addition / substraction align */
 
-    // detection of some exceptions
-    //   inf - inf -> invalid operation; snan output
-  wire s1t_inv = infa_i & infb_i &
-                 (signa_i ^ (is_sub_i ^ signb_i));
-    //   inf input
-  wire s1t_inf_i = infa_i | infb_i;
 
     // signums for calculation
   wire s1t_calc_signa = signa_i;
@@ -141,10 +126,6 @@ module pfpu32_addsub_marocchino
   wire [4:0] s1t_shr = s1t_exp_diff[4:0] | {5{|s1t_exp_diff[9:5]}};
 
   // stage #1 outputs
-  //  input related
-  reg s1o_inv, s1o_inf_i,
-      s1o_snan_i, s1o_qnan_i, s1o_anan_i_sign;
-  //  computation related
   reg        s1o_aeqb;
   reg  [4:0] s1o_shr;
   reg        s1o_sign_nsh;
@@ -155,20 +136,13 @@ module pfpu32_addsub_marocchino
   //  registering
   always @(posedge clk) begin
     if (s1_adv) begin
-        // input related
-      s1o_inv         <= s1t_inv;
-      s1o_inf_i       <= s1t_inf_i;
-      s1o_snan_i      <= snan_i;
-      s1o_qnan_i      <= qnan_i;
-      s1o_anan_i_sign <= anan_sign_i;
-        // computation related
       s1o_aeqb        <= addsub_aeqb_i;
-      s1o_shr         <= s1t_shr & {5{~s1t_inf_i}};
+      s1o_shr         <= s1t_shr & {5{~opc_0_i}};
       s1o_sign_nsh    <= addsub_agtb_i ? s1t_calc_signa : s1t_calc_signb;
       s1o_op_sub      <= s1t_calc_signa ^ s1t_calc_signb;
       s1o_exp10c      <= addsub_agtb_i ? exp10a_i : exp10b_i;
-      s1o_fract24_nsh <= s1t_fract24_nsh & {24{~s1t_inf_i}};
-      s1o_fract24_fsh <= s1t_fract24_fsh & {24{~s1t_inf_i}};
+      s1o_fract24_nsh <= s1t_fract24_nsh & {24{~opc_0_i}};
+      s1o_fract24_fsh <= s1t_fract24_fsh & {24{~opc_0_i}};
     end // advance
   end // posedge clock
 
@@ -233,10 +207,6 @@ module pfpu32_addsub_marocchino
 
 
   // stage #2 outputs
-  //  input related
-  reg s2o_inv, s2o_inf_i,
-      s2o_snan_i, s2o_qnan_i, s2o_anan_i_sign;
-  //  computational related
   reg        s2o_signc;
   reg [9:0]  s2o_exp10c;
   reg [26:0] s2o_fract27;
@@ -245,13 +215,6 @@ module pfpu32_addsub_marocchino
   //  registering
   always @(posedge clk) begin
     if (s2_adv) begin
-        // input related
-      s2o_inv         <= s1o_inv;
-      s2o_inf_i       <= s1o_inf_i;
-      s2o_snan_i      <= s1o_snan_i;
-      s2o_qnan_i      <= s1o_qnan_i;
-      s2o_anan_i_sign <= s1o_anan_i_sign;
-        // computation related
       s2o_signc       <= s1o_sign_nsh;
       s2o_exp10c      <= s1o_exp10c;
       s2o_fract27     <= s2t_fract28_add[27:1];
@@ -332,13 +295,6 @@ module pfpu32_addsub_marocchino
   // registering output
   always @(posedge clk) begin
     if (s3_adv) begin
-        // input related
-      add_inv_o       <= s2o_inv;
-      add_inf_o       <= s2o_inf_i;
-      add_snan_o      <= s2o_snan_i;
-      add_qnan_o      <= s2o_qnan_i;
-      add_anan_sign_o <= s2o_anan_i_sign;
-        // computation related
       add_sign_o      <= s2o_signc;
       add_sub_0_o     <= s2o_sub_0;
       add_shl_o       <= s3t_shl;
