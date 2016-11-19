@@ -47,7 +47,7 @@ module mor1kx_fetch_marocchino
   parameter OPTION_IMMU_WAYS            =  1,
   parameter OPTION_IMMU_CLEAR_ON_INIT   =  0,
   // for FPU64
-  parameter FEATURE_FPU64               = "NONE"
+  parameter FEATURE_FPU                 = "NONE"
 )
 (
   // clock and reset
@@ -456,7 +456,7 @@ module mor1kx_fetch_marocchino
   // to FPU64
   generate
   /* verilator lint_off WIDTH */
-  if (FEATURE_FPU64 != "NONE") begin :  fetch_fp64_enabled
+  if (FEATURE_FPU != "NONE") begin :  fetch_fpxx_enabled
   /* verilator lint_on WIDTH */
     assign fetch_rfa2_adr_o = s2t_insn_mux[`OR1K_RA_SELECT] + 1'b1;
     assign fetch_rfb2_adr_o = s2t_insn_mux[`OR1K_RB_SELECT] + 1'b1;
@@ -485,7 +485,7 @@ module mor1kx_fetch_marocchino
     assign dcod_rfb2_adr_o = dcod_rfb2_adr_r;
     assign dcod_rfd2_adr_o = dcod_rfd2_adr_r;
   end
-  else begin : fetch_fp64_disabled
+  else begin : fetch_fpxx_disabled
     assign fetch_rfa2_adr_o = {OPTION_RF_ADDR_WIDTH{1'b0}};
     assign fetch_rfb2_adr_o = {OPTION_RF_ADDR_WIDTH{1'b0}};
     assign dcod_rfa2_adr_o  = {OPTION_RF_ADDR_WIDTH{1'b0}};
@@ -568,7 +568,7 @@ module mor1kx_fetch_marocchino
           if (padv_fetch_i & ~flush_by_ctrl) // eq. padv_s1 (in IDLE state of IBUS FSM)
             ibus_state <= IMEM_REQ;  // idling -> memory system request
         end
-      
+
         IMEM_REQ: begin
           if (fetch_excepts | flush_by_ctrl) begin
             ibus_state <= IBUS_IDLE;  // memory system request -> idling (exceptions or flushing)
@@ -589,7 +589,7 @@ module mor1kx_fetch_marocchino
           else
             ibus_state <= IBUS_IDLE;
         end
-  
+
         IBUS_IC_REFILL: begin
           if (ibus_ack_i) begin
             ibus_adr_o <= next_refill_adr;  // ICACHE refill: next address
@@ -600,7 +600,7 @@ module mor1kx_fetch_marocchino
             end
           end
         end // ic-refill
-  
+
         IBUS_READ: begin
           if (ibus_ack_i) begin
             ibus_req_o <= 1'b0;                 // IBUS read: complete
@@ -611,7 +611,7 @@ module mor1kx_fetch_marocchino
               ibus_state <= IBUS_IDLE;          // IBUS READ -> IDLE
           end
         end // read
-  
+
         default: begin
           ibus_req_o <= 1'b0;           // default
           ibus_adr_o <= {IFOOW{1'b0}};  // default

@@ -339,7 +339,7 @@ module mor1kx_rsrvs_marocchino
   parameter OPC_WIDTH            =  1, // width of additional attributes
   parameter DEST_REG_ADDR_WIDTH  =  8, // OPTION_RF_ADDR_WIDTH + log2(Re-Ordering buffer width)
   // FPU64 support
-  parameter FEATURE_FPU64        = "NONE",
+  parameter FEATURE_FPU          = "NONE",
   // Activate the part for tracking and resolving FLAG and CARRY hazards
   // Actually, it makes sense for 1-clock executive unit only, because
   // there is only one instruction that requires flag: l.cmov.
@@ -591,7 +591,7 @@ module mor1kx_rsrvs_marocchino
   //  ## for FPU64
   generate
   /* verilator lint_off WIDTH */
-  if (FEATURE_FPU64 != "NONE") begin : busy_fpu64_enabled
+  if (FEATURE_FPU != "NONE") begin : busy_fpu64_enabled
   /* verilator lint_on WIDTH */
     // registers for operands A & B
     reg      [OPTION_OPERAND_WIDTH-1:0] busy_rfa2_r;
@@ -889,7 +889,7 @@ module mor1kx_rsrvs_marocchino
   //  ## for FPU64
   generate
   /* verilator lint_off WIDTH */
-  if (FEATURE_FPU64 != "NONE") begin : exec_fpu64_enabled
+  if (FEATURE_FPU != "NONE") begin : exec_fpu64_enabled
   /* verilator lint_on WIDTH */
     // registers for operands A & B
     reg      [OPTION_OPERAND_WIDTH-1:0] exec_rfa2_r;

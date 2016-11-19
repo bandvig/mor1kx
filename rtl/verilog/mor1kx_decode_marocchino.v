@@ -42,8 +42,7 @@ module mor1kx_decode_marocchino
   parameter FEATURE_PSYNC        = "NONE",
   parameter FEATURE_CSYNC        = "NONE",
 
-  parameter FEATURE_FPU          = "NONE", // ENABLED|NONE
-  parameter FEATURE_FPU64        = "NONE" // ENABLED|NONE
+  parameter FEATURE_FPU          = "NONE" // ENABLED|NONE
 )
 (
   // INSN
@@ -133,23 +132,15 @@ module mor1kx_decode_marocchino
   output                                dcod_op_div_signed_o,
   output                                dcod_op_div_unsigned_o,
 
-  // FPU arithmetic part related
-  output                                dcod_op_fp32_arith_o,
-  output                                dcod_op_fp32_add_o,
-  output                                dcod_op_fp32_sub_o,
-  output                                dcod_op_fp32_mul_o,
-  output                                dcod_op_fp32_div_o,
-  output                                dcod_op_fp32_i2f_o,
-  output                                dcod_op_fp32_f2i_o,
-
-  // FPU-64 arithmetic part
-  output                                dcod_op_fp64_arith_o, // to OMAN and FPU32_ARITH
-  output                                dcod_op_fp64_add_o, // to FPU32_ARITH
-  output                                dcod_op_fp64_sub_o, // to FPU32_ARITH
-  output                                dcod_op_fp64_mul_o, // to FPU32_ARITH
-  output                                dcod_op_fp64_div_o, // to FPU32_ARITH
-  output                                dcod_op_fp64_i2f_o, // to FPU32_ARITH
-  output                                dcod_op_fp64_f2i_o, // to FPU32_ARITH
+  // FPU3264 arithmetic part
+  output                                dcod_op_fpxx_arith_o, // to OMAN and FPU3264_ARITH
+  output                                dcod_op_fp64_arith_o, // to FPU3264_ARITH
+  output                                dcod_op_fpxx_add_o, // to FPU3264_ARITH
+  output                                dcod_op_fpxx_sub_o, // to FPU3264_ARITH
+  output                                dcod_op_fpxx_mul_o, // to FPU3264_ARITH
+  output                                dcod_op_fpxx_div_o, // to FPU3264_ARITH
+  output                                dcod_op_fpxx_i2f_o, // to FPU3264_ARITH
+  output                                dcod_op_fpxx_f2i_o, // to FPU3264_ARITH
 
   // FPU-64 comparison part
   output                                dcod_op_fp64_cmp_o,
@@ -286,31 +277,6 @@ module mor1kx_decode_marocchino
                                                                                                    {`OR1K_ALU_OPC_WIDTH{1'b0}};
 
 
-  // --- FPU-32 arithmetic part ---
-  //  # tmp skeleton
-  wire op_fp32_arith_t = (FEATURE_FPU != "NONE") &
-                         (~dcod_insn_i[`OR1K_FPUOP_DOUBLE_BIT]) & (~dcod_insn_i[3]) &
-                         (~(|dcod_insn_i[10:8])); // all reserved bits are zeros
-  //  # for further legality detection
-  wire op_fp32_arith_l = op_fp32_arith_t & (dcod_insn_i[2:0] < 3'd6);
-  //  # directly for FPU32 execution unit
-  assign dcod_op_fp32_arith_o = op_fp32_arith_l & (opc_insn == `OR1K_OPCODE_FPU);
-  // fpu arithmetic opc:                            
-  // ===================
-  // 000 = add
-  // 001 = substract
-  // 010 = multiply
-  // 011 = divide
-  // 100 = i2f
-  // 101 = f2i
-  assign dcod_op_fp32_add_o = op_fp32_arith_t & (dcod_insn_i[2:0] == 3'd0) & (opc_insn == `OR1K_OPCODE_FPU);
-  assign dcod_op_fp32_sub_o = op_fp32_arith_t & (dcod_insn_i[2:0] == 3'd1) & (opc_insn == `OR1K_OPCODE_FPU);
-  assign dcod_op_fp32_mul_o = op_fp32_arith_t & (dcod_insn_i[2:0] == 3'd2) & (opc_insn == `OR1K_OPCODE_FPU);
-  assign dcod_op_fp32_div_o = op_fp32_arith_t & (dcod_insn_i[2:0] == 3'd3) & (opc_insn == `OR1K_OPCODE_FPU);
-  assign dcod_op_fp32_i2f_o = op_fp32_arith_t & (dcod_insn_i[2:0] == 3'd4) & (opc_insn == `OR1K_OPCODE_FPU);
-  assign dcod_op_fp32_f2i_o = op_fp32_arith_t & (dcod_insn_i[2:0] == 3'd5) & (opc_insn == `OR1K_OPCODE_FPU);
-
-
   // --- FPU-32 comparison part ---
   //  # for further legality detection
   wire op_fp32_cmp_l = (FEATURE_FPU != "NONE") &
@@ -330,16 +296,18 @@ module mor1kx_decode_marocchino
   assign dcod_opc_fp32_cmp_o = dcod_insn_i[2:0];
 
 
-  // --- FPU-64 arithmetic part ---
+  // --- FPU3264 arithmetic part ---
   //  # tmp skeleton
-  wire op_fp64_arith_t = (FEATURE_FPU64 != "NONE") &
-                         dcod_insn_i[`OR1K_FPUOP_DOUBLE_BIT] & (~dcod_insn_i[3]) &
-                         (~(|dcod_insn_i[10:8])); // all reserved bits are zeros
+  wire op_fpxx_arith_t = (FEATURE_FPU != "NONE") &  // FPU enabled
+                         (~dcod_insn_i[3]) &        // arithmetic operation
+                         (~(|dcod_insn_i[10:8]));   // all reserved bits are zeros
   //  # for further legality detection
-  wire op_fp64_arith_l = op_fp64_arith_t & (dcod_insn_i[2:0] < 3'd6);
-  //  # directly for FPU64 execution unit
-  assign dcod_op_fp64_arith_o = op_fp64_arith_l & (opc_insn == `OR1K_OPCODE_FPU);
-  // fpu arithmetic opc:                            
+  wire op_fpxx_arith_l = op_fpxx_arith_t & (dcod_insn_i[2:0] < 3'd6);
+  //  # a legal FPU
+  assign dcod_op_fpxx_arith_o = op_fpxx_arith_l & (opc_insn == `OR1K_OPCODE_FPU);
+  //  # directly for FPU3264 execution unit
+  assign dcod_op_fp64_arith_o = dcod_insn_i[`OR1K_FPUOP_DOUBLE_BIT];
+  // fpu arithmetic opc:
   // ===================
   // 000 = add
   // 001 = substract
@@ -347,17 +315,17 @@ module mor1kx_decode_marocchino
   // 011 = divide
   // 100 = i2f
   // 101 = f2i
-  assign dcod_op_fp64_add_o = op_fp64_arith_t & (dcod_insn_i[2:0] == 3'd0) & (opc_insn == `OR1K_OPCODE_FPU);
-  assign dcod_op_fp64_sub_o = op_fp64_arith_t & (dcod_insn_i[2:0] == 3'd1) & (opc_insn == `OR1K_OPCODE_FPU);
-  assign dcod_op_fp64_mul_o = op_fp64_arith_t & (dcod_insn_i[2:0] == 3'd2) & (opc_insn == `OR1K_OPCODE_FPU);
-  assign dcod_op_fp64_div_o = op_fp64_arith_t & (dcod_insn_i[2:0] == 3'd3) & (opc_insn == `OR1K_OPCODE_FPU);
-  assign dcod_op_fp64_i2f_o = op_fp64_arith_t & (dcod_insn_i[2:0] == 3'd4) & (opc_insn == `OR1K_OPCODE_FPU);
-  assign dcod_op_fp64_f2i_o = op_fp64_arith_t & (dcod_insn_i[2:0] == 3'd5) & (opc_insn == `OR1K_OPCODE_FPU);
+  assign dcod_op_fpxx_add_o = op_fpxx_arith_t & (dcod_insn_i[2:0] == 3'd0) & (opc_insn == `OR1K_OPCODE_FPU);
+  assign dcod_op_fpxx_sub_o = op_fpxx_arith_t & (dcod_insn_i[2:0] == 3'd1) & (opc_insn == `OR1K_OPCODE_FPU);
+  assign dcod_op_fpxx_mul_o = op_fpxx_arith_t & (dcod_insn_i[2:0] == 3'd2) & (opc_insn == `OR1K_OPCODE_FPU);
+  assign dcod_op_fpxx_div_o = op_fpxx_arith_t & (dcod_insn_i[2:0] == 3'd3) & (opc_insn == `OR1K_OPCODE_FPU);
+  assign dcod_op_fpxx_i2f_o = op_fpxx_arith_t & (dcod_insn_i[2:0] == 3'd4) & (opc_insn == `OR1K_OPCODE_FPU);
+  assign dcod_op_fpxx_f2i_o = op_fpxx_arith_t & (dcod_insn_i[2:0] == 3'd5) & (opc_insn == `OR1K_OPCODE_FPU);
 
 
   // --- FPU-64 comparison part ---
   //  # for further legality detection
-  wire op_fp64_cmp_l = (FEATURE_FPU64 != "NONE") &
+  wire op_fp64_cmp_l = (FEATURE_FPU != "NONE") &
                        dcod_insn_i[`OR1K_FPUOP_DOUBLE_BIT] & dcod_insn_i[3] &
                        (~(|dcod_insn_i[10:8])) & // all reserved bits are zeros
                        (dcod_insn_i[2:0] < 3'd6);
@@ -548,20 +516,19 @@ module mor1kx_decode_marocchino
 
       `OR1K_OPCODE_FPU:
         begin
-          dcod_except_illegal_o = ~(op_fp32_arith_l | op_fp64_arith_l |
-                                    op_fp32_cmp_l   | op_fp64_cmp_l);
+          dcod_except_illegal_o = ~(op_fpxx_arith_l | op_fp32_cmp_l | op_fp64_cmp_l);
           dcod_op_pass_exec_o   = 1'b0;
-          if (op_fp32_arith_l | op_fp64_arith_l) begin
+          if (op_fpxx_arith_l) begin
             dcod_op_1clk_o  = 1'b0;
             dcod_rfa_req_o  = 1'b1;
-            dcod_rfa2_req_o = op_fp64_arith_l;
+            dcod_rfa2_req_o = op_fpxx_arith_l & dcod_insn_i[`OR1K_FPUOP_DOUBLE_BIT];
             if ((dcod_insn_i[2:0] == 3'd4) | (dcod_insn_i[2:0] == 3'd5)) begin // rD <- conv(rA)
               dcod_rfb_req_o  = 1'b0;
               dcod_rfb2_req_o = 1'b0;
             end
             else begin // rD <- rA op rB
               dcod_rfb_req_o  = 1'b1;
-              dcod_rfb2_req_o = op_fp64_arith_l;
+              dcod_rfb2_req_o = op_fpxx_arith_l & dcod_insn_i[`OR1K_FPUOP_DOUBLE_BIT];
             end
             dcod_rf_wb_o = 1'b1;
           end
@@ -650,7 +617,7 @@ module mor1kx_decode_marocchino
                 dcod_rfb_req_o        = ~dcod_op_ffl1_o;
                 dcod_rf_wb_o          = 1'b1;
               end
-  
+
             `OR1K_ALU_OPC_DIV,  // rD <- rA / rB
             `OR1K_ALU_OPC_DIVU, // rD <- rA / rB
             `OR1K_ALU_OPC_MUL,  // rD <- rA * rB
@@ -663,7 +630,7 @@ module mor1kx_decode_marocchino
                 dcod_rfb_req_o        = 1'b1;
                 dcod_rf_wb_o          = 1'b1;
               end
-  
+
             `OR1K_ALU_OPC_EXTBH,
             `OR1K_ALU_OPC_EXTW:
               begin
@@ -674,7 +641,7 @@ module mor1kx_decode_marocchino
                 dcod_rfb_req_o        = 1'b0;
                 dcod_rf_wb_o          = 1'b0;
               end
-  
+
             `OR1K_ALU_OPC_SHRT:
               begin
                 case (dcod_insn_i[`OR1K_ALU_OPC_SECONDARY_SELECT])
@@ -700,7 +667,7 @@ module mor1kx_decode_marocchino
                 endcase // case (dcod_insn_i[`OR1K_ALU_OPC_SECONDARY_SELECT])
                 dcod_op_pass_exec_o = 1'b0;
               end
-  
+
             default:
               begin
                 dcod_except_illegal_o = 1'b1;
@@ -802,7 +769,7 @@ module mor1kx_decode_marocchino
                                      dcod_op_jr_o  ? ((|dcod_rfb_i[1:0]) & ~exe2dec_hazard_b_i) :
                                                      1'b0;
 
- 
+
   // Destination addresses
   assign dcod_rfd_adr_o = dcod_op_jal_o ? 4'd9 : dcod_insn_i[`OR1K_RD_SELECT];
 

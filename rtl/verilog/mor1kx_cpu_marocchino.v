@@ -10,8 +10,8 @@
 //   Copyright (C) 2012 Julius Baxter                                 //
 //                      juliusbaxter@gmail.com                        //
 //                                                                    //
-//   Copyright (C) 2015 Andrey Bacherov                               //
-//                      avbacherov@opencores.org                      //
+//   Copyright (C) 2015 - 2016 Andrey Bacherov                        //
+//                             avbacherov@opencores.org               //
 //                                                                    //
 //      This Source Code Form is subject to the terms of the          //
 //      Open Hardware Description License, v. 1.0. If a copy          //
@@ -65,7 +65,6 @@ module mor1kx_cpu_marocchino
   parameter FEATURE_CSYNC = "NONE",
 
   parameter FEATURE_FPU    = "NONE", // ENABLED|NONE: pipeline marocchino
-  parameter FEATURE_FPU64  = "NONE", // ENABLED|NONE: pipeline marocchino
 
   parameter OPTION_STORE_BUFFER_DEPTH_WIDTH   = 4, // 16 taps
   parameter OPTION_STORE_BUFFER_CLEAR_ON_INIT = 0,
@@ -164,9 +163,8 @@ module mor1kx_cpu_marocchino
   wire [OPTION_OPERAND_WIDTH-1:0] wb_alu_1clk_result;
   wire [OPTION_OPERAND_WIDTH-1:0] wb_div_result;
   wire [OPTION_OPERAND_WIDTH-1:0] wb_mul_result;
-  wire [OPTION_OPERAND_WIDTH-1:0] wb_fp32_arith_res;
-  wire [OPTION_OPERAND_WIDTH-1:0] wb_fp64_arith_res_hi;
-  wire [OPTION_OPERAND_WIDTH-1:0] wb_fp64_arith_res_lo;
+  wire [OPTION_OPERAND_WIDTH-1:0] wb_fpxx_arith_res_hi;
+  wire [OPTION_OPERAND_WIDTH-1:0] wb_fpxx_arith_res_lo;
   wire [OPTION_OPERAND_WIDTH-1:0] wb_lsu_result;
   wire [OPTION_OPERAND_WIDTH-1:0] wb_mfspr_dat;
   wire [OPTION_OPERAND_WIDTH-1:0] wb_result; // WB result combiner
@@ -333,21 +331,6 @@ module mor1kx_cpu_marocchino
   wire                            mul_valid;
   wire                            grant_wb_to_mul;
 
-  // FPU-32 arithmetic part
-  wire                              dcod_op_fp32_arith; // to OMAN and FPU32_ARITH
-  wire                              dcod_op_fp32_add; // to FPU32_ARITH
-  wire                              dcod_op_fp32_sub; // to FPU32_ARITH
-  wire                              dcod_op_fp32_mul; // to FPU32_ARITH
-  wire                              dcod_op_fp32_div; // to FPU32_ARITH
-  wire                              dcod_op_fp32_i2f; // to FPU32_ARITH
-  wire                              dcod_op_fp32_f2i; // to FPU32_ARITH
-  wire                              fp32_arith_busy; // indicates that arihmetic units are busy
-  wire                              fp32_arith_valid;
-  wire                              grant_wb_to_fp32_arith;
-  wire  [`OR1K_FPCSR_ALLF_SIZE-1:0] wb_fp32_arith_fpcsr;    // only flags
-  wire                              wb_fp32_arith_wb_fpcsr; // update FPCSR
-  wire                              wb_except_fp32_arith;   // generate FPx exception by FPx flags
-
   // FPU-32 comparison part
   wire                            dcod_op_fp32_cmp;
   wire                      [2:0] dcod_opc_fp32_cmp;
@@ -358,20 +341,21 @@ module mor1kx_cpu_marocchino
   wire                            wb_fp32_cmp_wb_fpcsr;
   wire                            wb_except_fp32_cmp;
 
-  // FPU-64 arithmetic part
-  wire                              dcod_op_fp64_arith; // to OMAN and FPU32_ARITH
-  wire                              dcod_op_fp64_add; // to FPU32_ARITH
-  wire                              dcod_op_fp64_sub; // to FPU32_ARITH
-  wire                              dcod_op_fp64_mul; // to FPU32_ARITH
-  wire                              dcod_op_fp64_div; // to FPU32_ARITH
-  wire                              dcod_op_fp64_i2f; // to FPU32_ARITH
-  wire                              dcod_op_fp64_f2i; // to FPU32_ARITH
-  wire                              fp64_busy;
-  wire                              fp64_arith_valid;
-  wire                              grant_wb_to_fp64_arith;
-  wire  [`OR1K_FPCSR_ALLF_SIZE-1:0] wb_fp64_arith_fpcsr;    // only flags
-  wire                              wb_fp64_arith_wb_fpcsr; // update FPCSR
-  wire                              wb_except_fp64_arith;   // generate FPx exception by FPx flags
+  // FPU3264 arithmetic part
+  wire                              dcod_op_fpxx_arith; // to OMAN and FPU3264_ARITH
+  wire                              dcod_op_fp64_arith; // to OMAN and FPU3264_ARITH
+  wire                              dcod_op_fpxx_add; // to FPU3264_ARITH
+  wire                              dcod_op_fpxx_sub; // to FPU3264_ARITH
+  wire                              dcod_op_fpxx_mul; // to FPU3264_ARITH
+  wire                              dcod_op_fpxx_div; // to FPU3264_ARITH
+  wire                              dcod_op_fpxx_i2f; // to FPU3264_ARITH
+  wire                              dcod_op_fpxx_f2i; // to FPU3264_ARITH
+  wire                              fpxx_busy;
+  wire                              fpxx_arith_valid;
+  wire                              grant_wb_to_fpxx_arith;
+  wire  [`OR1K_FPCSR_ALLF_SIZE-1:0] wb_fpxx_arith_fpcsr;    // only flags
+  wire                              wb_fpxx_arith_wb_fpcsr; // update FPCSR
+  wire                              wb_except_fpxx_arith;   // generate FPx exception by FPx flags
 
   // FPU-64 comparison part
   wire                            dcod_op_fp64_cmp;
@@ -524,7 +508,7 @@ module mor1kx_cpu_marocchino
     .OPTION_IMMU_WAYS                 (OPTION_IMMU_WAYS), // FETCH
     .OPTION_IMMU_CLEAR_ON_INIT        (OPTION_IMMU_CLEAR_ON_INIT), // FETCH
     // for FPU64
-    .FEATURE_FPU64                    (FEATURE_FPU64) // FETCH
+    .FEATURE_FPU                      (FEATURE_FPU) // FETCH
   )
   u_fetch
   (
@@ -610,8 +594,7 @@ module mor1kx_cpu_marocchino
     .OPTION_RF_ADDR_WIDTH             (OPTION_RF_ADDR_WIDTH), // DECODE & DECODE->EXE
     .FEATURE_PSYNC                    (FEATURE_PSYNC), // DECODE & DECODE->EXE
     .FEATURE_CSYNC                    (FEATURE_CSYNC), // DECODE & DECODE->EXE
-    .FEATURE_FPU                      (FEATURE_FPU), // DECODE & DECODE->EXE
-    .FEATURE_FPU64                    (FEATURE_FPU64) // DECODE & DECODE->EXE
+    .FEATURE_FPU                      (FEATURE_FPU) // DECODE & DECODE->EXE
   )
   u_decode
   (
@@ -691,22 +674,15 @@ module mor1kx_cpu_marocchino
     .dcod_op_div_o                    (dcod_op_div), // DECODE & DECODE->EXE
     .dcod_op_div_signed_o             (dcod_op_div_signed), // DECODE & DECODE->EXE
     .dcod_op_div_unsigned_o           (dcod_op_div_unsigned), // DECODE & DECODE->EXE
-    // FPU arithmmetic related
-    .dcod_op_fp32_arith_o             (dcod_op_fp32_arith), // DECODE & DECODE->EXE
-    .dcod_op_fp32_add_o               (dcod_op_fp32_add), // DECODE & DECODE->EXE
-    .dcod_op_fp32_sub_o               (dcod_op_fp32_sub), // DECODE & DECODE->EXE
-    .dcod_op_fp32_mul_o               (dcod_op_fp32_mul), // DECODE & DECODE->EXE
-    .dcod_op_fp32_div_o               (dcod_op_fp32_div), // DECODE & DECODE->EXE
-    .dcod_op_fp32_i2f_o               (dcod_op_fp32_i2f), // DECODE & DECODE->EXE
-    .dcod_op_fp32_f2i_o               (dcod_op_fp32_f2i), // DECODE & DECODE->EXE
     // FPU-64 arithmetic part
+    .dcod_op_fpxx_arith_o             (dcod_op_fpxx_arith), // DECODE & DECODE->EXE
     .dcod_op_fp64_arith_o             (dcod_op_fp64_arith), // DECODE & DECODE->EXE
-    .dcod_op_fp64_add_o               (dcod_op_fp64_add), // DECODE & DECODE->EXE
-    .dcod_op_fp64_sub_o               (dcod_op_fp64_sub), // DECODE & DECODE->EXE
-    .dcod_op_fp64_mul_o               (dcod_op_fp64_mul), // DECODE & DECODE->EXE
-    .dcod_op_fp64_div_o               (dcod_op_fp64_div), // DECODE & DECODE->EXE
-    .dcod_op_fp64_i2f_o               (dcod_op_fp64_i2f), // DECODE & DECODE->EXE
-    .dcod_op_fp64_f2i_o               (dcod_op_fp64_f2i), // DECODE & DECODE->EXE
+    .dcod_op_fpxx_add_o               (dcod_op_fpxx_add), // DECODE & DECODE->EXE
+    .dcod_op_fpxx_sub_o               (dcod_op_fpxx_sub), // DECODE & DECODE->EXE
+    .dcod_op_fpxx_mul_o               (dcod_op_fpxx_mul), // DECODE & DECODE->EXE
+    .dcod_op_fpxx_div_o               (dcod_op_fpxx_div), // DECODE & DECODE->EXE
+    .dcod_op_fpxx_i2f_o               (dcod_op_fpxx_i2f), // DECODE & DECODE->EXE
+    .dcod_op_fpxx_f2i_o               (dcod_op_fpxx_f2i), // DECODE & DECODE->EXE
     // FPU-64 comparison part
     .dcod_op_fp64_cmp_o               (dcod_op_fp64_cmp), // DECODE & DECODE->EXE
     .dcod_opc_fp64_cmp_o              (dcod_opc_fp64_cmp), // DECODE & DECODE->EXE
@@ -984,220 +960,136 @@ module mor1kx_cpu_marocchino
   );
 
 
-  //---------------------------//
-  // FPU-32 arithmetic related //
-  //---------------------------//
+  //---------//
+  // FPU3264 //
+  //---------//
   generate
   /* verilator lint_off WIDTH */
-  if (FEATURE_FPU != "NONE") begin :  alu_fp32_arith_ena
+  if (FEATURE_FPU != "NONE") begin :  alu_fpxx_ena
   /* verilator lint_on WIDTH */
-    // fp32 arithmetic instance
-    pfpu32_top_marocchino
+    pfpu_top_marocchino
     #(
-      .DEST_REG_ADDR_WIDTH      (DEST_REG_ADDR_WIDTH) // FPU32_ARITH
+      .DEST_REG_ADDR_WIDTH (DEST_REG_ADDR_WIDTH) // FPU3264
     )
-    u_pfpu32
+    u_pfpu3264
     (
       // clock & reset
-      .clk                      (clk), // FPU32_ARITH
-      .rst                      (rst), // FPU32_ARITH
-
-      // pipeline control inputs
-      .pipeline_flush_i         (pipeline_flush), // FPU32_ARITH
-      .padv_decode_i            (padv_decode), // FPU32_ARITH
-      .padv_wb_i                (padv_wb), // FPU32_ARITH
-      .grant_wb_to_fp32_arith_i (grant_wb_to_fp32_arith), // FPU32_ARITH
-
-      // pipeline control outputs
-      .fp32_arith_busy_o        (fp32_arith_busy), // FPU32_ARITH
-      .fp32_arith_valid_o       (fp32_arith_valid), // FPU32_ARITH
-
-      // Configuration
-      .round_mode_i             (ctrl_fpu_round_mode), // FPU32_ARITH
-      .except_fpu_enable_i      (except_fpu_enable), // FPU32_ARITH
-      .ctrl_fpu_mask_flags_i    (ctrl_fpu_mask_flags), // FPU32_ARITH
-
-      // Operands and commands
-      .dcod_op_fp32_arith_i     (dcod_op_fp32_arith), // FPU32_ARITH
-      .dcod_op_fp32_add_i       (dcod_op_fp32_add), // FPU32_ARITH
-      .dcod_op_fp32_sub_i       (dcod_op_fp32_sub), // FPU32_ARITH
-      .dcod_op_fp32_mul_i       (dcod_op_fp32_mul), // FPU32_ARITH
-      .dcod_op_fp32_div_i       (dcod_op_fp32_div), // FPU32_ARITH
-      .dcod_op_fp32_i2f_i       (dcod_op_fp32_i2f), // FPU32_ARITH
-      .dcod_op_fp32_f2i_i       (dcod_op_fp32_f2i), // FPU32_ARITH
-      //   from DECODE
-      .dcod_rfa_i               (dcod_rfa), // FPU32_ARITH
-      .dcod_rfb_i               (dcod_rfb), // FPU32_ARITH
-      // OMAN-to-DECODE hazards
-      //  combined flag
-      .omn2dec_hazards_i        (omn2dec_hazards), // FPU32_ARITH
-      //  by operands
-      .busy_hazard_a_i          (busy_hazard_a), // FPU32_ARITH
-      .busy_hazard_a_adr_i      (busy_hazard_a_adr), // FPU32_ARITH
-      .busy_hazard_b_i          (busy_hazard_b), // FPU32_ARITH
-      .busy_hazard_b_adr_i      (busy_hazard_b_adr), // FPU32_ARITH
-      // EXEC-to-DECODE hazards
-      //  combined flag
-      .exe2dec_hazards_i        (exe2dec_hazards), // FPU32_ARITH
-      //  by operands
-      .exe2dec_hazard_a_i       (exe2dec_hazard_a), // FPU32_ARITH
-      .exe2dec_hazard_b_i       (exe2dec_hazard_b), // FPU32_ARITH
-      // Data for hazards resolving
-      //  hazard could be passed from DECODE to EXECUTE
-      .exec_rf_wb_i             (exec_rf_wb), // FPU32_ARITH
-      .exec_rfd_adr_i           (exec_rfd_adr), // FPU32_ARITH
-      //  hazard could be resolving
-      .wb_rf_wb_i               (wb_rf_wb), // FPU32_ARITH
-      .wb_rfd_adr_i             (wb_rfd_adr[DEST_REG_ADDR_WIDTH-1:0]), // FPU32_ARITH
-      .wb_result_i              (wb_result), // FPU32_ARITH
-
-      // FPU-32 arithmetic part
-      .wb_fp32_arith_res_o      (wb_fp32_arith_res), // FPU32_ARITH
-      .wb_fp32_arith_fpcsr_o    (wb_fp32_arith_fpcsr), // FPU32_ARITH
-      .wb_fp32_arith_wb_fpcsr_o (wb_fp32_arith_wb_fpcsr), // FPU32_ARITH
-      .wb_except_fp32_arith_o   (wb_except_fp32_arith) // FPU32_ARITH
-    );
-  end
-  else begin :  alu_fp32_arith_none
-    assign fp32_arith_busy        = 1'b0;
-    assign fp32_arith_valid       = 1'b0;
-    assign wb_fp32_arith_res      = {OPTION_OPERAND_WIDTH{1'b0}};
-    assign wb_fp32_arith_fpcsr    = {`OR1K_FPCSR_ALLF_SIZE{1'b0}};
-    assign wb_fp32_arith_wb_fpcsr = 1'b0;
-    assign wb_except_fp32_arith   = 1'b0;
-  end // fpu_ena/fpu_none
-  endgenerate // FPU arithmetic related
-
-
-  //--------//
-  // FPU-64 //
-  //--------//
-  generate
-  /* verilator lint_off WIDTH */
-  if (FEATURE_FPU64 != "NONE") begin :  alu_fp64_ena
-  /* verilator lint_on WIDTH */
-    pfpu64_top_marocchino
-    #(
-      .DEST_REG_ADDR_WIDTH (DEST_REG_ADDR_WIDTH) // FPU64
-    )
-    u_pfpu64
-    (
-      // clock & reset
-      .clk                        (clk), // FPU64
-      .rst                        (rst), // FPU64
+      .clk                        (clk), // FPU3264
+      .rst                        (rst), // FPU3264
 
       // pipeline control
-      .pipeline_flush_i           (pipeline_flush), // FPU64
-      .padv_decode_i              (padv_decode), // FPU64
-      .padv_wb_i                  (padv_wb), // FPU64
-      .grant_wb_to_fp64_arith_i   (grant_wb_to_fp64_arith), // FPU64
-      .grant_wb_to_fp64_cmp_i     (grant_wb_to_fp64_cmp), // FPU64
+      .pipeline_flush_i           (pipeline_flush), // FPU3264
+      .padv_decode_i              (padv_decode), // FPU3264
+      .padv_wb_i                  (padv_wb), // FPU3264
+      .grant_wb_to_fpxx_arith_i   (grant_wb_to_fpxx_arith), // FPU3264
+      .grant_wb_to_fp64_cmp_i     (grant_wb_to_fp64_cmp), // FPU3264
 
       // pipeline control outputs
-      .fp64_busy_o                (fp64_busy), // FPU64
-      .fp64_arith_valid_o         (fp64_arith_valid), // FPU64
+      .fpxx_busy_o                (fpxx_busy), // FPU3264
+      .fpxx_arith_valid_o         (fpxx_arith_valid), // FPU3264
 
       // Configuration
-      .round_mode_i               (ctrl_fpu_round_mode), // FPU64
-      .except_fpu_enable_i        (except_fpu_enable), // FPU64
-      .ctrl_fpu_mask_flags_i      (ctrl_fpu_mask_flags), // FPU64
+      .round_mode_i               (ctrl_fpu_round_mode), // FPU3264
+      .except_fpu_enable_i        (except_fpu_enable), // FPU3264
+      .ctrl_fpu_mask_flags_i      (ctrl_fpu_mask_flags), // FPU3264
 
       // Commands for arithmetic part
-      .dcod_op_fp64_arith_i       (dcod_op_fp64_arith), // FPU64
-      .dcod_op_fp64_add_i         (dcod_op_fp64_add), // FPU64
-      .dcod_op_fp64_sub_i         (dcod_op_fp64_sub), // FPU64
-      .dcod_op_fp64_mul_i         (dcod_op_fp64_mul), // FPU64
-      .dcod_op_fp64_div_i         (dcod_op_fp64_div), // FPU64
-      .dcod_op_fp64_i2f_i         (dcod_op_fp64_i2f), // FPU64
-      .dcod_op_fp64_f2i_i         (dcod_op_fp64_f2i), // FPU64
+      .dcod_op_fpxx_arith_i       (dcod_op_fpxx_arith), // FPU3264
+      .dcod_op_fp64_arith_i       (dcod_op_fp64_arith), // FPU3264
+      .dcod_op_fpxx_add_i         (dcod_op_fpxx_add), // FPU3264
+      .dcod_op_fpxx_sub_i         (dcod_op_fpxx_sub), // FPU3264
+      .dcod_op_fpxx_mul_i         (dcod_op_fpxx_mul), // FPU3264
+      .dcod_op_fpxx_div_i         (dcod_op_fpxx_div), // FPU3264
+      .dcod_op_fpxx_i2f_i         (dcod_op_fpxx_i2f), // FPU3264
+      .dcod_op_fpxx_f2i_i         (dcod_op_fpxx_f2i), // FPU3264
 
       // Commands for comparison part
-      .dcod_op_fp64_cmp_i         (dcod_op_fp64_cmp), // FPU64
-      .dcod_opc_fp64_cmp_i        (dcod_opc_fp64_cmp), // FPU64
+      .dcod_op_fp64_cmp_i         (dcod_op_fp64_cmp), // FPU3264
+      .dcod_opc_fp64_cmp_i        (dcod_opc_fp64_cmp), // FPU3264
 
       // Operands from DECODE
-      .dcod_rfa_i                 (dcod_rfa), // FPU64
-      .dcod_rfb_i                 (dcod_rfb), // FPU64
-      .dcod_rfa2_i                (dcod_rfa2), // FPU64
-      .dcod_rfb2_i                (dcod_rfb2), // FPU64
+      .dcod_rfa_i                 (dcod_rfa), // FPU3264
+      .dcod_rfb_i                 (dcod_rfb), // FPU3264
+      .dcod_rfa2_i                (dcod_rfa2), // FPU3264
+      .dcod_rfb2_i                (dcod_rfb2), // FPU3264
 
       // OMAN-to-DECODE hazards
       //  combined flag
-      .omn2dec_hazards_i          (omn2dec_hazards_fp64), // FPU64
+      .omn2dec_hazards_i          (omn2dec_hazards_fp64), // FPU3264
       //  by operands
-      .busy_hazard_a_i            (busy_hazard_a), // FPU64
-      .busy_hazard_a_adr_i        (busy_hazard_a_adr), // FPU64
-      .busy_hazard_b_i            (busy_hazard_b), // FPU64
-      .busy_hazard_b_adr_i        (busy_hazard_b_adr), // FPU64
-      // for FPU64
-      .busy_hazard_a2_i           (busy_hazard_a2), // FPU64
-      .busy_hazard_a2_adr_i       (busy_hazard_a2_adr), // FPU64
-      .busy_hazard_b2_i           (busy_hazard_b2), // FPU64
-      .busy_hazard_b2_adr_i       (busy_hazard_b2_adr), // FPU64
+      .busy_hazard_a_i            (busy_hazard_a), // FPU3264
+      .busy_hazard_a_adr_i        (busy_hazard_a_adr), // FPU3264
+      .busy_hazard_b_i            (busy_hazard_b), // FPU3264
+      .busy_hazard_b_adr_i        (busy_hazard_b_adr), // FPU3264
+      // for FPU3264
+      .busy_hazard_a2_i           (busy_hazard_a2), // FPU3264
+      .busy_hazard_a2_adr_i       (busy_hazard_a2_adr), // FPU3264
+      .busy_hazard_b2_i           (busy_hazard_b2), // FPU3264
+      .busy_hazard_b2_adr_i       (busy_hazard_b2_adr), // FPU3264
 
       // EXEC-to-DECODE hazards
       //  combined flag
-      .exe2dec_hazards_i          (exe2dec_hazards_fp64), // FPU64
+      .exe2dec_hazards_i          (exe2dec_hazards_fp64), // FPU3264
       //  by operands
-      .exe2dec_hazard_a_i         (exe2dec_hazard_a), // FPU64
-      .exe2dec_hazard_b_i         (exe2dec_hazard_b), // FPU64
-      // for FPU64
-      .exe2dec_hazard_a2_i        (exe2dec_hazard_a2), // FPU64
-      .exe2dec_hazard_b2_i        (exe2dec_hazard_b2), // FPU64
+      .exe2dec_hazard_a_i         (exe2dec_hazard_a), // FPU3264
+      .exe2dec_hazard_b_i         (exe2dec_hazard_b), // FPU3264
+      // for FPU3264
+      .exe2dec_hazard_a2_i        (exe2dec_hazard_a2), // FPU3264
+      .exe2dec_hazard_b2_i        (exe2dec_hazard_b2), // FPU3264
 
       // Hazard could be passed from DECODE to EXECUTE
       //  ## A or B operand
-      .exec_rf_wb_i               (exec_rf_wb), // FPU64
-      .exec_rfd_adr_i             (exec_rfd_adr), // FPU64
-      //  ## for FPU64
-      .exec_rf_wb2_i              (exec_rf_wb2), // FPU64
-      .exec_rfd2_adr_i            (exec_rfd2_adr), // FPU64
+      .exec_rf_wb_i               (exec_rf_wb), // FPU3264
+      .exec_rfd_adr_i             (exec_rfd_adr), // FPU3264
+      //  ## for FPU3264
+      .exec_rf_wb2_i              (exec_rf_wb2), // FPU3264
+      .exec_rfd2_adr_i            (exec_rfd2_adr), // FPU3264
 
       // Hazard could be resolving
       //  ## A or B operand
-      .wb_rf_wb_i                 (wb_rf_wb), // FPU64
-      .wb_rfd_adr_i               (wb_rfd_adr[DEST_REG_ADDR_WIDTH-1:0]), // FPU64
-      .wb_result_i                (wb_result), // FPU64
-      //  ## for FPU64
-      .wb_rf_wb2_i                (wb_rf_wb2), // FPU64
-      .wb_rfd2_adr_i              (wb_rfd2_adr[DEST_REG_ADDR_WIDTH-1:0]), // FPU64
-      .wb_result2_i               (wb_result2), // FPU64
+      .wb_rf_wb_i                 (wb_rf_wb), // FPU3264
+      .wb_rfd_adr_i               (wb_rfd_adr[DEST_REG_ADDR_WIDTH-1:0]), // FPU3264
+      .wb_result_i                (wb_result), // FPU3264
+      //  ## for FPU3264
+      .wb_rf_wb2_i                (wb_rf_wb2), // FPU3264
+      .wb_rfd2_adr_i              (wb_rfd2_adr[DEST_REG_ADDR_WIDTH-1:0]), // FPU3264
+      .wb_result2_i               (wb_result2), // FPU3264
 
-      // FPU-64 arithmetic part
-      .wb_fp64_arith_res_hi_o     (wb_fp64_arith_res_hi), // FPU64
-      .wb_fp64_arith_res_lo_o     (wb_fp64_arith_res_lo), // FPU64
-      .wb_fp64_arith_fpcsr_o      (wb_fp64_arith_fpcsr), // FPU64
-      .wb_fp64_arith_wb_fpcsr_o   (wb_fp64_arith_wb_fpcsr), // FPU64
-      .wb_except_fp64_arith_o     (wb_except_fp64_arith), // FPU64
+      // FPU2364 arithmetic part
+      .wb_fpxx_arith_res_hi_o     (wb_fpxx_arith_res_hi), // FPU3264
+      .wb_fpxx_arith_res_lo_o     (wb_fpxx_arith_res_lo), // FPU3264
+      .wb_fpxx_arith_fpcsr_o      (wb_fpxx_arith_fpcsr), // FPU3264
+      .wb_fpxx_arith_wb_fpcsr_o   (wb_fpxx_arith_wb_fpcsr), // FPU3264
+      .wb_except_fpxx_arith_o     (wb_except_fpxx_arith), // FPU3264
 
       // FPU-64 comparison part
-      .wb_fp64_flag_set_o         (wb_fp64_flag_set), // FPU64
-      .wb_fp64_flag_clear_o       (wb_fp64_flag_clear), // FPU64
-      .wb_fp64_cmp_inv_o          (wb_fp64_cmp_inv), // FPU64
-      .wb_fp64_cmp_inf_o          (wb_fp64_cmp_inf), // FPU64
-      .wb_fp64_cmp_wb_fpcsr_o     (wb_fp64_cmp_wb_fpcsr), // FPU64
-      .wb_except_fp64_cmp_o       (wb_except_fp64_cmp) // FPU64
+      .wb_fp64_flag_set_o         (wb_fp64_flag_set), // FPU3264
+      .wb_fp64_flag_clear_o       (wb_fp64_flag_clear), // FPU3264
+      .wb_fp64_cmp_inv_o          (wb_fp64_cmp_inv), // FPU3264
+      .wb_fp64_cmp_inf_o          (wb_fp64_cmp_inf), // FPU3264
+      .wb_fp64_cmp_wb_fpcsr_o     (wb_fp64_cmp_wb_fpcsr), // FPU3264
+      .wb_except_fp64_cmp_o       (wb_except_fp64_cmp) // FPU3264
     );
   end
-  else begin :  alu_fp64_none
-    // FPU-64 busy and validity flags
-    assign fp64_busy              = 1'b0; // no FPU64
-    assign fp64_arith_valid       = 1'b0; // no FPU64
-    // FPU-64 arithmetic part
-    assign wb_fp64_arith_res_hi   = {OPTION_OPERAND_WIDTH{1'b0}}; // no FPU64
-    assign wb_fp64_arith_res_lo   = {OPTION_OPERAND_WIDTH{1'b0}}; // no FPU64
-    assign wb_fp64_arith_fpcsr    = {`OR1K_FPCSR_ALLF_SIZE{1'b0}}; // no FPU64
-    assign wb_fp64_arith_wb_fpcsr = 1'b0; // no FPU64
-    assign wb_except_fp64_arith   = 1'b0; // no FPU64
+  else begin :  alu_fpxx_none
+    // FPU3264 busy and validity flags
+    assign fpxx_busy              = 1'b0; // no FPU3264
+    assign fpxx_arith_valid       = 1'b0; // no FPU3264
+    // FPU3264 arithmetic part
+    assign wb_fpxx_arith_res_hi   = {OPTION_OPERAND_WIDTH{1'b0}}; // no FPU3264
+    assign wb_fpxx_arith_res_lo   = {OPTION_OPERAND_WIDTH{1'b0}}; // no FPU3264
+    assign wb_fpxx_arith_fpcsr    = {`OR1K_FPCSR_ALLF_SIZE{1'b0}}; // no FPU3264
+    assign wb_fpxx_arith_wb_fpcsr = 1'b0; // no FPU3264
+    assign wb_except_fpxx_arith   = 1'b0; // no FPU3264
     // FPU-64 comparison part
-    assign wb_fp64_flag_set     = 1'b0; // no FPU64
-    assign wb_fp64_flag_clear   = 1'b0; // no FPU64
-    assign wb_fp64_cmp_inv      = 1'b0; // no FPU64
-    assign wb_fp64_cmp_inf      = 1'b0; // no FPU64
-    assign wb_fp64_cmp_wb_fpcsr = 1'b0; // no FPU64
-    assign wb_except_fp64_cmp   = 1'b0; // no FPU64
+    assign wb_fp64_flag_set     = 1'b0; // no FPU3264
+    assign wb_fp64_flag_clear   = 1'b0; // no FPU3264
+    assign wb_fp64_cmp_inv      = 1'b0; // no FPU3264
+    assign wb_fp64_cmp_inf      = 1'b0; // no FPU3264
+    assign wb_fp64_cmp_wb_fpcsr = 1'b0; // no FPU3264
+    assign wb_except_fp64_cmp   = 1'b0; // no FPU3264
   end // fpu_ena/fpu_none
-  endgenerate // FPU-64 arithmetic related
+  endgenerate // FPU3264 arithmetic related
 
 
   //--------------//
@@ -1318,12 +1210,12 @@ module mor1kx_cpu_marocchino
   // WB:result //
   //-----------//
 
-  assign wb_result =  wb_alu_1clk_result |
-                      wb_div_result      | wb_mul_result        |
-                      wb_fp32_arith_res  | wb_fp64_arith_res_hi |
-                      wb_lsu_result      | wb_mfspr_dat;
+  assign wb_result =  wb_alu_1clk_result   |
+                      wb_div_result        | wb_mul_result |
+                      wb_fpxx_arith_res_hi |
+                      wb_lsu_result        | wb_mfspr_dat;
 
-  assign wb_result2 = wb_fp64_arith_res_lo;
+  assign wb_result2 = wb_fpxx_arith_res_lo;
 
 
   //------------------------------------//
@@ -1418,7 +1310,7 @@ module mor1kx_cpu_marocchino
     .OPTION_RF_ADDR_WIDTH       (OPTION_RF_ADDR_WIDTH), // OMAN
     .DEST_REG_ADDR_WIDTH        (DEST_REG_ADDR_WIDTH), // OMAN
     .DEST_FLAG_ADDR_WIDTH       (DEST_FLAG_ADDR_WIDTH), // OMAN
-    .FEATURE_FPU64              (FEATURE_FPU64) // OMAN
+    .FEATURE_FPU                (FEATURE_FPU) // OMAN
   )
   u_oman
   (
@@ -1438,7 +1330,7 @@ module mor1kx_cpu_marocchino
     .dcod_op_1clk_i             (dcod_op_1clk), // OMAN
     .dcod_op_div_i              (dcod_op_div), // OMAN
     .dcod_op_mul_i              (dcod_op_mul), // OMAN
-    .dcod_op_fp32_arith_i       (dcod_op_fp32_arith), // OMAN
+    .dcod_op_fpxx_arith_i       (dcod_op_fpxx_arith), // OMAN
     .dcod_op_ls_i               (dcod_op_lsu_load | dcod_op_lsu_store), // OMAN
     .dcod_op_rfe_i              (dcod_op_rfe), // OMAN
     // for FPU64
@@ -1483,15 +1375,13 @@ module mor1kx_cpu_marocchino
     .op_1clk_busy_i             (op_1clk_busy), // OMAN
     .mul_busy_i                 (mul_busy), // OMAN
     .div_busy_i                 (div_busy), // OMAN
-    .fp32_arith_busy_i          (fp32_arith_busy), // OMAN
-    .fp64_busy_i                (fp64_busy), // OMAN
+    .fpxx_busy_i                (fpxx_busy), // OMAN
     .lsu_busy_i                 (lsu_busy), // OMAN
 
     // collect valid flags from execution modules
     .div_valid_i                (div_valid), // OMAN
     .mul_valid_i                (mul_valid), // OMAN
-    .fp32_arith_valid_i         (fp32_arith_valid), // OMAN
-    .fp64_arith_valid_i         (fp64_arith_valid), // OMAN
+    .fpxx_arith_valid_i         (fpxx_arith_valid), // OMAN
     .lsu_valid_i                (lsu_valid), // OMAN: result ready or exceptions
 
     // FETCH & DECODE exceptions
@@ -1560,10 +1450,9 @@ module mor1kx_cpu_marocchino
     .grant_wb_to_1clk_o         (grant_wb_to_1clk), // OMAN
     .grant_wb_to_div_o          (grant_wb_to_div), // OMAN
     .grant_wb_to_mul_o          (grant_wb_to_mul), // OMAN
-    .grant_wb_to_fp32_arith_o   (grant_wb_to_fp32_arith), // OMAN
+    .grant_wb_to_fpxx_arith_o   (grant_wb_to_fpxx_arith), // OMAN
     .grant_wb_to_lsu_o          (grant_wb_to_lsu), // OMAN
     // for FPU64
-    .grant_wb_to_fp64_arith_o   (grant_wb_to_fp64_arith), // OMAN
     .grant_wb_to_fp64_cmp_o     (grant_wb_to_fp64_cmp), // OMAN
 
     // Support IBUS error handling in CTRL
@@ -1688,7 +1577,6 @@ module mor1kx_cpu_marocchino
     .FEATURE_PERFCOUNTERS       (FEATURE_PERFCOUNTERS), // CTRL
     .FEATURE_MAC                ("NONE"), // CTRL
     .FEATURE_FPU                (FEATURE_FPU), // CTRL
-    .FEATURE_FPU64              (FEATURE_FPU64), // CTRL
     .FEATURE_MULTICORE          (FEATURE_MULTICORE) // CTRL
   )
   u_ctrl
@@ -1799,22 +1687,17 @@ module mor1kx_cpu_marocchino
     .wb_1clk_overflow_clear_i         (wb_1clk_overflow_clear), // CTRL
 
     //  # FPX32 related flags
-    //    ## arithmetic part
-    .wb_fp32_arith_fpcsr_i            (wb_fp32_arith_fpcsr), // CTRL
-    .wb_fp32_arith_wb_fpcsr_i         (wb_fp32_arith_wb_fpcsr), // CTRL
-    .wb_except_fp32_arith_i           (wb_except_fp32_arith), // CTRL
     //    ## comparison part
     .wb_fp32_cmp_inv_i                (wb_fp32_cmp_inv), // CTRL
     .wb_fp32_cmp_inf_i                (wb_fp32_cmp_inf), // CTRL
     .wb_fp32_cmp_wb_fpcsr_i           (wb_fp32_cmp_wb_fpcsr), // CTRL
     .wb_except_fp32_cmp_i             (wb_except_fp32_cmp), // CTRL
 
-    //  # FPX64 related flags
-    //    ## arithmetic part
-    .wb_fp64_arith_fpcsr_i            (wb_fp64_arith_fpcsr), // CTRL
-    .wb_fp64_arith_wb_fpcsr_i         (wb_fp64_arith_wb_fpcsr), // CTRL
-    .wb_except_fp64_arith_i           (wb_except_fp64_arith), // CTRL
-    //    ## comparison part
+    //  # FPX3264 arithmetic part
+    .wb_fpxx_arith_fpcsr_i            (wb_fpxx_arith_fpcsr), // CTRL
+    .wb_fpxx_arith_wb_fpcsr_i         (wb_fpxx_arith_wb_fpcsr), // CTRL
+    .wb_except_fpxx_arith_i           (wb_except_fpxx_arith), // CTRL
+    //  # FPX64 comparison part
     .wb_fp64_cmp_inv_i                (wb_fp64_cmp_inv), // CTRL
     .wb_fp64_cmp_inf_i                (wb_fp64_cmp_inf), // CTRL
     .wb_fp64_cmp_wb_fpcsr_i           (wb_fp64_cmp_wb_fpcsr), // CTRL

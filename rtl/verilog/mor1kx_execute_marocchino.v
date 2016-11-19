@@ -120,7 +120,7 @@ module mor1kx_multiplier_marocchino
     .USE_OPC              (0), // MUL_RSVRS
     .OPC_WIDTH            (1), // MUL_RSVRS
     .DEST_REG_ADDR_WIDTH  (DEST_REG_ADDR_WIDTH), // MUL_RSVRS
-    .FEATURE_FPU64        ("NONE"), // MUL_RSVRS
+    .FEATURE_FPU          ("NONE"), // MUL_RSVRS
     .USE_RSVRS_FLAG_CARRY (0), // MUL_RSVRS
     .DEST_FLAG_ADDR_WIDTH (1) // MUL_RSVRS
   )
@@ -622,7 +622,7 @@ module mor1kx_divider_marocchino
     .USE_OPC              (1), // DIV_RSVRS
     .OPC_WIDTH            (2), // DIV_RSVRS
     .DEST_REG_ADDR_WIDTH  (DEST_REG_ADDR_WIDTH), // DIV_RSVRS
-    .FEATURE_FPU64        ("NONE"), // DIV_RSVRS
+    .FEATURE_FPU          ("NONE"), // DIV_RSVRS
     .USE_RSVRS_FLAG_CARRY (0), // DIV_RSVRS
     .DEST_FLAG_ADDR_WIDTH (1) // DIV_RSVRS
   )
@@ -1093,7 +1093,7 @@ module mor1kx_exec_1clk_marocchino
     .USE_OPC                  (1), // 1CLK_RSVRS
     .OPC_WIDTH                (ONE_CLK_ATTR_WIDTH), // 1CLK_RSVRS
     .DEST_REG_ADDR_WIDTH      (DEST_REG_ADDR_WIDTH), // 1CLK_RSVRS
-    .FEATURE_FPU64            ("NONE"), // 1CLK_RSVRS
+    .FEATURE_FPU              ("NONE"), // 1CLK_RSVRS
     .USE_RSVRS_FLAG_CARRY     (1), // 1CLK_RSVRS
     .DEST_FLAG_ADDR_WIDTH     (DEST_FLAG_ADDR_WIDTH) // 1CLK_RSVRS
   )

@@ -385,7 +385,7 @@ module mor1kx_lsu_marocchino
     .USE_OPC                  (1), // LSU_RSVRS
     .OPC_WIDTH                (LSU_ATTR_WIDTH), // LSU_RSVRS
     .DEST_REG_ADDR_WIDTH      (DEST_REG_ADDR_WIDTH), // LSU_RSVRS
-    .FEATURE_FPU64            ("NONE"), // LSU_RSVRS
+    .FEATURE_FPU              ("NONE"), // LSU_RSVRS
     .USE_RSVRS_FLAG_CARRY     (0), // LSU_RSVRS
     .DEST_FLAG_ADDR_WIDTH     (1) // LSU_RSVRS
   )

@@ -29,7 +29,7 @@ module mor1kx_oman_marocchino
   parameter OPTION_RF_ADDR_WIDTH =  5,
   parameter DEST_REG_ADDR_WIDTH  =  8, // OPTION_RF_ADDR_WIDTH + log2(Re-Ordering buffer width)
   parameter DEST_FLAG_ADDR_WIDTH =  3, // log2(Re-Ordering buffer width)
-  parameter FEATURE_FPU64        = "NONE"
+  parameter FEATURE_FPU          = "NONE"
 )
 (
   // clock & reset
@@ -48,10 +48,10 @@ module mor1kx_oman_marocchino
   input                                 dcod_op_1clk_i,
   input                                 dcod_op_div_i,
   input                                 dcod_op_mul_i,
-  input                                 dcod_op_fp32_arith_i,
+  input                                 dcod_op_fpxx_arith_i,
   input                                 dcod_op_ls_i,     // load / store (we need store for pushing LSU exceptions)
   input                                 dcod_op_rfe_i,    // l.rfe
-  // for FPU64
+  // for FPU3264
   input                                 dcod_op_fp64_arith_i,
   input                                 dcod_op_fp64_cmp_i,
 
@@ -93,15 +93,13 @@ module mor1kx_oman_marocchino
   input                                 op_1clk_busy_i,
   input                                 mul_busy_i,
   input                                 div_busy_i,
-  input                                 fp32_arith_busy_i,
-  input                                 fp64_busy_i,
+  input                                 fpxx_busy_i,
   input                                 lsu_busy_i,
 
   // collect valid flags from execution modules
   input                                 div_valid_i,
   input                                 mul_valid_i,
-  input                                 fp32_arith_valid_i,
-  input                                 fp64_arith_valid_i,
+  input                                 fpxx_arith_valid_i,
   input                                 lsu_valid_i,
 
   // FETCH & DECODE exceptions
@@ -170,10 +168,9 @@ module mor1kx_oman_marocchino
   output                                grant_wb_to_1clk_o,
   output                                grant_wb_to_div_o,
   output                                grant_wb_to_mul_o,
-  output                                grant_wb_to_fp32_arith_o,
+  output                                grant_wb_to_fpxx_arith_o,
   output                                grant_wb_to_lsu_o,
   // for FPU64
-  output                                grant_wb_to_fp64_arith_o,
   output                                grant_wb_to_fp64_cmp_o,
 
   // Support IBUS error handling in CTRL
@@ -225,8 +222,8 @@ module mor1kx_oman_marocchino
   localparam  OCBT_OP_1CLK_POS        = OCBT_JUMP_OR_BRANCH_POS + 1;
   localparam  OCBT_OP_DIV_POS         = OCBT_OP_1CLK_POS        + 1;
   localparam  OCBT_OP_MUL_POS         = OCBT_OP_DIV_POS         + 1;
-  localparam  OCBT_OP_FP32_POS        = OCBT_OP_MUL_POS         + 1; // arithmetic part only, FP comparison is 1-clock
-  localparam  OCBT_OP_LS_POS          = OCBT_OP_FP32_POS        + 1; // load / store (we need it for pushing LSU exceptions)
+  localparam  OCBT_OP_FPXX_ARITH_POS  = OCBT_OP_MUL_POS         + 1; // arithmetic part only, FP comparison is 1-clock
+  localparam  OCBT_OP_LS_POS          = OCBT_OP_FPXX_ARITH_POS  + 1; // load / store (we need it for pushing LSU exceptions)
   localparam  OCBT_OP_RFE_POS         = OCBT_OP_LS_POS          + 1; // l.rfe
   //  Instruction is in delay slot
   localparam  OCBT_DELAY_SLOT_POS     = OCBT_OP_RFE_POS         + 1;
@@ -304,7 +301,7 @@ module mor1kx_oman_marocchino
                   // unit that must be granted for WB
                   dcod_op_rfe_i,     // l.rfe
                   dcod_op_ls_i,      // load / store (we need it for pushing LSU exceptions)
-                  dcod_op_fp32_arith_i,
+                  dcod_op_fpxx_arith_i,
                   dcod_op_mul_i,
                   dcod_op_div_i,
                   dcod_op_1clk_i,
@@ -392,11 +389,13 @@ module mor1kx_oman_marocchino
 
   generate
   /* verilator lint_off WIDTH */
-  if (FEATURE_FPU64 != "NONE") begin : oman_ocb_fp64_enabled
+  if (FEATURE_FPU != "NONE") begin : oman_ocb_fp64_enabled
   /* verilator lint_on WIDTH */
     wire [OCBT_FP64_MSB:0] fp64_ocbi;
     // input pack
-    assign fp64_ocbi = { dcod_rfd2_adr_i, dcod_op_fp64_arith_i, dcod_op_fp64_cmp_i };
+    assign fp64_ocbi = { dcod_rfd2_adr_i,
+                         (dcod_op_fpxx_arith_i & dcod_op_fp64_arith_i),
+                         dcod_op_fp64_cmp_i };
     // buffer outputs
     wire [OCBT_FP64_MSB:0] fp64_ocbo00, fp64_ocbo01, fp64_ocbo02, fp64_ocbo03,
                            fp64_ocbo04, fp64_ocbo05, fp64_ocbo06, fp64_ocbo07;
@@ -430,7 +429,6 @@ module mor1kx_oman_marocchino
     );
 
     // granting write-back to FPU64-units
-    assign grant_wb_to_fp64_arith_o = fp64_ocbo00[OCBT_OP_FP64_ARITH_POS];
     assign grant_wb_to_fp64_cmp_o   = fp64_ocbo00[OCBT_OP_FP64_CMP_POS];
 
     // for EXEC-to-DECODE hazards resolving
@@ -544,7 +542,6 @@ module mor1kx_oman_marocchino
   end
   else begin : oman_ocb_fp64_disabled
     // granting write-back to FPU64-units
-    assign grant_wb_to_fp64_arith_o = 1'b0;
     assign grant_wb_to_fp64_cmp_o   = 1'b0;
     // for EXEC-to-DECODE hazards resolving
     assign exec_rf_wb2_o   = 1'b0;
@@ -576,7 +573,7 @@ module mor1kx_oman_marocchino
   assign grant_wb_to_1clk_o        = ocbo00[OCBT_OP_1CLK_POS];
   assign grant_wb_to_div_o         = ocbo00[OCBT_OP_DIV_POS];
   assign grant_wb_to_mul_o         = ocbo00[OCBT_OP_MUL_POS];
-  assign grant_wb_to_fp32_arith_o  = ocbo00[OCBT_OP_FP32_POS];
+  assign grant_wb_to_fpxx_arith_o  = ocbo00[OCBT_OP_FPXX_ARITH_POS];
   assign grant_wb_to_lsu_o         = ocbo00[OCBT_OP_LS_POS];
 
 
@@ -706,8 +703,7 @@ module mor1kx_oman_marocchino
   assign exec_valid_o = ocbo00[OCBT_OP_1CLK_POS] |
                         (div_valid_i & ocbo00[OCBT_OP_DIV_POS]) |
                         (mul_valid_i & ocbo00[OCBT_OP_MUL_POS]) |
-                        (fp32_arith_valid_i & ocbo00[OCBT_OP_FP32_POS]) |
-                        (fp64_arith_valid_i & grant_wb_to_fp64_arith_o) |
+                        (fpxx_arith_valid_i & ocbo00[OCBT_OP_FPXX_ARITH_POS]) |
                         grant_wb_to_fp64_cmp_o |
                         (lsu_valid_i & ocbo00[OCBT_OP_LS_POS]) |
                         ocbo00[OCBT_OP_PASS_EXEC_POS] | // also includes l.rfe in the sense
@@ -720,8 +716,7 @@ module mor1kx_oman_marocchino
     (dcod_op_1clk_i & op_1clk_busy_i) |
     (dcod_op_div_i  & div_busy_i) |
     (dcod_op_mul_i  & mul_busy_i) |
-    (dcod_op_fp32_arith_i & fp32_arith_busy_i) |
-    ((dcod_op_fp64_arith_i | dcod_op_fp64_cmp_i) & fp64_busy_i) |
+    ((dcod_op_fpxx_arith_i | dcod_op_fp64_cmp_i) & fpxx_busy_i) |
     ((dcod_op_ls_i | dcod_op_msync_i) & lsu_busy_i);
 
   //  stall by l.jr/l.jalr : MAROCCHINO_TODO
@@ -824,7 +819,7 @@ module mor1kx_oman_marocchino
   // for FPU64
   generate
   /* verilator lint_off WIDTH */
-  if (FEATURE_FPU64 != "NONE") begin : oman_wb_fp64_enabled
+  if (FEATURE_FPU != "NONE") begin : oman_wb_fp64lo_enabled
   /* verilator lint_on WIDTH */
     // 1-clock write back pulse for low bits of D
     reg wb_rf_wb2_r;
@@ -850,7 +845,7 @@ module mor1kx_oman_marocchino
     assign wb_rf_wb2_o   = wb_rf_wb2_r;
     assign wb_rfd2_adr_o = wb_rfd2_adr_r;
   end
-  else begin : oman_wb_fp64_enabled
+  else begin : oman_wb_fp64lo_disbled
     assign wb_rf_wb2_o   = 1'b0;
     assign wb_rfd2_adr_o = {DEST_REG_ADDR_WIDTH{1'b0}};
   end
