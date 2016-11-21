@@ -358,8 +358,8 @@ module mor1kx_rsrvs_marocchino
   input                                 taking_op_i,      // a unit is taking input for execution
 
   // input data from DECODE
-  input      [OPTION_OPERAND_WIDTH-1:0] dcod_rfa_i,
-  input      [OPTION_OPERAND_WIDTH-1:0] dcod_rfb_i,
+  input      [OPTION_OPERAND_WIDTH-1:0] dcod_rfa1_i,
+  input      [OPTION_OPERAND_WIDTH-1:0] dcod_rfb1_i,
   // for FPU64
   input      [OPTION_OPERAND_WIDTH-1:0] dcod_rfa2_i,
   input      [OPTION_OPERAND_WIDTH-1:0] dcod_rfb2_i,
@@ -373,25 +373,25 @@ module mor1kx_rsrvs_marocchino
   input                                 busy_hazard_c_i,     // by operand CARRY
   input      [DEST_FLAG_ADDR_WIDTH-1:0] busy_hazard_c_adr_i, // hazard address of CARRY
   //  by operands
-  input                                 busy_hazard_a_i,     // by operand A
-  input       [DEST_REG_ADDR_WIDTH-1:0] busy_hazard_a_adr_i, // hazard by destination register for operand A
-  input                                 busy_hazard_b_i,     // by operand B
-  input       [DEST_REG_ADDR_WIDTH-1:0] busy_hazard_b_adr_i, // hazard by destination register for operand B
+  input                                 busy_hazard_d1a1_i,     // by operand A
+  input       [DEST_REG_ADDR_WIDTH-1:0] busy_hazard_d1a1_adr_i, // hazard by destination register for operand A
+  input                                 busy_hazard_d1b1_i,     // by operand B
+  input       [DEST_REG_ADDR_WIDTH-1:0] busy_hazard_d1b1_adr_i, // hazard by destination register for operand B
   // for FPU64
-  input                                 busy_hazard_a2_i,     // by low part of operand A
-  input       [DEST_REG_ADDR_WIDTH-1:0] busy_hazard_a2_adr_i, // hazard by destination register for operand A
-  input                                 busy_hazard_b2_i,     // by low part of operand B
-  input       [DEST_REG_ADDR_WIDTH-1:0] busy_hazard_b2_adr_i, // hazard by destination register for operand B
+  input                                 busy_hazard_d2a2_i,     // by low part of operand A
+  input       [DEST_REG_ADDR_WIDTH-1:0] busy_hazard_d2a2_adr_i, // hazard by destination register for operand A
+  input                                 busy_hazard_d2b2_i,     // by low part of operand B
+  input       [DEST_REG_ADDR_WIDTH-1:0] busy_hazard_d2b2_adr_i, // hazard by destination register for operand B
 
   // EXEC-to-DECODE hazards
   //  combined flag
   input                                 exe2dec_hazards_i,      // OR-combined hazards
   //  by operands
-  input                                 exe2dec_hazard_a_i,     // by operand A
-  input                                 exe2dec_hazard_b_i,     // by operand B
+  input                                 exe2dec_hazard_d1a1_i,     // by operand A
+  input                                 exe2dec_hazard_d1b1_i,     // by operand B
   // for FPU64
-  input                                 exe2dec_hazard_a2_i,     // by low part of operand A
-  input                                 exe2dec_hazard_b2_i,     // by low part of operand B
+  input                                 exe2dec_hazard_d2a2_i,     // by low part of operand A
+  input                                 exe2dec_hazard_d2b2_i,     // by low part of operand B
 
   // Hazard could be passed from DECODE to EXECUTE
   //  ## FLAG or CARRY
@@ -399,10 +399,10 @@ module mor1kx_rsrvs_marocchino
   input                                 exec_carry_wb_i,        // EXECUTE instruction is writting CARRY
   input      [DEST_FLAG_ADDR_WIDTH-1:0] exec_flag_carry_adr_i,  // CARRY identifier
   //  ## A or B operand
-  input                                 exec_rf_wb_i,           // EXECUTE instruction is writting RF
-  input       [DEST_REG_ADDR_WIDTH-1:0] exec_rfd_adr_i,         // A or B operand
+  input                                 exec_rfd1_wb_i,          // EXECUTE instruction is writting RF
+  input       [DEST_REG_ADDR_WIDTH-1:0] exec_rfd1_adr_i,         // A or B operand
   //  ## for FPU64
-  input                                 exec_rf_wb2_i,           // EXECUTE instruction is writting RF
+  input                                 exec_rfd2_wb_i,          // EXECUTE instruction is writting RF
   input       [DEST_REG_ADDR_WIDTH-1:0] exec_rfd2_adr_i,         // low part of A or B operand
   //  ## passing only with writting back
   input                                 padv_wb_i,
@@ -413,11 +413,11 @@ module mor1kx_rsrvs_marocchino
   input                                 wb_carry_wb_i,          // WB instruction is writting CARRY
   input      [DEST_FLAG_ADDR_WIDTH-1:0] wb_flag_carry_adr_i,    // FLAG or CARRY identifier
   //  ## A or B operand
-  input                                 wb_rf_wb_i,             // WB instruction is writting RF
-  input       [DEST_REG_ADDR_WIDTH-1:0] wb_rfd_adr_i,           // A or B operand
-  input      [OPTION_OPERAND_WIDTH-1:0] wb_result_i,
+  input                                 wb_rfd1_wb_i,           // WB instruction is writting RF
+  input       [DEST_REG_ADDR_WIDTH-1:0] wb_rfd1_adr_i,          // A or B operand
+  input      [OPTION_OPERAND_WIDTH-1:0] wb_result1_i,
   //  ## for FPU64
-  input                                 wb_rf_wb2_i,             // WB instruction is writting RF
+  input                                 wb_rfd2_wb_i,            // WB instruction is writting RF
   input       [DEST_REG_ADDR_WIDTH-1:0] wb_rfd2_adr_i,           // low part of A or B operand
   input      [OPTION_OPERAND_WIDTH-1:0] wb_result2_i,
 
@@ -432,8 +432,8 @@ module mor1kx_rsrvs_marocchino
   output                                exec_op_o,    // request the unit command
   output                [OPC_WIDTH-1:0] exec_opc_o,   // additional attributes for command
   //   operands
-  output     [OPTION_OPERAND_WIDTH-1:0] exec_rfa_o,
-  output     [OPTION_OPERAND_WIDTH-1:0] exec_rfb_o,
+  output     [OPTION_OPERAND_WIDTH-1:0] exec_rfa1_o,
+  output     [OPTION_OPERAND_WIDTH-1:0] exec_rfb1_o,
   //  ## for FPU64
   output     [OPTION_OPERAND_WIDTH-1:0] exec_rfa2_o,
   output     [OPTION_OPERAND_WIDTH-1:0] exec_rfb2_o,
@@ -447,22 +447,22 @@ module mor1kx_rsrvs_marocchino
   reg                                 busy_op_r;
   // busy: operands
   //   ## registers for operands A & B
-  reg      [OPTION_OPERAND_WIDTH-1:0] busy_rfa_r;
-  reg      [OPTION_OPERAND_WIDTH-1:0] busy_rfb_r;
+  reg      [OPTION_OPERAND_WIDTH-1:0] busy_rfa1_r;
+  reg      [OPTION_OPERAND_WIDTH-1:0] busy_rfb1_r;
   //   ## multiplexed with forwarded value from WB
-  wire     [OPTION_OPERAND_WIDTH-1:0] busy_rfa;
-  wire     [OPTION_OPERAND_WIDTH-1:0] busy_rfb;
+  wire     [OPTION_OPERAND_WIDTH-1:0] busy_rfa1;
+  wire     [OPTION_OPERAND_WIDTH-1:0] busy_rfb1;
   //   ## controls for forwarding multiplexors (only WB could be muxed)
-  wire                                busy_rfa_muxing_wb;
-  wire                                busy_rfb_muxing_wb;
+  wire                                busy_rfa1_muxing_wb;
+  wire                                busy_rfb1_muxing_wb;
   //   ## indicators that a hazard could be passed to EXECUTE
-  wire                                busy_rfa_pass2exec;
-  wire                                busy_rfb_pass2exec;
+  wire                                busy_rfa1_pass2exec;
+  wire                                busy_rfb1_pass2exec;
   //   ## hazard flags and destination addresses
-  reg                                 busy_hazard_a_r;
-  reg       [DEST_REG_ADDR_WIDTH-1:0] busy_hazard_a_adr_r;
-  reg                                 busy_hazard_b_r;
-  reg       [DEST_REG_ADDR_WIDTH-1:0] busy_hazard_b_adr_r;
+  reg                                 busy_hazard_d1a1_r;
+  reg       [DEST_REG_ADDR_WIDTH-1:0] busy_hazard_d1a1_adr_r;
+  reg                                 busy_hazard_d1b1_r;
+  reg       [DEST_REG_ADDR_WIDTH-1:0] busy_hazard_d1b1_adr_r;
   // busy: low part of operands for FPU64
   //   ## multiplexed with forwarded value from WB
   wire     [OPTION_OPERAND_WIDTH-1:0] busy_rfa2;
@@ -474,8 +474,8 @@ module mor1kx_rsrvs_marocchino
   wire                                busy_rfa2_pass2exec;
   wire                                busy_rfb2_pass2exec;
   //   ## hazard flags and destination addresses
-  wire                                busy_hazard_a2;
-  wire                                busy_hazard_b2;
+  wire                                busy_hazard_d2a2;
+  wire                                busy_hazard_d2b2;
   // busy pushing execute
   wire                                busy_free_of_hazards;
   wire                                busy_pushing_exec;
@@ -529,65 +529,65 @@ module mor1kx_rsrvs_marocchino
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst) begin
       // operand A
-      busy_hazard_a_r     <= 1'b0;
-      busy_hazard_a_adr_r <= {DEST_REG_ADDR_WIDTH{1'b0}};
+      busy_hazard_d1a1_r     <= 1'b0;
+      busy_hazard_d1a1_adr_r <= {DEST_REG_ADDR_WIDTH{1'b0}};
       // operand B
-      busy_hazard_b_r     <= 1'b0;
-      busy_hazard_b_adr_r <= {DEST_REG_ADDR_WIDTH{1'b0}};
+      busy_hazard_d1b1_r     <= 1'b0;
+      busy_hazard_d1b1_adr_r <= {DEST_REG_ADDR_WIDTH{1'b0}};
     end
     else if (pipeline_flush_i) begin
       // operand A
-      busy_hazard_a_r     <= 1'b0;
-      busy_hazard_a_adr_r <= {DEST_REG_ADDR_WIDTH{1'b0}};
+      busy_hazard_d1a1_r     <= 1'b0;
+      busy_hazard_d1a1_adr_r <= {DEST_REG_ADDR_WIDTH{1'b0}};
       // operand B
-      busy_hazard_b_r     <= 1'b0;
-      busy_hazard_b_adr_r <= {DEST_REG_ADDR_WIDTH{1'b0}};
+      busy_hazard_d1b1_r     <= 1'b0;
+      busy_hazard_d1b1_adr_r <= {DEST_REG_ADDR_WIDTH{1'b0}};
     end
     else if (dcod_pushing_busy) begin
       // operand A
-      busy_hazard_a_r     <= busy_hazard_a_i;
-      busy_hazard_a_adr_r <= busy_hazard_a_adr_i;
+      busy_hazard_d1a1_r     <= busy_hazard_d1a1_i;
+      busy_hazard_d1a1_adr_r <= busy_hazard_d1a1_adr_i;
       // operand B
-      busy_hazard_b_r     <= busy_hazard_b_i;
-      busy_hazard_b_adr_r <= busy_hazard_b_adr_i;
+      busy_hazard_d1b1_r     <= busy_hazard_d1b1_i;
+      busy_hazard_d1b1_adr_r <= busy_hazard_d1b1_adr_i;
     end
     else begin
       // complete forwarding for operand A
-      if (busy_rfa_muxing_wb | busy_pushing_exec) begin
-        busy_hazard_a_r     <= 1'b0;
-        busy_hazard_a_adr_r <= {DEST_REG_ADDR_WIDTH{1'b0}};
+      if (busy_rfa1_muxing_wb | busy_pushing_exec) begin
+        busy_hazard_d1a1_r     <= 1'b0;
+        busy_hazard_d1a1_adr_r <= {DEST_REG_ADDR_WIDTH{1'b0}};
       end
       // complete forwarding for operand B
-      if (busy_rfb_muxing_wb | busy_pushing_exec) begin
-        busy_hazard_b_r     <= 1'b0;
-        busy_hazard_b_adr_r <= {DEST_REG_ADDR_WIDTH{1'b0}};
+      if (busy_rfb1_muxing_wb | busy_pushing_exec) begin
+        busy_hazard_d1b1_r     <= 1'b0;
+        busy_hazard_d1b1_adr_r <= {DEST_REG_ADDR_WIDTH{1'b0}};
       end
     end
   end // @clock
   // ---
   always @(posedge clk) begin
     if (dcod_pushing_busy) begin
-      busy_rfa_r <= dcod_rfa_i;
-      busy_rfb_r <= dcod_rfb_i;
+      busy_rfa1_r <= dcod_rfa1_i;
+      busy_rfb1_r <= dcod_rfb1_i;
     end
     else begin
       // complete forwarding for operand A
-      if (busy_rfa_muxing_wb)
-        busy_rfa_r <= busy_rfa;
+      if (busy_rfa1_muxing_wb)
+        busy_rfa1_r <= busy_rfa1;
       // complete forwarding for operand B
-      if (busy_rfb_muxing_wb)
-        busy_rfb_r <= busy_rfb;
+      if (busy_rfb1_muxing_wb)
+        busy_rfb1_r <= busy_rfb1;
     end
   end // @clock
   // controls for forwarding multiplexors (only WB could be muxed)
-  assign busy_rfa_muxing_wb = busy_hazard_a_r & wb_rf_wb_i & (busy_hazard_a_adr_r == wb_rfd_adr_i);
-  assign busy_rfb_muxing_wb = busy_hazard_b_r & wb_rf_wb_i & (busy_hazard_b_adr_r == wb_rfd_adr_i);
+  assign busy_rfa1_muxing_wb = busy_hazard_d1a1_r & wb_rfd1_wb_i & (busy_hazard_d1a1_adr_r == wb_rfd1_adr_i);
+  assign busy_rfb1_muxing_wb = busy_hazard_d1b1_r & wb_rfd1_wb_i & (busy_hazard_d1b1_adr_r == wb_rfd1_adr_i);
   // last forward (from WB)
-  assign busy_rfa = busy_rfa_muxing_wb ? wb_result_i : busy_rfa_r;
-  assign busy_rfb = busy_rfb_muxing_wb ? wb_result_i : busy_rfb_r;
+  assign busy_rfa1 = busy_rfa1_muxing_wb ? wb_result1_i : busy_rfa1_r;
+  assign busy_rfb1 = busy_rfb1_muxing_wb ? wb_result1_i : busy_rfb1_r;
   // indicators that an operand hazard could be passed to EXECUTE
-  assign busy_rfa_pass2exec = busy_hazard_a_r & exec_rf_wb_i & (busy_hazard_a_adr_r == exec_rfd_adr_i) & padv_wb_i;
-  assign busy_rfb_pass2exec = busy_hazard_b_r & exec_rf_wb_i & (busy_hazard_b_adr_r == exec_rfd_adr_i) & padv_wb_i;
+  assign busy_rfa1_pass2exec = busy_hazard_d1a1_r & exec_rfd1_wb_i & (busy_hazard_d1a1_adr_r == exec_rfd1_adr_i) & padv_wb_i;
+  assign busy_rfb1_pass2exec = busy_hazard_d1b1_r & exec_rfd1_wb_i & (busy_hazard_d1b1_adr_r == exec_rfd1_adr_i) & padv_wb_i;
   //  ## for FPU64
   generate
   /* verilator lint_off WIDTH */
@@ -597,46 +597,46 @@ module mor1kx_rsrvs_marocchino
     reg      [OPTION_OPERAND_WIDTH-1:0] busy_rfa2_r;
     reg      [OPTION_OPERAND_WIDTH-1:0] busy_rfb2_r;
     // hazard flags and destination addresses
-    reg                                 busy_hazard_a2_r;
-    reg       [DEST_REG_ADDR_WIDTH-1:0] busy_hazard_a2_adr_r;
-    reg                                 busy_hazard_b2_r;
-    reg       [DEST_REG_ADDR_WIDTH-1:0] busy_hazard_b2_adr_r;
+    reg                                 busy_hazard_d2a2_r;
+    reg       [DEST_REG_ADDR_WIDTH-1:0] busy_hazard_d2a2_adr_r;
+    reg                                 busy_hazard_d2b2_r;
+    reg       [DEST_REG_ADDR_WIDTH-1:0] busy_hazard_d2b2_adr_r;
     // ---
     always @(posedge clk `OR_ASYNC_RST) begin
       if (rst) begin
         // operand A
-        busy_hazard_a2_r     <= 1'b0;
-        busy_hazard_a2_adr_r <= {DEST_REG_ADDR_WIDTH{1'b0}};
+        busy_hazard_d2a2_r     <= 1'b0;
+        busy_hazard_d2a2_adr_r <= {DEST_REG_ADDR_WIDTH{1'b0}};
         // operand B
-        busy_hazard_b2_r     <= 1'b0;
-        busy_hazard_b2_adr_r <= {DEST_REG_ADDR_WIDTH{1'b0}};
+        busy_hazard_d2b2_r     <= 1'b0;
+        busy_hazard_d2b2_adr_r <= {DEST_REG_ADDR_WIDTH{1'b0}};
       end
       else if (pipeline_flush_i) begin
         // operand A
-        busy_hazard_a2_r     <= 1'b0;
-        busy_hazard_a2_adr_r <= {DEST_REG_ADDR_WIDTH{1'b0}};
+        busy_hazard_d2a2_r     <= 1'b0;
+        busy_hazard_d2a2_adr_r <= {DEST_REG_ADDR_WIDTH{1'b0}};
         // operand B
-        busy_hazard_b2_r     <= 1'b0;
-        busy_hazard_b2_adr_r <= {DEST_REG_ADDR_WIDTH{1'b0}};
+        busy_hazard_d2b2_r     <= 1'b0;
+        busy_hazard_d2b2_adr_r <= {DEST_REG_ADDR_WIDTH{1'b0}};
       end
       else if (dcod_pushing_busy) begin
         // operand A
-        busy_hazard_a2_r     <= busy_hazard_a2_i;
-        busy_hazard_a2_adr_r <= busy_hazard_a2_adr_i;
+        busy_hazard_d2a2_r     <= busy_hazard_d2a2_i;
+        busy_hazard_d2a2_adr_r <= busy_hazard_d2a2_adr_i;
         // operand B
-        busy_hazard_b2_r     <= busy_hazard_b2_i;
-        busy_hazard_b2_adr_r <= busy_hazard_b2_adr_i;
+        busy_hazard_d2b2_r     <= busy_hazard_d2b2_i;
+        busy_hazard_d2b2_adr_r <= busy_hazard_d2b2_adr_i;
       end
       else begin
         // complete forwarding for operand A
         if (busy_rfa2_muxing_wb | busy_pushing_exec) begin
-          busy_hazard_a2_r     <= 1'b0;
-          busy_hazard_a2_adr_r <= {DEST_REG_ADDR_WIDTH{1'b0}};
+          busy_hazard_d2a2_r     <= 1'b0;
+          busy_hazard_d2a2_adr_r <= {DEST_REG_ADDR_WIDTH{1'b0}};
         end
         // complete forwarding for operand B
         if (busy_rfb2_muxing_wb | busy_pushing_exec) begin
-          busy_hazard_b2_r     <= 1'b0;
-          busy_hazard_b2_adr_r <= {DEST_REG_ADDR_WIDTH{1'b0}};
+          busy_hazard_d2b2_r     <= 1'b0;
+          busy_hazard_d2b2_adr_r <= {DEST_REG_ADDR_WIDTH{1'b0}};
         end
       end
     end // @clock
@@ -656,23 +656,23 @@ module mor1kx_rsrvs_marocchino
       end
     end // @clock
     //  ## controls for forwarding multiplexors (only WB could be muxed)
-    assign busy_rfa2_muxing_wb = busy_hazard_a2_r & wb_rf_wb2_i & (busy_hazard_a2_adr_r == wb_rfd2_adr_i);
-    assign busy_rfb2_muxing_wb = busy_hazard_b2_r & wb_rf_wb2_i & (busy_hazard_b2_adr_r == wb_rfd2_adr_i);
+    assign busy_rfa2_muxing_wb = busy_hazard_d2a2_r & wb_rfd2_wb_i & (busy_hazard_d2a2_adr_r == wb_rfd2_adr_i);
+    assign busy_rfb2_muxing_wb = busy_hazard_d2b2_r & wb_rfd2_wb_i & (busy_hazard_d2b2_adr_r == wb_rfd2_adr_i);
     //  ## last forward (from WB)
     assign busy_rfa2 = busy_rfa2_muxing_wb ? wb_result2_i : busy_rfa2_r;
     assign busy_rfb2 = busy_rfb2_muxing_wb ? wb_result2_i : busy_rfb2_r;
     //  ## indicators that an operand hazard could be passed to EXECUTE
-    assign busy_rfa2_pass2exec = busy_hazard_a2_r & exec_rf_wb2_i & (busy_hazard_a2_adr_r == exec_rfd2_adr_i) & padv_wb_i;
-    assign busy_rfb2_pass2exec = busy_hazard_b2_r & exec_rf_wb2_i & (busy_hazard_b2_adr_r == exec_rfd2_adr_i) & padv_wb_i;
+    assign busy_rfa2_pass2exec = busy_hazard_d2a2_r & exec_rfd2_wb_i & (busy_hazard_d2a2_adr_r == exec_rfd2_adr_i) & padv_wb_i;
+    assign busy_rfb2_pass2exec = busy_hazard_d2b2_r & exec_rfd2_wb_i & (busy_hazard_d2b2_adr_r == exec_rfd2_adr_i) & padv_wb_i;
     //  ## to pushing EXECUTE
-    assign busy_hazard_a2      = busy_hazard_a2_r; // FPU64
-    assign busy_hazard_b2      = busy_hazard_b2_r; // FPU64
+    assign busy_hazard_d2a2    = busy_hazard_d2a2_r; // FPU64
+    assign busy_hazard_d2b2    = busy_hazard_d2b2_r; // FPU64
   end
   else begin : busy_fpu64_disabled
     assign busy_rfa2           = {OPTION_OPERAND_WIDTH{1'b0}}; // no FPU64
     assign busy_rfb2           = {OPTION_OPERAND_WIDTH{1'b0}}; // no FPU64
-    assign busy_hazard_a2      = 1'b0; // no FPU64
-    assign busy_hazard_b2      = 1'b0; // no FPU64
+    assign busy_hazard_d2a2    = 1'b0; // no FPU64
+    assign busy_hazard_d2b2    = 1'b0; // no FPU64
     assign busy_rfa2_muxing_wb = 1'b0; // no FPU64
     assign busy_rfb2_muxing_wb = 1'b0; // no FPU64
     assign busy_rfa2_pass2exec = 1'b0; // no FPU64
@@ -763,12 +763,12 @@ module mor1kx_rsrvs_marocchino
   endgenerate
 
   // busy pushing execute: no more hazards in BUSY
-  assign busy_free_of_hazards = ((~busy_hazard_a_r) | busy_rfa_muxing_wb  | busy_rfa_pass2exec ) &
-                                ((~busy_hazard_b_r) | busy_rfb_muxing_wb  | busy_rfb_pass2exec ) &
-                                ((~busy_hazard_a2 ) | busy_rfa2_muxing_wb | busy_rfa2_pass2exec) &
-                                ((~busy_hazard_b2 ) | busy_rfb2_muxing_wb | busy_rfb2_pass2exec) &
-                                ((~busy_hazard_f_w) | busy_hazard_f_done)                        &
-                                ((~busy_hazard_c_w) | busy_hazard_c_done);
+  assign busy_free_of_hazards = ((~busy_hazard_d1a1_r) | busy_rfa1_muxing_wb | busy_rfa1_pass2exec ) &
+                                ((~busy_hazard_d1b1_r) | busy_rfb1_muxing_wb | busy_rfb1_pass2exec ) &
+                                ((~busy_hazard_d2a2)   | busy_rfa2_muxing_wb | busy_rfa2_pass2exec)  &
+                                ((~busy_hazard_d2b2)   | busy_rfb2_muxing_wb | busy_rfb2_pass2exec)  &
+                                ((~busy_hazard_f_w)    | busy_hazard_f_done)                         &
+                                ((~busy_hazard_c_w)    | busy_hazard_c_done);
 
 
   /**** EXECUTE stage latches ****/
@@ -777,18 +777,18 @@ module mor1kx_rsrvs_marocchino
   reg                                 exec_op_r;
   // execute: operands
   //   ## registers
-  reg      [OPTION_OPERAND_WIDTH-1:0] exec_rfa_r;
-  reg      [OPTION_OPERAND_WIDTH-1:0] exec_rfb_r;
+  reg      [OPTION_OPERAND_WIDTH-1:0] exec_rfa1_r;
+  reg      [OPTION_OPERAND_WIDTH-1:0] exec_rfb1_r;
   //   ## multiplexed with forwarded value from WB
-  wire     [OPTION_OPERAND_WIDTH-1:0] exec_rfa;
-  wire     [OPTION_OPERAND_WIDTH-1:0] exec_rfb;
+  wire     [OPTION_OPERAND_WIDTH-1:0] exec_rfa1;
+  wire     [OPTION_OPERAND_WIDTH-1:0] exec_rfb1;
   //   ## for FPU64
   wire     [OPTION_OPERAND_WIDTH-1:0] exec_rfa2;
   wire     [OPTION_OPERAND_WIDTH-1:0] exec_rfb2;
   // execute: hazard flags
   //   ## registerts
-  reg                                 exec_hazard_a_r;
-  reg                                 exec_hazard_b_r;
+  reg                                 exec_hazard_d1a1_r;
+  reg                                 exec_hazard_d1b1_r;
 
   // DECODE->EXECUTE transfer
   wire   dcod_pushing_exec = padv_decode_i & dcod_op_i  &       // DECODE pushing EXECUTE: New command ...
@@ -846,46 +846,46 @@ module mor1kx_rsrvs_marocchino
   // ---
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst) begin
-      exec_hazard_a_r <= 1'b0;
-      exec_hazard_b_r <= 1'b0;
+      exec_hazard_d1a1_r <= 1'b0;
+      exec_hazard_d1b1_r <= 1'b0;
     end
     else if (pipeline_flush_i) begin
-      exec_hazard_a_r <= 1'b0;
-      exec_hazard_b_r <= 1'b0;
+      exec_hazard_d1a1_r <= 1'b0;
+      exec_hazard_d1b1_r <= 1'b0;
     end
     else if (dcod_pushing_exec) begin
-      exec_hazard_a_r <= exe2dec_hazard_a_i;
-      exec_hazard_b_r <= exe2dec_hazard_b_i;
+      exec_hazard_d1a1_r <= exe2dec_hazard_d1a1_i;
+      exec_hazard_d1b1_r <= exe2dec_hazard_d1b1_i;
     end
     else if (busy_pushing_exec) begin
-      exec_hazard_a_r <= busy_rfa_pass2exec;
-      exec_hazard_b_r <= busy_rfb_pass2exec;
+      exec_hazard_d1a1_r <= busy_rfa1_pass2exec;
+      exec_hazard_d1b1_r <= busy_rfb1_pass2exec;
     end
-    else if (exec_hazard_a_r | exec_hazard_b_r | taking_op_i) begin
+    else if (exec_hazard_d1a1_r | exec_hazard_d1b1_r | taking_op_i) begin
       // at the stage either A-hazard or B-hazard takes place,
       // but not both, so we process them at the same time
-      exec_hazard_a_r <= 1'b0;
-      exec_hazard_b_r <= 1'b0;
+      exec_hazard_d1a1_r <= 1'b0;
+      exec_hazard_d1b1_r <= 1'b0;
     end
   end // @clock
   // ---
   always @(posedge clk) begin
     if (dcod_pushing_exec) begin
-      exec_rfa_r <= dcod_rfa_i;
-      exec_rfb_r <= dcod_rfb_i;
+      exec_rfa1_r <= dcod_rfa1_i;
+      exec_rfb1_r <= dcod_rfb1_i;
     end
     else if (busy_pushing_exec) begin
-      exec_rfa_r <= busy_rfa;
-      exec_rfb_r <= busy_rfb;
+      exec_rfa1_r <= busy_rfa1;
+      exec_rfb1_r <= busy_rfb1;
     end
-    else if (exec_hazard_a_r | exec_hazard_b_r) begin
-      exec_rfa_r <= exec_rfa;
-      exec_rfb_r <= exec_rfb;
+    else if (exec_hazard_d1a1_r | exec_hazard_d1b1_r) begin
+      exec_rfa1_r <= exec_rfa1;
+      exec_rfb1_r <= exec_rfb1;
     end
   end // @clock
   // last forward (from WB)
-  assign exec_rfa = exec_hazard_a_r ? wb_result_i : exec_rfa_r;
-  assign exec_rfb = exec_hazard_b_r ? wb_result_i : exec_rfb_r;
+  assign exec_rfa1 = exec_hazard_d1a1_r ? wb_result1_i : exec_rfa1_r;
+  assign exec_rfb1 = exec_hazard_d1b1_r ? wb_result1_i : exec_rfb1_r;
   //  ## for FPU64
   generate
   /* verilator lint_off WIDTH */
@@ -895,33 +895,33 @@ module mor1kx_rsrvs_marocchino
     reg      [OPTION_OPERAND_WIDTH-1:0] exec_rfa2_r;
     reg      [OPTION_OPERAND_WIDTH-1:0] exec_rfb2_r;
     // hazard flags and destination addresses
-    reg                                 exec_hazard_a2_r;
-    reg       [DEST_REG_ADDR_WIDTH-1:0] exec_hazard_a2_adr_r;
-    reg                                 exec_hazard_b2_r;
-    reg       [DEST_REG_ADDR_WIDTH-1:0] exec_hazard_b2_adr_r;
+    reg                                 exec_hazard_d2a2_r;
+    reg       [DEST_REG_ADDR_WIDTH-1:0] exec_hazard_d2a2_adr_r;
+    reg                                 exec_hazard_d2b2_r;
+    reg       [DEST_REG_ADDR_WIDTH-1:0] exec_hazard_d2b2_adr_r;
     // ---
     always @(posedge clk `OR_ASYNC_RST) begin
       if (rst) begin
-        exec_hazard_a2_r <= 1'b0;
-        exec_hazard_b2_r <= 1'b0;
+        exec_hazard_d2a2_r <= 1'b0;
+        exec_hazard_d2b2_r <= 1'b0;
       end
       else if (pipeline_flush_i) begin
-        exec_hazard_a2_r <= 1'b0;
-        exec_hazard_b2_r <= 1'b0;
+        exec_hazard_d2a2_r <= 1'b0;
+        exec_hazard_d2b2_r <= 1'b0;
       end
       else if (dcod_pushing_exec) begin
-        exec_hazard_a2_r <= exe2dec_hazard_a2_i;
-        exec_hazard_b2_r <= exe2dec_hazard_b2_i;
+        exec_hazard_d2a2_r <= exe2dec_hazard_d2a2_i;
+        exec_hazard_d2b2_r <= exe2dec_hazard_d2b2_i;
       end
       else if (busy_pushing_exec) begin
-        exec_hazard_a2_r <= busy_rfa2_pass2exec;
-        exec_hazard_b2_r <= busy_rfb2_pass2exec;
+        exec_hazard_d2a2_r <= busy_rfa2_pass2exec;
+        exec_hazard_d2b2_r <= busy_rfb2_pass2exec;
       end
-      else if (exec_hazard_a2_r | exec_hazard_b2_r | taking_op_i) begin
+      else if (exec_hazard_d2a2_r | exec_hazard_d2b2_r | taking_op_i) begin
         // at the stage either A-hazard or B-hazard takes place,
         // but not both, so we process them at the same time
-        exec_hazard_a2_r <= 1'b0;
-        exec_hazard_b2_r <= 1'b0;
+        exec_hazard_d2a2_r <= 1'b0;
+        exec_hazard_d2b2_r <= 1'b0;
       end
     end // @clock
     // ---
@@ -934,14 +934,14 @@ module mor1kx_rsrvs_marocchino
         exec_rfa2_r <= busy_rfa2;
         exec_rfb2_r <= busy_rfb2;
       end
-      else if (exec_hazard_a2_r | exec_hazard_b2_r) begin
+      else if (exec_hazard_d2a2_r | exec_hazard_d2b2_r) begin
         exec_rfa2_r <= exec_rfa2;
         exec_rfb2_r <= exec_rfb2;
       end
     end // @clock
     // last forward (from WB)
-    assign exec_rfa2 = exec_hazard_a2_r ? wb_result2_i : exec_rfa2_r;
-    assign exec_rfb2 = exec_hazard_b2_r ? wb_result2_i : exec_rfb2_r;
+    assign exec_rfa2 = exec_hazard_d2a2_r ? wb_result2_i : exec_rfa2_r;
+    assign exec_rfb2 = exec_hazard_d2b2_r ? wb_result2_i : exec_rfb2_r;
   end
   else begin : exec_fpu64_disabled
     assign exec_rfa2  = {OPTION_OPERAND_WIDTH{1'b0}}; // no FPU64
@@ -954,8 +954,8 @@ module mor1kx_rsrvs_marocchino
   assign exec_op_o  = exec_op_r;
   assign exec_opc_o = exec_opc_w;
   //   operands
-  assign exec_rfa_o = exec_rfa;
-  assign exec_rfb_o = exec_rfb;
+  assign exec_rfa1_o = exec_rfa1;
+  assign exec_rfb1_o = exec_rfb1;
   //   for FPU64
   assign exec_rfa2_o = exec_rfa2;
   assign exec_rfb2_o = exec_rfb2;

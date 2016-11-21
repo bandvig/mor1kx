@@ -116,7 +116,7 @@ always @(    qnan_i or     snan_i or    infa_i or infb_i or
             signa_i or    signb_i or
            exp_eq_i or   exp_gt_i or    exp_lt or
          fract_eq_i or fract_gt_i or  fract_lt or  all_zero) begin
-
+  // synthesis parallel_case full_case
   casez( {    qnan_i,     snan_i,
               infa_i,     infb_i,
              signa_i,    signb_i,
@@ -168,6 +168,7 @@ end // @ clock
 // Comparison cmp_flag generation
 reg cmp_flag;
 always @(altb or blta or aeqb or opc_fp64_cmp_i) begin
+  // synthesis parallel_case full_case
   case(opc_fp64_cmp_i)
     FP_OPC_SFEQ: cmp_flag = aeqb;
     FP_OPC_SFNE: cmp_flag = ~aeqb;

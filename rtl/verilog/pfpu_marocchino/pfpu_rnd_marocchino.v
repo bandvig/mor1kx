@@ -215,6 +215,7 @@ module pfpu_rnd_marocchino
   //       8 in single precision case
   reg s1r_sticky;
   always @(s1t_fract57 or s1t_shr) begin
+    // synthesis parallel_case full_case
     case (s1t_shr)
       6'd0   : s1r_sticky = |s1t_fract57[ 1:0];
       6'd1   : s1r_sticky = |s1t_fract57[ 2:0];
@@ -281,6 +282,7 @@ module pfpu_rnd_marocchino
   // ---
   reg s1l_sticky;
   always @(s1t_fract2 or s1t_shl) begin
+    // synthesis parallel_case full_case
     case (s1t_shl)
       5'd0   : s1l_sticky = |s1t_fract2;
       5'd1   : s1l_sticky =  s1t_fract2[0];
@@ -473,13 +475,18 @@ module pfpu_rnd_marocchino
   wire exec_except_fpxx_arith = except_fpu_enable_i & (|exec_fpxx_arith_fpcsr);
 
 
-  // WB: result and flags
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst) begin
-      wb_fpxx_arith_res_hi_o <= 32'd0;
-      wb_fpxx_arith_res_lo_o <= 32'd0;
-    end
-    else if(padv_wb_i) begin
+  // WB: result
+ `ifndef SYNTHESIS
+  // synthesis translate_off
+  initial begin
+    wb_fpxx_arith_res_hi_o = 32'd0;
+    wb_fpxx_arith_res_lo_o = 32'd0;
+  end
+  // synthesis translate_on
+ `endif // !synth
+  // ---
+  always @(posedge clk) begin
+    if(padv_wb_i) begin
       // for WB-result #1
       wb_fpxx_arith_res_hi_o <= (s1o_op_fp64_arith ? s2t_opc64[63:32] : s2t_opc32) &
                                 {32{grant_wb_to_fpxx_arith_i}};

@@ -80,9 +80,9 @@ module mor1kx_ctrl_marocchino
 
   // MF(T)SPR coomand processing
   //  ## iput data and command from DECODE
-  input      [OPTION_OPERAND_WIDTH-1:0] dcod_rfa_i, // part of addr for MT(F)SPR
+  input      [OPTION_OPERAND_WIDTH-1:0] dcod_rfa1_i, // part of addr for MT(F)SPR
   input           [`OR1K_IMM_WIDTH-1:0] dcod_imm16_i, // part of addr for MT(F)SPR
-  input      [OPTION_OPERAND_WIDTH-1:0] dcod_rfb_i, // data for MTSPR
+  input      [OPTION_OPERAND_WIDTH-1:0] dcod_rfb1_i, // data for MTSPR
   input                                 dcod_op_mfspr_i,
   input                                 dcod_op_mtspr_i,
   //  ## result to WB_MUX
@@ -309,7 +309,7 @@ module mor1kx_ctrl_marocchino
   wire [31:0]                       spr_iccfgr;
   wire [31:0]                       spr_dcfgr;
   wire [31:0]                       spr_pccfgr;
-  wire [31:0]                       spr_isr [0:7];
+  //wire [31:0]                       spr_isr [0:7];
 
 
   // Flag output
@@ -354,6 +354,7 @@ module mor1kx_ctrl_marocchino
     if (rst)
       exception_pc_addr <= {19'd0,`OR1K_RESET_VECTOR,8'd0};
     else if (exception_re) begin
+      // synthesis parallel_case full_case
       casez({wb_except_itlb_miss_i,
              wb_except_ipagefault_i,
              wb_except_ibus_err_i,
@@ -776,14 +777,16 @@ module mor1kx_ctrl_marocchino
   );
 
   // Implementation-specific registers
-  assign spr_isr[0] = 0;
-  assign spr_isr[1] = 0;
-  assign spr_isr[2] = 0;
-  assign spr_isr[3] = 0;
-  assign spr_isr[4] = 0;
-  assign spr_isr[5] = 0;
-  assign spr_isr[6] = 0;
-  assign spr_isr[7] = 0;
+  /*
+  assign spr_isr[0] = 32'd0;
+  assign spr_isr[1] = 32'd0;
+  assign spr_isr[2] = 32'd0;
+  assign spr_isr[3] = 32'd0;
+  assign spr_isr[4] = 32'd0;
+  assign spr_isr[5] = 32'd0;
+  assign spr_isr[6] = 32'd0;
+  assign spr_isr[7] = 32'd0;
+  */
 
 
   //---------------------------------------------------------------------------//
@@ -798,7 +801,7 @@ module mor1kx_ctrl_marocchino
   wire take_access_du = (~take_op_mXspr) & (~spr_bus_wait_r) & du_stb_i;
 
   // SPR address for latch
-  wire [15:0] spr_addr_mux = take_op_mXspr ? (dcod_rfa_i[15:0] | dcod_imm16_i) :
+  wire [15:0] spr_addr_mux = take_op_mXspr ? (dcod_rfa1_i[15:0] | dcod_imm16_i) :
                                               du_addr_i;
 
   // Is accessiblr SPR is present
@@ -806,6 +809,7 @@ module mor1kx_ctrl_marocchino
   reg spr_access_valid_reg; // SPR ACK in case of access to not existing modules
   //---
   always @(*) begin
+    // synthesis parallel_case full_case
     case(`SPR_BASE(spr_addr_mux))
       // system registers
       `OR1K_SPR_SYS_BASE:  spr_access_valid_mux = 1'b1;
@@ -862,7 +866,7 @@ module mor1kx_ctrl_marocchino
         spr_bus_addr_o <= spr_addr_mux;
         spr_bus_we_o   <= take_op_mXspr ? dcod_op_mtspr_i : du_we_i;
         spr_bus_stb_o  <= 1'b1;
-        spr_bus_dat_o  <= take_op_mXspr ? dcod_rfb_i : du_dat_i;
+        spr_bus_dat_o  <= take_op_mXspr ? dcod_rfb1_i : du_dat_i;
       end
       // Wait SPR ACK regardless on access validity
       spr_bus_wait_r <= 1'b1;
@@ -878,6 +882,7 @@ module mor1kx_ctrl_marocchino
   reg [OPTION_OPERAND_WIDTH-1:0]    spr_sys_group_dat;
   // ---
   always @(*) begin
+    // synthesis parallel_case full_case
     case(`SPR_OFFSET(spr_bus_addr_o))
       `SPR_OFFSET(`OR1K_SPR_VR_ADDR)      : spr_sys_group_dat = spr_vr;
       `SPR_OFFSET(`OR1K_SPR_UPR_ADDR)     : spr_sys_group_dat = spr_upr;
@@ -902,14 +907,14 @@ module mor1kx_ctrl_marocchino
       `SPR_OFFSET(`OR1K_SPR_FPCSR_ADDR)   : spr_sys_group_dat = {{(OPTION_OPERAND_WIDTH-`OR1K_FPCSR_WIDTH){1'b0}},
                                                                   spr_fpcsr};
      `endif
-      `SPR_OFFSET(`OR1K_SPR_ISR0_ADDR)    : spr_sys_group_dat = spr_isr[0];
-      `SPR_OFFSET(`OR1K_SPR_ISR0_ADDR) +1 : spr_sys_group_dat = spr_isr[1];
-      `SPR_OFFSET(`OR1K_SPR_ISR0_ADDR) +2 : spr_sys_group_dat = spr_isr[2];
-      `SPR_OFFSET(`OR1K_SPR_ISR0_ADDR) +3 : spr_sys_group_dat = spr_isr[3];
-      `SPR_OFFSET(`OR1K_SPR_ISR0_ADDR) +4 : spr_sys_group_dat = spr_isr[4];
-      `SPR_OFFSET(`OR1K_SPR_ISR0_ADDR) +5 : spr_sys_group_dat = spr_isr[5];
-      `SPR_OFFSET(`OR1K_SPR_ISR0_ADDR) +6 : spr_sys_group_dat = spr_isr[6];
-      `SPR_OFFSET(`OR1K_SPR_ISR0_ADDR) +7 : spr_sys_group_dat = spr_isr[7];
+      `SPR_OFFSET(`OR1K_SPR_ISR0_ADDR)    : spr_sys_group_dat = {OPTION_OPERAND_WIDTH{1'b0}}; // spr_isr[0];
+      `SPR_OFFSET(`OR1K_SPR_ISR0_ADDR) +1 : spr_sys_group_dat = {OPTION_OPERAND_WIDTH{1'b0}}; // spr_isr[1];
+      `SPR_OFFSET(`OR1K_SPR_ISR0_ADDR) +2 : spr_sys_group_dat = {OPTION_OPERAND_WIDTH{1'b0}}; // spr_isr[2];
+      `SPR_OFFSET(`OR1K_SPR_ISR0_ADDR) +3 : spr_sys_group_dat = {OPTION_OPERAND_WIDTH{1'b0}}; // spr_isr[3];
+      `SPR_OFFSET(`OR1K_SPR_ISR0_ADDR) +4 : spr_sys_group_dat = {OPTION_OPERAND_WIDTH{1'b0}}; // spr_isr[4];
+      `SPR_OFFSET(`OR1K_SPR_ISR0_ADDR) +5 : spr_sys_group_dat = {OPTION_OPERAND_WIDTH{1'b0}}; // spr_isr[5];
+      `SPR_OFFSET(`OR1K_SPR_ISR0_ADDR) +6 : spr_sys_group_dat = {OPTION_OPERAND_WIDTH{1'b0}}; // spr_isr[6];
+      `SPR_OFFSET(`OR1K_SPR_ISR0_ADDR) +7 : spr_sys_group_dat = {OPTION_OPERAND_WIDTH{1'b0}}; // spr_isr[7];
       `SPR_OFFSET(`OR1K_SPR_EPCR0_ADDR)   : spr_sys_group_dat = spr_epcr;
       `SPR_OFFSET(`OR1K_SPR_EEAR0_ADDR)   : spr_sys_group_dat = spr_eear;
       `SPR_OFFSET(`OR1K_SPR_ESR0_ADDR)    : spr_sys_group_dat = {{(OPTION_OPERAND_WIDTH-SPR_SR_WIDTH){1'b0}},
@@ -983,10 +988,14 @@ module mor1kx_ctrl_marocchino
 
 
   // MFSPR data and flag for WB_MUX
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      wb_mfspr_dat_o <= {OPTION_OPERAND_WIDTH{1'b0}};
-    else if (padv_wb_o)
+ `ifndef SYNTHESIS
+  // synthesis translate_off
+  initial wb_mfspr_dat_o = {OPTION_OPERAND_WIDTH{1'b0}};
+  // synthesis translate_on
+ `endif // !synth
+  // ---
+  always @(posedge clk) begin
+    if (padv_wb_o)
       wb_mfspr_dat_o <= {OPTION_OPERAND_WIDTH{spr_bus_mXspr_r}} & spr_bus_dat_mux;
   end // @clock
 

@@ -167,7 +167,7 @@ module mor1kx_cpu_marocchino
   wire [OPTION_OPERAND_WIDTH-1:0] wb_fpxx_arith_res_lo;
   wire [OPTION_OPERAND_WIDTH-1:0] wb_lsu_result;
   wire [OPTION_OPERAND_WIDTH-1:0] wb_mfspr_dat;
-  wire [OPTION_OPERAND_WIDTH-1:0] wb_result; // WB result combiner
+  wire [OPTION_OPERAND_WIDTH-1:0] wb_result1; // WB result combiner
   wire [OPTION_OPERAND_WIDTH-1:0] wb_result2; // WB result combiner for FPU64
 
 
@@ -176,12 +176,12 @@ module mor1kx_cpu_marocchino
   wire                            lsu_valid;   // result ready or exceptions
 
 
-  wire [OPTION_OPERAND_WIDTH-1:0] dcod_rfa;
-  wire [OPTION_OPERAND_WIDTH-1:0] dcod_rfb;
-  wire [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfa_adr;
-  wire [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfb_adr;
-  wire                            dcod_rfa_req;
-  wire                            dcod_rfb_req;
+  wire [OPTION_OPERAND_WIDTH-1:0] dcod_rfa1;
+  wire [OPTION_OPERAND_WIDTH-1:0] dcod_rfb1;
+  wire [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfa1_adr;
+  wire [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfb1_adr;
+  wire                            dcod_rfa1_req;
+  wire                            dcod_rfb1_req;
   wire [OPTION_OPERAND_WIDTH-1:0] dcod_immediate;
   wire                            dcod_immediate_sel;
   // for FPU64:
@@ -193,8 +193,8 @@ module mor1kx_cpu_marocchino
   wire                            dcod_rfb2_req;
 
 
-  wire [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfd_adr;
-  wire                            dcod_rf_wb;
+  wire [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfd1_adr;
+  wire                            dcod_rfd1_wb;
   // for FPU64:
   wire [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfd2_adr;
 
@@ -203,43 +203,43 @@ module mor1kx_cpu_marocchino
   //  combined flag
   wire                            omn2dec_hazards;
   wire                            omn2dec_hazards_1clk;
-  wire                            omn2dec_hazards_fp64;
+  wire                            omn2dec_hazards_mclk;
   //  by FLAG and CARRY
   wire                            busy_hazard_f;
   wire [DEST_FLAG_ADDR_WIDTH-1:0] busy_hazard_f_adr;
   wire                            busy_hazard_c;
   wire [DEST_FLAG_ADDR_WIDTH-1:0] busy_hazard_c_adr;
   //  by operands
-  wire                            busy_hazard_a;
-  wire  [DEST_REG_ADDR_WIDTH-1:0] busy_hazard_a_adr;
-  wire                            busy_hazard_b;
-  wire  [DEST_REG_ADDR_WIDTH-1:0] busy_hazard_b_adr;
+  wire                            busy_hazard_d1a1;
+  wire  [DEST_REG_ADDR_WIDTH-1:0] busy_hazard_d1a1_adr;
+  wire                            busy_hazard_d1b1;
+  wire  [DEST_REG_ADDR_WIDTH-1:0] busy_hazard_d1b1_adr;
   // for FPU64
-  wire                            busy_hazard_a2;
-  wire  [DEST_REG_ADDR_WIDTH-1:0] busy_hazard_a2_adr;
-  wire                            busy_hazard_b2;
-  wire  [DEST_REG_ADDR_WIDTH-1:0] busy_hazard_b2_adr;
+  wire                            busy_hazard_d2a2;
+  wire  [DEST_REG_ADDR_WIDTH-1:0] busy_hazard_d2a2_adr;
+  wire                            busy_hazard_d2b2;
+  wire  [DEST_REG_ADDR_WIDTH-1:0] busy_hazard_d2b2_adr;
   // EXEC-to-DECODE hazards
   //  combined flag
   wire                            exe2dec_hazards;
   wire                            exe2dec_hazards_1clk;
-  wire                            exe2dec_hazards_fp64;
+  wire                            exe2dec_hazards_mclk;
   //  by operands
-  wire                            exe2dec_hazard_a;
-  wire                            exe2dec_hazard_b;
+  wire                            exe2dec_hazard_d1a1;
+  wire                            exe2dec_hazard_d1b1;
   // for FPU64
-  wire                            exe2dec_hazard_a2;     // by low part of operand A
-  wire                            exe2dec_hazard_b2;
+  wire                            exe2dec_hazard_d2a2;     // by low part of operand A
+  wire                            exe2dec_hazard_d2b2;
   // Hazard could be passed from DECODE to EXECUTE
   //  ## FLAG or CARRY
   wire                            exec_flag_wb;
   wire                            exec_carry_wb;
   wire [DEST_FLAG_ADDR_WIDTH-1:0] exec_flag_carry_adr;
   //  ## A or B operand
-  wire                            exec_rf_wb;
-  wire  [DEST_REG_ADDR_WIDTH-1:0] exec_rfd_adr;
+  wire                            exec_rfd1_wb;
+  wire  [DEST_REG_ADDR_WIDTH-1:0] exec_rfd1_adr;
   //  ## for FPU64
-  wire                            exec_rf_wb2;
+  wire                            exec_rfd2_wb;
   wire  [DEST_REG_ADDR_WIDTH-1:0] exec_rfd2_adr;
   // Hazard could be resolving
   //  ## FLAG or CARRY
@@ -247,10 +247,10 @@ module mor1kx_cpu_marocchino
   wire                            wb_carry_wb;
   wire [DEST_FLAG_ADDR_WIDTH-1:0] wb_flag_carry_adr;
   //  ## A or B operand
-  wire  [DEST_REG_ADDR_WIDTH-1:0] wb_rfd_adr;
-  wire                            wb_rf_wb;
+  wire                            wb_rfd1_wb;
+  wire  [DEST_REG_ADDR_WIDTH-1:0] wb_rfd1_adr;
   //  ## for FPU64
-  wire                            wb_rf_wb2;   // WB instruction is writting RF
+  wire                            wb_rfd2_wb;  // WB instruction is writting RF
   wire  [DEST_REG_ADDR_WIDTH-1:0] wb_rfd2_adr; // low part of A or B operand
 
   wire                            dcod_op_jr;
@@ -316,18 +316,19 @@ module mor1kx_cpu_marocchino
 
   wire                            grant_wb_to_1clk;
 
+  // Reservation station for multi-clocks execution units
+  wire                            mclk_busy;
+
   // Divider
   wire                            dcod_op_div;
   wire                            dcod_op_div_signed;
   wire                            dcod_op_div_unsigned;
-  wire                            div_busy;
   wire                            div_valid;
   wire                            grant_wb_to_div;
 
 
   // Pipelined multiplier
   wire                            dcod_op_mul;
-  wire                            mul_busy;
   wire                            mul_valid;
   wire                            grant_wb_to_mul;
 
@@ -350,7 +351,6 @@ module mor1kx_cpu_marocchino
   wire                              dcod_op_fpxx_div; // to FPU3264_ARITH
   wire                              dcod_op_fpxx_i2f; // to FPU3264_ARITH
   wire                              dcod_op_fpxx_f2i; // to FPU3264_ARITH
-  wire                              fpxx_busy;
   wire                              fpxx_arith_valid;
   wire                              grant_wb_to_fpxx_arith;
   wire  [`OR1K_FPCSR_ALLF_SIZE-1:0] wb_fpxx_arith_fpcsr;    // only flags
@@ -370,8 +370,11 @@ module mor1kx_cpu_marocchino
 
   // Forwarding comparision flag
   wire                            busy_op_1clk_cmp; // integer or fp32
-  wire                            exec_op_1clk_cmp; // integer or fp32
-  wire                            exec_flag_set;    // integer or fp32 comparison result
+  // # either l.sf* or lf.sf*
+  //   !!! MUST BE in [0] of OPC-word of reservation station
+  wire                            exec_op_1clk_cmp;
+  // integer or fp32 comparison result
+  wire                            exec_flag_set;
 
 
   wire [OPTION_OPERAND_WIDTH-1:0] sbuf_eear;
@@ -485,8 +488,8 @@ module mor1kx_cpu_marocchino
 
   // FETCH none latched outputs
   wire                            fetch_rf_adr_valid; // fetch->rf
-  wire [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfa_adr;      // fetch->rf
-  wire [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfb_adr;      // fetch->rf
+  wire [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfa1_adr;     // fetch->rf
+  wire [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfb1_adr;     // fetch->rf
   // for FPU64
   wire [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfa2_adr;     // fetch->rf
   wire [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfb2_adr;     // fetch->rf
@@ -560,8 +563,8 @@ module mor1kx_cpu_marocchino
 
     //   To RF
     .fetch_rf_adr_valid_o             (fetch_rf_adr_valid), // FETCH (bus-access-done & padv-fetch)
-    .fetch_rfa_adr_o                  (fetch_rfa_adr), // FETCH (not latched, to RF)
-    .fetch_rfb_adr_o                  (fetch_rfb_adr), // FETCH (not latched, to RF)
+    .fetch_rfa1_adr_o                 (fetch_rfa1_adr), // FETCH (not latched, to RF)
+    .fetch_rfb1_adr_o                 (fetch_rfb1_adr), // FETCH (not latched, to RF)
     // for FPU64
     .fetch_rfa2_adr_o                 (fetch_rfa2_adr), // FETCH (not latched, to RF)
     .fetch_rfb2_adr_o                 (fetch_rfb2_adr), // FETCH (not latched, to RF)
@@ -571,8 +574,8 @@ module mor1kx_cpu_marocchino
     .pc_decode_o                      (pc_decode), // FETCH
     .dcod_insn_o                      (dcod_insn), // FETCH
     .dcod_delay_slot_o                (dcod_delay_slot), // FETCH
-    .dcod_rfa_adr_o                   (dcod_rfa_adr), // FETCH
-    .dcod_rfb_adr_o                   (dcod_rfb_adr), // FETCH
+    .dcod_rfa1_adr_o                  (dcod_rfa1_adr), // FETCH
+    .dcod_rfb1_adr_o                  (dcod_rfb1_adr), // FETCH
     // for FPU64
     .dcod_rfa2_adr_o                  (dcod_rfa2_adr), // FETCH
     .dcod_rfb2_adr_o                  (dcod_rfb2_adr), // FETCH
@@ -602,17 +605,17 @@ module mor1kx_cpu_marocchino
     .dcod_insn_i                      (dcod_insn), // DECODE & DECODE->EXE
     // Data dependancy detection
     .dcod_op_jr_o                     (dcod_op_jr), // DECODE & DECODE->EXE
-    .exe2dec_hazard_b_i               (exe2dec_hazard_b), // DECODE & DECODE->EXE
+    .exe2dec_hazard_d1b1_i            (exe2dec_hazard_d1b1), // DECODE & DECODE->EXE
     // PC
     .pc_decode_i                      (pc_decode), // DECODE & DECODE->EXE
     // IMM
     .dcod_immediate_o                 (dcod_immediate), // DECODE & DECODE->EXE
     .dcod_immediate_sel_o             (dcod_immediate_sel), // DECODE & DECODE->EXE
     // various instruction attributes
-    .dcod_rfa_req_o                   (dcod_rfa_req), // DECODE & DECODE->EXE
-    .dcod_rfb_req_o                   (dcod_rfb_req), // DECODE & DECODE->EXE
-    .dcod_rf_wb_o                     (dcod_rf_wb), // DECODE & DECODE->EXE
-    .dcod_rfd_adr_o                   (dcod_rfd_adr), // DECODE & DECODE->EXE
+    .dcod_rfa1_req_o                  (dcod_rfa1_req), // DECODE & DECODE->EXE
+    .dcod_rfb1_req_o                  (dcod_rfb1_req), // DECODE & DECODE->EXE
+    .dcod_rfd1_wb_o                   (dcod_rfd1_wb), // DECODE & DECODE->EXE
+    .dcod_rfd1_adr_o                  (dcod_rfd1_adr), // DECODE & DECODE->EXE
     .dcod_flag_wb_o                   (dcod_flag_wb), // DECODE & DECODE->EXE
     .dcod_carry_wb_o                  (dcod_carry_wb), // DECODE & DECODE->EXE
     .dcod_flag_req_o                  (dcod_flag_req), // DECODE & DECODE->EXE
@@ -627,7 +630,7 @@ module mor1kx_cpu_marocchino
     .exec_flag_set_i                  (exec_flag_set), // DECODE & DECODE->EXE
     .ctrl_flag_i                      (ctrl_flag), // DECODE & DECODE->EXE
     // Do jump/branch and jump/branch target for FETCH
-    .dcod_rfb_i                       (dcod_rfb), // DECODE & DECODE->EXE
+    .dcod_rfb1_i                      (dcod_rfb1), // DECODE & DECODE->EXE
     .dcod_do_branch_o                 (dcod_do_branch), // DECODE & DECODE->EXE
     .dcod_do_branch_target_o          (dcod_do_branch_target), // DECODE & DECODE->EXE
     // Signals to stall FETCH if we are waiting flag
@@ -702,14 +705,393 @@ module mor1kx_cpu_marocchino
   );
 
 
+  //-----------------------------------------------//
+  // 1-clock operations including FP-32 comparison //
+  //-----------------------------------------------//
+
+  // single clock operations controls
+  //  # opcode for alu
+  wire [`OR1K_ALU_OPC_WIDTH-1:0] exec_opc_alu_secondary;
+  //  # adder's inputs
+  wire                           exec_op_add;
+  wire                           exec_adder_do_sub;
+  wire                           exec_adder_do_carry;
+  //  # shift, ffl1, movhi, cmov
+  wire                           exec_op_shift;
+  wire                           exec_op_ffl1;
+  wire                           exec_op_movhi;
+  wire                           exec_op_cmov;
+  //  # logic
+  wire                           exec_op_logic;
+  wire [`OR1K_ALU_OPC_WIDTH-1:0] exec_opc_logic;
+  //  # jump & link
+  wire                            exec_op_jal;
+  wire [OPTION_OPERAND_WIDTH-1:0] exec_jal_result;
+  //  # flag related inputs
+  wire                           exec_op_setflag;
+  wire                           exec_op_fp32_cmp;
+  wire                     [2:0] exec_opc_fp32_cmp;
+
+  // attributes include all of earlier components
+  localparam ONE_CLK_ATTR_WIDTH = 15 + (2 * `OR1K_ALU_OPC_WIDTH) + OPTION_OPERAND_WIDTH;
+
+  // from BUSY stage of 1-clk reservation station
+  wire [ONE_CLK_ATTR_WIDTH-1:0] busy_opc_1clk;
+
+  // input operands A and B with forwarding from WB
+  wire [OPTION_OPERAND_WIDTH-1:0] exec_1clk_a1;
+  wire [OPTION_OPERAND_WIDTH-1:0] exec_1clk_b1;
+
+  //  # update carry flag by 1clk-operation
+  wire wb_1clk_carry_set;
+  wire wb_1clk_carry_clear;
+
+  //  # update overflow flag by 1clk-operation
+  wire wb_1clk_overflow_set;
+  wire wb_1clk_overflow_clear;
+
+  // **** reservation station for 1-clk ****
+  mor1kx_rsrvs_marocchino
+  #(
+    .OPTION_OPERAND_WIDTH     (OPTION_OPERAND_WIDTH), // 1CLK_RSVRS
+    .USE_OPC                  (1), // 1CLK_RSVRS
+    .OPC_WIDTH                (ONE_CLK_ATTR_WIDTH), // 1CLK_RSVRS
+    .DEST_REG_ADDR_WIDTH      (DEST_REG_ADDR_WIDTH), // 1CLK_RSVRS
+    .FEATURE_FPU              ("NONE"), // 1CLK_RSVRS
+    .USE_RSVRS_FLAG_CARRY     (1), // 1CLK_RSVRS
+    .DEST_FLAG_ADDR_WIDTH     (DEST_FLAG_ADDR_WIDTH) // 1CLK_RSVRS
+  )
+  u_1clk_rsrvs
+  (
+    // clocks and resets
+    .clk                      (clk), // 1CLK_RSVRS
+    .rst                      (rst), // 1CLK_RSVRS
+    // pipeline control signals in
+    .pipeline_flush_i         (pipeline_flush), // 1CLK_RSVRS
+    .padv_decode_i            (padv_decode), // 1CLK_RSVRS
+    .taking_op_i              (padv_wb & grant_wb_to_1clk), // 1CLK_RSVRS
+    // input data from DECODE
+    .dcod_rfa1_i              (dcod_rfa1), // 1CLK_RSVRS
+    .dcod_rfb1_i              (dcod_rfb1), // 1CLK_RSVRS
+    // for FPU64
+    .dcod_rfa2_i              ({OPTION_OPERAND_WIDTH{1'b0}}), // 1CLK_RSVRS
+    .dcod_rfb2_i              ({OPTION_OPERAND_WIDTH{1'b0}}), // 1CLK_RSVRS
+    // OMAN-to-DECODE hazards
+    //  combined flag
+    .omn2dec_hazards_i        (omn2dec_hazards_1clk), // 1CLK_RSVRS
+    //  by FLAG and CARRY
+    .busy_hazard_f_i          (busy_hazard_f), // 1CLK_RSVRS
+    .busy_hazard_f_adr_i      (busy_hazard_f_adr), // 1CLK_RSVRS
+    .busy_hazard_c_i          (busy_hazard_c), // 1CLK_RSVRS
+    .busy_hazard_c_adr_i      (busy_hazard_c_adr), // 1CLK_RSVRS
+    //  by operands
+    .busy_hazard_d1a1_i       (busy_hazard_d1a1), // 1CLK_RSVRS
+    .busy_hazard_d1a1_adr_i   (busy_hazard_d1a1_adr), // 1CLK_RSVRS
+    .busy_hazard_d1b1_i       (busy_hazard_d1b1), // 1CLK_RSVRS
+    .busy_hazard_d1b1_adr_i   (busy_hazard_d1b1_adr), // 1CLK_RSVRS
+    // for FPU64
+    .busy_hazard_d2a2_i       (1'b0), // 1CLK_RSVRS
+    .busy_hazard_d2a2_adr_i   ({DEST_REG_ADDR_WIDTH{1'b0}}), // 1CLK_RSVRS
+    .busy_hazard_d2b2_i       (1'b0), // 1CLK_RSVRS
+    .busy_hazard_d2b2_adr_i   ({DEST_REG_ADDR_WIDTH{1'b0}}), // 1CLK_RSVRS
+    // EXEC-to-DECODE hazards
+    //  combined flag
+    .exe2dec_hazards_i        (exe2dec_hazards_1clk), // 1CLK_RSVRS
+    //  by operands
+    .exe2dec_hazard_d1a1_i    (exe2dec_hazard_d1a1), // 1CLK_RSVRS
+    .exe2dec_hazard_d1b1_i    (exe2dec_hazard_d1b1), // 1CLK_RSVRS
+    // for FPU64
+    .exe2dec_hazard_d2a2_i    (1'b0), // 1CLK_RSVRS
+    .exe2dec_hazard_d2b2_i    (1'b0), // 1CLK_RSVRS
+    // Hazard could be passed from DECODE to EXECUTE
+    //  ## FLAG or CARRY
+    .exec_flag_wb_i           (exec_flag_wb), // 1CLK_RSVRS
+    .exec_carry_wb_i          (exec_carry_wb), // 1CLK_RSVRS
+    .exec_flag_carry_adr_i    (exec_flag_carry_adr), // 1CLK_RSVRS
+    //  ## A or B operand
+    .exec_rfd1_wb_i           (exec_rfd1_wb), // 1CLK_RSVRS
+    .exec_rfd1_adr_i          (exec_rfd1_adr), // 1CLK_RSVRS
+    //  ## for FPU64
+    .exec_rfd2_wb_i           (1'b0), // 1CLK_RSVRS
+    .exec_rfd2_adr_i          ({DEST_REG_ADDR_WIDTH{1'b0}}), // 1CLK_RSVRS
+    //  ## passing only with writting back
+    .padv_wb_i                (padv_wb), // 1CLK_RSVRS
+    // Hazard could be resolving
+    //  ## FLAG or CARRY
+    .wb_flag_wb_i             (wb_flag_wb), // 1CLK_RSVRS
+    .wb_carry_wb_i            (wb_carry_wb), // 1CLK_RSVRS
+    .wb_flag_carry_adr_i      (wb_flag_carry_adr), // 1CLK_RSVRS
+    //  ## A or B operand
+    .wb_rfd1_wb_i             (wb_rfd1_wb), // 1CLK_RSVRS
+    .wb_rfd1_adr_i            (wb_rfd1_adr[DEST_REG_ADDR_WIDTH-1:0]), // 1CLK_RSVRS
+    .wb_result1_i             (wb_result1), // 1CLK_RSVRS
+    //  ## for FPU64
+    .wb_rfd2_wb_i             (1'b0), // 1CLK_RSVRS
+    .wb_rfd2_adr_i            ({DEST_REG_ADDR_WIDTH{1'b0}}), // 1CLK_RSVRS
+    .wb_result2_i             ({OPTION_OPERAND_WIDTH{1'b0}}), // 1CLK_RSVRS
+    // command and its additional attributes
+    .dcod_op_i                (dcod_op_1clk), // 1CLK_RSVRS
+    .dcod_opc_i               ({dcod_opc_alu_secondary, // 1CLK_RSVRS
+                                dcod_op_add, dcod_adder_do_sub, dcod_adder_do_carry, // 1CLK_RSVRS
+                                dcod_op_shift, dcod_op_ffl1, dcod_op_movhi, dcod_op_cmov, // 1CLK_RSVRS
+                                (|dcod_opc_logic), dcod_opc_logic, // 1CLK_RSVRS
+                                dcod_op_jal, dcod_jal_result, // 1CLK_RSVRS
+                                dcod_op_setflag, dcod_op_fp32_cmp, dcod_opc_fp32_cmp, // 1CLK_RSVRS
+                                (dcod_op_setflag | dcod_op_fp32_cmp)}), // 1CLK_RSVRS
+    //   command attributes from busy stage
+    .busy_opc_o               (busy_opc_1clk), // 1CLK_RSVRS
+    // outputs
+    //   command and its additional attributes
+    .exec_op_o                (), // 1CLK_RSVRS
+    .exec_opc_o               ({exec_opc_alu_secondary, // 1CLK_RSVRS
+                                exec_op_add, exec_adder_do_sub, exec_adder_do_carry, // 1CLK_RSVRS
+                                exec_op_shift, exec_op_ffl1, exec_op_movhi, exec_op_cmov, // 1CLK_RSVRS
+                                exec_op_logic, exec_opc_logic, // 1CLK_RSVRS
+                                exec_op_jal, exec_jal_result, // 1CLK_RSVRS
+                                exec_op_setflag, exec_op_fp32_cmp, exec_opc_fp32_cmp, // 1CLK_RSVRS
+                                exec_op_1clk_cmp}), // 1CLK_RSVRS
+    //   operands
+    .exec_rfa1_o              (exec_1clk_a1), // 1CLK_RSVRS
+    .exec_rfb1_o              (exec_1clk_b1), // 1CLK_RSVRS
+    //  ## for FPU64
+    .exec_rfa2_o              (), // 1CLK_RSVRS
+    .exec_rfb2_o              (), // 1CLK_RSVRS
+    //   unit-is-busy flag
+    .unit_busy_o              (op_1clk_busy) // 1CLK_RSVRS
+  );
+
+  // to OMAN for hazards detection
+  assign busy_op_1clk_cmp = busy_opc_1clk[0];
+
+  // **** 1clk ****
+  mor1kx_exec_1clk_marocchino
+  #(
+    .OPTION_OPERAND_WIDTH             (OPTION_OPERAND_WIDTH), // 1CLK
+    .FEATURE_FPU                      (FEATURE_FPU) // 1CLK
+  )
+  u_exec_1clk
+  (
+    // clocks & resets
+    .clk                              (clk), // 1CLK
+    .rst                              (rst), // 1CLK
+
+    // pipeline controls
+    .pipeline_flush_i                 (pipeline_flush), // 1CLK
+    .padv_wb_i                        (padv_wb), // 1CLK
+    .grant_wb_to_1clk_i               (grant_wb_to_1clk), // 1CLK
+
+    // input operands A and B with forwarding from WB
+    .exec_1clk_a1_i                   (exec_1clk_a1), // 1CLK
+    .exec_1clk_b1_i                   (exec_1clk_b1), // 1CLK
+
+    // 1-clock instruction auxiliaries
+    .exec_opc_alu_secondary_i         (exec_opc_alu_secondary), // 1CLK
+    .carry_i                          (ctrl_carry), // 1CLK
+    .flag_i                           (ctrl_flag), // 1CLK
+
+    // adder
+    .exec_op_add_i                    (exec_op_add), // 1CLK
+    .exec_adder_do_sub_i              (exec_adder_do_sub), // 1CLK
+    .exec_adder_do_carry_i            (exec_adder_do_carry), // 1CLK
+    // shift, ffl1, movhi, cmov
+    .exec_op_shift_i                  (exec_op_shift), // 1CLK
+    .exec_op_ffl1_i                   (exec_op_ffl1), // 1CLK
+    .exec_op_movhi_i                  (exec_op_movhi), // 1CLK
+    .exec_op_cmov_i                   (exec_op_cmov), // 1CLK
+    // logic
+    .exec_op_logic_i                  (exec_op_logic), // 1CLK
+    .exec_opc_logic_i                 (exec_opc_logic), // 1CLK
+    // jump & link
+    .exec_op_jal_i                    (exec_op_jal), // 1CLK
+    .exec_jal_result_i                (exec_jal_result), // 1CLK
+    // WB-latched 1-clock arithmetic result
+    .wb_alu_1clk_result_o             (wb_alu_1clk_result), // 1CLK
+    //  # update carry flag by 1clk-operation
+    .wb_1clk_carry_set_o              (wb_1clk_carry_set), // 1CLK
+    .wb_1clk_carry_clear_o            (wb_1clk_carry_clear), // 1CLK
+    //  # update overflow flag by 1clk-operation
+    .wb_1clk_overflow_set_o           (wb_1clk_overflow_set), // 1CLK
+    .wb_1clk_overflow_clear_o         (wb_1clk_overflow_clear), // 1CLK
+    //  # generate overflow exception by 1clk-operation
+    .except_overflow_enable_i         (except_overflow_enable), // 1CLK
+    .wb_except_overflow_1clk_o        (wb_except_overflow_1clk), // 1CLK
+
+    // integer comparison flag
+    .exec_op_setflag_i                (exec_op_setflag), // 1CLK
+    // WB: integer comparison result
+    .wb_int_flag_set_o                (wb_int_flag_set), // 1CLK
+    .wb_int_flag_clear_o              (wb_int_flag_clear), // 1CLK
+
+    // FP32 comparison flag
+    .exec_op_fp32_cmp_i               (exec_op_fp32_cmp), // 1CLK
+    .exec_opc_fp32_cmp_i              (exec_opc_fp32_cmp), // 1CLK
+    .except_fpu_enable_i              (except_fpu_enable), // 1CLK
+    .ctrl_fpu_mask_flags_inv_i        (ctrl_fpu_mask_flags[`OR1K_FPCSR_IVF - `OR1K_FPCSR_OVF]), // 1CLK
+    .ctrl_fpu_mask_flags_inf_i        (ctrl_fpu_mask_flags[`OR1K_FPCSR_INF - `OR1K_FPCSR_OVF]), // 1CLK
+    // WB: FP32 comparison results
+    .wb_fp32_flag_set_o               (wb_fp32_flag_set), // 1CLK
+    .wb_fp32_flag_clear_o             (wb_fp32_flag_clear), // 1CLK
+    .wb_fp32_cmp_inv_o                (wb_fp32_cmp_inv), // 1CLK
+    .wb_fp32_cmp_inf_o                (wb_fp32_cmp_inf), // 1CLK
+    .wb_fp32_cmp_wb_fpcsr_o           (wb_fp32_cmp_wb_fpcsr), // 1CLK
+    .wb_except_fp32_cmp_o             (wb_except_fp32_cmp), // 1CLK
+
+    // Forwarding comparision flag result for conditional branch take/not
+    .exec_flag_set_o                  (exec_flag_set) // 1CLK
+  );
+
+
+  //---------------------------------------------//
+  // Common reservation station for Multi-clokcs //
+  // (_mclk) execution modules:                  //
+  //   # 32-bits integer multiplier              //
+  //   # 32-bits integer divider                 //
+  //   # 32/64-bits FP arithmetic                //
+  //   # 64-bits FP comparison                   //
+  //---------------------------------------------//
+  // run integer multiplier
+  wire exec_op_mul;
+  // run divider
+  wire exec_op_div;
+  wire exec_op_div_signed;
+  wire exec_op_div_unsigned;
+  // run fp3264 arithmetic
+  wire exec_op_fp64_arith, exec_op_fpxx_add, exec_op_fpxx_sub, exec_op_fpxx_mul,
+                           exec_op_fpxx_div, exec_op_fpxx_i2f, exec_op_fpxx_f2i;
+
+  // run fp64 comparison
+  wire [2:0] exec_opc_fp64_cmp;
+
+  // OPC layout for multi-clocks rezervation station
+  //  # run int multiplier:                                     1
+  //  # run int divider (+signed, +unsigned):                   3
+  //  # double precision bit:                                   1
+  //  # fp3264 arithmetic command (add,sub,mul,div,i2f,f2i):    6
+  //  # fp64 comparison:                                        3
+  //  # overall:                                               14
+  localparam MCLK_OPC_WIDTH = 14;
+
+  // mclk input operands
+  wire [(OPTION_OPERAND_WIDTH-1):0] exec_mclk_a1, exec_mclk_a2, exec_mclk_b1, exec_mclk_b2;
+
+  //  # MCLK is tacking operands
+  wire imul_taking_op, idiv_taking_op, fpxx_taking_op;
+  wire mclk_taking_op = imul_taking_op | idiv_taking_op | fpxx_taking_op;
+
+  // **** mclk reservation station instance ****
+  mor1kx_rsrvs_marocchino
+  #(
+    .OPTION_OPERAND_WIDTH     (OPTION_OPERAND_WIDTH), // MCLK_RSVRS
+    .USE_OPC                  (1), // MCLK_RSVRS
+    .OPC_WIDTH                (MCLK_OPC_WIDTH), // MCLK_RSVRS
+    .DEST_REG_ADDR_WIDTH      (DEST_REG_ADDR_WIDTH), // MCLK_RSVRS
+    .FEATURE_FPU              ("ENABLED"), // MCLK_RSVRS
+    .USE_RSVRS_FLAG_CARRY     (0), // MCLK_RSVRS
+    .DEST_FLAG_ADDR_WIDTH     (1) // MCLK_RSVRS
+  )
+  u_pfpu_rsrvs
+  (
+    // clocks and resets
+    .clk                      (clk), // MCLK_RSVRS
+    .rst                      (rst), // MCLK_RSVRS
+    // pipeline control signals in
+    .pipeline_flush_i         (pipeline_flush), // MCLK_RSVRS
+    .padv_decode_i            (padv_decode), // MCLK_RSVRS
+    .taking_op_i              (mclk_taking_op), // MCLK_RSVRS
+    // input data from DECODE
+    .dcod_rfa1_i              (dcod_rfa1), // MCLK_RSVRS
+    .dcod_rfb1_i              (dcod_rfb1), // MCLK_RSVRS
+    .dcod_rfa2_i              (dcod_rfa2), // MCLK_RSVRS
+    .dcod_rfb2_i              (dcod_rfb2), // MCLK_RSVRS
+    // OMAN-to-DECODE hazards
+    //  combined flag
+    .omn2dec_hazards_i        (omn2dec_hazards_mclk), // MCLK_RSVRS
+    //  by FLAG and CARRY
+    .busy_hazard_f_i          (1'b0), // MCLK_RSVRS
+    .busy_hazard_f_adr_i      (1'b0), // MCLK_RSVRS
+    .busy_hazard_c_i          (1'b0), // MCLK_RSVRS
+    .busy_hazard_c_adr_i      (1'b0), // MCLK_RSVRS
+    //  by operands
+    .busy_hazard_d1a1_i       (busy_hazard_d1a1), // MCLK_RSVRS
+    .busy_hazard_d1a1_adr_i   (busy_hazard_d1a1_adr), // MCLK_RSVRS
+    .busy_hazard_d1b1_i       (busy_hazard_d1b1), // MCLK_RSVRS
+    .busy_hazard_d1b1_adr_i   (busy_hazard_d1b1_adr), // MCLK_RSVRS
+    // for FPU64
+    .busy_hazard_d2a2_i       (busy_hazard_d2a2), // MCLK_RSVRS
+    .busy_hazard_d2a2_adr_i   (busy_hazard_d2a2_adr), // MCLK_RSVRS
+    .busy_hazard_d2b2_i       (busy_hazard_d2b2), // MCLK_RSVRS
+    .busy_hazard_d2b2_adr_i   (busy_hazard_d2b2_adr), // MCLK_RSVRS
+    // EXEC-to-DECODE hazards
+    //  combined flag
+    .exe2dec_hazards_i        (exe2dec_hazards_mclk), // MCLK_RSVRS
+    //  by operands
+    .exe2dec_hazard_d1a1_i    (exe2dec_hazard_d1a1), // MCLK_RSVRS
+    .exe2dec_hazard_d1b1_i    (exe2dec_hazard_d1b1), // MCLK_RSVRS
+    // for FPU64
+    .exe2dec_hazard_d2a2_i    (exe2dec_hazard_d2a2), // MCLK_RSVRS
+    .exe2dec_hazard_d2b2_i    (exe2dec_hazard_d2b2), // MCLK_RSVRS
+    // Hazard could be passed from DECODE to EXECUTE
+    //  ## FLAG or CARRY
+    .exec_flag_wb_i           (1'b0), // MCLK_RSVRS
+    .exec_carry_wb_i          (1'b0), // MCLK_RSVRS
+    .exec_flag_carry_adr_i    (1'b0), // MCLK_RSVRS
+    //  ## A or B operand
+    .exec_rfd1_wb_i           (exec_rfd1_wb), // MCLK_RSVRS
+    .exec_rfd1_adr_i          (exec_rfd1_adr), // MCLK_RSVRS
+    //  ## for FPU64
+    .exec_rfd2_wb_i           (exec_rfd2_wb), // MCLK_RSVRS
+    .exec_rfd2_adr_i          (exec_rfd2_adr), // MCLK_RSVRS
+    //  ## passing only with writting back
+    .padv_wb_i                (padv_wb), // MCLK_RSVRS
+    // Hazard could be resolving
+    //  ## FLAG or CARRY
+    .wb_flag_wb_i             (1'b0), // MCLK_RSVRS
+    .wb_carry_wb_i            (1'b0), // MCLK_RSVRS
+    .wb_flag_carry_adr_i      (1'b0), // MCLK_RSVRS
+    //  ## A or B operand
+    .wb_rfd1_wb_i             (wb_rfd1_wb), // MCLK_RSVRS
+    .wb_rfd1_adr_i            (wb_rfd1_adr[DEST_REG_ADDR_WIDTH-1:0]), // MCLK_RSVRS
+    .wb_result1_i             (wb_result1), // MCLK_RSVRS
+    //  ## for FPU64
+    .wb_rfd2_wb_i             (wb_rfd2_wb), // MCLK_RSVRS
+    .wb_rfd2_adr_i            (wb_rfd2_adr[DEST_REG_ADDR_WIDTH-1:0]), // MCLK_RSVRS
+    .wb_result2_i             (wb_result2), // MCLK_RSVRS
+    // command and its additional attributes
+    .dcod_op_i                (dcod_op_mul | dcod_op_div | dcod_op_fpxx_arith | dcod_op_fp64_cmp), // MCLK_RSVRS
+    .dcod_opc_i               ({dcod_op_mul,  // MCLK_RSVRS
+                                dcod_op_div, dcod_op_div_signed, dcod_op_div_signed, // MCLK_RSVRS
+                                dcod_op_fp64_arith, // MCLK_RSVRS
+                                dcod_op_fpxx_add, dcod_op_fpxx_sub, dcod_op_fpxx_mul,
+                                dcod_op_fpxx_div, dcod_op_fpxx_i2f, dcod_op_fpxx_f2i, // MCLK_RSVRS
+                                dcod_opc_fp64_cmp}), // MCLK_RSVRS
+    // outputs
+    //   command attributes from busy stage
+    .busy_opc_o               (), // MCLK_RSVRS
+    //   command and its additional attributes
+    .exec_op_o                (), // MCLK_RSVRS
+    .exec_opc_o               ({exec_op_mul, // MCLK_RSVRS
+                                exec_op_div, exec_op_div_signed, exec_op_div_unsigned, // MCLK_RSVRS
+                                exec_op_fp64_arith, // MCLK_RSVRS
+                                exec_op_fpxx_add, exec_op_fpxx_sub, exec_op_fpxx_mul, // MCLK_RSVRS
+                                exec_op_fpxx_div, exec_op_fpxx_i2f, exec_op_fpxx_f2i, // MCLK_RSVRS
+                                exec_opc_fp64_cmp}), // MCLK_RSVRS
+    //   operands
+    .exec_rfa1_o              (exec_mclk_a1), // MCLK_RSVRS
+    .exec_rfb1_o              (exec_mclk_b1), // MCLK_RSVRS
+    .exec_rfa2_o              (exec_mclk_a2), // MCLK_RSVRS
+    .exec_rfb2_o              (exec_mclk_b2), // MCLK_RSVRS
+    //   unit-is-busy flag
+    .unit_busy_o              (mclk_busy) // MCLK_RSVRS
+  );
+
+
   //-------------------//
   // 32-bit multiplier //
   //-------------------//
 
   mor1kx_multiplier_marocchino
   #(
-    .OPTION_OPERAND_WIDTH             (OPTION_OPERAND_WIDTH), // MUL
-    .DEST_REG_ADDR_WIDTH              (DEST_REG_ADDR_WIDTH) // MUL
+    .OPTION_OPERAND_WIDTH             (OPTION_OPERAND_WIDTH) // MUL
   )
   u_multiplier
   (
@@ -718,37 +1100,14 @@ module mor1kx_cpu_marocchino
     .rst                              (rst), // MUL
     // pipeline controls
     .pipeline_flush_i                 (pipeline_flush), // MUL
-    .padv_decode_i                    (padv_decode), // MUL
     .padv_wb_i                        (padv_wb), // MUL
     .grant_wb_to_mul_i                (grant_wb_to_mul), // MUL
-    // input data from DECODE
-    .dcod_rfa_i                       (dcod_rfa), // MUL
-    .dcod_rfb_i                       (dcod_rfb), // MUL
-    // OMAN-to-DECODE hazards
-    //  combined flag
-    .omn2dec_hazards_i                (omn2dec_hazards), // MUL
-    //  by operands
-    .busy_hazard_a_i                  (busy_hazard_a), // MUL
-    .busy_hazard_a_adr_i              (busy_hazard_a_adr), // MUL
-    .busy_hazard_b_i                  (busy_hazard_b), // MUL
-    .busy_hazard_b_adr_i              (busy_hazard_b_adr), // MUL
-    // EXEC-to-DECODE hazards
-    //  combined flag
-    .exe2dec_hazards_i                (exe2dec_hazards), // MUL
-    //  by operands
-    .exe2dec_hazard_a_i               (exe2dec_hazard_a), // MUL
-    .exe2dec_hazard_b_i               (exe2dec_hazard_b), // MUL
-    // Data for hazards resolving
-    //  hazard could be passed from DECODE to EXECUTE
-    .exec_rf_wb_i                     (exec_rf_wb), // MUL
-    .exec_rfd_adr_i                   (exec_rfd_adr), // MUL
-    //  hazard could be resolving
-    .wb_rf_wb_i                       (wb_rf_wb), // MUL
-    .wb_rfd_adr_i                     (wb_rfd_adr[DEST_REG_ADDR_WIDTH-1:0]), // MUL
-    .wb_result_i                      (wb_result), // MUL
+    // input operands from reservation station
+    .exec_mul_a1_i                    (exec_mclk_a1), // MUL
+    .exec_mul_b1_i                    (exec_mclk_b1), // MUL
     //  other inputs/outputs
-    .dcod_op_mul_i                    (dcod_op_mul), // MUL
-    .mul_busy_o                       (mul_busy), // MUL
+    .exec_op_mul_i                    (exec_op_mul), // MUL
+    .imul_taking_op_o                 (imul_taking_op), // MUL
     .mul_valid_o                      (mul_valid), // MUL
     .wb_mul_result_o                  (wb_mul_result) // MUL
   );
@@ -766,11 +1125,10 @@ module mor1kx_cpu_marocchino
   wire wb_div_overflow_set;
   wire wb_div_overflow_clear;
 
-  // divisor instance
+  // **** integer divider ****
   mor1kx_divider_marocchino
   #(
-    .OPTION_OPERAND_WIDTH             (OPTION_OPERAND_WIDTH), // DIV
-    .DEST_REG_ADDR_WIDTH              (DEST_REG_ADDR_WIDTH) // DIV
+    .OPTION_OPERAND_WIDTH             (OPTION_OPERAND_WIDTH) // DIV
   )
   u_divider
   (
@@ -779,40 +1137,17 @@ module mor1kx_cpu_marocchino
     .rst                              (rst), // DIV
     // pipeline controls
     .pipeline_flush_i                 (pipeline_flush), // DIV
-    .padv_decode_i                    (padv_decode), // DIV
     .padv_wb_i                        (padv_wb), // DIV
     .grant_wb_to_div_i                (grant_wb_to_div), // DIV
-    // input data from DECODE
-    .dcod_rfa_i                       (dcod_rfa), // DIV
-    .dcod_rfb_i                       (dcod_rfb), // DIV
-    // OMAN-to-DECODE hazards
-    //  combined flag
-    .omn2dec_hazards_i                (omn2dec_hazards), // DIV
-    //  by operands
-    .busy_hazard_a_i                  (busy_hazard_a), // DIV
-    .busy_hazard_a_adr_i              (busy_hazard_a_adr), // DIV
-    .busy_hazard_b_i                  (busy_hazard_b), // DIV
-    .busy_hazard_b_adr_i              (busy_hazard_b_adr), // DIV
-    // EXEC-to-DECODE hazards
-    //  combined flag
-    .exe2dec_hazards_i                (exe2dec_hazards), // DIV
-    //  by operands
-    .exe2dec_hazard_a_i               (exe2dec_hazard_a), // DIV
-    .exe2dec_hazard_b_i               (exe2dec_hazard_b), // DIV
-    // Data for hazards resolving
-    //  hazard could be passed from DECODE to EXECUTE
-    .exec_rf_wb_i                     (exec_rf_wb), // DIV
-    .exec_rfd_adr_i                   (exec_rfd_adr), // DIV
-    //  hazard could be resolving
-    .wb_rf_wb_i                       (wb_rf_wb), // DIV
-    .wb_rfd_adr_i                     (wb_rfd_adr[DEST_REG_ADDR_WIDTH-1:0]), // DIV
-    .wb_result_i                      (wb_result), // DIV
+    // input data from reservation station
+    .exec_div_a1_i                    (exec_mclk_a1), // DIV
+    .exec_div_b1_i                    (exec_mclk_b1), // DIV
     // division command
-    .dcod_op_div_i                    (dcod_op_div), // DIV
-    .dcod_op_div_signed_i             (dcod_op_div_signed), // DIV
-    .dcod_op_div_unsigned_i           (dcod_op_div_unsigned), // DIV
+    .exec_op_div_i                    (exec_op_div), // DIV
+    .exec_op_div_signed_i             (exec_op_div_signed), // DIV
+    .exec_op_div_unsigned_i           (exec_op_div_unsigned), // DIV
     // division engine state
-    .div_busy_o                       (div_busy), // DIV
+    .idiv_taking_op_o                 (idiv_taking_op), // DIV
     .div_valid_o                      (div_valid), // DIV
     // write back
     //  # update carry flag by division
@@ -829,137 +1164,6 @@ module mor1kx_cpu_marocchino
   );
 
 
-  //-----------------------------------------------//
-  // 1-clock operations including FP-32 comparison //
-  //-----------------------------------------------//
-
-  //  # update carry flag by 1clk-operation
-  wire wb_1clk_carry_set;
-  wire wb_1clk_carry_clear;
-
-  //  # update overflow flag by 1clk-operation
-  wire wb_1clk_overflow_set;
-  wire wb_1clk_overflow_clear;
-
-  // 1clk instance
-  mor1kx_exec_1clk_marocchino
-  #(
-    .OPTION_OPERAND_WIDTH             (OPTION_OPERAND_WIDTH), // 1CLK
-    .OPTION_RF_ADDR_WIDTH             (OPTION_RF_ADDR_WIDTH), // 1CLK
-    .DEST_REG_ADDR_WIDTH              (DEST_REG_ADDR_WIDTH), // 1CLK
-    .DEST_FLAG_ADDR_WIDTH             (DEST_FLAG_ADDR_WIDTH), // 1CLK
-    .FEATURE_FPU                      (FEATURE_FPU) // 1CLK
-  )
-  u_exec_1clk
-  (
-    // clocks & resets
-    .clk                              (clk), // 1CLK
-    .rst                              (rst), // 1CLK
-
-    // pipeline controls
-    .pipeline_flush_i                 (pipeline_flush), // 1CLK
-    .padv_decode_i                    (padv_decode), // 1CLK
-    .padv_wb_i                        (padv_wb), // 1CLK
-    .grant_wb_to_1clk_i               (grant_wb_to_1clk), // 1CLK
-
-    // input data from DECODE
-    .dcod_rfa_i                       (dcod_rfa), // 1CLK
-    .dcod_rfb_i                       (dcod_rfb), // 1CLK
-
-    // OMAN-to-DECODE hazards
-    //  combined flag
-    .omn2dec_hazards_i                (omn2dec_hazards_1clk), // 1CLK
-    //  by FLAG and CARRY
-    .busy_hazard_f_i                  (busy_hazard_f), // 1CLK
-    .busy_hazard_f_adr_i              (busy_hazard_f_adr), // 1CLK
-    .busy_hazard_c_i                  (busy_hazard_c), // 1CLK
-    .busy_hazard_c_adr_i              (busy_hazard_c_adr), // 1CLK
-    //  by operands
-    .busy_hazard_a_i                  (busy_hazard_a), // 1CLK
-    .busy_hazard_a_adr_i              (busy_hazard_a_adr), // 1CLK
-    .busy_hazard_b_i                  (busy_hazard_b), // 1CLK
-    .busy_hazard_b_adr_i              (busy_hazard_b_adr), // 1CLK
-    // EXEC-to-DECODE hazards
-    //  combined flag
-    .exe2dec_hazards_i                (exe2dec_hazards_1clk), // 1CLK
-    //  by operands
-    .exe2dec_hazard_a_i               (exe2dec_hazard_a), // 1CLK
-    .exe2dec_hazard_b_i               (exe2dec_hazard_b), // 1CLK
-    // Data for hazards resolving
-    //  hazard could be passed from DECODE to EXECUTE
-    .exec_flag_wb_i                   (exec_flag_wb), // 1CLK
-    .exec_carry_wb_i                  (exec_carry_wb), // 1CLK
-    .exec_flag_carry_adr_i            (exec_flag_carry_adr), // 1CLK
-    .exec_rf_wb_i                     (exec_rf_wb), // 1CLK
-    .exec_rfd_adr_i                   (exec_rfd_adr), // 1CLK
-    //  hazard could be resolving
-    .wb_flag_wb_i                     (wb_flag_wb), // 1CLK
-    .wb_carry_wb_i                    (wb_carry_wb), // 1CLK
-    .wb_flag_carry_adr_i              (wb_flag_carry_adr), // 1CLK
-    .wb_rf_wb_i                       (wb_rf_wb), // 1CLK
-    .wb_rfd_adr_i                     (wb_rfd_adr[DEST_REG_ADDR_WIDTH-1:0]), // 1CLK
-    .wb_result_i                      (wb_result), // 1CLK
-
-    // 1-clock instruction auxiliaries
-    .dcod_op_1clk_i                   (dcod_op_1clk), // 1CLK
-    .op_1clk_busy_o                   (op_1clk_busy), // 1CLK
-    .dcod_opc_alu_secondary_i         (dcod_opc_alu_secondary), // 1CLK
-    .carry_i                          (ctrl_carry), // 1CLK
-    .flag_i                           (ctrl_flag), // 1CLK
-
-    // adder
-    .dcod_op_add_i                    (dcod_op_add), // 1CLK
-    .dcod_adder_do_sub_i              (dcod_adder_do_sub), // 1CLK
-    .dcod_adder_do_carry_i            (dcod_adder_do_carry), // 1CLK
-    // shift, ffl1, movhi, cmov
-    .dcod_op_shift_i                  (dcod_op_shift), // 1CLK
-    .dcod_op_ffl1_i                   (dcod_op_ffl1), // 1CLK
-    .dcod_op_movhi_i                  (dcod_op_movhi), // 1CLK
-    .dcod_op_cmov_i                   (dcod_op_cmov), // 1CLK
-    // logic
-    .dcod_opc_logic_i                 (dcod_opc_logic), // 1CLK
-    // jump & link
-    .dcod_op_jal_i                    (dcod_op_jal), // 1CLK
-    .dcod_jal_result_i                (dcod_jal_result), // 1CLK
-    // WB-latched 1-clock arithmetic result
-    .wb_alu_1clk_result_o             (wb_alu_1clk_result), // 1CLK
-    //  # update carry flag by 1clk-operation
-    .wb_1clk_carry_set_o              (wb_1clk_carry_set), // 1CLK
-    .wb_1clk_carry_clear_o            (wb_1clk_carry_clear), // 1CLK
-    //  # update overflow flag by 1clk-operation
-    .wb_1clk_overflow_set_o           (wb_1clk_overflow_set), // 1CLK
-    .wb_1clk_overflow_clear_o         (wb_1clk_overflow_clear), // 1CLK
-    //  # generate overflow exception by 1clk-operation
-    .except_overflow_enable_i         (except_overflow_enable), // 1CLK
-    .wb_except_overflow_1clk_o        (wb_except_overflow_1clk), // 1CLK
-
-    // integer comparison flag
-    .dcod_op_setflag_i                (dcod_op_setflag), // 1CLK
-    // WB: integer comparison result
-    .wb_int_flag_set_o                (wb_int_flag_set), // 1CLK
-    .wb_int_flag_clear_o              (wb_int_flag_clear), // 1CLK
-
-    // FP32 comparison flag
-    .dcod_op_fp32_cmp_i               (dcod_op_fp32_cmp), // 1CLK
-    .dcod_opc_fp32_cmp_i              (dcod_opc_fp32_cmp), // 1CLK
-    .except_fpu_enable_i              (except_fpu_enable), // 1CLK
-    .ctrl_fpu_mask_flags_inv_i        (ctrl_fpu_mask_flags[`OR1K_FPCSR_IVF - `OR1K_FPCSR_OVF]), // 1CLK
-    .ctrl_fpu_mask_flags_inf_i        (ctrl_fpu_mask_flags[`OR1K_FPCSR_INF - `OR1K_FPCSR_OVF]), // 1CLK
-    // WB: FP32 comparison results
-    .wb_fp32_flag_set_o               (wb_fp32_flag_set), // 1CLK
-    .wb_fp32_flag_clear_o             (wb_fp32_flag_clear), // 1CLK
-    .wb_fp32_cmp_inv_o                (wb_fp32_cmp_inv), // 1CLK
-    .wb_fp32_cmp_inf_o                (wb_fp32_cmp_inf), // 1CLK
-    .wb_fp32_cmp_wb_fpcsr_o           (wb_fp32_cmp_wb_fpcsr), // 1CLK
-    .wb_except_fp32_cmp_o             (wb_except_fp32_cmp), // 1CLK
-
-    // Forwarding comparision flag result for conditional branch take/not
-    .busy_op_1clk_cmp_o               (busy_op_1clk_cmp), // 1CLK
-    .exec_op_1clk_cmp_o               (exec_op_1clk_cmp), // 1CLK
-    .exec_flag_set_o                  (exec_flag_set) // 1CLK
-  );
-
-
   //---------//
   // FPU3264 //
   //---------//
@@ -967,11 +1171,7 @@ module mor1kx_cpu_marocchino
   /* verilator lint_off WIDTH */
   if (FEATURE_FPU != "NONE") begin :  alu_fpxx_ena
   /* verilator lint_on WIDTH */
-    pfpu_top_marocchino
-    #(
-      .DEST_REG_ADDR_WIDTH (DEST_REG_ADDR_WIDTH) // FPU3264
-    )
-    u_pfpu3264
+    pfpu_top_marocchino  u_pfpu3264
     (
       // clock & reset
       .clk                        (clk), // FPU3264
@@ -979,13 +1179,12 @@ module mor1kx_cpu_marocchino
 
       // pipeline control
       .pipeline_flush_i           (pipeline_flush), // FPU3264
-      .padv_decode_i              (padv_decode), // FPU3264
       .padv_wb_i                  (padv_wb), // FPU3264
       .grant_wb_to_fpxx_arith_i   (grant_wb_to_fpxx_arith), // FPU3264
       .grant_wb_to_fp64_cmp_i     (grant_wb_to_fp64_cmp), // FPU3264
 
       // pipeline control outputs
-      .fpxx_busy_o                (fpxx_busy), // FPU3264
+      .fpxx_taking_op_o           (fpxx_taking_op), // FPU3264
       .fpxx_arith_valid_o         (fpxx_arith_valid), // FPU3264
 
       // Configuration
@@ -994,66 +1193,22 @@ module mor1kx_cpu_marocchino
       .ctrl_fpu_mask_flags_i      (ctrl_fpu_mask_flags), // FPU3264
 
       // Commands for arithmetic part
-      .dcod_op_fpxx_arith_i       (dcod_op_fpxx_arith), // FPU3264
-      .dcod_op_fp64_arith_i       (dcod_op_fp64_arith), // FPU3264
-      .dcod_op_fpxx_add_i         (dcod_op_fpxx_add), // FPU3264
-      .dcod_op_fpxx_sub_i         (dcod_op_fpxx_sub), // FPU3264
-      .dcod_op_fpxx_mul_i         (dcod_op_fpxx_mul), // FPU3264
-      .dcod_op_fpxx_div_i         (dcod_op_fpxx_div), // FPU3264
-      .dcod_op_fpxx_i2f_i         (dcod_op_fpxx_i2f), // FPU3264
-      .dcod_op_fpxx_f2i_i         (dcod_op_fpxx_f2i), // FPU3264
+      .exec_op_fp64_arith_i       (exec_op_fp64_arith), // FPU3264
+      .exec_op_fpxx_add_i         (exec_op_fpxx_add), // FPU3264
+      .exec_op_fpxx_sub_i         (exec_op_fpxx_sub), // FPU3264
+      .exec_op_fpxx_mul_i         (exec_op_fpxx_mul), // FPU3264
+      .exec_op_fpxx_div_i         (exec_op_fpxx_div), // FPU3264
+      .exec_op_fpxx_i2f_i         (exec_op_fpxx_i2f), // FPU3264
+      .exec_op_fpxx_f2i_i         (exec_op_fpxx_f2i), // FPU3264
 
       // Commands for comparison part
-      .dcod_op_fp64_cmp_i         (dcod_op_fp64_cmp), // FPU3264
-      .dcod_opc_fp64_cmp_i        (dcod_opc_fp64_cmp), // FPU3264
+      .exec_opc_fp64_cmp_i        (exec_opc_fp64_cmp), // FPU3264
 
-      // Operands from DECODE
-      .dcod_rfa_i                 (dcod_rfa), // FPU3264
-      .dcod_rfb_i                 (dcod_rfb), // FPU3264
-      .dcod_rfa2_i                (dcod_rfa2), // FPU3264
-      .dcod_rfb2_i                (dcod_rfb2), // FPU3264
-
-      // OMAN-to-DECODE hazards
-      //  combined flag
-      .omn2dec_hazards_i          (omn2dec_hazards_fp64), // FPU3264
-      //  by operands
-      .busy_hazard_a_i            (busy_hazard_a), // FPU3264
-      .busy_hazard_a_adr_i        (busy_hazard_a_adr), // FPU3264
-      .busy_hazard_b_i            (busy_hazard_b), // FPU3264
-      .busy_hazard_b_adr_i        (busy_hazard_b_adr), // FPU3264
-      // for FPU3264
-      .busy_hazard_a2_i           (busy_hazard_a2), // FPU3264
-      .busy_hazard_a2_adr_i       (busy_hazard_a2_adr), // FPU3264
-      .busy_hazard_b2_i           (busy_hazard_b2), // FPU3264
-      .busy_hazard_b2_adr_i       (busy_hazard_b2_adr), // FPU3264
-
-      // EXEC-to-DECODE hazards
-      //  combined flag
-      .exe2dec_hazards_i          (exe2dec_hazards_fp64), // FPU3264
-      //  by operands
-      .exe2dec_hazard_a_i         (exe2dec_hazard_a), // FPU3264
-      .exe2dec_hazard_b_i         (exe2dec_hazard_b), // FPU3264
-      // for FPU3264
-      .exe2dec_hazard_a2_i        (exe2dec_hazard_a2), // FPU3264
-      .exe2dec_hazard_b2_i        (exe2dec_hazard_b2), // FPU3264
-
-      // Hazard could be passed from DECODE to EXECUTE
-      //  ## A or B operand
-      .exec_rf_wb_i               (exec_rf_wb), // FPU3264
-      .exec_rfd_adr_i             (exec_rfd_adr), // FPU3264
-      //  ## for FPU3264
-      .exec_rf_wb2_i              (exec_rf_wb2), // FPU3264
-      .exec_rfd2_adr_i            (exec_rfd2_adr), // FPU3264
-
-      // Hazard could be resolving
-      //  ## A or B operand
-      .wb_rf_wb_i                 (wb_rf_wb), // FPU3264
-      .wb_rfd_adr_i               (wb_rfd_adr[DEST_REG_ADDR_WIDTH-1:0]), // FPU3264
-      .wb_result_i                (wb_result), // FPU3264
-      //  ## for FPU3264
-      .wb_rf_wb2_i                (wb_rf_wb2), // FPU3264
-      .wb_rfd2_adr_i              (wb_rfd2_adr[DEST_REG_ADDR_WIDTH-1:0]), // FPU3264
-      .wb_result2_i               (wb_result2), // FPU3264
+      // Operands from reservation station
+      .exec_fpxx_a1_i             (exec_mclk_a1), // FPU3264
+      .exec_fpxx_b1_i             (exec_mclk_b1), // FPU3264
+      .exec_fpxx_a2_i             (exec_mclk_a2), // FPU3264
+      .exec_fpxx_b2_i             (exec_mclk_b2), // FPU3264
 
       // FPU2364 arithmetic part
       .wb_fpxx_arith_res_hi_o     (wb_fpxx_arith_res_hi), // FPU3264
@@ -1073,7 +1228,6 @@ module mor1kx_cpu_marocchino
   end
   else begin :  alu_fpxx_none
     // FPU3264 busy and validity flags
-    assign fpxx_busy              = 1'b0; // no FPU3264
     assign fpxx_arith_valid       = 1'b0; // no FPU3264
     // FPU3264 arithmetic part
     assign wb_fpxx_arith_res_hi   = {OPTION_OPERAND_WIDTH{1'b0}}; // no FPU3264
@@ -1096,10 +1250,154 @@ module mor1kx_cpu_marocchino
   // LSU instance //
   //--------------//
 
+  //  # various LSU <-> RSRVS connections
+  wire lsu_taking_op;
+  wire lsu_excepts_any;   // non-registered
+  wire lsu_excepts_any_r; // registered
+  wire lsu_busy_rsrvs;    // busy due to reservation station is full
+
+  // RSRVS -> LSU connections
+  //  # commands
+  wire                            exec_op_lsu_load;
+  wire                            exec_op_lsu_store;
+  wire                            exec_op_lsu_atomic;
+  wire                      [1:0] exec_lsu_length;
+  wire                            exec_lsu_zext;
+  wire                            exec_op_msync;
+  //  # immediate offset for address computation
+  wire      [`OR1K_IMM_WIDTH-1:0] exec_lsu_imm16;
+  //  # PC for store buffer EPCR computation
+  wire [OPTION_OPERAND_WIDTH-1:0] exec_sbuf_epcr;
+  //  # operands after frorwarding from WB
+  wire [OPTION_OPERAND_WIDTH-1:0] exec_lsu_a1;
+  wire [OPTION_OPERAND_WIDTH-1:0] exec_lsu_b1;
+
+  // **** reservation station for LSU ****
+  // EPCR for store buffer
+  //  ## delay-slot ? (pc-4) : pc
+  wire [(OPTION_OPERAND_WIDTH-1):0] dcod_sbuf_epcr = pc_decode - {{(OPTION_OPERAND_WIDTH-3){1'b0}},dcod_delay_slot,2'b00};
+
+  // attributes include:
+  //  ## separate load, store and atomic flags: averall 3
+  //  ## length:            2
+  //  ## zero extension:    1
+  //  ## l.msync:           1
+  //  ## immediate width:  16
+  //  ## PC address width: 32
+  localparam LSU_ATTR_WIDTH = 7 + `OR1K_IMM_WIDTH + OPTION_OPERAND_WIDTH;
+
+  // reservation station instance
+  mor1kx_rsrvs_marocchino
+  #(
+    .OPTION_OPERAND_WIDTH     (OPTION_OPERAND_WIDTH), // LSU_RSVRS
+    .USE_OPC                  (1), // LSU_RSVRS
+    .OPC_WIDTH                (LSU_ATTR_WIDTH), // LSU_RSVRS
+    .DEST_REG_ADDR_WIDTH      (DEST_REG_ADDR_WIDTH), // LSU_RSVRS
+    .FEATURE_FPU              ("NONE"), // LSU_RSVRS
+    .USE_RSVRS_FLAG_CARRY     (0), // LSU_RSVRS
+    .DEST_FLAG_ADDR_WIDTH     (1) // LSU_RSVRS
+  )
+  u_lsu_rsrvs
+  (
+    // clocks and resets
+    .clk                      (clk),
+    .rst                      (rst),
+    // pipeline control signals in
+    .pipeline_flush_i         (lsu_excepts_any | pipeline_flush), // LSU_RSVRS
+    .padv_decode_i            (padv_decode), // LSU_RSVRS
+    .taking_op_i              (lsu_taking_op), // LSU_RSVRS
+    // input data from DECODE
+    .dcod_rfa1_i              (dcod_rfa1), // LSU_RSVRS
+    .dcod_rfb1_i              (dcod_rfb1), // LSU_RSVRS
+    // for FPU64
+    .dcod_rfa2_i              ({OPTION_OPERAND_WIDTH{1'b0}}), // LSU_RSVRS
+    .dcod_rfb2_i              ({OPTION_OPERAND_WIDTH{1'b0}}), // LSU_RSVRS
+    // OMAN-to-DECODE hazards
+    //  combined flag
+    .omn2dec_hazards_i        (omn2dec_hazards), // LSU_RSVRS
+    //  by FLAG and CARRY
+    .busy_hazard_f_i          (1'b0), // LSU_RSVRS
+    .busy_hazard_f_adr_i      (1'b0), // LSU_RSVRS
+    .busy_hazard_c_i          (1'b0), // LSU_RSVRS
+    .busy_hazard_c_adr_i      (1'b0), // LSU_RSVRS
+    //  by operands
+    .busy_hazard_d1a1_i       (busy_hazard_d1a1), // LSU_RSVRS
+    .busy_hazard_d1a1_adr_i   (busy_hazard_d1a1_adr), // LSU_RSVRS
+    .busy_hazard_d1b1_i       (busy_hazard_d1b1), // LSU_RSVRS
+    .busy_hazard_d1b1_adr_i   (busy_hazard_d1b1_adr), // LSU_RSVRS
+    // for FPU64
+    .busy_hazard_d2a2_i       (1'b0), // LSU_RSVRS
+    .busy_hazard_d2a2_adr_i   ({DEST_REG_ADDR_WIDTH{1'b0}}), // LSU_RSVRS
+    .busy_hazard_d2b2_i       (1'b0), // LSU_RSVRS
+    .busy_hazard_d2b2_adr_i   ({DEST_REG_ADDR_WIDTH{1'b0}}), // LSU_RSVRS
+    // EXEC-to-DECODE hazards
+    //  combined flag
+    .exe2dec_hazards_i        (exe2dec_hazards), // LSU_RSVRS
+    //  by operands
+    .exe2dec_hazard_d1a1_i    (exe2dec_hazard_d1a1), // LSU_RSVRS
+    .exe2dec_hazard_d1b1_i    (exe2dec_hazard_d1b1), // LSU_RSVRS
+    // for FPU64
+    .exe2dec_hazard_d2a2_i    (1'b0), // LSU_RSVRS
+    .exe2dec_hazard_d2b2_i    (1'b0), // LSU_RSVRS
+    // Hazard could be passed from DECODE to EXECUTE
+    //  ## FLAG or CARRY
+    .exec_flag_wb_i           (1'b0), // LSU_RSVRS
+    .exec_carry_wb_i          (1'b0), // LSU_RSVRS
+    .exec_flag_carry_adr_i    (1'b0), // LSU_RSVRS
+    //  ## A or B operand
+    .exec_rfd1_wb_i           (exec_rfd1_wb), // LSU_RSVRS
+    .exec_rfd1_adr_i          (exec_rfd1_adr), // LSU_RSVRS
+    //  ## for FPU64
+    .exec_rfd2_wb_i           (1'b0), // LSU_RSVRS
+    .exec_rfd2_adr_i          ({DEST_REG_ADDR_WIDTH{1'b0}}), // LSU_RSVRS
+    //  ## passing only with writting back
+    .padv_wb_i                (padv_wb), // LSU_RSVRS
+    // Hazard could be resolving
+    //  ## FLAG or CARRY
+    .wb_flag_wb_i             (1'b0), // LSU_RSVRS
+    .wb_carry_wb_i            (1'b0), // LSU_RSVRS
+    .wb_flag_carry_adr_i      (1'b0), // LSU_RSVRS
+    //  ## A or B operand
+    .wb_rfd1_wb_i             (wb_rfd1_wb), // LSU_RSVRS
+    .wb_rfd1_adr_i            (wb_rfd1_adr[DEST_REG_ADDR_WIDTH-1:0]), // LSU_RSVRS
+    .wb_result1_i             (wb_result1), // LSU_RSVRS
+    //  ## for FPU64
+    .wb_rfd2_wb_i             (1'b0), // LSU_RSVRS
+    .wb_rfd2_adr_i            ({DEST_REG_ADDR_WIDTH{1'b0}}), // LSU_RSVRS
+    .wb_result2_i             ({OPTION_OPERAND_WIDTH{1'b0}}), // LSU_RSVRS
+    // command and its additional attributes
+    .dcod_op_i                (dcod_op_lsu_load | dcod_op_lsu_store | dcod_op_msync), // LSU_RSVRS
+    .dcod_opc_i               ({dcod_op_lsu_load,dcod_op_lsu_store,dcod_op_lsu_atomic, // LSU_RSVRS
+                                dcod_lsu_length,dcod_lsu_zext, // LSU_RSVRS
+                                dcod_op_msync, // LSU_RSVRS
+                                dcod_imm16,dcod_sbuf_epcr}), // LSU_RSVRS
+    // outputs
+    //   command attributes from busy stage
+    .busy_opc_o               (), // LSU_RSVRS
+    //   command and its additional attributes
+    .exec_op_o                (), // LSU_RSVRS
+    .exec_opc_o               ({exec_op_lsu_load,exec_op_lsu_store,exec_op_lsu_atomic, // LSU_RSVRS
+                                exec_lsu_length,exec_lsu_zext, // LSU_RSVRS
+                                exec_op_msync, // LSU_RSVRS
+                                exec_lsu_imm16,exec_sbuf_epcr}), // LSU_RSVRS
+    //   operands
+    .exec_rfa1_o              (exec_lsu_a1), // LSU_RSVRS
+    .exec_rfb1_o              (exec_lsu_b1), // LSU_RSVRS
+    //  ## for FPU64
+    .exec_rfa2_o              (), // LSU_RSVRS
+    .exec_rfb2_o              (), // LSU_RSVRS
+    //   unit-is-busy flag
+    .unit_busy_o              (lsu_busy_rsrvs) // LSU_RSVRS
+  );
+
+  // **** combined "lsu is busy" flag ****
+  assign lsu_busy = lsu_busy_rsrvs | lsu_excepts_any_r; // overall busy
+
+
+  // **** LSU instance ****
   mor1kx_lsu_marocchino
   #(
     .OPTION_OPERAND_WIDTH               (OPTION_OPERAND_WIDTH), // LSU
-    .DEST_REG_ADDR_WIDTH                (DEST_REG_ADDR_WIDTH), // LSU
     .OPTION_DCACHE_BLOCK_WIDTH          (OPTION_DCACHE_BLOCK_WIDTH), // LSU
     .OPTION_DCACHE_SET_WIDTH            (OPTION_DCACHE_SET_WIDTH), // LSU
     .OPTION_DCACHE_WAYS                 (OPTION_DCACHE_WAYS), // LSU
@@ -1120,7 +1418,6 @@ module mor1kx_cpu_marocchino
     .rst                              (rst), // LSU
     // Pipeline controls
     .pipeline_flush_i                 (pipeline_flush), // LSU
-    .padv_decode_i                    (padv_decode), // LSU
     .padv_wb_i                        (padv_wb), // LSU
     .grant_wb_to_lsu_i                (grant_wb_to_lsu), // LSU
     // configuration
@@ -1128,39 +1425,16 @@ module mor1kx_cpu_marocchino
     .dmmu_enable_i                    (dmmu_enable), // LSU
     .supervisor_mode_i                (supervisor_mode), // LSU
     // Input from DECODE (not latched)
-    .dcod_delay_slot_i                (dcod_delay_slot), // LSU (for store buffer EPCR computation)
-    .pc_decode_i                      (pc_decode), // LSU (for store buffer EPCR computation)
-    .dcod_imm16_i                     (dcod_imm16), // LSU
-    .dcod_rfa_i                       (dcod_rfa), // LSU
-    .dcod_rfb_i                       (dcod_rfb), // LSU
-    .dcod_op_lsu_load_i               (dcod_op_lsu_load), // LSU
-    .dcod_op_lsu_store_i              (dcod_op_lsu_store), // LSU
-    .dcod_op_lsu_atomic_i             (dcod_op_lsu_atomic), // LSU
-    .dcod_lsu_length_i                (dcod_lsu_length), // LSU
-    .dcod_lsu_zext_i                  (dcod_lsu_zext), // LSU
-    .dcod_op_msync_i                  (dcod_op_msync), // LSU
-    // OMAN-to-DECODE hazards
-    //  combined flag
-    .omn2dec_hazards_i                (omn2dec_hazards), // LSU
-    //  by operands
-    .busy_hazard_a_i                  (busy_hazard_a), // LSU
-    .busy_hazard_a_adr_i              (busy_hazard_a_adr), // LSU
-    .busy_hazard_b_i                  (busy_hazard_b), // LSU
-    .busy_hazard_b_adr_i              (busy_hazard_b_adr), // LSU
-    // EXEC-to-DECODE hazards
-    //  combined flag
-    .exe2dec_hazards_i                (exe2dec_hazards), // LSU
-    //  by operands
-    .exe2dec_hazard_a_i               (exe2dec_hazard_a), // LSU
-    .exe2dec_hazard_b_i               (exe2dec_hazard_b), // LSU
-    // Data for hazards resolving
-    //  hazard could be passed from DECODE to EXECUTE
-    .exec_rf_wb_i                     (exec_rf_wb), // LSU
-    .exec_rfd_adr_i                   (exec_rfd_adr), // LSU
-    //  hazard could be resolving
-    .wb_rf_wb_i                       (wb_rf_wb), // LSU
-    .wb_rfd_adr_i                     (wb_rfd_adr[DEST_REG_ADDR_WIDTH-1:0]), // LSU
-    .wb_result_i                      (wb_result), // LSU
+    .exec_sbuf_epcr_i                 (exec_sbuf_epcr), // LSU (for store buffer EPCR computation)
+    .exec_lsu_imm16_i                 (exec_lsu_imm16), // LSU
+    .exec_lsu_a1_i                    (exec_lsu_a1), // LSU
+    .exec_lsu_b1_i                    (exec_lsu_b1), // LSU
+    .exec_op_lsu_load_i               (exec_op_lsu_load), // LSU
+    .exec_op_lsu_store_i              (exec_op_lsu_store), // LSU
+    .exec_op_lsu_atomic_i             (exec_op_lsu_atomic), // LSU
+    .exec_lsu_length_i                (exec_lsu_length), // LSU
+    .exec_lsu_zext_i                  (exec_lsu_zext), // LSU
+    .exec_op_msync_i                  (exec_op_msync), // LSU
     // inter-module interface
     .spr_bus_addr_i                   (spr_bus_addr_o), // LSU
     .spr_bus_we_i                     (spr_bus_we_o), // LSU
@@ -1188,10 +1462,11 @@ module mor1kx_cpu_marocchino
     .sbuf_epcr_o                      (sbuf_epcr), // LSU
     .sbuf_err_o                       (sbuf_err), // LSU
     // Outputs
-    .lsu_busy_o                       (lsu_busy), // LSU
+    .lsu_taking_op_o                  (lsu_taking_op), // LSU
+    .lsu_excepts_any_o                (lsu_excepts_any), // LSU
+    .lsu_excepts_any_r_o              (lsu_excepts_any_r), // LSU
     .lsu_valid_o                      (lsu_valid), // LSU: result ready or exceptions
     .wb_lsu_result_o                  (wb_lsu_result), // LSU
-
     //  # particular LSU exception flags
     .wb_except_dbus_err_o             (wb_except_dbus_err), // LSU
     .wb_except_dpagefault_o           (wb_except_dpagefault), // LSU
@@ -1210,10 +1485,10 @@ module mor1kx_cpu_marocchino
   // WB:result //
   //-----------//
 
-  assign wb_result =  wb_alu_1clk_result   |
-                      wb_div_result        | wb_mul_result |
-                      wb_fpxx_arith_res_hi |
-                      wb_lsu_result        | wb_mfspr_dat;
+  assign wb_result1 =  wb_alu_1clk_result   |
+                       wb_div_result        | wb_mul_result |
+                       wb_fpxx_arith_res_hi |
+                       wb_lsu_result        | wb_mfspr_dat;
 
   assign wb_result2 = wb_fpxx_arith_res_lo;
 
@@ -1270,16 +1545,16 @@ module mor1kx_cpu_marocchino
     .spr_bus_dat_gpr_o                (spr_bus_dat_gpr), // RF
     // from FETCH
     .fetch_rf_adr_valid_i             (fetch_rf_adr_valid), // RF
-    .fetch_rfa_adr_i                  (fetch_rfa_adr), // RF
-    .fetch_rfb_adr_i                  (fetch_rfb_adr), // RF
+    .fetch_rfa1_adr_i                 (fetch_rfa1_adr), // RF
+    .fetch_rfb1_adr_i                 (fetch_rfb1_adr), // RF
     // for FPU64
     .fetch_rfa2_adr_i                 (fetch_rfa2_adr), // RF
     .fetch_rfb2_adr_i                 (fetch_rfb2_adr), // RF
     // from DECODE
-    .dcod_rfa_req_i                   (dcod_rfa_req), // RF
-    .dcod_rfa_adr_i                   (dcod_rfa_adr), // RF
-    .dcod_rfb_req_i                   (dcod_rfb_req), // RF
-    .dcod_rfb_adr_i                   (dcod_rfb_adr), // RF
+    .dcod_rfa1_req_i                  (dcod_rfa1_req), // RF
+    .dcod_rfa1_adr_i                  (dcod_rfa1_adr), // RF
+    .dcod_rfb1_req_i                  (dcod_rfb1_req), // RF
+    .dcod_rfb1_adr_i                  (dcod_rfb1_adr), // RF
     .dcod_immediate_i                 (dcod_immediate), // RF
     .dcod_immediate_sel_i             (dcod_immediate_sel), // RF
     // for FPU64
@@ -1288,16 +1563,16 @@ module mor1kx_cpu_marocchino
     .dcod_rfb2_req_i                  (dcod_rfb2_req), // RF
     .dcod_rfb2_adr_i                  (dcod_rfb2_adr), // RF
     // from WB
-    .wb_rf_wb_i                       (wb_rf_wb), // RF
-    .wb_rfd_adr_i                     (wb_rfd_adr[OPTION_RF_ADDR_WIDTH-1:0]), // RF
-    .wb_result_i                      (wb_result), // RF
+    .wb_rfd1_wb_i                     (wb_rfd1_wb), // RF
+    .wb_rfd1_adr_i                    (wb_rfd1_adr[OPTION_RF_ADDR_WIDTH-1:0]), // RF
+    .wb_result1_i                     (wb_result1), // RF
     // for FPU64
-    .wb_rf_wb2_i                      (wb_rf_wb2), // RF
+    .wb_rfd2_wb_i                     (wb_rfd2_wb), // RF
     .wb_rfd2_adr_i                    (wb_rfd2_adr[OPTION_RF_ADDR_WIDTH-1:0]), // RF
     .wb_result2_i                     (wb_result2), // RF
     // Outputs
-    .dcod_rfa_o                       (dcod_rfa), // RF
-    .dcod_rfb_o                       (dcod_rfb), // RF
+    .dcod_rfa1_o                      (dcod_rfa1), // RF
+    .dcod_rfb1_o                      (dcod_rfb1), // RF
     // for FPU64
     .dcod_rfa2_o                      (dcod_rfa2), // RF
     .dcod_rfb2_o                      (dcod_rfb2) // RF
@@ -1340,8 +1615,8 @@ module mor1kx_cpu_marocchino
     // DECODE non-latched additional information related instruction
     //  part #1: iformation stored in order control buffer
     .pc_decode_i                (pc_decode), // OMAN
-    .dcod_rfd_adr_i             (dcod_rfd_adr), // OMAN
-    .dcod_rf_wb_i               (dcod_rf_wb), // OMAN
+    .dcod_rfd1_adr_i            (dcod_rfd1_adr), // OMAN
+    .dcod_rfd1_wb_i             (dcod_rfd1_wb), // OMAN
     .dcod_carry_wb_i            (dcod_carry_wb), // OMAN
     .dcod_flag_wb_mcycle_i      (dcod_flag_wb_mcycle), // OMAN
     .dcod_flag_wb_i             (dcod_flag_wb), // OMAN
@@ -1349,10 +1624,10 @@ module mor1kx_cpu_marocchino
     //            for FPU64
     .dcod_rfd2_adr_i            (dcod_rfd2_adr), // OMAN
     //  part #2: information required for data dependancy detection
-    .dcod_rfa_req_i             (dcod_rfa_req), // OMAN
-    .dcod_rfa_adr_i             (dcod_rfa_adr), // OMAN
-    .dcod_rfb_req_i             (dcod_rfb_req), // OMAN
-    .dcod_rfb_adr_i             (dcod_rfb_adr), // OMAN
+    .dcod_rfa1_req_i            (dcod_rfa1_req), // OMAN
+    .dcod_rfa1_adr_i            (dcod_rfa1_adr), // OMAN
+    .dcod_rfb1_req_i            (dcod_rfb1_req), // OMAN
+    .dcod_rfb1_adr_i            (dcod_rfb1_adr), // OMAN
     .dcod_flag_req_i            (dcod_flag_req), // OMAN
     .dcod_carry_req_i           (dcod_carry_req), // OMAN
     .dcod_op_jr_i               (dcod_op_jr), // OMAN
@@ -1373,9 +1648,7 @@ module mor1kx_cpu_marocchino
 
     // collect busy flags from exwcution module
     .op_1clk_busy_i             (op_1clk_busy), // OMAN
-    .mul_busy_i                 (mul_busy), // OMAN
-    .div_busy_i                 (div_busy), // OMAN
-    .fpxx_busy_i                (fpxx_busy), // OMAN
+    .mclk_busy_i                (mclk_busy), // OMAN
     .lsu_busy_i                 (lsu_busy), // OMAN
 
     // collect valid flags from execution modules
@@ -1397,42 +1670,42 @@ module mor1kx_cpu_marocchino
     //  combined flag
     .omn2dec_hazards_o          (omn2dec_hazards), // OMAN
     .omn2dec_hazards_1clk_o     (omn2dec_hazards_1clk), // OMAN
-    .omn2dec_hazards_fp64_o     (omn2dec_hazards_fp64), // OMAN
+    .omn2dec_hazards_mclk_o     (omn2dec_hazards_mclk), // OMAN
     //  by FLAG and CARRY
     .busy_hazard_f_o            (busy_hazard_f), // OMAN
     .busy_hazard_f_adr_o        (busy_hazard_f_adr), // OMAN
     .busy_hazard_c_o            (busy_hazard_c), // OMAN
     .busy_hazard_c_adr_o        (busy_hazard_c_adr), // OMAN
     //  by operands
-    .busy_hazard_a_o            (busy_hazard_a), // OMAN
-    .busy_hazard_a_adr_o        (busy_hazard_a_adr), // OMAN
-    .busy_hazard_b_o            (busy_hazard_b), // OMAN
-    .busy_hazard_b_adr_o        (busy_hazard_b_adr), // OMAN
+    .busy_hazard_d1a1_o         (busy_hazard_d1a1), // OMAN
+    .busy_hazard_d1a1_adr_o     (busy_hazard_d1a1_adr), // OMAN
+    .busy_hazard_d1b1_o         (busy_hazard_d1b1), // OMAN
+    .busy_hazard_d1b1_adr_o     (busy_hazard_d1b1_adr), // OMAN
     // for FPU64
-    .busy_hazard_a2_o           (busy_hazard_a2), // OMAN
-    .busy_hazard_a2_adr_o       (busy_hazard_a2_adr), // OMAN
-    .busy_hazard_b2_o           (busy_hazard_b2), // OMAN
-    .busy_hazard_b2_adr_o       (busy_hazard_b2_adr), // OMAN
+    .busy_hazard_d2a2_o         (busy_hazard_d2a2), // OMAN
+    .busy_hazard_d2a2_adr_o     (busy_hazard_d2a2_adr), // OMAN
+    .busy_hazard_d2b2_o         (busy_hazard_d2b2), // OMAN
+    .busy_hazard_d2b2_adr_o     (busy_hazard_d2b2_adr), // OMAN
 
     // EXEC-to-DECODE hazards
     //  combined flag
     .exe2dec_hazards_o          (exe2dec_hazards), // OMAN
     .exe2dec_hazards_1clk_o     (exe2dec_hazards_1clk), // OMAN
-    .exe2dec_hazards_fp64_o     (exe2dec_hazards_fp64), // OMAN
+    .exe2dec_hazards_mclk_o     (exe2dec_hazards_mclk), // OMAN
     //  by operands
-    .exe2dec_hazard_a_o         (exe2dec_hazard_a), // OMAN
-    .exe2dec_hazard_b_o         (exe2dec_hazard_b), // OMAN
+    .exe2dec_hazard_d1a1_o      (exe2dec_hazard_d1a1), // OMAN
+    .exe2dec_hazard_d1b1_o      (exe2dec_hazard_d1b1), // OMAN
     // for FPU64
-    .exe2dec_hazard_a2_o        (exe2dec_hazard_a2), // OMAN
-    .exe2dec_hazard_b2_o        (exe2dec_hazard_b2), // OMAN
+    .exe2dec_hazard_d2a2_o      (exe2dec_hazard_d2a2), // OMAN
+    .exe2dec_hazard_d2b2_o      (exe2dec_hazard_d2b2), // OMAN
     // Data for resolving hazards by passing from DECODE to EXECUTE
     .exec_flag_wb_o             (exec_flag_wb), // OMAN
     .exec_carry_wb_o            (exec_carry_wb), // OMAN
     .exec_flag_carry_adr_o      (exec_flag_carry_adr), // OMAN
-    .exec_rf_wb_o               (exec_rf_wb), // OMAN
-    .exec_rfd_adr_o             (exec_rfd_adr), // OMAN
+    .exec_rfd1_wb_o             (exec_rfd1_wb), // OMAN
+    .exec_rfd1_adr_o            (exec_rfd1_adr), // OMAN
     // for FPU64
-    .exec_rf_wb2_o              (exec_rf_wb2), // OMAN
+    .exec_rfd2_wb_o             (exec_rfd2_wb), // OMAN
     .exec_rfd2_adr_o            (exec_rfd2_adr), // OMAN
 
     // Stall fetch by specific type of hazards
@@ -1467,14 +1740,14 @@ module mor1kx_cpu_marocchino
     //  ## instruction related information
     .pc_wb_o                    (pc_wb), // OMAN
     .wb_delay_slot_o            (wb_delay_slot), // OMAN
-    .wb_rfd_adr_o               (wb_rfd_adr[DEST_REG_ADDR_WIDTH-1:0]), // OMAN
-    .wb_rf_wb_o                 (wb_rf_wb), // OMAN
+    .wb_rfd1_adr_o              (wb_rfd1_adr[DEST_REG_ADDR_WIDTH-1:0]), // OMAN
+    .wb_rfd1_wb_o               (wb_rfd1_wb), // OMAN
     .wb_flag_wb_o               (wb_flag_wb), // OMAN
     .wb_carry_wb_o              (wb_carry_wb), // OMAN
     .wb_flag_carry_adr_o        (wb_flag_carry_adr), // OMAN
     // for FPU64
     .wb_rfd2_adr_o              (wb_rfd2_adr[DEST_REG_ADDR_WIDTH-1:0]), // OMAN
-    .wb_rf_wb2_o                (wb_rf_wb2), // OMAN
+    .wb_rfd2_wb_o               (wb_rfd2_wb), // OMAN
     //  ## RFE processing
     .wb_op_rfe_o                (wb_op_rfe), // OMAN
     //  ## IFETCH exceptions
@@ -1491,12 +1764,12 @@ module mor1kx_cpu_marocchino
   );
 
 
-`ifndef SYNTHESIS
-// synthesis translate_off
-/* Debug signals required for the debug monitor
-   endtask */
-// synthesis translate_on
-`endif
+ `ifndef SYNTHESIS
+  // synthesis translate_off
+  /* Debug signals required for the debug monitor
+     endtask */
+  // synthesis translate_on
+ `endif
 
   //-------//
   // TIMER //
@@ -1597,9 +1870,9 @@ module mor1kx_cpu_marocchino
 
     // MF(T)SPR coomand processing
     //  ## iput data & command from DECODE
-    .dcod_rfa_i                       (dcod_rfa), // CTRL: part of addr for MT(F)SPR
+    .dcod_rfa1_i                      (dcod_rfa1), // CTRL: part of addr for MT(F)SPR
     .dcod_imm16_i                     (dcod_imm16), // CTRL: part of addr for MT(F)SPR
-    .dcod_rfb_i                       (dcod_rfb), // CTRL: data for MTSPR
+    .dcod_rfb1_i                      (dcod_rfb1), // CTRL: data for MTSPR
     .dcod_op_mfspr_i                  (dcod_op_mfspr), // CTRL
     .dcod_op_mtspr_i                  (dcod_op_mtspr), // CTRL
     //  ## result to WB_MUX
@@ -1818,9 +2091,9 @@ module mor1kx_cpu_marocchino
 
    generate
       if (FEATURE_TRACEPORT_EXEC != "NONE") begin
-   assign traceport_exec_wbreg_o = wb_rfd_adr;
-   assign traceport_exec_wben_o = wb_rf_wb;
-   assign traceport_exec_wbdata_o = wb_result;
+   assign traceport_exec_wbreg_o = wb_rfd1_adr;
+   assign traceport_exec_wben_o = wb_rfd1_wb;
+   assign traceport_exec_wbdata_o = wb_result1;
       end else begin
    assign traceport_exec_wbreg_o = {OPTION_RF_ADDR_WIDTH{1'b0}};
    assign traceport_exec_wben_o = 1'b0;

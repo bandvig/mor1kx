@@ -260,9 +260,6 @@ endmodule // pfpu_ocb_marocchino
 
 
 module pfpu_top_marocchino
-#(
-  parameter DEST_REG_ADDR_WIDTH  =  8 // OPTION_RF_ADDR_WIDTH + log2(Re-Ordering buffer width)
-)
 (
   // clock & reset
   input                               clk,
@@ -270,13 +267,12 @@ module pfpu_top_marocchino
 
   // pipeline control
   input                               pipeline_flush_i,
-  input                               padv_decode_i,
   input                               padv_wb_i,
   input                               grant_wb_to_fpxx_arith_i,
   input                               grant_wb_to_fp64_cmp_i,
 
   // pipeline control outputs
-  output                              fpxx_busy_o,         // idicates that arihmetic units are busy
+  output                              fpxx_taking_op_o,
   output                              fpxx_arith_valid_o,  // WB-latching ahead arithmetic ready flag
 
   // Configuration
@@ -285,66 +281,22 @@ module pfpu_top_marocchino
   input   [`OR1K_FPCSR_ALLF_SIZE-1:0] ctrl_fpu_mask_flags_i,
 
   // Commands for arithmetic part
-  input                               dcod_op_fpxx_arith_i, // An FP32/FP64 instruction
-  input                               dcod_op_fp64_arith_i, // Clarification: FP64 instruction
-  input                               dcod_op_fpxx_add_i,
-  input                               dcod_op_fpxx_sub_i,
-  input                               dcod_op_fpxx_mul_i,
-  input                               dcod_op_fpxx_div_i,
-  input                               dcod_op_fpxx_i2f_i,
-  input                               dcod_op_fpxx_f2i_i,
+  input                               exec_op_fp64_arith_i, // Clarification: FP64 instruction
+  input                               exec_op_fpxx_add_i,
+  input                               exec_op_fpxx_sub_i,
+  input                               exec_op_fpxx_mul_i,
+  input                               exec_op_fpxx_div_i,
+  input                               exec_op_fpxx_i2f_i,
+  input                               exec_op_fpxx_f2i_i,
 
   // Commands for comparison part
-  input                               dcod_op_fp64_cmp_i,
-  input                         [2:0] dcod_opc_fp64_cmp_i,
+  input                         [2:0] exec_opc_fp64_cmp_i,
 
-  // Operands from DECODE
-  input                        [31:0] dcod_rfa_i,
-  input                        [31:0] dcod_rfb_i,
-  input                        [31:0] dcod_rfa2_i,
-  input                        [31:0] dcod_rfb2_i,
-
-  // OMAN-to-DECODE hazards
-  //  combined flag
-  input                               omn2dec_hazards_i,
-  //  by operands
-  input                               busy_hazard_a_i,
-  input     [DEST_REG_ADDR_WIDTH-1:0] busy_hazard_a_adr_i,
-  input                               busy_hazard_b_i,
-  input     [DEST_REG_ADDR_WIDTH-1:0] busy_hazard_b_adr_i,
-  // for FPU64
-  input                               busy_hazard_a2_i,
-  input     [DEST_REG_ADDR_WIDTH-1:0] busy_hazard_a2_adr_i,
-  input                               busy_hazard_b2_i,
-  input     [DEST_REG_ADDR_WIDTH-1:0] busy_hazard_b2_adr_i,
-
-  // EXEC-to-DECODE hazards
-  //  combined flag
-  input                               exe2dec_hazards_i,
-  //  by operands
-  input                               exe2dec_hazard_a_i,
-  input                               exe2dec_hazard_b_i,
-  // for FPU64
-  input                               exe2dec_hazard_a2_i,
-  input                               exe2dec_hazard_b2_i,
-
-  // Hazard could be passed from DECODE to EXECUTE
-  //  ## A or B operand
-  input                               exec_rf_wb_i,
-  input     [DEST_REG_ADDR_WIDTH-1:0] exec_rfd_adr_i,
-  //  ## for FPU64
-  input                               exec_rf_wb2_i,
-  input     [DEST_REG_ADDR_WIDTH-1:0] exec_rfd2_adr_i,
-
-  // Hazard could be resolving
-  //  ## A or B operand
-  input                               wb_rf_wb_i,
-  input     [DEST_REG_ADDR_WIDTH-1:0] wb_rfd_adr_i,
-  input                        [31:0] wb_result_i,
-  //  ## for FPU64
-  input                               wb_rf_wb2_i,
-  input     [DEST_REG_ADDR_WIDTH-1:0] wb_rfd2_adr_i,
-  input                        [31:0] wb_result2_i,
+  // Operands from reservation station
+  input                        [31:0] exec_fpxx_a1_i,
+  input                        [31:0] exec_fpxx_b1_i,
+  input                        [31:0] exec_fpxx_a2_i,
+  input                        [31:0] exec_fpxx_b2_i,
 
   // FPU-64 arithmetic part
   output                       [31:0] wb_fpxx_arith_res_hi_o,   // arithmetic result
@@ -362,134 +314,23 @@ module pfpu_top_marocchino
   output                              wb_except_fp64_cmp_o     // exception by FP64-comparison
 );
 
-// fp64 arithmetic commands
-wire exec_op_fp64_arith, exec_op_fpxx_add, exec_op_fpxx_sub, exec_op_fpxx_mul,
-                         exec_op_fpxx_div, exec_op_fpxx_i2f, exec_op_fpxx_f2i;
-
-// fp64 comparison commands
-wire [2:0] exec_opc_fp64_cmp;
-
-// fp64 operands
-wire [31:0] exec_rfa1, exec_rfa2, exec_rfb1, exec_rfb2;
-
 // fp64 pipes controls
-wire taking_op_fpxx_arith;
-wire taking_op_fp64_cmp = padv_wb_i & grant_wb_to_fp64_cmp_i;
-
-// reservation station instance
-mor1kx_rsrvs_marocchino
-#(
-  .OPTION_OPERAND_WIDTH     (32), // PFPU_RSVRS
-  .USE_OPC                  (1), // PFPU_RSVRS
-  .OPC_WIDTH                (10), // PFPU_RSVRS
-  .DEST_REG_ADDR_WIDTH      (DEST_REG_ADDR_WIDTH), // PFPU_RSVRS
-  .FEATURE_FPU              ("ENABLED"), // PFPU_RSVRS
-  .USE_RSVRS_FLAG_CARRY     (0), // PFPU_RSVRS
-  .DEST_FLAG_ADDR_WIDTH     (1) // PFPU_RSVRS
-)
-u_pfpu_rsrvs
-(
-  // clocks and resets
-  .clk                      (clk), // PFPU_RSVRS
-  .rst                      (rst), // PFPU_RSVRS
-  // pipeline control signals in
-  .pipeline_flush_i         (pipeline_flush_i), // PFPU_RSVRS
-  .padv_decode_i            (padv_decode_i), // PFPU_RSVRS
-  .taking_op_i              (taking_op_fpxx_arith | taking_op_fp64_cmp), // PFPU_RSVRS
-  // input data from DECODE
-  .dcod_rfa_i               (dcod_rfa_i), // PFPU_RSVRS
-  .dcod_rfb_i               (dcod_rfb_i), // PFPU_RSVRS
-  .dcod_rfa2_i              (dcod_rfa2_i), // PFPU_RSVRS
-  .dcod_rfb2_i              (dcod_rfb2_i), // PFPU_RSVRS
-  // OMAN-to-DECODE hazards
-  //  combined flag
-  .omn2dec_hazards_i        (omn2dec_hazards_i), // PFPU_RSVRS
-  //  by FLAG and CARRY
-  .busy_hazard_f_i          (1'b0), // PFPU_RSVRS
-  .busy_hazard_f_adr_i      (1'b0), // PFPU_RSVRS
-  .busy_hazard_c_i          (1'b0), // PFPU_RSVRS
-  .busy_hazard_c_adr_i      (1'b0), // PFPU_RSVRS
-  //  by operands
-  .busy_hazard_a_i          (busy_hazard_a_i), // PFPU_RSVRS
-  .busy_hazard_a_adr_i      (busy_hazard_a_adr_i), // PFPU_RSVRS
-  .busy_hazard_b_i          (busy_hazard_b_i), // PFPU_RSVRS
-  .busy_hazard_b_adr_i      (busy_hazard_b_adr_i), // PFPU_RSVRS
-  // for FPU64
-  .busy_hazard_a2_i         (busy_hazard_a2_i), // PFPU_RSVRS
-  .busy_hazard_a2_adr_i     (busy_hazard_a2_adr_i), // PFPU_RSVRS
-  .busy_hazard_b2_i         (busy_hazard_b2_i), // PFPU_RSVRS
-  .busy_hazard_b2_adr_i     (busy_hazard_b2_adr_i), // PFPU_RSVRS
-  // EXEC-to-DECODE hazards
-  //  combined flag
-  .exe2dec_hazards_i        (exe2dec_hazards_i), // PFPU_RSVRS
-  //  by operands
-  .exe2dec_hazard_a_i       (exe2dec_hazard_a_i), // PFPU_RSVRS
-  .exe2dec_hazard_b_i       (exe2dec_hazard_b_i), // PFPU_RSVRS
-  // for FPU64
-  .exe2dec_hazard_a2_i      (exe2dec_hazard_a2_i), // PFPU_RSVRS
-  .exe2dec_hazard_b2_i      (exe2dec_hazard_b2_i), // PFPU_RSVRS
-  // Hazard could be passed from DECODE to EXECUTE
-  //  ## FLAG or CARRY
-  .exec_flag_wb_i           (1'b0), // PFPU_RSVRS
-  .exec_carry_wb_i          (1'b0), // PFPU_RSVRS
-  .exec_flag_carry_adr_i    (1'b0), // PFPU_RSVRS
-  //  ## A or B operand
-  .exec_rf_wb_i             (exec_rf_wb_i), // PFPU_RSVRS
-  .exec_rfd_adr_i           (exec_rfd_adr_i), // PFPU_RSVRS
-  //  ## for FPU64
-  .exec_rf_wb2_i            (exec_rf_wb2_i), // PFPU_RSVRS
-  .exec_rfd2_adr_i          (exec_rfd2_adr_i), // PFPU_RSVRS
-  //  ## passing only with writting back
-  .padv_wb_i                (padv_wb_i), // PFPU_RSVRS
-  // Hazard could be resolving
-  //  ## FLAG or CARRY
-  .wb_flag_wb_i             (1'b0), // PFPU_RSVRS
-  .wb_carry_wb_i            (1'b0), // PFPU_RSVRS
-  .wb_flag_carry_adr_i      (1'b0), // PFPU_RSVRS
-  //  ## A or B operand
-  .wb_rf_wb_i               (wb_rf_wb_i), // PFPU_RSVRS
-  .wb_rfd_adr_i             (wb_rfd_adr_i), // PFPU_RSVRS
-  .wb_result_i              (wb_result_i), // PFPU_RSVRS
-  //  ## for FPU64
-  .wb_rf_wb2_i              (wb_rf_wb2_i), // PFPU_RSVRS
-  .wb_rfd2_adr_i            (wb_rfd2_adr_i), // PFPU_RSVRS
-  .wb_result2_i             (wb_result2_i), // PFPU_RSVRS
-  // command and its additional attributes
-  .dcod_op_i                (dcod_op_fpxx_arith_i | dcod_op_fp64_cmp_i), // PFPU_RSVRS
-  .dcod_opc_i               ({dcod_op_fp64_arith_i, // PFPU_RSVRS
-                              dcod_op_fpxx_add_i, dcod_op_fpxx_sub_i, dcod_op_fpxx_mul_i, // PFPU_RSVRS
-                              dcod_op_fpxx_div_i, dcod_op_fpxx_i2f_i, dcod_op_fpxx_f2i_i, // PFPU_RSVRS
-                              dcod_opc_fp64_cmp_i}), // PFPU_RSVRS
-  // outputs
-  //   command attributes from busy stage
-  .busy_opc_o               (), // PFPU_RSVRS
-  //   command and its additional attributes
-  .exec_op_o                (), // PFPU_RSVRS
-  .exec_opc_o               ({exec_op_fp64_arith, // PFPU_RSVRS
-                              exec_op_fpxx_add, exec_op_fpxx_sub, exec_op_fpxx_mul, // PFPU_RSVRS
-                              exec_op_fpxx_div, exec_op_fpxx_i2f, exec_op_fpxx_f2i, // PFPU_RSVRS
-                              exec_opc_fp64_cmp}), // PFPU_RSVRS
-  //   operands
-  .exec_rfa_o               (exec_rfa1), // PFPU_RSVRS
-  .exec_rfb_o               (exec_rfb1), // PFPU_RSVRS
-  .exec_rfa2_o              (exec_rfa2), // PFPU_RSVRS
-  .exec_rfb2_o              (exec_rfb2), // PFPU_RSVRS
-  //   unit-is-busy flag
-  .unit_busy_o              (fpxx_busy_o) // PFPU_RSVRS
-);
+wire   taking_op_fpxx_arith;
+wire   taking_op_fp64_cmp = padv_wb_i & grant_wb_to_fp64_cmp_i;
+assign fpxx_taking_op_o   = taking_op_fpxx_arith | taking_op_fp64_cmp;
 
 // Double precision operands A and B
-wire [63:0] fp64_opa = {exec_rfa1, ({32{exec_op_fp64_arith}} & exec_rfa2)};
-wire [63:0] fp64_opb = {exec_rfb1, ({32{exec_op_fp64_arith}} & exec_rfb2)};
+wire [63:0] fp64_opa = {exec_fpxx_a1_i, ({32{exec_op_fp64_arith_i}} & exec_fpxx_a2_i)};
+wire [63:0] fp64_opb = {exec_fpxx_b1_i, ({32{exec_op_fp64_arith_i}} & exec_fpxx_b2_i)};
 
 
 // analysis of operand A
 //   split input a
 wire        signa  = fp64_opa[63];
-wire [10:0] expa   = exec_op_fp64_arith ? fp64_opa[62:52] : ({3'd0,fp64_opa[62:55]});
-wire [51:0] fracta = exec_op_fp64_arith ? fp64_opa[51:0]  : ({fp64_opa[54:32],29'd0});
+wire [10:0] expa   = exec_op_fp64_arith_i ? fp64_opa[62:52] : ({3'd0,fp64_opa[62:55]});
+wire [51:0] fracta = exec_op_fp64_arith_i ? fp64_opa[51:0]  : ({fp64_opa[54:32],29'd0});
 //   detect infinity a
-wire expa_ff = exec_op_fp64_arith ? (&fp64_opa[62:52]) : (&fp64_opa[62:55]);
+wire expa_ff = exec_op_fp64_arith_i ? (&fp64_opa[62:52]) : (&fp64_opa[62:55]);
 wire infa    = expa_ff & (~(|fracta));
 //   signaling NaN: exponent is "all ones", [51] is zero,
 //                  rest of fract is non-zero
@@ -504,10 +345,10 @@ wire opa_dn = (~(|expa)) & (|fracta);
 // analysis of operand B
 //   split input b
 wire        signb  = fp64_opb[63];
-wire [10:0] expb   = exec_op_fp64_arith ? fp64_opb[62:52] : ({3'd0,fp64_opb[62:55]});
-wire [51:0] fractb = exec_op_fp64_arith ? fp64_opb[51:0]  : ({fp64_opb[54:32],29'd0});
+wire [10:0] expb   = exec_op_fp64_arith_i ? fp64_opb[62:52] : ({3'd0,fp64_opb[62:55]});
+wire [51:0] fractb = exec_op_fp64_arith_i ? fp64_opb[51:0]  : ({fp64_opb[54:32],29'd0});
 //   detect infinity b
-wire expb_ff = exec_op_fp64_arith ? (&fp64_opb[62:52]) : (&fp64_opb[62:55]);
+wire expb_ff = exec_op_fp64_arith_i ? (&fp64_opb[62:52]) : (&fp64_opb[62:55]);
 wire infb    = expb_ff & (~(|fractb));
 //   detect NaNs in b
 wire snan_b = expb_ff & (~fractb[51]) & (|fractb[50:0]);
@@ -552,32 +393,32 @@ wire addsub_aeqb = exp_eq & fract_eq;
 //      ADD/SUB : (inf - inf)  -> invalid operation, snan output
 //      DIV:      0/0, inf/inf -> invalid operation; snan output
 //      MUL:      0 * inf      -> invalid operation; snan output
-wire res_inv = ( (exec_op_fpxx_add | exec_op_fpxx_sub) &
-                 infa & infb & (signa ^ (exec_op_fpxx_sub ^ signb)) ) |
-               (  exec_op_fpxx_div &
+wire res_inv = ( (exec_op_fpxx_add_i | exec_op_fpxx_sub_i) &
+                 infa & infb & (signa ^ (exec_op_fpxx_sub_i ^ signb)) ) |
+               (  exec_op_fpxx_div_i &
                  ((opa_0 & opb_0) | (infa & infb)) )                  |
-               (  exec_op_fpxx_mul &
+               (  exec_op_fpxx_mul_i &
                  ((opa_0 & infb) | (opb_0 & infa)) );
 wire ocb_inv;
 //   ## INF:
-wire res_inf = ( (exec_op_fpxx_add | exec_op_fpxx_sub | exec_op_fpxx_mul) &
+wire res_inf = ( (exec_op_fpxx_add_i | exec_op_fpxx_sub_i | exec_op_fpxx_mul_i) &
                  (infa | infb) ) |
-               (  exec_op_fpxx_div &
+               (  exec_op_fpxx_div_i &
                   infa );
 wire ocb_inf;
 //   ## SNaN:
-wire res_snan = ( (exec_op_fpxx_add | exec_op_fpxx_sub |
-                   exec_op_fpxx_mul | exec_op_fpxx_div |
-                   exec_op_fpxx_f2i) ) & snan_x;
+wire res_snan = ( (exec_op_fpxx_add_i | exec_op_fpxx_sub_i |
+                   exec_op_fpxx_mul_i | exec_op_fpxx_div_i |
+                   exec_op_fpxx_f2i_i) ) & snan_x;
 wire ocb_snan;
 //   ## QNaN:
-wire res_qnan = ( (exec_op_fpxx_add | exec_op_fpxx_sub |
-                   exec_op_fpxx_mul | exec_op_fpxx_div |
-                   exec_op_fpxx_f2i) ) & qnan_x;
+wire res_qnan = ( (exec_op_fpxx_add_i | exec_op_fpxx_sub_i |
+                   exec_op_fpxx_mul_i | exec_op_fpxx_div_i |
+                   exec_op_fpxx_f2i_i) ) & qnan_x;
 wire ocb_qnan;
 //   ## Signum (NaN):
-wire res_anan_sign = ( (exec_op_fpxx_add | exec_op_fpxx_sub |
-                        exec_op_fpxx_mul | exec_op_fpxx_div) ) & anan_sign_x;
+wire res_anan_sign = ( (exec_op_fpxx_add_i | exec_op_fpxx_sub_i |
+                        exec_op_fpxx_mul_i | exec_op_fpxx_div_i) ) & anan_sign_x;
 wire ocb_anan_sign;
 
 
@@ -587,7 +428,7 @@ wire pfpu_ocb_full;
 
 // unit-wise control signals
 //  ## ADD / SUB
-wire add_start          = (exec_op_fpxx_add | exec_op_fpxx_sub) & (~pfpu_ocb_full);
+wire add_start          = (exec_op_fpxx_add_i | exec_op_fpxx_sub_i) & (~pfpu_ocb_full);
 wire add_taking_op;
 wire add_rdy;
 wire grant_rnd_to_add;
@@ -595,14 +436,14 @@ wire rnd_muxing_add     = add_rdy & grant_rnd_to_add; // to rounding input muxer
 wire rnd_taking_add;
 
 //  ## MUL
-wire mul_start          = exec_op_fpxx_mul & (~pfpu_ocb_full);
+wire mul_start          = exec_op_fpxx_mul_i & (~pfpu_ocb_full);
 wire mul_rdy;
 wire grant_rnd_to_mul;
 wire rnd_muxing_mul     = mul_rdy & grant_rnd_to_mul; // to rounding input muxer
 wire rnd_taking_mul;
 
 //  ## DIV
-wire div_start          = exec_op_fpxx_div & (~pfpu_ocb_full);
+wire div_start          = exec_op_fpxx_div_i & (~pfpu_ocb_full);
 wire div_rdy;
 wire grant_rnd_to_div;
 wire rnd_muxing_div     = div_rdy & grant_rnd_to_div; // to rounding input muxer
@@ -612,7 +453,7 @@ wire rnd_taking_div;
 wire muldiv_taking_op;
 
 //  ## I2F
-wire i2f_start          = exec_op_fpxx_i2f & (~pfpu_ocb_full);
+wire i2f_start          = exec_op_fpxx_i2f_i & (~pfpu_ocb_full);
 wire i2f_taking_op;
 wire i2f_rdy;
 wire grant_rnd_to_i2f;
@@ -620,7 +461,7 @@ wire rnd_muxing_i2f     = i2f_rdy & grant_rnd_to_i2f; // to rounding input muxer
 wire rnd_taking_i2f;
 
 //  ## F2I
-wire f2i_start          = exec_op_fpxx_f2i & (~pfpu_ocb_full);
+wire f2i_start          = exec_op_fpxx_f2i_i & (~pfpu_ocb_full);
 wire f2i_taking_op;
 wire f2i_rdy;
 wire grant_rnd_to_f2i;
@@ -649,7 +490,7 @@ pfpu_ocb_marocchino  u_pfpu_ocb
   .taking_op_fpxx_arith_i (taking_op_fpxx_arith), // PFPU_OCB
   .rnd_taking_op_i        (rnd_taking_op), // PFPU_OCB
   // data input
-  .exec_op_fp64_arith_i   (exec_op_fp64_arith), // PFPU_OCB
+  .exec_op_fp64_arith_i   (exec_op_fp64_arith_i), // PFPU_OCB
   .add_start_i            (add_start), // PFPU_OCB
   .mul_start_i            (mul_start), // PFPU_OCB
   .div_start_i            (div_start), // PFPU_OCB
@@ -694,7 +535,7 @@ pfpu_addsub_marocchino u_pfpu_addsub
   // ADD/SUB pipe controls
   .pipeline_flush_i       (pipeline_flush_i), // PFPU_ADDSUB
   .add_start_i            (add_start), // PFPU_ADDSUB
-  .exec_op_fpxx_sub_i     (exec_op_fpxx_sub), // PFPU_ADDSUB
+  .exec_op_fpxx_sub_i     (exec_op_fpxx_sub_i), // PFPU_ADDSUB
   .add_taking_op_o        (add_taking_op), // PFPU_ADDSUB
   .add_rdy_o              (add_rdy), // PFPU_ADDSUB
   .rnd_taking_add_i       (rnd_taking_add), // PFPU_ADDSUB
@@ -707,7 +548,7 @@ pfpu_addsub_marocchino u_pfpu_addsub
   .exp13b_i               (exp13b), // PFPU_ADDSUB
   .fract53b_i             (fract53b), // PFPU_ADDSUB
   // 'a'/'b' related
-  .exec_op_fp64_arith_i   (exec_op_fp64_arith), // PFPU_ADDSUB
+  .exec_op_fp64_arith_i   (exec_op_fp64_arith_i), // PFPU_ADDSUB
   .opc_0_i                (infa | infb), // PFPU_ADDSUB
   .addsub_agtb_i          (addsub_agtb), // PFPU_ADDSUB
   .addsub_aeqb_i          (addsub_aeqb), // PFPU_ADDSUB
@@ -761,9 +602,9 @@ pfpu_muldiv_marocchino u_pfpu_muldiv
   .exp13b_i               (exp13b), // PFPU_MULDIV
   .fract53b_i             (fract53b), // PFPU_MULDIV
   // 'a'/'b' related
-  .exec_op_fp64_arith_i   (exec_op_fp64_arith), // PFPU_MULDIV
-  .dbz_i                  (exec_op_fpxx_div & (~opa_0) & (~infa) & opb_0), // PFPU_MULDIV
-  .opc_0_i                (opa_0 | opb_0 | (exec_op_fpxx_div & (infa | infb))), // PFPU_MULDIV
+  .exec_op_fp64_arith_i   (exec_op_fp64_arith_i), // PFPU_MULDIV
+  .dbz_i                  (exec_op_fpxx_div_i & (~opa_0) & (~infa) & opb_0), // PFPU_MULDIV
+  .opc_0_i                (opa_0 | opb_0 | (exec_op_fpxx_div_i & (infa | infb))), // PFPU_MULDIV
   // MUL outputs
   .mul_sign_o             (mul_sign), // PFPU_MULDIV
   .mul_shr_o              (mul_shr), // PFPU_MULDIV
@@ -805,7 +646,7 @@ pfpu_i2f_marocchino u_pfpu_i2f
   .rnd_taking_i2f_i       (rnd_taking_i2f), // PFPU_I2F
   // operand for conversion
   .opa_i                  (fp64_opa), // PFPU_I2F
-  .exec_op_fp64_arith_i   (exec_op_fp64_arith), // PFPU_I2F
+  .exec_op_fp64_arith_i   (exec_op_fp64_arith_i), // PFPU_I2F
   // ouputs for rounding
   .i2f_sign_o             (i2f_sign), // PFPU_I2F
   .i2f_shr_o              (i2f_shr), // PFPU_I2F
@@ -839,7 +680,7 @@ pfpu_f2i_marocchino u_pfpu_f2i
   .signa_i              (signa), // PFPU_F2I
   .exp13a_i             (exp13a), // PFPU_F2I
   .fract53a_i           (fract53a), // PFPU_F2I
-  .exec_op_fp64_arith_i (exec_op_fp64_arith), // PFPU_F2I
+  .exec_op_fp64_arith_i (exec_op_fp64_arith_i), // PFPU_F2I
   .snan_i               (snan_x), // PFPU_F2I
   .qnan_i               (qnan_x), // PFPU_F2I
   // output data for rounding
@@ -939,7 +780,7 @@ pfpu64_fcmp_marocchino u_fp64_cmp
   .padv_wb_i                  (padv_wb_i), // FP64_CMP
   .grant_wb_to_fp64_cmp_i     (grant_wb_to_fp64_cmp_i), // FP64_CMP
   // command
-  .opc_fp64_cmp_i             (exec_opc_fp64_cmp), // FP64_CMP
+  .opc_fp64_cmp_i             (exec_opc_fp64_cmp_i), // FP64_CMP
   // data related to operand A
   .signa_i                    (signa), // FP64_CMP
   .opa_0_i                    (opa_0), // FP64_CMP

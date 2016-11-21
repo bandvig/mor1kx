@@ -50,7 +50,7 @@ module mor1kx_decode_marocchino
 
   // Data dependancy detection
   output                                dcod_op_jr_o,
-  input                                 exe2dec_hazard_b_i,
+  input                                 exe2dec_hazard_d1b1_i,
 
   // PC
   input      [OPTION_OPERAND_WIDTH-1:0] pc_decode_i,
@@ -59,10 +59,10 @@ module mor1kx_decode_marocchino
   output                                dcod_immediate_sel_o,
 
   // various instruction attributes
-  output reg                            dcod_rfa_req_o, // instruction requires operand A
-  output reg                            dcod_rfb_req_o, // instruction requires operand B
-  output reg                            dcod_rf_wb_o,   // instruction performes WB
-  output     [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfd_adr_o, // address of WB
+  output reg                            dcod_rfa1_req_o, // instruction requires operand A
+  output reg                            dcod_rfb1_req_o, // instruction requires operand B
+  output reg                            dcod_rfd1_wb_o,   // instruction performes WB
+  output     [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfd1_adr_o, // address of WB
   output                                dcod_flag_wb_o,   // instruction writes comparison flag
   output                                dcod_carry_wb_o,  // instruction writes carry flag
   output                                dcod_flag_req_o,  // instruction requires comparison flag
@@ -78,7 +78,7 @@ module mor1kx_decode_marocchino
   input                                 exec_flag_set_i,    // integer or fp32 comparison result
   input                                 ctrl_flag_i,
   // Do jump/branch and jump/branch target for FETCH
-  input      [OPTION_OPERAND_WIDTH-1:0] dcod_rfb_i,
+  input      [OPTION_OPERAND_WIDTH-1:0] dcod_rfb1_i,
   output                                dcod_do_branch_o,
   output     [OPTION_OPERAND_WIDTH-1:0] dcod_do_branch_target_o,
 
@@ -191,7 +191,8 @@ module mor1kx_decode_marocchino
 
 
   // Decode length of load/store operation
-  always @(*)
+  always @(opc_insn)
+    // synthesis parallel_case full_case
     case (opc_insn)
       // byte
       `OR1K_OPCODE_SB,
@@ -397,6 +398,7 @@ module mor1kx_decode_marocchino
   // Instruction executed during 1 clock
   // Instruction which passes EXECUTION through
   always @* begin
+    // synthesis parallel_case full_case
     case (opc_insn)
       `OR1K_OPCODE_J,     // pc <- pc + exts(Imm26 << 2)
       `OR1K_OPCODE_JR,    // pc <- rB
@@ -408,9 +410,9 @@ module mor1kx_decode_marocchino
           dcod_except_illegal_o = 1'b0;
           dcod_op_1clk_o        = dcod_op_jal_o; // save GPR[9] by l.jal/l.jalr
           dcod_op_pass_exec_o   = ~dcod_op_jal_o;
-          dcod_rfa_req_o        = 1'b0;
-          dcod_rfb_req_o        = dcod_op_jr_o;  // l.jr/l.jalr
-          dcod_rf_wb_o          = dcod_op_jal_o; // save GPR[9] by l.jal/l.jalr
+          dcod_rfa1_req_o       = 1'b0;
+          dcod_rfb1_req_o       = dcod_op_jr_o;  // l.jr/l.jalr
+          dcod_rfd1_wb_o        = dcod_op_jal_o; // save GPR[9] by l.jal/l.jalr
           // for FPU64
           dcod_rfa2_req_o       = 1'b0;
           dcod_rfb2_req_o       = 1'b0;
@@ -423,9 +425,9 @@ module mor1kx_decode_marocchino
           dcod_except_illegal_o = 1'b0;
           dcod_op_1clk_o        = dcod_op_movhi_o;
           dcod_op_pass_exec_o   = ~dcod_op_movhi_o;
-          dcod_rfa_req_o        = 1'b0;
-          dcod_rfb_req_o        = 1'b0;
-          dcod_rf_wb_o          = dcod_op_movhi_o;
+          dcod_rfa1_req_o       = 1'b0;
+          dcod_rfb1_req_o       = 1'b0;
+          dcod_rfd1_wb_o        = dcod_op_movhi_o;
           // for FPU64
           dcod_rfa2_req_o       = 1'b0;
           dcod_rfb2_req_o       = 1'b0;
@@ -443,9 +445,9 @@ module mor1kx_decode_marocchino
           dcod_except_illegal_o = 1'b0;
           dcod_op_1clk_o        = (opc_insn != `OR1K_OPCODE_MULI);
           dcod_op_pass_exec_o   = 1'b0;
-          dcod_rfa_req_o        = 1'b1;
-          dcod_rfb_req_o        = (opc_insn == `OR1K_OPCODE_SF);
-          dcod_rf_wb_o          = (opc_insn != `OR1K_OPCODE_SF) & (opc_insn != `OR1K_OPCODE_SFIMM);
+          dcod_rfa1_req_o       = 1'b1;
+          dcod_rfb1_req_o       = (opc_insn == `OR1K_OPCODE_SF);
+          dcod_rfd1_wb_o        = (opc_insn != `OR1K_OPCODE_SF) & (opc_insn != `OR1K_OPCODE_SFIMM);
           // for FPU64
           dcod_rfa2_req_o       = 1'b0;
           dcod_rfb2_req_o       = 1'b0;
@@ -463,9 +465,9 @@ module mor1kx_decode_marocchino
           dcod_except_illegal_o = 1'b0;
           dcod_op_1clk_o        = 1'b0;
           dcod_op_pass_exec_o   = 1'b0;
-          dcod_rfa_req_o        = 1'b1;
-          dcod_rfb_req_o        = 1'b0;
-          dcod_rf_wb_o          = 1'b1;
+          dcod_rfa1_req_o       = 1'b1;
+          dcod_rfb1_req_o       = 1'b0;
+          dcod_rfd1_wb_o        = 1'b1;
           // for FPU64
           dcod_rfa2_req_o       = 1'b0;
           dcod_rfb2_req_o       = 1'b0;
@@ -476,9 +478,9 @@ module mor1kx_decode_marocchino
           dcod_except_illegal_o = (OPTION_OPERAND_WIDTH != 64);
           dcod_op_1clk_o        = 1'b0;
           dcod_op_pass_exec_o   = 1'b0;
-          dcod_rfa_req_o        = (OPTION_OPERAND_WIDTH == 64);
-          dcod_rfb_req_o        = 1'b0;
-          dcod_rf_wb_o          = (OPTION_OPERAND_WIDTH == 64);
+          dcod_rfa1_req_o       = (OPTION_OPERAND_WIDTH == 64);
+          dcod_rfb1_req_o       = 1'b0;
+          dcod_rfd1_wb_o        = (OPTION_OPERAND_WIDTH == 64);
           // for FPU64
           dcod_rfa2_req_o       = 1'b0;
           dcod_rfb2_req_o       = 1'b0;
@@ -493,9 +495,9 @@ module mor1kx_decode_marocchino
           dcod_except_illegal_o = 1'b0;
           dcod_op_1clk_o        = 1'b0;
           dcod_op_pass_exec_o   = 1'b0;
-          dcod_rfa_req_o        = 1'b1;
-          dcod_rfb_req_o        = 1'b1;
-          dcod_rf_wb_o          = 1'b0;
+          dcod_rfa1_req_o       = 1'b1;
+          dcod_rfb1_req_o       = 1'b1;
+          dcod_rfd1_wb_o        = 1'b0;
           // for FPU64
           dcod_rfa2_req_o       = 1'b0;
           dcod_rfb2_req_o       = 1'b0;
@@ -506,9 +508,9 @@ module mor1kx_decode_marocchino
           dcod_except_illegal_o = (OPTION_OPERAND_WIDTH != 64);
           dcod_op_1clk_o        = 1'b0;
           dcod_op_pass_exec_o   = 1'b0;
-          dcod_rfa_req_o        = (OPTION_OPERAND_WIDTH == 64);
-          dcod_rfb_req_o        = (OPTION_OPERAND_WIDTH == 64);
-          dcod_rf_wb_o          = 1'b0;
+          dcod_rfa1_req_o       = (OPTION_OPERAND_WIDTH == 64);
+          dcod_rfb1_req_o       = (OPTION_OPERAND_WIDTH == 64);
+          dcod_rfd1_wb_o        = 1'b0;
           // for FPU64
           dcod_rfa2_req_o       = 1'b0;
           dcod_rfb2_req_o       = 1'b0;
@@ -520,24 +522,24 @@ module mor1kx_decode_marocchino
           dcod_op_pass_exec_o   = 1'b0;
           if (op_fpxx_arith_l) begin
             dcod_op_1clk_o  = 1'b0;
-            dcod_rfa_req_o  = 1'b1;
+            dcod_rfa1_req_o = 1'b1;
             dcod_rfa2_req_o = op_fpxx_arith_l & dcod_insn_i[`OR1K_FPUOP_DOUBLE_BIT];
             if ((dcod_insn_i[2:0] == 3'd4) | (dcod_insn_i[2:0] == 3'd5)) begin // rD <- conv(rA)
-              dcod_rfb_req_o  = 1'b0;
+              dcod_rfb1_req_o = 1'b0;
               dcod_rfb2_req_o = 1'b0;
             end
             else begin // rD <- rA op rB
-              dcod_rfb_req_o  = 1'b1;
+              dcod_rfb1_req_o  = 1'b1;
               dcod_rfb2_req_o = op_fpxx_arith_l & dcod_insn_i[`OR1K_FPUOP_DOUBLE_BIT];
             end
-            dcod_rf_wb_o = 1'b1;
+            dcod_rfd1_wb_o = 1'b1;
           end
           else if (op_fp32_cmp_l | op_fp64_cmp_l) begin
             // SR[F] <- rA op rB
             dcod_op_1clk_o  = op_fp32_cmp_l;
-            dcod_rfa_req_o  = 1'b1;
-            dcod_rfb_req_o  = 1'b1;
-            dcod_rf_wb_o    = 1'b0;
+            dcod_rfa1_req_o = 1'b1;
+            dcod_rfb1_req_o = 1'b1;
+            dcod_rfd1_wb_o  = 1'b0;
             // for FPU64
             dcod_rfa2_req_o = op_fp64_cmp_l;
             dcod_rfb2_req_o = op_fp64_cmp_l;
@@ -545,9 +547,9 @@ module mor1kx_decode_marocchino
           else begin
             // no legal FPU instruction
             dcod_op_1clk_o  = 1'b0;
-            dcod_rfa_req_o  = 1'b0;
-            dcod_rfb_req_o  = 1'b0;
-            dcod_rf_wb_o    = 1'b0;
+            dcod_rfa1_req_o = 1'b0;
+            dcod_rfb1_req_o = 1'b0;
+            dcod_rfd1_wb_o  = 1'b0;
             // for FPU64
             dcod_rfa2_req_o = 1'b0;
             dcod_rfb2_req_o = 1'b0;
@@ -561,9 +563,9 @@ module mor1kx_decode_marocchino
           dcod_except_illegal_o = 1'b1;
           dcod_op_1clk_o        = 1'b0;
           dcod_op_pass_exec_o   = 1'b0;
-          dcod_rfa_req_o        = 1'b0;
-          dcod_rfb_req_o        = 1'b0;
-          dcod_rf_wb_o          = 1'b0;
+          dcod_rfa1_req_o       = 1'b0;
+          dcod_rfb1_req_o       = 1'b0;
+          dcod_rfd1_wb_o        = 1'b0;
           // for FPU64
           dcod_rfa2_req_o       = 1'b0;
           dcod_rfb2_req_o       = 1'b0;
@@ -571,6 +573,7 @@ module mor1kx_decode_marocchino
 
       `OR1K_OPCODE_SHRTI:
         begin
+          // synthesis parallel_case full_case
           case (dcod_insn_i[`OR1K_ALU_OPC_SECONDARY_SELECT])
             `OR1K_ALU_OPC_SECONDARY_SHRT_SLL, // rD <- SLLI(rA,Imm6)
             `OR1K_ALU_OPC_SECONDARY_SHRT_SRL, // rD <- SRLI(rA,Imm6)
@@ -579,17 +582,17 @@ module mor1kx_decode_marocchino
               begin
                 dcod_except_illegal_o = 1'b0;
                 dcod_op_1clk_o        = 1'b1;
-                dcod_rfa_req_o        = 1'b1;
-                dcod_rfb_req_o        = 1'b0;
-                dcod_rf_wb_o          = 1'b1;
+                dcod_rfa1_req_o       = 1'b1;
+                dcod_rfb1_req_o       = 1'b0;
+                dcod_rfd1_wb_o        = 1'b1;
               end
             default:
               begin
                 dcod_except_illegal_o = 1'b1;
                 dcod_op_1clk_o        = 1'b0;
-                dcod_rfa_req_o        = 1'b0;
-                dcod_rfb_req_o        = 1'b0;
-                dcod_rf_wb_o          = 1'b0;
+                dcod_rfa1_req_o       = 1'b0;
+                dcod_rfb1_req_o       = 1'b0;
+                dcod_rfd1_wb_o        = 1'b0;
               end
           endcase
           dcod_op_pass_exec_o = 1'b0;
@@ -600,6 +603,7 @@ module mor1kx_decode_marocchino
 
       `OR1K_OPCODE_ALU:
         begin
+          // synthesis parallel_case full_case
           case (opc_alu)
             `OR1K_ALU_OPC_ADD,  // rD <- rA + rB
             `OR1K_ALU_OPC_ADDC, // rD <- rA + rB + carry
@@ -613,9 +617,9 @@ module mor1kx_decode_marocchino
                 dcod_except_illegal_o = 1'b0;
                 dcod_op_1clk_o        = 1'b1;
                 dcod_op_pass_exec_o   = 1'b0;
-                dcod_rfa_req_o        = 1'b1;
-                dcod_rfb_req_o        = ~dcod_op_ffl1_o;
-                dcod_rf_wb_o          = 1'b1;
+                dcod_rfa1_req_o       = 1'b1;
+                dcod_rfb1_req_o       = ~dcod_op_ffl1_o;
+                dcod_rfd1_wb_o        = 1'b1;
               end
 
             `OR1K_ALU_OPC_DIV,  // rD <- rA / rB
@@ -626,9 +630,9 @@ module mor1kx_decode_marocchino
                 dcod_except_illegal_o = 1'b0;
                 dcod_op_1clk_o        = 1'b0;
                 dcod_op_pass_exec_o   = 1'b0;
-                dcod_rfa_req_o        = 1'b1;
-                dcod_rfb_req_o        = 1'b1;
-                dcod_rf_wb_o          = 1'b1;
+                dcod_rfa1_req_o       = 1'b1;
+                dcod_rfb1_req_o       = 1'b1;
+                dcod_rfd1_wb_o        = 1'b1;
               end
 
             `OR1K_ALU_OPC_EXTBH,
@@ -637,13 +641,14 @@ module mor1kx_decode_marocchino
                 dcod_except_illegal_o = 1'b1;
                 dcod_op_1clk_o        = 1'b0;
                 dcod_op_pass_exec_o   = 1'b0;
-                dcod_rfa_req_o        = 1'b0;
-                dcod_rfb_req_o        = 1'b0;
-                dcod_rf_wb_o          = 1'b0;
+                dcod_rfa1_req_o       = 1'b0;
+                dcod_rfb1_req_o       = 1'b0;
+                dcod_rfd1_wb_o        = 1'b0;
               end
 
             `OR1K_ALU_OPC_SHRT:
               begin
+                // synthesis parallel_case full_case
                 case (dcod_insn_i[`OR1K_ALU_OPC_SECONDARY_SELECT])
                   `OR1K_ALU_OPC_SECONDARY_SHRT_SLL, // rD <- SLL(rA,rB)
                   `OR1K_ALU_OPC_SECONDARY_SHRT_SRL, // rD <- SRL(rA,rB)
@@ -652,17 +657,17 @@ module mor1kx_decode_marocchino
                     begin
                       dcod_except_illegal_o = 1'b0;
                       dcod_op_1clk_o        = 1'b1;
-                      dcod_rfa_req_o        = 1'b1;
-                      dcod_rfb_req_o        = 1'b1;
-                      dcod_rf_wb_o          = 1'b1;
+                      dcod_rfa1_req_o       = 1'b1;
+                      dcod_rfb1_req_o       = 1'b1;
+                      dcod_rfd1_wb_o        = 1'b1;
                     end
                   default:
                     begin
                       dcod_except_illegal_o = 1'b1;
                       dcod_op_1clk_o        = 1'b0;
-                      dcod_rfa_req_o        = 1'b0;
-                      dcod_rfb_req_o        = 1'b0;
-                      dcod_rf_wb_o          = 1'b0;
+                      dcod_rfa1_req_o       = 1'b0;
+                      dcod_rfb1_req_o       = 1'b0;
+                      dcod_rfd1_wb_o        = 1'b0;
                     end
                 endcase // case (dcod_insn_i[`OR1K_ALU_OPC_SECONDARY_SELECT])
                 dcod_op_pass_exec_o = 1'b0;
@@ -673,9 +678,9 @@ module mor1kx_decode_marocchino
                 dcod_except_illegal_o = 1'b1;
                 dcod_op_1clk_o        = 1'b0;
                 dcod_op_pass_exec_o   = 1'b0;
-                dcod_rfa_req_o        = 1'b0;
-                dcod_rfb_req_o        = 1'b0;
-                dcod_rf_wb_o          = 1'b0;
+                dcod_rfa1_req_o       = 1'b0;
+                dcod_rfb1_req_o       = 1'b0;
+                dcod_rfd1_wb_o        = 1'b0;
               end
           endcase // alu_opc
           // for FPU64
@@ -702,9 +707,9 @@ module mor1kx_decode_marocchino
           dcod_op_pass_exec_o   = 1'b0;
         end
         dcod_op_1clk_o      = 1'b0;
-        dcod_rfa_req_o      = 1'b0;
-        dcod_rfb_req_o      = 1'b0;
-        dcod_rf_wb_o        = 1'b0;
+        dcod_rfa1_req_o     = 1'b0;
+        dcod_rfb1_req_o     = 1'b0;
+        dcod_rfd1_wb_o      = 1'b0;
         // for FPU64
         dcod_rfa2_req_o       = 1'b0;
         dcod_rfb2_req_o       = 1'b0;
@@ -715,9 +720,9 @@ module mor1kx_decode_marocchino
           dcod_except_illegal_o = 1'b1;
           dcod_op_1clk_o        = 1'b0;
           dcod_op_pass_exec_o   = 1'b0;
-          dcod_rfa_req_o        = 1'b0;
-          dcod_rfb_req_o        = 1'b0;
-          dcod_rf_wb_o          = 1'b0;
+          dcod_rfa1_req_o       = 1'b0;
+          dcod_rfb1_req_o       = 1'b0;
+          dcod_rfd1_wb_o        = 1'b0;
           // for FPU64
           dcod_rfa2_req_o       = 1'b0;
           dcod_rfb2_req_o       = 1'b0;
@@ -763,15 +768,15 @@ module mor1kx_decode_marocchino
   //  # take branch flag
   assign dcod_do_branch_o          = branch_to_imm | dcod_op_jr_o;
   //  # take branch target
-  assign dcod_do_branch_target_o   = branch_to_imm ? branch_to_imm_target : dcod_rfb_i;
+  assign dcod_do_branch_target_o   = branch_to_imm ? branch_to_imm_target : dcod_rfb1_i;
   //  # take branch align exception
   assign fetch_except_ibus_align_o = branch_to_imm ? (|branch_to_imm_target[1:0]) :
-                                     dcod_op_jr_o  ? ((|dcod_rfb_i[1:0]) & ~exe2dec_hazard_b_i) :
+                                     dcod_op_jr_o  ? ((|dcod_rfb1_i[1:0]) & ~exe2dec_hazard_d1b1_i) :
                                                      1'b0;
 
 
   // Destination addresses
-  assign dcod_rfd_adr_o = dcod_op_jal_o ? 4'd9 : dcod_insn_i[`OR1K_RD_SELECT];
+  assign dcod_rfd1_adr_o = dcod_op_jal_o ? 4'd9 : dcod_insn_i[`OR1K_RD_SELECT];
 
 
   // Which instructions writes comparison flag?
