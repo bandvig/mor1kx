@@ -40,9 +40,7 @@ module mor1kx_decode_marocchino
   parameter OPTION_RF_ADDR_WIDTH =  5,
 
   parameter FEATURE_PSYNC        = "NONE",
-  parameter FEATURE_CSYNC        = "NONE",
-
-  parameter FEATURE_FPU          = "NONE" // ENABLED|NONE
+  parameter FEATURE_CSYNC        = "NONE"
 )
 (
   // INSN
@@ -280,8 +278,7 @@ module mor1kx_decode_marocchino
 
   // --- FPU-32 comparison part ---
   //  # for further legality detection
-  wire op_fp32_cmp_l = (FEATURE_FPU != "NONE") &
-                       (~dcod_insn_i[`OR1K_FPUOP_DOUBLE_BIT]) & dcod_insn_i[3] &
+  wire op_fp32_cmp_l = (~dcod_insn_i[`OR1K_FPUOP_DOUBLE_BIT]) & dcod_insn_i[3] &
                        (~(|dcod_insn_i[10:8])) & // all reserved bits are zeros
                        (dcod_insn_i[2:0] < 3'd6);
   //  # directly for FPU32 execution unit
@@ -299,8 +296,7 @@ module mor1kx_decode_marocchino
 
   // --- FPU3264 arithmetic part ---
   //  # tmp skeleton
-  wire op_fpxx_arith_t = (FEATURE_FPU != "NONE") &  // FPU enabled
-                         (~dcod_insn_i[3]) &        // arithmetic operation
+  wire op_fpxx_arith_t = (~dcod_insn_i[3]) &        // arithmetic operation
                          (~(|dcod_insn_i[10:8]));   // all reserved bits are zeros
   //  # for further legality detection
   wire op_fpxx_arith_l = op_fpxx_arith_t & (dcod_insn_i[2:0] < 3'd6);
@@ -326,8 +322,7 @@ module mor1kx_decode_marocchino
 
   // --- FPU-64 comparison part ---
   //  # for further legality detection
-  wire op_fp64_cmp_l = (FEATURE_FPU != "NONE") &
-                       dcod_insn_i[`OR1K_FPUOP_DOUBLE_BIT] & dcod_insn_i[3] &
+  wire op_fp64_cmp_l = dcod_insn_i[`OR1K_FPUOP_DOUBLE_BIT] & dcod_insn_i[3] &
                        (~(|dcod_insn_i[10:8])) & // all reserved bits are zeros
                        (dcod_insn_i[2:0] < 3'd6);
   //  # directly for FPU32 execution unit

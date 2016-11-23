@@ -45,9 +45,7 @@ module mor1kx_fetch_marocchino
   parameter FEATURE_IMMU_HW_TLB_RELOAD  = "NONE",
   parameter OPTION_IMMU_SET_WIDTH       =  6,
   parameter OPTION_IMMU_WAYS            =  1,
-  parameter OPTION_IMMU_CLEAR_ON_INIT   =  0,
-  // for FPU64
-  parameter FEATURE_FPU                 = "NONE"
+  parameter OPTION_IMMU_CLEAR_ON_INIT   =  0
 )
 (
   // clock and reset
@@ -454,45 +452,32 @@ module mor1kx_fetch_marocchino
   assign dcod_rfb1_adr_o = dcod_insn_o[`OR1K_RB_SELECT];
 
   // to FPU64
-  generate
-  /* verilator lint_off WIDTH */
-  if (FEATURE_FPU != "NONE") begin :  fetch_fpxx_enabled
-  /* verilator lint_on WIDTH */
-    assign fetch_rfa2_adr_o = s2t_insn_mux[`OR1K_RA_SELECT] + 1'b1;
-    assign fetch_rfb2_adr_o = s2t_insn_mux[`OR1K_RB_SELECT] + 1'b1;
-    // ---
-    reg [(OPTION_RF_ADDR_WIDTH-1):0] dcod_rfa2_adr_r, dcod_rfb2_adr_r, dcod_rfd2_adr_r;
-    // ---
-    always @(posedge clk `OR_ASYNC_RST) begin
-      if (rst) begin
-        dcod_rfa2_adr_r <= {OPTION_RF_ADDR_WIDTH{1'b0}};
-        dcod_rfb2_adr_r <= {OPTION_RF_ADDR_WIDTH{1'b0}};
-        dcod_rfd2_adr_r <= {OPTION_RF_ADDR_WIDTH{1'b0}};
-      end
-      else if (flush_by_ctrl) begin
-        dcod_rfa2_adr_r <= {OPTION_RF_ADDR_WIDTH{1'b0}};
-        dcod_rfb2_adr_r <= {OPTION_RF_ADDR_WIDTH{1'b0}};
-        dcod_rfd2_adr_r <= {OPTION_RF_ADDR_WIDTH{1'b0}};
-      end
-      else if (padv_fetch_i) begin
-        dcod_rfa2_adr_r <= fetch_rfa2_adr_o;
-        dcod_rfb2_adr_r <= fetch_rfb2_adr_o;
-        dcod_rfd2_adr_r <= s2t_insn_mux[`OR1K_RD_SELECT] + 1'b1;
-      end
-    end // @ clock
-    // ---
-    assign dcod_rfa2_adr_o = dcod_rfa2_adr_r;
-    assign dcod_rfb2_adr_o = dcod_rfb2_adr_r;
-    assign dcod_rfd2_adr_o = dcod_rfd2_adr_r;
-  end
-  else begin : fetch_fpxx_disabled
-    assign fetch_rfa2_adr_o = {OPTION_RF_ADDR_WIDTH{1'b0}};
-    assign fetch_rfb2_adr_o = {OPTION_RF_ADDR_WIDTH{1'b0}};
-    assign dcod_rfa2_adr_o  = {OPTION_RF_ADDR_WIDTH{1'b0}};
-    assign dcod_rfb2_adr_o  = {OPTION_RF_ADDR_WIDTH{1'b0}};
-    assign dcod_rfd2_adr_o  = {OPTION_RF_ADDR_WIDTH{1'b0}};
-  end
-  endgenerate
+  assign fetch_rfa2_adr_o = s2t_insn_mux[`OR1K_RA_SELECT] + 1'b1;
+  assign fetch_rfb2_adr_o = s2t_insn_mux[`OR1K_RB_SELECT] + 1'b1;
+  // ---
+  reg [(OPTION_RF_ADDR_WIDTH-1):0] dcod_rfa2_adr_r, dcod_rfb2_adr_r, dcod_rfd2_adr_r;
+  // ---
+  always @(posedge clk `OR_ASYNC_RST) begin
+    if (rst) begin
+      dcod_rfa2_adr_r <= {OPTION_RF_ADDR_WIDTH{1'b0}};
+      dcod_rfb2_adr_r <= {OPTION_RF_ADDR_WIDTH{1'b0}};
+      dcod_rfd2_adr_r <= {OPTION_RF_ADDR_WIDTH{1'b0}};
+    end
+    else if (flush_by_ctrl) begin
+      dcod_rfa2_adr_r <= {OPTION_RF_ADDR_WIDTH{1'b0}};
+      dcod_rfb2_adr_r <= {OPTION_RF_ADDR_WIDTH{1'b0}};
+      dcod_rfd2_adr_r <= {OPTION_RF_ADDR_WIDTH{1'b0}};
+    end
+    else if (padv_fetch_i) begin
+      dcod_rfa2_adr_r <= fetch_rfa2_adr_o;
+      dcod_rfb2_adr_r <= fetch_rfb2_adr_o;
+      dcod_rfd2_adr_r <= s2t_insn_mux[`OR1K_RD_SELECT] + 1'b1;
+    end
+  end // @ clock
+  // ---
+  assign dcod_rfa2_adr_o = dcod_rfa2_adr_r;
+  assign dcod_rfb2_adr_o = dcod_rfb2_adr_r;
+  assign dcod_rfd2_adr_o = dcod_rfd2_adr_r;
 
 
   /********** End of FETCH pipe. Start other logics. **********/

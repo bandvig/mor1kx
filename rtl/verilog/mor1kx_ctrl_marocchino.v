@@ -56,7 +56,6 @@ module mor1kx_ctrl_marocchino
   parameter FEATURE_PERFCOUNTERS      = "NONE",
   parameter FEATURE_PMU               = "NONE",
   parameter FEATURE_MAC               = "NONE",
-  parameter FEATURE_FPU               = "NONE",
   parameter FEATURE_MULTICORE         = "NONE",
 
   parameter OPTION_PIC_TRIGGER        = "LEVEL",
@@ -491,63 +490,47 @@ module mor1kx_ctrl_marocchino
 
   assign except_fpu_enable_o = spr_fpcsr[`OR1K_FPCSR_FPEE];
 
-  generate
-  /* verilator lint_off WIDTH */
-  if (FEATURE_FPU != "NONE") begin : fpu_csr_en
-  /* verilator lint_on WIDTH */
+  wire spr_fpcsr_we = spr_sys_group_cs &
+                      (`SPR_OFFSET(spr_bus_addr_o) == `SPR_OFFSET(`OR1K_SPR_FPCSR_ADDR)) &
+                      spr_sys_group_wr_r &  spr_sr[`OR1K_SPR_SR_SM];
 
-    wire spr_fpcsr_we = spr_sys_group_cs &
-                        (`SPR_OFFSET(spr_bus_addr_o) == `SPR_OFFSET(`OR1K_SPR_FPCSR_ADDR)) &
-                        spr_sys_group_wr_r &  spr_sr[`OR1K_SPR_SR_SM];
+ `ifdef OR1K_FPCSR_MASK_FLAGS
+  reg [`OR1K_FPCSR_ALLF_SIZE-1:0] ctrl_fpu_mask_flags_r;
+  // ---
+  always @(posedge clk `OR_ASYNC_RST) begin
+    if (rst)
+      ctrl_fpu_mask_flags_r <= {`OR1K_FPCSR_ALLF_SIZE{1'b1}};
+    else if (spr_fpcsr_we)
+      ctrl_fpu_mask_flags_r <= spr_bus_dat_o[`OR1K_FPCSR_MASK_ALL];
+  end // FPCSR reg's always(@posedge clk)
+  // ---
+  assign ctrl_fpu_mask_flags_o = ctrl_fpu_mask_flags_r;         // FPU-enabled, "masking FPU flags" enabled
+ `else
+  assign ctrl_fpu_mask_flags_o = {`OR1K_FPCSR_ALLF_SIZE{1'b1}}; // FPU-enabled, "masking FPU flags" disabled
+ `endif
 
-   `ifdef OR1K_FPCSR_MASK_FLAGS
-    reg [`OR1K_FPCSR_ALLF_SIZE-1:0] ctrl_fpu_mask_flags_r;
-    // ---
-    always @(posedge clk `OR_ASYNC_RST) begin
-      if (rst)
-        ctrl_fpu_mask_flags_r <= {`OR1K_FPCSR_ALLF_SIZE{1'b1}};
-      else if (spr_fpcsr_we)
-        ctrl_fpu_mask_flags_r <= spr_bus_dat_o[`OR1K_FPCSR_MASK_ALL];
-    end // FPCSR reg's always(@posedge clk)
-    // ---
-    assign ctrl_fpu_mask_flags_o = ctrl_fpu_mask_flags_r;         // FPU-enabled, "masking FPU flags" enabled
-   `else
-    assign ctrl_fpu_mask_flags_o = {`OR1K_FPCSR_ALLF_SIZE{1'b1}}; // FPU-enabled, "masking FPU flags" disabled
-   `endif
+  assign ctrl_fpu_round_mode_o = spr_fpcsr[`OR1K_FPCSR_RM];
 
-    assign ctrl_fpu_round_mode_o = spr_fpcsr[`OR1K_FPCSR_RM];
+  // collect FPx flags
+  wire [`OR1K_FPCSR_ALLF_SIZE-1:0] fpx_flags = {1'b0, wb_fp32_cmp_inf_i, wb_fp32_cmp_inv_i, 6'd0} |
+                                               {1'b0, wb_fp64_cmp_inf_i, wb_fp64_cmp_inv_i, 6'd0} |
+                                               wb_fpxx_arith_fpcsr_i;
 
-    // collect FPx flags
-    wire [`OR1K_FPCSR_ALLF_SIZE-1:0] fpx_flags = {1'b0, wb_fp32_cmp_inf_i, wb_fp32_cmp_inv_i, 6'd0} |
-                                                 {1'b0, wb_fp64_cmp_inf_i, wb_fp64_cmp_inv_i, 6'd0} |
-                                                 wb_fpxx_arith_fpcsr_i;
-
-    // FPU Control & Status Register
-    always @(posedge clk `OR_ASYNC_RST) begin
-      if (rst)
-        spr_fpcsr <= `OR1K_FPCSR_RESET_VALUE;
-      else if (spr_fpcsr_we)
-        spr_fpcsr <= spr_bus_dat_o[`OR1K_FPCSR_WIDTH-1:0]; // update all fields
-      else if (wb_fp32_cmp_wb_fpcsr_i | wb_fp64_cmp_wb_fpcsr_i | wb_fpxx_arith_wb_fpcsr_i)
-        spr_fpcsr <= {fpx_flags, spr_fpcsr[`OR1K_FPCSR_RM], spr_fpcsr[`OR1K_FPCSR_FPEE]};
-    end
-
+  // FPU Control & Status Register
+  always @(posedge clk `OR_ASYNC_RST) begin
+    if (rst)
+      spr_fpcsr <= `OR1K_FPCSR_RESET_VALUE;
+    else if (spr_fpcsr_we)
+      spr_fpcsr <= spr_bus_dat_o[`OR1K_FPCSR_WIDTH-1:0]; // update all fields
+    else if (wb_fp32_cmp_wb_fpcsr_i | wb_fp64_cmp_wb_fpcsr_i | wb_fpxx_arith_wb_fpcsr_i)
+      spr_fpcsr <= {fpx_flags, spr_fpcsr[`OR1K_FPCSR_RM], spr_fpcsr[`OR1K_FPCSR_FPEE]};
   end
-  else begin : fpu_csr_none
-
-    assign ctrl_fpu_mask_flags_o = {`OR1K_FPCSR_ALLF_SIZE{1'b0}}; // FPU-disabled
-    assign ctrl_fpu_round_mode_o = {`OR1K_FPCSR_RM_SIZE{1'b0}}; // FPU-disabled
-
-    // FPU Control & status register
-    always @(posedge clk `OR_ASYNC_RST) begin
-      spr_fpcsr <= {`OR1K_FPCSR_WIDTH{1'b0}};
-    end // FPCSR reg's always(@posedge clk)
-
-  end
-  endgenerate // FPU related: FPCSR and exceptions
 
 
-  // Supervision register
+  //----------------------//
+  // Supervision register //
+  //----------------------//
+
   // WB: External Interrupt Collection
   assign  tt_interrupt_enable_o  = spr_sr[`OR1K_SPR_SR_TEE];
   assign  pic_interrupt_enable_o = spr_sr[`OR1K_SPR_SR_IEE];
@@ -752,8 +735,8 @@ module mor1kx_ctrl_marocchino
     .FEATURE_DEBUGUNIT               (FEATURE_DEBUGUNIT), // mor1kx_cfgrs instance:
     .FEATURE_PERFCOUNTERS            (FEATURE_PERFCOUNTERS), // mor1kx_cfgrs instance:
     .FEATURE_MAC                     (FEATURE_MAC), // mor1kx_cfgrs instance:
-    .FEATURE_FPU                     (FEATURE_FPU), // mor1kx_cfgrs instance: marocchino
-    .FEATURE_FPU64                   (FEATURE_FPU), // mor1kx_cfgrs instance: marocchino
+    .FEATURE_FPU                     ("ENABLED"), // mor1kx_cfgrs instance: marocchino
+    .FEATURE_FPU64                   ("ENABLED"), // mor1kx_cfgrs instance: marocchino
     .FEATURE_SYSCALL                 ("ENABLED"), // mor1kx_cfgrs instance: marocchino
     .FEATURE_TRAP                    ("ENABLED"), // mor1kx_cfgrs instance: marocchino
     .FEATURE_RANGE                   ("ENABLED"), // mor1kx_cfgrs instance: marocchino
@@ -824,7 +807,7 @@ module mor1kx_ctrl_marocchino
       `OR1K_SPR_PM_BASE:   spr_access_valid_mux = (FEATURE_PMU          != "NONE");
       `OR1K_SPR_PIC_BASE:  spr_access_valid_mux = 1'b1;
       `OR1K_SPR_TT_BASE:   spr_access_valid_mux = 1'b1;
-      `OR1K_SPR_FPU_BASE:  spr_access_valid_mux = 1'b0; // FEATURE_FPU: actual FPU implementation havn't got control registers
+      `OR1K_SPR_FPU_BASE:  spr_access_valid_mux = 1'b0; // actual FPU implementation havn't got control registers
       // invalid if the group is not present in the design
       default:             spr_access_valid_mux = 1'b0;
     endcase

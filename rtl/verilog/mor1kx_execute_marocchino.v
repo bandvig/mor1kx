@@ -690,8 +690,7 @@ endmodule // mor1kx_divider_marocchino
 
 module mor1kx_exec_1clk_marocchino
 #(
-  parameter OPTION_OPERAND_WIDTH = 32,
-  parameter FEATURE_FPU          = "NONE" // ENABLED|NONE
+  parameter OPTION_OPERAND_WIDTH = 32
 )
 (
   // clocks and resets
@@ -1001,51 +1000,36 @@ module mor1kx_exec_1clk_marocchino
   //------------------------//
   wire fp32_flag_set; // for forwarding to branch prediction
   // ---
-  generate
-  /* verilator lint_off WIDTH */
-  if (FEATURE_FPU != "NONE") begin :  alu_fp32_cmp_ena
-  /* verilator lint_on WIDTH */
-    pfpu32_fcmp_marocchino u_f32_cmp
-    (
-      // clock and reset
-      .clk                    (clk), // fp32-cmp
-      .rst                    (rst),
-      // pipeline controls
-      .pipeline_flush_i       (pipeline_flush_i),   // fp32-cmp.flush pipe
-      .padv_wb_i              (padv_wb_i),          // fp32-cmp. advance output latches
-      .grant_wb_to_1clk_i     (grant_wb_to_1clk_i), // fp32-cmp
-      // command
-      .op_fp32_cmp_i          (exec_op_fp32_cmp_i), // fp32-cmp
-      .opc_fp32_cmp_i         (exec_opc_fp32_cmp_i), // fp32-cmp
-      // Operands
-      .rfa_i                  (exec_1clk_a1_i), // fp32-cmp
-      .rfb_i                  (exec_1clk_b1_i), // fp32-cmp
-      // Modes
-      .except_fpu_enable_i        (except_fpu_enable_i), // fp32-cmp
-      .ctrl_fpu_mask_flags_inv_i  (ctrl_fpu_mask_flags_inv_i), // fp32-cmp
-      .ctrl_fpu_mask_flags_inf_i  (ctrl_fpu_mask_flags_inf_i), // fp32-cmp
-      // Outputs
-      //  # not WB-latched for flag forwarding
-      .fp32_flag_set_o        (fp32_flag_set),
-      //  # WB-latched
-      .wb_fp32_flag_set_o     (wb_fp32_flag_set_o),   // fp32-cmp  result
-      .wb_fp32_flag_clear_o   (wb_fp32_flag_clear_o), // fp32-cmp  result
-      .wb_fp32_cmp_inv_o      (wb_fp32_cmp_inv_o), // fp32-cmp flag 'invalid'
-      .wb_fp32_cmp_inf_o      (wb_fp32_cmp_inf_o), // fp32-cmp flag 'infinity'
-      .wb_fp32_cmp_wb_fpcsr_o (wb_fp32_cmp_wb_fpcsr_o), // fp32-cmp update FPCSR
-      .wb_except_fp32_cmp_o   (wb_except_fp32_cmp_o) // fp32-cmp exception
-    );
-  end
-  else begin :  alu_fp32_cmp_none
-    assign fp32_flag_set          = 1'b0;
-    assign wb_fp32_flag_set_o     = 1'b0;
-    assign wb_fp32_flag_clear_o   = 1'b0;
-    assign wb_fp32_cmp_inv_o      = 1'b0;
-    assign wb_fp32_cmp_inf_o      = 1'b0;
-    assign wb_fp32_cmp_wb_fpcsr_o = 1'b0;
-    assign wb_except_fp32_cmp_o   = 1'b0;
-  end // fpu_ena/fpu_none
-  endgenerate // FP-32 comparison part related
+  pfpu32_fcmp_marocchino u_f32_cmp
+  (
+    // clock and reset
+    .clk                    (clk), // fp32-cmp
+    .rst                    (rst),
+    // pipeline controls
+    .pipeline_flush_i       (pipeline_flush_i),   // fp32-cmp.flush pipe
+    .padv_wb_i              (padv_wb_i),          // fp32-cmp. advance output latches
+    .grant_wb_to_1clk_i     (grant_wb_to_1clk_i), // fp32-cmp
+    // command
+    .op_fp32_cmp_i          (exec_op_fp32_cmp_i), // fp32-cmp
+    .opc_fp32_cmp_i         (exec_opc_fp32_cmp_i), // fp32-cmp
+    // Operands
+    .rfa_i                  (exec_1clk_a1_i), // fp32-cmp
+    .rfb_i                  (exec_1clk_b1_i), // fp32-cmp
+    // Modes
+    .except_fpu_enable_i        (except_fpu_enable_i), // fp32-cmp
+    .ctrl_fpu_mask_flags_inv_i  (ctrl_fpu_mask_flags_inv_i), // fp32-cmp
+    .ctrl_fpu_mask_flags_inf_i  (ctrl_fpu_mask_flags_inf_i), // fp32-cmp
+    // Outputs
+    //  # not WB-latched for flag forwarding
+    .fp32_flag_set_o        (fp32_flag_set),
+    //  # WB-latched
+    .wb_fp32_flag_set_o     (wb_fp32_flag_set_o),   // fp32-cmp  result
+    .wb_fp32_flag_clear_o   (wb_fp32_flag_clear_o), // fp32-cmp  result
+    .wb_fp32_cmp_inv_o      (wb_fp32_cmp_inv_o), // fp32-cmp flag 'invalid'
+    .wb_fp32_cmp_inf_o      (wb_fp32_cmp_inf_o), // fp32-cmp flag 'infinity'
+    .wb_fp32_cmp_wb_fpcsr_o (wb_fp32_cmp_wb_fpcsr_o), // fp32-cmp update FPCSR
+    .wb_except_fp32_cmp_o   (wb_except_fp32_cmp_o) // fp32-cmp exception
+  );
 
 
   //--------------------------------------------------------------------//
