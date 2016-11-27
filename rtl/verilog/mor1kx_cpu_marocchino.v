@@ -199,9 +199,9 @@ module mor1kx_cpu_marocchino
 
   // OMAN-to-DECODE hazards
   //  combined flag
-  wire                            omn2dec_hazards;
-  wire                            omn2dec_hazards_1clk;
-  wire                            omn2dec_hazards_mclk;
+  wire                            omn2dec_a_hazard_lsu;
+  wire                            omn2dec_a_hazard_1clk;
+  wire                            omn2dec_a_hazard_mclk;
   //  by FLAG and CARRY
   wire                            busy_hazard_f;
   wire [DEST_FLAG_ADDR_WIDTH-1:0] busy_hazard_f_adr;
@@ -212,21 +212,31 @@ module mor1kx_cpu_marocchino
   wire  [DEST_REG_ADDR_WIDTH-1:0] busy_hazard_d1a1_adr;
   wire                            busy_hazard_d1b1;
   wire  [DEST_REG_ADDR_WIDTH-1:0] busy_hazard_d1b1_adr;
-  // for FPU64
+  wire                            busy_hazard_d2a1;
+  wire  [DEST_REG_ADDR_WIDTH-1:0] busy_hazard_d2a1_adr;
+  wire                            busy_hazard_d2b1;
+  wire  [DEST_REG_ADDR_WIDTH-1:0] busy_hazard_d2b1_adr;
+  wire                            busy_hazard_d1a2;
+  wire  [DEST_REG_ADDR_WIDTH-1:0] busy_hazard_d1a2_adr;
+  wire                            busy_hazard_d1b2;
+  wire  [DEST_REG_ADDR_WIDTH-1:0] busy_hazard_d1b2_adr;
   wire                            busy_hazard_d2a2;
   wire  [DEST_REG_ADDR_WIDTH-1:0] busy_hazard_d2a2_adr;
   wire                            busy_hazard_d2b2;
   wire  [DEST_REG_ADDR_WIDTH-1:0] busy_hazard_d2b2_adr;
   // EXEC-to-DECODE hazards
   //  combined flag
-  wire                            exe2dec_hazards;
-  wire                            exe2dec_hazards_1clk;
-  wire                            exe2dec_hazards_mclk;
+  wire                            exe2dec_a_hazard_lsu;
+  wire                            exe2dec_a_hazard_1clk;
+  wire                            exe2dec_a_hazard_mclk;
   //  by operands
   wire                            exe2dec_hazard_d1a1;
   wire                            exe2dec_hazard_d1b1;
-  // for FPU64
-  wire                            exe2dec_hazard_d2a2;     // by low part of operand A
+  wire                            exe2dec_hazard_d2a1;
+  wire                            exe2dec_hazard_d2b1;
+  wire                            exe2dec_hazard_d1a2;
+  wire                            exe2dec_hazard_d1b2;
+  wire                            exe2dec_hazard_d2a2;
   wire                            exe2dec_hazard_d2b2;
   // Hazard could be passed from DECODE to EXECUTE
   //  ## FLAG or CARRY
@@ -748,13 +758,27 @@ module mor1kx_cpu_marocchino
   // **** reservation station for 1-clk ****
   mor1kx_rsrvs_marocchino
   #(
-    .OPTION_OPERAND_WIDTH     (OPTION_OPERAND_WIDTH), // 1CLK_RSVRS
-    .USE_OPC                  (1), // 1CLK_RSVRS
-    .OPC_WIDTH                (ONE_CLK_ATTR_WIDTH), // 1CLK_RSVRS
-    .DEST_REG_ADDR_WIDTH      (DEST_REG_ADDR_WIDTH), // 1CLK_RSVRS
-    .FEATURE_FPU              ("NONE"), // 1CLK_RSVRS
-    .USE_RSVRS_FLAG_CARRY     (1), // 1CLK_RSVRS
-    .DEST_FLAG_ADDR_WIDTH     (DEST_FLAG_ADDR_WIDTH) // 1CLK_RSVRS
+    .OPTION_OPERAND_WIDTH         (OPTION_OPERAND_WIDTH), // 1CLK_RSVRS
+    .OPC_WIDTH                    (ONE_CLK_ATTR_WIDTH), // 1CLK_RSVRS
+    .DEST_REG_ADDR_WIDTH          (DEST_REG_ADDR_WIDTH), // 1CLK_RSVRS
+    .DEST_FLAG_ADDR_WIDTH         (DEST_FLAG_ADDR_WIDTH), // 1CLK_RSVRS
+    // Reservation station is used at input of modules:
+    //  1CLK: only parameter RSRVS-1CLK must be set to "1"
+    //  MCLK: only parameter RSRVS-MCLK must be set to "1"
+    //  LSU : both RSRVS-1CLK and RSRVS-MCLK parameters must be set to "0"
+    .RSRVS_1CLK                   (1), // 1CLK_RSVRS
+    .RSRVS_MCLK                   (0), // 1CLK_RSVRS
+    // OMAN-to-DECODE hazards layout for various reservation stations:
+    //  # LSU : {   x,    x,    x,    x, d2b1, d2a1, d1b1, d1a1 }
+    //  # 1CLK: {   x,    x, carr, flag, d2b1, d2a1, d1b1, d1a1 }
+    //  # MCLK: {d2b2, d2a2, d1b2, d1a2, d2b1, d2a1, d1b1, d1a1 }
+    .BUSY_HAZARDS_FLAGS_WIDTH     (6), // 1CLK_RSVRS
+    .BUSY_HAZARDS_ADDRS_WIDTH     ((2 * DEST_FLAG_ADDR_WIDTH) + (4 * DEST_REG_ADDR_WIDTH)), // 1CLK_RSVRS
+    // EXEC-to-DECODE hazards layout for various reservation stations:
+    //  # LSU : {   x,    x,    x,    x, d2b1, d2a1, d1b1, d1a1 }
+    //  # 1CLK: {   x,    x,    x,    x, d2b1, d2a1, d1b1, d1a1 }
+    //  # MCLK: {d2b2, d2a2, d1b2, d1a2, d2b1, d2a1, d1b1, d1a1 }
+    .EXE2DEC_HAZARDS_FLAGS_WIDTH  (4) // 1CLK_RSVRS
   )
   u_1clk_rsrvs
   (
@@ -768,36 +792,25 @@ module mor1kx_cpu_marocchino
     // input data from DECODE
     .dcod_rfa1_i              (dcod_rfa1), // 1CLK_RSVRS
     .dcod_rfb1_i              (dcod_rfb1), // 1CLK_RSVRS
-    // for FPU64
     .dcod_rfa2_i              ({OPTION_OPERAND_WIDTH{1'b0}}), // 1CLK_RSVRS
     .dcod_rfb2_i              ({OPTION_OPERAND_WIDTH{1'b0}}), // 1CLK_RSVRS
     // OMAN-to-DECODE hazards
     //  combined flag
-    .omn2dec_hazards_i        (omn2dec_hazards_1clk), // 1CLK_RSVRS
-    //  by FLAG and CARRY
-    .busy_hazard_f_i          (busy_hazard_f), // 1CLK_RSVRS
-    .busy_hazard_f_adr_i      (busy_hazard_f_adr), // 1CLK_RSVRS
-    .busy_hazard_c_i          (busy_hazard_c), // 1CLK_RSVRS
-    .busy_hazard_c_adr_i      (busy_hazard_c_adr), // 1CLK_RSVRS
-    //  by operands
-    .busy_hazard_d1a1_i       (busy_hazard_d1a1), // 1CLK_RSVRS
-    .busy_hazard_d1a1_adr_i   (busy_hazard_d1a1_adr), // 1CLK_RSVRS
-    .busy_hazard_d1b1_i       (busy_hazard_d1b1), // 1CLK_RSVRS
-    .busy_hazard_d1b1_adr_i   (busy_hazard_d1b1_adr), // 1CLK_RSVRS
-    // for FPU64
-    .busy_hazard_d2a2_i       (1'b0), // 1CLK_RSVRS
-    .busy_hazard_d2a2_adr_i   ({DEST_REG_ADDR_WIDTH{1'b0}}), // 1CLK_RSVRS
-    .busy_hazard_d2b2_i       (1'b0), // 1CLK_RSVRS
-    .busy_hazard_d2b2_adr_i   ({DEST_REG_ADDR_WIDTH{1'b0}}), // 1CLK_RSVRS
+    .omn2dec_a_hazard_i       (omn2dec_a_hazard_1clk), // 1CLK_RSVRS
+    //  # hazards flags
+    .busy_hazards_flags_i     ({busy_hazard_c,    busy_hazard_f, // 1CLK_RSVRS
+                                busy_hazard_d2b1, busy_hazard_d2a1, // 1CLK_RSVRS
+                                busy_hazard_d1b1, busy_hazard_d1a1}), // 1CLK_RSVRS
+    //  # hasards addresses
+    .busy_hazards_addrs_i     ({busy_hazard_c_adr,    busy_hazard_f_adr, // 1CLK_RSVRS
+                                busy_hazard_d2b1_adr, busy_hazard_d2a1_adr, // 1CLK_RSVRS
+                                busy_hazard_d1b1_adr, busy_hazard_d1a1_adr}), // 1CLK_RSVRS
     // EXEC-to-DECODE hazards
     //  combined flag
-    .exe2dec_hazards_i        (exe2dec_hazards_1clk), // 1CLK_RSVRS
-    //  by operands
-    .exe2dec_hazard_d1a1_i    (exe2dec_hazard_d1a1), // 1CLK_RSVRS
-    .exe2dec_hazard_d1b1_i    (exe2dec_hazard_d1b1), // 1CLK_RSVRS
-    // for FPU64
-    .exe2dec_hazard_d2a2_i    (1'b0), // 1CLK_RSVRS
-    .exe2dec_hazard_d2b2_i    (1'b0), // 1CLK_RSVRS
+    .exe2dec_a_hazard_i       (exe2dec_a_hazard_1clk), // 1CLK_RSVRS
+    //  hazards flags
+    .exe2dec_hazards_flags_i  ({exe2dec_hazard_d2b1, exe2dec_hazard_d2a1, // 1CLK_RSVRS
+                                exe2dec_hazard_d1b1, exe2dec_hazard_d1a1}), // 1CLK_RSVRS
     // Hazard could be passed from DECODE to EXECUTE
     //  ## FLAG or CARRY
     .exec_flag_wb_i           (exec_flag_wb), // 1CLK_RSVRS
@@ -807,8 +820,8 @@ module mor1kx_cpu_marocchino
     .exec_rfd1_wb_i           (exec_rfd1_wb), // 1CLK_RSVRS
     .exec_rfd1_adr_i          (exec_rfd1_adr), // 1CLK_RSVRS
     //  ## for FPU64
-    .exec_rfd2_wb_i           (1'b0), // 1CLK_RSVRS
-    .exec_rfd2_adr_i          ({DEST_REG_ADDR_WIDTH{1'b0}}), // 1CLK_RSVRS
+    .exec_rfd2_wb_i           (exec_rfd2_wb), // 1CLK_RSVRS
+    .exec_rfd2_adr_i          (exec_rfd2_adr), // 1CLK_RSVRS
     //  ## passing only with writting back
     .padv_wb_i                (padv_wb), // 1CLK_RSVRS
     // Hazard could be resolving
@@ -818,12 +831,12 @@ module mor1kx_cpu_marocchino
     .wb_flag_carry_adr_i      (wb_flag_carry_adr), // 1CLK_RSVRS
     //  ## A or B operand
     .wb_rfd1_wb_i             (wb_rfd1_wb), // 1CLK_RSVRS
-    .wb_rfd1_adr_i            (wb_rfd1_adr[DEST_REG_ADDR_WIDTH-1:0]), // 1CLK_RSVRS
+    .wb_rfd1_adr_i            (wb_rfd1_adr[(DEST_REG_ADDR_WIDTH-1):0]), // 1CLK_RSVRS
     .wb_result1_i             (wb_result1), // 1CLK_RSVRS
     //  ## for FPU64
-    .wb_rfd2_wb_i             (1'b0), // 1CLK_RSVRS
-    .wb_rfd2_adr_i            ({DEST_REG_ADDR_WIDTH{1'b0}}), // 1CLK_RSVRS
-    .wb_result2_i             ({OPTION_OPERAND_WIDTH{1'b0}}), // 1CLK_RSVRS
+    .wb_rfd2_wb_i             (wb_rfd2_wb), // 1CLK_RSVRS
+    .wb_rfd2_adr_i            (wb_rfd2_adr[(DEST_REG_ADDR_WIDTH-1):0]), // 1CLK_RSVRS
+    .wb_result2_i             (wb_result2), // 1CLK_RSVRS
     // command and its additional attributes
     .dcod_op_i                (dcod_op_1clk), // 1CLK_RSVRS
     .dcod_opc_i               ({dcod_opc_alu_secondary, // 1CLK_RSVRS
@@ -962,6 +975,7 @@ module mor1kx_cpu_marocchino
   //  # double precision bit:                                   1
   //  # fp3264 arithmetic command (add,sub,mul,div,i2f,f2i):    6
   //  # fp64 comparison:                                        3
+  //  # ---------------------------------------------------------
   //  # overall:                                               14
   localparam MCLK_OPC_WIDTH = 14;
 
@@ -975,15 +989,29 @@ module mor1kx_cpu_marocchino
   // **** mclk reservation station instance ****
   mor1kx_rsrvs_marocchino
   #(
-    .OPTION_OPERAND_WIDTH     (OPTION_OPERAND_WIDTH), // MCLK_RSVRS
-    .USE_OPC                  (1), // MCLK_RSVRS
-    .OPC_WIDTH                (MCLK_OPC_WIDTH), // MCLK_RSVRS
-    .DEST_REG_ADDR_WIDTH      (DEST_REG_ADDR_WIDTH), // MCLK_RSVRS
-    .FEATURE_FPU              ("ENABLED"), // MCLK_RSVRS
-    .USE_RSVRS_FLAG_CARRY     (0), // MCLK_RSVRS
-    .DEST_FLAG_ADDR_WIDTH     (1) // MCLK_RSVRS
+    .OPTION_OPERAND_WIDTH         (OPTION_OPERAND_WIDTH), // MCLK_RSVRS
+    .OPC_WIDTH                    (MCLK_OPC_WIDTH), // MCLK_RSVRS
+    .DEST_REG_ADDR_WIDTH          (DEST_REG_ADDR_WIDTH), // MCLK_RSVRS
+    .DEST_FLAG_ADDR_WIDTH         (DEST_FLAG_ADDR_WIDTH), // MCLK_RSVRS
+    // Reservation station is used at input of modules:
+    //  1CLK: only parameter RSRVS-1CLK must be set to "1"
+    //  MCLK: only parameter RSRVS-MCLK must be set to "1"
+    //  LSU : both RSRVS-1CLK and RSRVS-MCLK parameters must be set to "0"
+    .RSRVS_1CLK                   (0), // MCLK_RSVRS
+    .RSRVS_MCLK                   (1), // MCLK_RSVRS
+    // OMAN-to-DECODE hazards layout for various reservation stations:
+    //  # LSU : {   x,    x,    x,    x, d2b1, d2a1, d1b1, d1a1 }
+    //  # 1CLK: {   x,    x, carr, flag, d2b1, d2a1, d1b1, d1a1 }
+    //  # MCLK: {d2b2, d2a2, d1b2, d1a2, d2b1, d2a1, d1b1, d1a1 }
+    .BUSY_HAZARDS_FLAGS_WIDTH     (8), // MCLK_RSVRS
+    .BUSY_HAZARDS_ADDRS_WIDTH     (8 * DEST_REG_ADDR_WIDTH), // MCLK_RSVRS
+    // EXEC-to-DECODE hazards layout for various reservation stations:
+    //  # LSU : {   x,    x,    x,    x, d2b1, d2a1, d1b1, d1a1 }
+    //  # 1CLK: {   x,    x,    x,    x, d2b1, d2a1, d1b1, d1a1 }
+    //  # MCLK: {d2b2, d2a2, d1b2, d1a2, d2b1, d2a1, d1b1, d1a1 }
+    .EXE2DEC_HAZARDS_FLAGS_WIDTH  (8) // MCLK_RSVRS
   )
-  u_pfpu_rsrvs
+  u_mclk_rsrvs
   (
     // clocks and resets
     .clk                      (clk), // MCLK_RSVRS
@@ -999,36 +1027,30 @@ module mor1kx_cpu_marocchino
     .dcod_rfb2_i              (dcod_rfb2), // MCLK_RSVRS
     // OMAN-to-DECODE hazards
     //  combined flag
-    .omn2dec_hazards_i        (omn2dec_hazards_mclk), // MCLK_RSVRS
-    //  by FLAG and CARRY
-    .busy_hazard_f_i          (1'b0), // MCLK_RSVRS
-    .busy_hazard_f_adr_i      (1'b0), // MCLK_RSVRS
-    .busy_hazard_c_i          (1'b0), // MCLK_RSVRS
-    .busy_hazard_c_adr_i      (1'b0), // MCLK_RSVRS
-    //  by operands
-    .busy_hazard_d1a1_i       (busy_hazard_d1a1), // MCLK_RSVRS
-    .busy_hazard_d1a1_adr_i   (busy_hazard_d1a1_adr), // MCLK_RSVRS
-    .busy_hazard_d1b1_i       (busy_hazard_d1b1), // MCLK_RSVRS
-    .busy_hazard_d1b1_adr_i   (busy_hazard_d1b1_adr), // MCLK_RSVRS
-    // for FPU64
-    .busy_hazard_d2a2_i       (busy_hazard_d2a2), // MCLK_RSVRS
-    .busy_hazard_d2a2_adr_i   (busy_hazard_d2a2_adr), // MCLK_RSVRS
-    .busy_hazard_d2b2_i       (busy_hazard_d2b2), // MCLK_RSVRS
-    .busy_hazard_d2b2_adr_i   (busy_hazard_d2b2_adr), // MCLK_RSVRS
+    .omn2dec_a_hazard_i       (omn2dec_a_hazard_mclk), // MCLK_RSVRS
+    //  # hazards flags
+    .busy_hazards_flags_i     ({busy_hazard_d2b2, busy_hazard_d2a2, // MCLK_RSVRS
+                                busy_hazard_d1b2, busy_hazard_d1a2, // MCLK_RSVRS
+                                busy_hazard_d2b1, busy_hazard_d2a1, // MCLK_RSVRS
+                                busy_hazard_d1b1, busy_hazard_d1a1}), // MCLK_RSVRS
+    //  # hasards addresses
+    .busy_hazards_addrs_i     ({busy_hazard_d2b2_adr, busy_hazard_d2a2_adr, // MCLK_RSVRS
+                                busy_hazard_d1b2_adr, busy_hazard_d1a2_adr, // MCLK_RSVRS
+                                busy_hazard_d2b1_adr, busy_hazard_d2a1_adr, // MCLK_RSVRS
+                                busy_hazard_d1b1_adr, busy_hazard_d1a1_adr}), // MCLK_RSVRS
     // EXEC-to-DECODE hazards
     //  combined flag
-    .exe2dec_hazards_i        (exe2dec_hazards_mclk), // MCLK_RSVRS
-    //  by operands
-    .exe2dec_hazard_d1a1_i    (exe2dec_hazard_d1a1), // MCLK_RSVRS
-    .exe2dec_hazard_d1b1_i    (exe2dec_hazard_d1b1), // MCLK_RSVRS
-    // for FPU64
-    .exe2dec_hazard_d2a2_i    (exe2dec_hazard_d2a2), // MCLK_RSVRS
-    .exe2dec_hazard_d2b2_i    (exe2dec_hazard_d2b2), // MCLK_RSVRS
+    .exe2dec_a_hazard_i       (exe2dec_a_hazard_mclk), // MCLK_RSVRS
+    //  hazards flags
+    .exe2dec_hazards_flags_i  ({exe2dec_hazard_d2b2, exe2dec_hazard_d2a2, // MCLK_RSVRS
+                                exe2dec_hazard_d1b2, exe2dec_hazard_d1a2, // MCLK_RSVRS
+                                exe2dec_hazard_d2b1, exe2dec_hazard_d2a1, // MCLK_RSVRS
+                                exe2dec_hazard_d1b1, exe2dec_hazard_d1a1}), // MCLK_RSVRS
     // Hazard could be passed from DECODE to EXECUTE
     //  ## FLAG or CARRY
     .exec_flag_wb_i           (1'b0), // MCLK_RSVRS
     .exec_carry_wb_i          (1'b0), // MCLK_RSVRS
-    .exec_flag_carry_adr_i    (1'b0), // MCLK_RSVRS
+    .exec_flag_carry_adr_i    ({DEST_FLAG_ADDR_WIDTH{1'b0}}), // MCLK_RSVRS
     //  ## A or B operand
     .exec_rfd1_wb_i           (exec_rfd1_wb), // MCLK_RSVRS
     .exec_rfd1_adr_i          (exec_rfd1_adr), // MCLK_RSVRS
@@ -1041,21 +1063,21 @@ module mor1kx_cpu_marocchino
     //  ## FLAG or CARRY
     .wb_flag_wb_i             (1'b0), // MCLK_RSVRS
     .wb_carry_wb_i            (1'b0), // MCLK_RSVRS
-    .wb_flag_carry_adr_i      (1'b0), // MCLK_RSVRS
+    .wb_flag_carry_adr_i      ({DEST_FLAG_ADDR_WIDTH{1'b0}}), // MCLK_RSVRS
     //  ## A or B operand
     .wb_rfd1_wb_i             (wb_rfd1_wb), // MCLK_RSVRS
-    .wb_rfd1_adr_i            (wb_rfd1_adr[DEST_REG_ADDR_WIDTH-1:0]), // MCLK_RSVRS
+    .wb_rfd1_adr_i            (wb_rfd1_adr[(DEST_REG_ADDR_WIDTH-1):0]), // MCLK_RSVRS
     .wb_result1_i             (wb_result1), // MCLK_RSVRS
     //  ## for FPU64
     .wb_rfd2_wb_i             (wb_rfd2_wb), // MCLK_RSVRS
-    .wb_rfd2_adr_i            (wb_rfd2_adr[DEST_REG_ADDR_WIDTH-1:0]), // MCLK_RSVRS
+    .wb_rfd2_adr_i            (wb_rfd2_adr[(DEST_REG_ADDR_WIDTH-1):0]), // MCLK_RSVRS
     .wb_result2_i             (wb_result2), // MCLK_RSVRS
     // command and its additional attributes
     .dcod_op_i                (dcod_op_mul | dcod_op_div | dcod_op_fpxx_arith | dcod_op_fp64_cmp), // MCLK_RSVRS
     .dcod_opc_i               ({dcod_op_mul,  // MCLK_RSVRS
-                                dcod_op_div, dcod_op_div_signed, dcod_op_div_signed, // MCLK_RSVRS
+                                dcod_op_div, dcod_op_div_signed, dcod_op_div_unsigned, // MCLK_RSVRS
                                 dcod_op_fp64_arith, // MCLK_RSVRS
-                                dcod_op_fpxx_add, dcod_op_fpxx_sub, dcod_op_fpxx_mul,
+                                dcod_op_fpxx_add, dcod_op_fpxx_sub, dcod_op_fpxx_mul, // MCLK_RSVRS
                                 dcod_op_fpxx_div, dcod_op_fpxx_i2f, dcod_op_fpxx_f2i, // MCLK_RSVRS
                                 dcod_opc_fp64_cmp}), // MCLK_RSVRS
     // outputs
@@ -1260,13 +1282,27 @@ module mor1kx_cpu_marocchino
   // reservation station instance
   mor1kx_rsrvs_marocchino
   #(
-    .OPTION_OPERAND_WIDTH     (OPTION_OPERAND_WIDTH), // LSU_RSVRS
-    .USE_OPC                  (1), // LSU_RSVRS
-    .OPC_WIDTH                (LSU_ATTR_WIDTH), // LSU_RSVRS
-    .DEST_REG_ADDR_WIDTH      (DEST_REG_ADDR_WIDTH), // LSU_RSVRS
-    .FEATURE_FPU              ("NONE"), // LSU_RSVRS
-    .USE_RSVRS_FLAG_CARRY     (0), // LSU_RSVRS
-    .DEST_FLAG_ADDR_WIDTH     (1) // LSU_RSVRS
+    .OPTION_OPERAND_WIDTH         (OPTION_OPERAND_WIDTH), // LSU_RSRVS
+    .OPC_WIDTH                    (LSU_ATTR_WIDTH), // LSU_RSRVS
+    .DEST_REG_ADDR_WIDTH          (DEST_REG_ADDR_WIDTH), // LSU_RSRVS
+    .DEST_FLAG_ADDR_WIDTH         (DEST_FLAG_ADDR_WIDTH), // LSU_RSRVS
+    // Reservation station is used at input of modules:
+    //  1CLK: only parameter RSRVS-1CLK must be set to "1"
+    //  MCLK: only parameter RSRVS-MCLK must be set to "1"
+    //  LSU : both RSRVS-1CLK and RSRVS-MCLK parameters must be set to "0"
+    .RSRVS_1CLK                   (0), // LSU_RSRVS
+    .RSRVS_MCLK                   (0), // LSU_RSRVS
+    // OMAN-to-DECODE hazards layout for various reservation stations:
+    //  # LSU : {   x,    x,    x,    x, d2b1, d2a1, d1b1, d1a1 }
+    //  # 1CLK: {   x,    x, carr, flag, d2b1, d2a1, d1b1, d1a1 }
+    //  # MCLK: {d2b2, d2a2, d1b2, d1a2, d2b1, d2a1, d1b1, d1a1 }
+    .BUSY_HAZARDS_FLAGS_WIDTH     (4), // LSU_RSRVS
+    .BUSY_HAZARDS_ADDRS_WIDTH     (4 * DEST_REG_ADDR_WIDTH), // LSU_RSRVS
+    // EXEC-to-DECODE hazards layout for various reservation stations:
+    //  # LSU : {   x,    x,    x,    x, d2b1, d2a1, d1b1, d1a1 }
+    //  # 1CLK: {   x,    x,    x,    x, d2b1, d2a1, d1b1, d1a1 }
+    //  # MCLK: {d2b2, d2a2, d1b2, d1a2, d2b1, d2a1, d1b1, d1a1 }
+    .EXE2DEC_HAZARDS_FLAGS_WIDTH  (4) // LSU_RSRVS
   )
   u_lsu_rsrvs
   (
@@ -1280,62 +1316,49 @@ module mor1kx_cpu_marocchino
     // input data from DECODE
     .dcod_rfa1_i              (dcod_rfa1), // LSU_RSVRS
     .dcod_rfb1_i              (dcod_rfb1), // LSU_RSVRS
-    // for FPU64
     .dcod_rfa2_i              ({OPTION_OPERAND_WIDTH{1'b0}}), // LSU_RSVRS
     .dcod_rfb2_i              ({OPTION_OPERAND_WIDTH{1'b0}}), // LSU_RSVRS
     // OMAN-to-DECODE hazards
     //  combined flag
-    .omn2dec_hazards_i        (omn2dec_hazards), // LSU_RSVRS
-    //  by FLAG and CARRY
-    .busy_hazard_f_i          (1'b0), // LSU_RSVRS
-    .busy_hazard_f_adr_i      (1'b0), // LSU_RSVRS
-    .busy_hazard_c_i          (1'b0), // LSU_RSVRS
-    .busy_hazard_c_adr_i      (1'b0), // LSU_RSVRS
-    //  by operands
-    .busy_hazard_d1a1_i       (busy_hazard_d1a1), // LSU_RSVRS
-    .busy_hazard_d1a1_adr_i   (busy_hazard_d1a1_adr), // LSU_RSVRS
-    .busy_hazard_d1b1_i       (busy_hazard_d1b1), // LSU_RSVRS
-    .busy_hazard_d1b1_adr_i   (busy_hazard_d1b1_adr), // LSU_RSVRS
-    // for FPU64
-    .busy_hazard_d2a2_i       (1'b0), // LSU_RSVRS
-    .busy_hazard_d2a2_adr_i   ({DEST_REG_ADDR_WIDTH{1'b0}}), // LSU_RSVRS
-    .busy_hazard_d2b2_i       (1'b0), // LSU_RSVRS
-    .busy_hazard_d2b2_adr_i   ({DEST_REG_ADDR_WIDTH{1'b0}}), // LSU_RSVRS
+    .omn2dec_a_hazard_i       (omn2dec_a_hazard_lsu), // LSU_RSVRS
+    //  # hazards flags
+    .busy_hazards_flags_i     ({busy_hazard_d2b1, busy_hazard_d2a1, // LSU_RSVRS
+                                busy_hazard_d1b1, busy_hazard_d1a1}), // LSU_RSVRS
+    //  # hasards addresses
+    .busy_hazards_addrs_i     ({busy_hazard_d2b1_adr, busy_hazard_d2a1_adr, // LSU_RSVRS
+                                busy_hazard_d1b1_adr, busy_hazard_d1a1_adr}), // LSU_RSVRS
     // EXEC-to-DECODE hazards
     //  combined flag
-    .exe2dec_hazards_i        (exe2dec_hazards), // LSU_RSVRS
-    //  by operands
-    .exe2dec_hazard_d1a1_i    (exe2dec_hazard_d1a1), // LSU_RSVRS
-    .exe2dec_hazard_d1b1_i    (exe2dec_hazard_d1b1), // LSU_RSVRS
-    // for FPU64
-    .exe2dec_hazard_d2a2_i    (1'b0), // LSU_RSVRS
-    .exe2dec_hazard_d2b2_i    (1'b0), // LSU_RSVRS
+    .exe2dec_a_hazard_i       (exe2dec_a_hazard_lsu), // LSU_RSVRS
+    //  hazards flags
+    .exe2dec_hazards_flags_i  ({exe2dec_hazard_d2b1, exe2dec_hazard_d2a1, // LSU_RSVRS
+                                exe2dec_hazard_d1b1, exe2dec_hazard_d1a1}), // LSU_RSVRS
     // Hazard could be passed from DECODE to EXECUTE
     //  ## FLAG or CARRY
     .exec_flag_wb_i           (1'b0), // LSU_RSVRS
     .exec_carry_wb_i          (1'b0), // LSU_RSVRS
-    .exec_flag_carry_adr_i    (1'b0), // LSU_RSVRS
+    .exec_flag_carry_adr_i    ({DEST_FLAG_ADDR_WIDTH{1'b0}}), // LSU_RSVRS
     //  ## A or B operand
     .exec_rfd1_wb_i           (exec_rfd1_wb), // LSU_RSVRS
     .exec_rfd1_adr_i          (exec_rfd1_adr), // LSU_RSVRS
     //  ## for FPU64
-    .exec_rfd2_wb_i           (1'b0), // LSU_RSVRS
-    .exec_rfd2_adr_i          ({DEST_REG_ADDR_WIDTH{1'b0}}), // LSU_RSVRS
+    .exec_rfd2_wb_i           (exec_rfd2_wb), // LSU_RSVRS
+    .exec_rfd2_adr_i          (exec_rfd2_adr), // LSU_RSVRS
     //  ## passing only with writting back
     .padv_wb_i                (padv_wb), // LSU_RSVRS
     // Hazard could be resolving
     //  ## FLAG or CARRY
     .wb_flag_wb_i             (1'b0), // LSU_RSVRS
     .wb_carry_wb_i            (1'b0), // LSU_RSVRS
-    .wb_flag_carry_adr_i      (1'b0), // LSU_RSVRS
+    .wb_flag_carry_adr_i      ({DEST_FLAG_ADDR_WIDTH{1'b0}}), // LSU_RSVRS
     //  ## A or B operand
     .wb_rfd1_wb_i             (wb_rfd1_wb), // LSU_RSVRS
-    .wb_rfd1_adr_i            (wb_rfd1_adr[DEST_REG_ADDR_WIDTH-1:0]), // LSU_RSVRS
+    .wb_rfd1_adr_i            (wb_rfd1_adr[(DEST_REG_ADDR_WIDTH-1):0]), // LSU_RSVRS
     .wb_result1_i             (wb_result1), // LSU_RSVRS
     //  ## for FPU64
-    .wb_rfd2_wb_i             (1'b0), // LSU_RSVRS
-    .wb_rfd2_adr_i            ({DEST_REG_ADDR_WIDTH{1'b0}}), // LSU_RSVRS
-    .wb_result2_i             ({OPTION_OPERAND_WIDTH{1'b0}}), // LSU_RSVRS
+    .wb_rfd2_wb_i             (wb_rfd2_wb), // LSU_RSVRS
+    .wb_rfd2_adr_i            (wb_rfd2_adr[(DEST_REG_ADDR_WIDTH-1):0]), // LSU_RSVRS
+    .wb_result2_i             (wb_result2), // LSU_RSVRS
     // command and its additional attributes
     .dcod_op_i                (dcod_op_lsu_load | dcod_op_lsu_store | dcod_op_msync), // LSU_RSVRS
     .dcod_opc_i               ({dcod_op_lsu_load,dcod_op_lsu_store,dcod_op_lsu_atomic, // LSU_RSVRS
@@ -1535,11 +1558,11 @@ module mor1kx_cpu_marocchino
     .dcod_rfb2_adr_i                  (dcod_rfb2_adr), // RF
     // from WB
     .wb_rfd1_wb_i                     (wb_rfd1_wb), // RF
-    .wb_rfd1_adr_i                    (wb_rfd1_adr[OPTION_RF_ADDR_WIDTH-1:0]), // RF
+    .wb_rfd1_adr_i                    (wb_rfd1_adr[(OPTION_RF_ADDR_WIDTH-1):0]), // RF
     .wb_result1_i                     (wb_result1), // RF
     // for FPU64
     .wb_rfd2_wb_i                     (wb_rfd2_wb), // RF
-    .wb_rfd2_adr_i                    (wb_rfd2_adr[OPTION_RF_ADDR_WIDTH-1:0]), // RF
+    .wb_rfd2_adr_i                    (wb_rfd2_adr[(OPTION_RF_ADDR_WIDTH-1):0]), // RF
     .wb_result2_i                     (wb_result2), // RF
     // Outputs
     .dcod_rfa1_o                      (dcod_rfa1), // RF
@@ -1638,9 +1661,9 @@ module mor1kx_cpu_marocchino
 
     // OMAN-to-DECODE hazards
     //  combined flag
-    .omn2dec_hazards_o          (omn2dec_hazards), // OMAN
-    .omn2dec_hazards_1clk_o     (omn2dec_hazards_1clk), // OMAN
-    .omn2dec_hazards_mclk_o     (omn2dec_hazards_mclk), // OMAN
+    .omn2dec_a_hazard_lsu_o     (omn2dec_a_hazard_lsu), // OMAN
+    .omn2dec_a_hazard_1clk_o    (omn2dec_a_hazard_1clk), // OMAN
+    .omn2dec_a_hazard_mclk_o    (omn2dec_a_hazard_mclk), // OMAN
     //  by FLAG and CARRY
     .busy_hazard_f_o            (busy_hazard_f), // OMAN
     .busy_hazard_f_adr_o        (busy_hazard_f_adr), // OMAN
@@ -1651,7 +1674,14 @@ module mor1kx_cpu_marocchino
     .busy_hazard_d1a1_adr_o     (busy_hazard_d1a1_adr), // OMAN
     .busy_hazard_d1b1_o         (busy_hazard_d1b1), // OMAN
     .busy_hazard_d1b1_adr_o     (busy_hazard_d1b1_adr), // OMAN
-    // for FPU64
+    .busy_hazard_d2a1_o         (busy_hazard_d2a1), // OMAN
+    .busy_hazard_d2a1_adr_o     (busy_hazard_d2a1_adr), // OMAN
+    .busy_hazard_d2b1_o         (busy_hazard_d2b1), // OMAN
+    .busy_hazard_d2b1_adr_o     (busy_hazard_d2b1_adr), // OMAN
+    .busy_hazard_d1a2_o         (busy_hazard_d1a2), // OMAN
+    .busy_hazard_d1a2_adr_o     (busy_hazard_d1a2_adr), // OMAN
+    .busy_hazard_d1b2_o         (busy_hazard_d1b2), // OMAN
+    .busy_hazard_d1b2_adr_o     (busy_hazard_d1b2_adr), // OMAN
     .busy_hazard_d2a2_o         (busy_hazard_d2a2), // OMAN
     .busy_hazard_d2a2_adr_o     (busy_hazard_d2a2_adr), // OMAN
     .busy_hazard_d2b2_o         (busy_hazard_d2b2), // OMAN
@@ -1659,13 +1689,16 @@ module mor1kx_cpu_marocchino
 
     // EXEC-to-DECODE hazards
     //  combined flag
-    .exe2dec_hazards_o          (exe2dec_hazards), // OMAN
-    .exe2dec_hazards_1clk_o     (exe2dec_hazards_1clk), // OMAN
-    .exe2dec_hazards_mclk_o     (exe2dec_hazards_mclk), // OMAN
+    .exe2dec_a_hazard_lsu_o     (exe2dec_a_hazard_lsu), // OMAN
+    .exe2dec_a_hazard_1clk_o    (exe2dec_a_hazard_1clk), // OMAN
+    .exe2dec_a_hazard_mclk_o    (exe2dec_a_hazard_mclk), // OMAN
     //  by operands
     .exe2dec_hazard_d1a1_o      (exe2dec_hazard_d1a1), // OMAN
     .exe2dec_hazard_d1b1_o      (exe2dec_hazard_d1b1), // OMAN
-    // for FPU64
+    .exe2dec_hazard_d2a1_o      (exe2dec_hazard_d2a1), // OMAN
+    .exe2dec_hazard_d2b1_o      (exe2dec_hazard_d2b1), // OMAN
+    .exe2dec_hazard_d1a2_o      (exe2dec_hazard_d1a2), // OMAN
+    .exe2dec_hazard_d1b2_o      (exe2dec_hazard_d1b2), // OMAN
     .exe2dec_hazard_d2a2_o      (exe2dec_hazard_d2a2), // OMAN
     .exe2dec_hazard_d2b2_o      (exe2dec_hazard_d2b2), // OMAN
     // Data for resolving hazards by passing from DECODE to EXECUTE
@@ -1710,13 +1743,13 @@ module mor1kx_cpu_marocchino
     //  ## instruction related information
     .pc_wb_o                    (pc_wb), // OMAN
     .wb_delay_slot_o            (wb_delay_slot), // OMAN
-    .wb_rfd1_adr_o              (wb_rfd1_adr[DEST_REG_ADDR_WIDTH-1:0]), // OMAN
+    .wb_rfd1_adr_o              (wb_rfd1_adr[(DEST_REG_ADDR_WIDTH-1):0]), // OMAN
     .wb_rfd1_wb_o               (wb_rfd1_wb), // OMAN
     .wb_flag_wb_o               (wb_flag_wb), // OMAN
     .wb_carry_wb_o              (wb_carry_wb), // OMAN
     .wb_flag_carry_adr_o        (wb_flag_carry_adr), // OMAN
     // for FPU64
-    .wb_rfd2_adr_o              (wb_rfd2_adr[DEST_REG_ADDR_WIDTH-1:0]), // OMAN
+    .wb_rfd2_adr_o              (wb_rfd2_adr[(DEST_REG_ADDR_WIDTH-1):0]), // OMAN
     .wb_rfd2_wb_o               (wb_rfd2_wb), // OMAN
     //  ## RFE processing
     .wb_op_rfe_o                (wb_op_rfe), // OMAN
