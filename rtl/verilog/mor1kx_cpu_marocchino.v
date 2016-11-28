@@ -768,6 +768,11 @@ module mor1kx_cpu_marocchino
     //  LSU : both RSRVS-1CLK and RSRVS-MCLK parameters must be set to "0"
     .RSRVS_1CLK                   (1), // 1CLK_RSVRS
     .RSRVS_MCLK                   (0), // 1CLK_RSVRS
+    // Packed operands for various reservation stations:
+    //  # LSU : {   x,    x, rfb1, rfa1}
+    //  # 1CLK: {   x,    x, rfb1, rfa1}
+    //  # MCLK: {rfb2, rfa2, rfb1, rfa1}
+    .DCOD_RFXX_WIDTH              (2 * OPTION_OPERAND_WIDTH), // 1CLK_RSRVS
     // OMAN-to-DECODE hazards layout for various reservation stations:
     //  # LSU : {   x,    x,    x,    x, d2b1, d2a1, d1b1, d1a1 }
     //  # 1CLK: {   x,    x, carr, flag, d2b1, d2a1, d1b1, d1a1 }
@@ -790,10 +795,7 @@ module mor1kx_cpu_marocchino
     .padv_decode_i            (padv_decode), // 1CLK_RSVRS
     .taking_op_i              (padv_wb & grant_wb_to_1clk), // 1CLK_RSVRS
     // input data from DECODE
-    .dcod_rfa1_i              (dcod_rfa1), // 1CLK_RSVRS
-    .dcod_rfb1_i              (dcod_rfb1), // 1CLK_RSVRS
-    .dcod_rfa2_i              ({OPTION_OPERAND_WIDTH{1'b0}}), // 1CLK_RSVRS
-    .dcod_rfb2_i              ({OPTION_OPERAND_WIDTH{1'b0}}), // 1CLK_RSVRS
+    .dcod_rfxx_i              ({dcod_rfb1, dcod_rfa1}), // 1CLK_RSVRS
     // OMAN-to-DECODE hazards
     //  combined flag
     .omn2dec_a_hazard_i       (omn2dec_a_hazard_1clk), // 1CLK_RSVRS
@@ -999,6 +1001,11 @@ module mor1kx_cpu_marocchino
     //  LSU : both RSRVS-1CLK and RSRVS-MCLK parameters must be set to "0"
     .RSRVS_1CLK                   (0), // MCLK_RSVRS
     .RSRVS_MCLK                   (1), // MCLK_RSVRS
+    // Packed operands for various reservation stations:
+    //  # LSU : {   x,    x, rfb1, rfa1}
+    //  # 1CLK: {   x,    x, rfb1, rfa1}
+    //  # MCLK: {rfb2, rfa2, rfb1, rfa1}
+    .DCOD_RFXX_WIDTH              (4 * OPTION_OPERAND_WIDTH), // MCLK_RSRVS
     // OMAN-to-DECODE hazards layout for various reservation stations:
     //  # LSU : {   x,    x,    x,    x, d2b1, d2a1, d1b1, d1a1 }
     //  # 1CLK: {   x,    x, carr, flag, d2b1, d2a1, d1b1, d1a1 }
@@ -1021,10 +1028,7 @@ module mor1kx_cpu_marocchino
     .padv_decode_i            (padv_decode), // MCLK_RSVRS
     .taking_op_i              (mclk_taking_op), // MCLK_RSVRS
     // input data from DECODE
-    .dcod_rfa1_i              (dcod_rfa1), // MCLK_RSVRS
-    .dcod_rfb1_i              (dcod_rfb1), // MCLK_RSVRS
-    .dcod_rfa2_i              (dcod_rfa2), // MCLK_RSVRS
-    .dcod_rfb2_i              (dcod_rfb2), // MCLK_RSVRS
+    .dcod_rfxx_i              ({dcod_rfb2, dcod_rfa2, dcod_rfb1, dcod_rfa1}), // MCLK_RSVRS
     // OMAN-to-DECODE hazards
     //  combined flag
     .omn2dec_a_hazard_i       (omn2dec_a_hazard_mclk), // MCLK_RSVRS
@@ -1292,6 +1296,11 @@ module mor1kx_cpu_marocchino
     //  LSU : both RSRVS-1CLK and RSRVS-MCLK parameters must be set to "0"
     .RSRVS_1CLK                   (0), // LSU_RSRVS
     .RSRVS_MCLK                   (0), // LSU_RSRVS
+    // Packed operands for various reservation stations:
+    //  # LSU : {   x,    x, rfb1, rfa1}
+    //  # 1CLK: {   x,    x, rfb1, rfa1}
+    //  # MCLK: {rfb2, rfa2, rfb1, rfa1}
+    .DCOD_RFXX_WIDTH              (2 * OPTION_OPERAND_WIDTH), // LSU_RSRVS
     // OMAN-to-DECODE hazards layout for various reservation stations:
     //  # LSU : {   x,    x,    x,    x, d2b1, d2a1, d1b1, d1a1 }
     //  # 1CLK: {   x,    x, carr, flag, d2b1, d2a1, d1b1, d1a1 }
@@ -1314,10 +1323,7 @@ module mor1kx_cpu_marocchino
     .padv_decode_i            (padv_decode), // LSU_RSVRS
     .taking_op_i              (lsu_taking_op), // LSU_RSVRS
     // input data from DECODE
-    .dcod_rfa1_i              (dcod_rfa1), // LSU_RSVRS
-    .dcod_rfb1_i              (dcod_rfb1), // LSU_RSVRS
-    .dcod_rfa2_i              ({OPTION_OPERAND_WIDTH{1'b0}}), // LSU_RSVRS
-    .dcod_rfb2_i              ({OPTION_OPERAND_WIDTH{1'b0}}), // LSU_RSVRS
+    .dcod_rfxx_i              ({dcod_rfb1, dcod_rfa1}), // LSU_RSVRS
     // OMAN-to-DECODE hazards
     //  combined flag
     .omn2dec_a_hazard_i       (omn2dec_a_hazard_lsu), // LSU_RSVRS

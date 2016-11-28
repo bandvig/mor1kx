@@ -344,6 +344,11 @@ module mor1kx_rsrvs_marocchino
   //  LSU : both RSRVS-1CLK and RSRVS-MCLK parameters must be set to "0"
   parameter RSRVS_1CLK           = 0,
   parameter RSRVS_MCLK           = 0,
+  // Packed operands for various reservation stations:
+  //  # LSU : {   x,    x, rfb1, rfa1}
+  //  # 1CLK: {   x,    x, rfb1, rfa1}
+  //  # MCLK: {rfb2, rfa2, rfb1, rfa1}
+  parameter DCOD_RFXX_WIDTH      = 64, // (2 * OPTION_OPERAND_WIDTH) for LSU; etc...
   // OMAN-to-DECODE hazards layout for various reservation stations:
   //  # LSU : {   x,    x,    x,    x, d2b1, d2a1, d1b1, d1a1 }
   //  # 1CLK: {   x,    x, carr, flag, d2b1, d2a1, d1b1, d1a1 }
@@ -358,129 +363,143 @@ module mor1kx_rsrvs_marocchino
 )
 (
   // clocks and resets
-  input                                   clk,
-  input                                   rst,
+  input                                     clk,
+  input                                     rst,
 
   // pipeline control signals
-  input                                   pipeline_flush_i,
-  input                                   padv_decode_i,
-  input                                   taking_op_i,      // a unit is taking input for execution
+  input                                     pipeline_flush_i,
+  input                                     padv_decode_i,
+  input                                     taking_op_i,      // a unit is taking input for execution
 
   // input data from DECODE
-  input        [OPTION_OPERAND_WIDTH-1:0] dcod_rfa1_i,
-  input        [OPTION_OPERAND_WIDTH-1:0] dcod_rfb1_i,
-  input        [OPTION_OPERAND_WIDTH-1:0] dcod_rfa2_i,
-  input        [OPTION_OPERAND_WIDTH-1:0] dcod_rfb2_i,
+  input             [(DCOD_RFXX_WIDTH-1):0] dcod_rfxx_i,
 
   // OMAN-to-DECODE hazards
   //  # combined flag
-  input                                   omn2dec_a_hazard_i,
+  input                                     omn2dec_a_hazard_i,
   //  # hazards flags
-  input    [BUSY_HAZARDS_FLAGS_WIDTH-1:0] busy_hazards_flags_i,
+  input    [(BUSY_HAZARDS_FLAGS_WIDTH-1):0] busy_hazards_flags_i,
   //  # hasards addresses
-  input    [BUSY_HAZARDS_ADDRS_WIDTH-1:0] busy_hazards_addrs_i,
+  input    [(BUSY_HAZARDS_ADDRS_WIDTH-1):0] busy_hazards_addrs_i,
 
   // EXEC-to-DECODE hazards
   //  # combined flag
-  input                                   exe2dec_a_hazard_i,
+  input                                     exe2dec_a_hazard_i,
   //  # hazards flags
-  input [EXE2DEC_HAZARDS_FLAGS_WIDTH-1:0] exe2dec_hazards_flags_i,
+  input [(EXE2DEC_HAZARDS_FLAGS_WIDTH-1):0] exe2dec_hazards_flags_i,
 
   // Hazard could be passed from DECODE to EXECUTE
   //  ## FLAG or CARRY
-  input                                 exec_flag_wb_i,         // EXECUTE instruction is writting FLAG
-  input                                 exec_carry_wb_i,        // EXECUTE instruction is writting CARRY
-  input      [DEST_FLAG_ADDR_WIDTH-1:0] exec_flag_carry_adr_i,  // CARRY identifier
+  input                                     exec_flag_wb_i,         // EXECUTE instruction is writting FLAG
+  input                                     exec_carry_wb_i,        // EXECUTE instruction is writting CARRY
+  input        [(DEST_FLAG_ADDR_WIDTH-1):0] exec_flag_carry_adr_i,  // CARRY identifier
   //  ## A or B operand
-  input                                 exec_rfd1_wb_i,          // EXECUTE instruction is writting RF
-  input       [DEST_REG_ADDR_WIDTH-1:0] exec_rfd1_adr_i,         // A or B operand
+  input                                     exec_rfd1_wb_i,          // EXECUTE instruction is writting RF
+  input         [(DEST_REG_ADDR_WIDTH-1):0] exec_rfd1_adr_i,         // A or B operand
   //  ## for MCLK
-  input                                 exec_rfd2_wb_i,          // EXECUTE instruction is writting RF
-  input       [DEST_REG_ADDR_WIDTH-1:0] exec_rfd2_adr_i,         // low part of A or B operand
+  input                                     exec_rfd2_wb_i,          // EXECUTE instruction is writting RF
+  input         [(DEST_REG_ADDR_WIDTH-1):0] exec_rfd2_adr_i,         // low part of A or B operand
   //  ## passing only with writting back
-  input                                 padv_wb_i,
+  input                                     padv_wb_i,
 
   // Hazard could be resolving
   //  ## FLAG or CARRY
-  input                                 wb_flag_wb_i,           // WB instruction is writting FLAG
-  input                                 wb_carry_wb_i,          // WB instruction is writting CARRY
-  input      [DEST_FLAG_ADDR_WIDTH-1:0] wb_flag_carry_adr_i,    // FLAG or CARRY identifier
+  input                                     wb_flag_wb_i,           // WB instruction is writting FLAG
+  input                                     wb_carry_wb_i,          // WB instruction is writting CARRY
+  input        [(DEST_FLAG_ADDR_WIDTH-1):0] wb_flag_carry_adr_i,    // FLAG or CARRY identifier
   //  ## A or B operand
-  input                                 wb_rfd1_wb_i,           // WB instruction is writting RF
-  input       [DEST_REG_ADDR_WIDTH-1:0] wb_rfd1_adr_i,          // A or B operand
-  input      [OPTION_OPERAND_WIDTH-1:0] wb_result1_i,
+  input                                     wb_rfd1_wb_i,           // WB instruction is writting RF
+  input         [(DEST_REG_ADDR_WIDTH-1):0] wb_rfd1_adr_i,          // A or B operand
+  input        [(OPTION_OPERAND_WIDTH-1):0] wb_result1_i,
   //  ## for MCLK
-  input                                 wb_rfd2_wb_i,            // WB instruction is writting RF
-  input       [DEST_REG_ADDR_WIDTH-1:0] wb_rfd2_adr_i,           // low part of A or B operand
-  input      [OPTION_OPERAND_WIDTH-1:0] wb_result2_i,
+  input                                     wb_rfd2_wb_i,            // WB instruction is writting RF
+  input         [(DEST_REG_ADDR_WIDTH-1):0] wb_rfd2_adr_i,           // low part of A or B operand
+  input        [(OPTION_OPERAND_WIDTH-1):0] wb_result2_i,
 
   // command and its additional attributes
-  input                                 dcod_op_i,    // request the unit command
-  input                 [OPC_WIDTH-1:0] dcod_opc_i,   // additional attributes for command
+  input                                     dcod_op_i,    // request the unit command
+  input                   [(OPC_WIDTH-1):0] dcod_opc_i,   // additional attributes for command
 
   // outputs
   //   command attributes from busy stage
-  output                [OPC_WIDTH-1:0] busy_opc_o,
+  output                  [(OPC_WIDTH-1):0] busy_opc_o,
   //   command and its additional attributes
-  output                                exec_op_o,    // request the unit command
-  output                [OPC_WIDTH-1:0] exec_opc_o,   // additional attributes for command
+  output                                    exec_op_o,    // request the unit command
+  output                  [(OPC_WIDTH-1):0] exec_opc_o,   // additional attributes for command
   //   operands
-  output     [OPTION_OPERAND_WIDTH-1:0] exec_rfa1_o,
-  output     [OPTION_OPERAND_WIDTH-1:0] exec_rfb1_o,
+  output       [(OPTION_OPERAND_WIDTH-1):0] exec_rfa1_o,
+  output       [(OPTION_OPERAND_WIDTH-1):0] exec_rfb1_o,
   //  ## for MCLK
-  output     [OPTION_OPERAND_WIDTH-1:0] exec_rfa2_o,
-  output     [OPTION_OPERAND_WIDTH-1:0] exec_rfb2_o,
+  output       [(OPTION_OPERAND_WIDTH-1):0] exec_rfa2_o,
+  output       [(OPTION_OPERAND_WIDTH-1):0] exec_rfb2_o,
   //   unit-is-busy flag
-  output                                unit_busy_o
+  output                                    unit_busy_o
 );
 
   /**** parameters for fields extruction ****/
 
-  //  # layouts for various reservation stations:
+  //  # operands layouts for various reservation stations:
+  //  # LSU : {   x,    x, rfb1, rfa1}
+  //  # 1CLK: {   x,    x, rfb1, rfa1}
+  //  # MCLK: {rfb2, rfa2, rfb1, rfa1}
+  //    A1
+  localparam  RFA1_LSB = 0;
+  localparam  RFA1_MSB = OPTION_OPERAND_WIDTH - 1;
+  //    B1
+  localparam  RFB1_LSB = OPTION_OPERAND_WIDTH;
+  localparam  RFB1_MSB = 2 * OPTION_OPERAND_WIDTH - 1;
+  //    A2
+  localparam  RFA2_LSB = 2 * OPTION_OPERAND_WIDTH;
+  localparam  RFA2_MSB = 3 * OPTION_OPERAND_WIDTH - 1;
+  //    B2
+  localparam  RFB2_LSB = 3 * OPTION_OPERAND_WIDTH;
+  localparam  RFB2_MSB = 4 * OPTION_OPERAND_WIDTH - 1;
+
+  //  # hazards layouts for various reservation stations:
   //  # LSU : {   x,    x,    x,    x, d2b1, d2a1, d1b1, d1a1 }
   //  # 1CLK: {   x,    x, carr, flag, d2b1, d2a1, d1b1, d1a1 }
   //  # MCLK: {d2b2, d2a2, d1b2, d1a2, d2b1, d2a1, d1b1, d1a1 }
 
   // d1a1 related
-  localparam HAZARD_D1A1_FLG_POS = 0;
-  localparam HAZARD_D1A1_ADR_LSB = 0;
-  localparam HAZARD_D1A1_ADR_MSB = DEST_REG_ADDR_WIDTH - 1;
+  localparam  HAZARD_D1A1_FLG_POS = 0;
+  localparam  HAZARD_D1A1_ADR_LSB = 0;
+  localparam  HAZARD_D1A1_ADR_MSB = DEST_REG_ADDR_WIDTH - 1;
   // d1b1 related
-  localparam HAZARD_D1B1_FLG_POS = 1;
-  localparam HAZARD_D1B1_ADR_LSB = DEST_REG_ADDR_WIDTH;
-  localparam HAZARD_D1B1_ADR_MSB = 2 * DEST_REG_ADDR_WIDTH - 1;
+  localparam  HAZARD_D1B1_FLG_POS = 1;
+  localparam  HAZARD_D1B1_ADR_LSB = DEST_REG_ADDR_WIDTH;
+  localparam  HAZARD_D1B1_ADR_MSB = 2 * DEST_REG_ADDR_WIDTH - 1;
   // d2a1 related
-  localparam HAZARD_D2A1_FLG_POS = 2;
-  localparam HAZARD_D2A1_ADR_LSB = 2 * DEST_REG_ADDR_WIDTH;
-  localparam HAZARD_D2A1_ADR_MSB = 3 * DEST_REG_ADDR_WIDTH - 1;
+  localparam  HAZARD_D2A1_FLG_POS = 2;
+  localparam  HAZARD_D2A1_ADR_LSB = 2 * DEST_REG_ADDR_WIDTH;
+  localparam  HAZARD_D2A1_ADR_MSB = 3 * DEST_REG_ADDR_WIDTH - 1;
   // d2b1 related
-  localparam HAZARD_D2B1_FLG_POS = 3;
-  localparam HAZARD_D2B1_ADR_LSB = 3 * DEST_REG_ADDR_WIDTH;
-  localparam HAZARD_D2B1_ADR_MSB = 4 * DEST_REG_ADDR_WIDTH - 1;
+  localparam  HAZARD_D2B1_FLG_POS = 3;
+  localparam  HAZARD_D2B1_ADR_LSB = 3 * DEST_REG_ADDR_WIDTH;
+  localparam  HAZARD_D2B1_ADR_MSB = 4 * DEST_REG_ADDR_WIDTH - 1;
   // d1a2 related
-  localparam HAZARD_D1A2_FLG_POS = 4;
-  localparam HAZARD_D1A2_ADR_LSB = 4 * DEST_REG_ADDR_WIDTH;
-  localparam HAZARD_D1A2_ADR_MSB = 5 * DEST_REG_ADDR_WIDTH - 1;
+  localparam  HAZARD_D1A2_FLG_POS = 4;
+  localparam  HAZARD_D1A2_ADR_LSB = 4 * DEST_REG_ADDR_WIDTH;
+  localparam  HAZARD_D1A2_ADR_MSB = 5 * DEST_REG_ADDR_WIDTH - 1;
   // d1b2 related
-  localparam HAZARD_D1B2_FLG_POS = 5;
-  localparam HAZARD_D1B2_ADR_LSB = 5 * DEST_REG_ADDR_WIDTH;
-  localparam HAZARD_D1B2_ADR_MSB = 6 * DEST_REG_ADDR_WIDTH - 1;
+  localparam  HAZARD_D1B2_FLG_POS = 5;
+  localparam  HAZARD_D1B2_ADR_LSB = 5 * DEST_REG_ADDR_WIDTH;
+  localparam  HAZARD_D1B2_ADR_MSB = 6 * DEST_REG_ADDR_WIDTH - 1;
   // d2a2 related
-  localparam HAZARD_D2A2_FLG_POS = 6;
-  localparam HAZARD_D2A2_ADR_LSB = 6 * DEST_REG_ADDR_WIDTH;
-  localparam HAZARD_D2A2_ADR_MSB = 7 * DEST_REG_ADDR_WIDTH - 1;
+  localparam  HAZARD_D2A2_FLG_POS = 6;
+  localparam  HAZARD_D2A2_ADR_LSB = 6 * DEST_REG_ADDR_WIDTH;
+  localparam  HAZARD_D2A2_ADR_MSB = 7 * DEST_REG_ADDR_WIDTH - 1;
   // d2b2 related
-  localparam HAZARD_D2B2_FLG_POS = 7;
-  localparam HAZARD_D2B2_ADR_LSB = 7 * DEST_REG_ADDR_WIDTH;
-  localparam HAZARD_D2B2_ADR_MSB = 8 * DEST_REG_ADDR_WIDTH - 1;
+  localparam  HAZARD_D2B2_FLG_POS = 7;
+  localparam  HAZARD_D2B2_ADR_LSB = 7 * DEST_REG_ADDR_WIDTH;
+  localparam  HAZARD_D2B2_ADR_MSB = 8 * DEST_REG_ADDR_WIDTH - 1;
   // FLAG related
-  localparam HAZARD_FLAG_FLG_POS = 4;
-  localparam HAZARD_FLAG_ADR_LSB = 4 * DEST_REG_ADDR_WIDTH;
-  localparam HAZARD_FLAG_ADR_MSB = HAZARD_FLAG_ADR_LSB + DEST_FLAG_ADDR_WIDTH - 1;
+  localparam  HAZARD_FLAG_FLG_POS = 4;
+  localparam  HAZARD_FLAG_ADR_LSB = 4 * DEST_REG_ADDR_WIDTH;
+  localparam  HAZARD_FLAG_ADR_MSB = HAZARD_FLAG_ADR_LSB + DEST_FLAG_ADDR_WIDTH - 1;
   // CARRY related
-  localparam HAZARD_CARR_FLG_POS = 5;
-  localparam HAZARD_CARR_ADR_LSB = HAZARD_FLAG_ADR_MSB + 1;
-  localparam HAZARD_CARR_ADR_MSB = HAZARD_CARR_ADR_LSB + DEST_FLAG_ADDR_WIDTH - 1;
+  localparam  HAZARD_CARR_FLG_POS = 5;
+  localparam  HAZARD_CARR_ADR_LSB = HAZARD_FLAG_ADR_MSB + 1;
+  localparam  HAZARD_CARR_ADR_MSB = HAZARD_CARR_ADR_LSB + DEST_FLAG_ADDR_WIDTH - 1;
 
 
 
@@ -670,8 +689,8 @@ module mor1kx_rsrvs_marocchino
   // forwarding operands A1 & B1
   always @(posedge clk) begin
     if (dcod_pushing_busy) begin
-      busy_rfa1_r <= dcod_rfa1_i;
-      busy_rfb1_r <= dcod_rfb1_i;
+      busy_rfa1_r <= dcod_rfxx_i[RFA1_MSB:RFA1_LSB];
+      busy_rfb1_r <= dcod_rfxx_i[RFB1_MSB:RFB1_LSB];
     end
     else begin
       // complete forwarding for operand A1
@@ -799,8 +818,8 @@ module mor1kx_rsrvs_marocchino
     // ---
     always @(posedge clk) begin
       if (dcod_pushing_busy) begin
-        busy_rfa2_r <= dcod_rfa2_i;
-        busy_rfb2_r <= dcod_rfb2_i;
+        busy_rfa2_r <= dcod_rfxx_i[RFA2_MSB:RFA2_LSB];
+        busy_rfb2_r <= dcod_rfxx_i[RFB2_MSB:RFB2_LSB];
       end
       else begin
         // complete forwarding for operand A2
@@ -813,7 +832,7 @@ module mor1kx_rsrvs_marocchino
     end // @clock
     // ---
     //  operand A2
-    assign busy_rfa2_w = busy_d1a2_muxing_wb ? wb_result1_i : 
+    assign busy_rfa2_w = busy_d1a2_muxing_wb ? wb_result1_i :
                          busy_d2a2_muxing_wb ? wb_result2_i : busy_rfa2_r;
     //  operand B2
     assign busy_rfb2_w = busy_d1b2_muxing_wb ? wb_result1_i :
@@ -1032,8 +1051,8 @@ module mor1kx_rsrvs_marocchino
   // ---
   always @(posedge clk) begin
     if (dcod_pushing_exec) begin
-      exec_rfa1_r <= dcod_rfa1_i;
-      exec_rfb1_r <= dcod_rfb1_i;
+      exec_rfa1_r <= dcod_rfxx_i[RFA1_MSB:RFA1_LSB];
+      exec_rfb1_r <= dcod_rfxx_i[RFB1_MSB:RFB1_LSB];
     end
     else if (busy_pushing_exec) begin
       exec_rfa1_r <= busy_rfa1;
@@ -1103,8 +1122,8 @@ module mor1kx_rsrvs_marocchino
     // ---
     always @(posedge clk) begin
       if (dcod_pushing_exec) begin
-        exec_rfa2_r <= dcod_rfa2_i;
-        exec_rfb2_r <= dcod_rfb2_i;
+        exec_rfa2_r <= dcod_rfxx_i[RFA2_MSB:RFA2_LSB];
+        exec_rfb2_r <= dcod_rfxx_i[RFB2_MSB:RFB2_LSB];
       end
       else if (busy_pushing_exec) begin
         exec_rfa2_r <= busy_rfa2_w;
@@ -1117,7 +1136,7 @@ module mor1kx_rsrvs_marocchino
     end // @clock
     // last forward (from WB)
     //  operand A2
-    assign exec_rfa2_w = exec_hazard_d1a2_r ? wb_result1_i : 
+    assign exec_rfa2_w = exec_hazard_d1a2_r ? wb_result1_i :
                          exec_hazard_d2a2_r ? wb_result2_i : exec_rfa2_r;
     //  operand B2
     assign exec_rfb2_w = exec_hazard_d1b2_r ? wb_result1_i :
