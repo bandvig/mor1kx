@@ -231,18 +231,14 @@ module pfpu_addsub_marocchino
     endcase
   end
 
-    // add/sub of non-shifted and shifted operands
-  wire [56:0] s2t_fract57_shr = {1'b0,s2t_fract55_shr,s2t_sticky};
-
-  wire [56:0] s2t_fract57_add = {1'b0,s1o_fract53_nsh,3'd0} +
-                                (s2t_fract57_shr ^ {57{s1o_op_sub}}) +
-                                {56'd0,s1o_op_sub};
 
 
   // stage #2 outputs
   reg        s2o_signc;
   reg [12:0] s2o_exp13c;
-  reg [55:0] s2o_fract56;
+  reg [54:0] s2o_fract55_shr;
+  reg [52:0] s2o_fract53_nsh;
+  reg        s2o_op_sub;
   reg        s2o_sub_0;       // actual operation is substruction and the result is zero
   reg        s2o_sticky;      // rounding support
   reg        s2o_op_fp64_arith;
@@ -251,7 +247,9 @@ module pfpu_addsub_marocchino
     if (s2_adv) begin
       s2o_signc         <= s1o_sign_nsh;
       s2o_exp13c        <= s1o_exp13c;
-      s2o_fract56       <= s2t_fract57_add[56:1];
+      s2o_fract55_shr   <= s2t_fract55_shr;
+      s2o_fract53_nsh   <= s1o_fract53_nsh;
+      s2o_op_sub        <= s1o_op_sub;
       s2o_sub_0         <= s1o_aeqb & s1o_op_sub;
       s2o_sticky        <= s2t_sticky;
       s2o_op_fp64_arith <= s1o_op_fp64_arith;
@@ -271,15 +269,22 @@ module pfpu_addsub_marocchino
   end // posedge clock
 
 
-  /* Stage 4: update exponent */
+  /* Stage 4: add/sum and update exponent */
 
+  wire [56:0] s3t_fract57_shr = {1'b0,s2o_fract55_shr,s2o_sticky};
+
+  wire [56:0] s3t_fract57_add = {1'b0,s2o_fract53_nsh,3'd0} +
+                                (s3t_fract57_shr ^ {57{s2o_op_sub}}) +
+                                {56'd0,s2o_op_sub};
+
+  wire [55:0] s3t_fract56_add = s3t_fract57_add[56:1];
 
   // for possible left shift
   // [56] bit is right shift flag
   reg [5:0] s3t_nlz;
-  always @(s2o_fract56) begin
+  always @(s3t_fract56_add) begin
     // synthesis parallel_case full_case
-    casez (s2o_fract56)
+    casez (s3t_fract56_add)
       56'b1???????????????????????????????????????????????????????: s3t_nlz =  6'd0; // [56] bit: shift right
       56'b01??????????????????????????????????????????????????????: s3t_nlz =  6'd0; // 1 is in place
       56'b001?????????????????????????????????????????????????????: s3t_nlz =  6'd1;
@@ -360,10 +365,10 @@ module pfpu_addsub_marocchino
   // format: {extra_h-bit, h-bit, 52/23-fractional, rnd-hi-bit, rnd-lo-bit}
   //         overall 56 bits for double precision
   //                 27 bits for single precision
-  wire [55:0] s3t_fract56 = s2o_op_fp64_arith ? (s2o_fract56) : ({29'd0,s2o_fract56[55:29]});
+  wire [55:0] s3t_fract56 = s2o_op_fp64_arith ? (s3t_fract56_add) : ({29'd0,s3t_fract56_add[55:29]});
 
   // update sticky (mostly for re-packed single precision)
-  wire s3t_sticky = s2o_sticky | ((~s2o_op_fp64_arith) & (|s2o_fract56[28:0]));
+  wire s3t_sticky = s2o_sticky | ((~s2o_op_fp64_arith) & (|s3t_fract56_add[28:0]));
 
   // registering output
   always @(posedge clk) begin
