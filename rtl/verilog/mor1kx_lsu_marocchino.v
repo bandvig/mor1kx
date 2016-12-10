@@ -144,6 +144,12 @@ module mor1kx_lsu_marocchino
                    DBUS_DC_REFILL = 5'b01000; // eq. to DCACHE
   //  # DBUS FSM state indicator
   reg        [4:0] dbus_state;
+  //  # particular states
+  wire             dbus_idle_state  = dbus_state[0];
+  wire             dmem_req_state   = dbus_state[4];
+  wire             dbus_read_state  = dbus_state[1];
+  wire             dbus_write_state = dbus_state[2];
+  wire             dc_refill_state  = dbus_state[3];
   //  # DBUS FSM other registers & wires
   reg                               dbus_we;
   reg                               dbus_atomic;
@@ -272,8 +278,8 @@ module mor1kx_lsu_marocchino
 
   // report on command execution
   //  # load completion / waiting
-  assign lsu_ack_load   = cmd_load_r &   (((dbus_state == DBUS_READ) & dbus_ack_i) | dc_ack);
-  assign lsu_busy_load  = cmd_load_r & ~((((dbus_state == DBUS_READ) & dbus_ack_i) | dc_ack) & padv_wb_i & grant_wb_to_lsu_i);
+  assign lsu_ack_load   = cmd_load_r &   ((dbus_read_state & dbus_ack_i) | dc_ack);
+  assign lsu_busy_load  = cmd_load_r & ~(((dbus_read_state & dbus_ack_i) | dc_ack) & padv_wb_i & grant_wb_to_lsu_i);
   //  # store completion
   assign lsu_ack_store  = sbuf_write; // it already includes cmd_store_r
   assign lsu_ack_swa    = cmd_swa_r & dbus_swa_ack;
@@ -289,20 +295,20 @@ module mor1kx_lsu_marocchino
 
   // LSU is busy
   //  # DCACHE/DBUS access stage busy
-  assign lsu_busy_mem = lsu_busy_load  | (dbus_state == DBUS_DC_REFILL) |  // DCACHE/DBUS access stage busy
-                        lsu_busy_store |                                   // DCACHE/DBUS access stage busy
-                        cmd_msync_r    | snoop_hit | flush_r;              // DCACHE/DBUS access stage busy
+  assign lsu_busy_mem = lsu_busy_load  | dc_refill_state |    // DCACHE/DBUS access stage busy
+                        lsu_busy_store |                      // DCACHE/DBUS access stage busy
+                        cmd_msync_r    | snoop_hit | flush_r; // DCACHE/DBUS access stage busy
   //  # Result is waiting WB access
   assign lsu_busy_wb = (lsu_ack_load_pending | lsu_ack_store_pending) & ~(padv_wb_i & grant_wb_to_lsu_i);
 
 
   // Flushing from pipeline-flush-i till DBUS transaction completion
   //  # conditions to assert flush-r
-  wire assert_flush_r = (((dbus_state == DBUS_READ) | (dbus_state == DBUS_WRITE)) & ~dbus_ack_i) | // assert flush-r
-                        (dbus_state == DBUS_DC_REFILL);                                            // assert flush-r
+  wire assert_flush_r = ((dbus_read_state | dbus_write_state) & ~dbus_ack_i) | // assert flush-r
+                        dc_refill_state;                                       // assert flush-r
   //  # conditions to de-assert flush-r
-  wire deassert_flush_r = (((dbus_state == DBUS_READ) | (dbus_state == DBUS_WRITE)) & dbus_ack_i) | // de-assert flush-r
-                          (dbus_state == DBUS_IDLE);                                                // de-assert flush-r
+  wire deassert_flush_r = ((dbus_read_state | dbus_write_state) & dbus_ack_i) | // de-assert flush-r
+                          dbus_idle_state;                                      // de-assert flush-r
   // ---
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
@@ -412,7 +418,7 @@ module mor1kx_lsu_marocchino
   end // @clock
 
   // l.msync cause LSU busy
-  wire cmd_msync_deassert = cmd_msync_r & ((dbus_state == DBUS_IDLE) & sbuf_empty | dbus_err_instant); // deassert busy by l.msync
+  wire cmd_msync_deassert = cmd_msync_r & (dbus_idle_state & sbuf_empty | dbus_err_instant); // deassert busy by l.msync
   // ---
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
@@ -676,7 +682,7 @@ module mor1kx_lsu_marocchino
   // DBUS FSM //
   //----------//
 
-  assign dbus_burst_o = (dbus_state == DBUS_DC_REFILL) & ~dc_refill_last;
+  assign dbus_burst_o = dc_refill_state & ~dc_refill_last;
 
   // Slightly subtle, but if there is an atomic store coming out from the
   // store buffer, and the link has been broken while it was waiting there,
@@ -863,11 +869,11 @@ module mor1kx_lsu_marocchino
   // MAROCCHINO_TODO: force buffer empty by DBUS error ?
   //
   //               in DMEM-REQ state we take into accaunt appropriate exceptions
-  assign sbuf_re = ((dbus_state == DMEM_REQ) & sbuf_rdwr_empty & ~sbuf_odata & ~(lsu_excepts_addr | pipeline_flush_i)) | // SBUFF read, dmem-req
+  assign sbuf_re = (dmem_req_state   & sbuf_rdwr_empty & ~sbuf_odata & ~(lsu_excepts_addr | pipeline_flush_i)) | // SBUFF read, dmem-req
   //               in WRITE state if write request overlaps DBUS ACK and empty buffer state
-                   ((dbus_state == DBUS_WRITE) & dbus_ack_i & sbuf_rdwr_empty & ~(lsu_excepts_addr | pipeline_flush_i)) | // SBUFF read, dbus-write
+                   (dbus_write_state & dbus_ack_i & sbuf_rdwr_empty & ~(lsu_excepts_addr | pipeline_flush_i))  | // SBUFF read, dbus-write
   //               in WRITE state we read non-empty buffer to prepare next write
-                   ((dbus_state == DBUS_WRITE) & dbus_ack_i & ~sbuf_empty); // SBUFF read, dbus-write
+                   (dbus_write_state & dbus_ack_i & ~sbuf_empty); // SBUFF read, dbus-write
 
 
   // store buffer module
@@ -989,7 +995,7 @@ module mor1kx_lsu_marocchino
   //   For MAROCCHINO SPR access means that pipeline is stalled till ACK.
   // So, no padv-*. We only delay SPR access command till DBUS transaction
   // completion.
-  wire spr_bus_lsu_stb = spr_bus_stb_i & (dbus_state == DBUS_IDLE); // SPR access
+  wire spr_bus_lsu_stb = spr_bus_stb_i & dbus_idle_state; // SPR access
 
 
 

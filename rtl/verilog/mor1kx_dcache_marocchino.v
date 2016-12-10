@@ -105,6 +105,11 @@ module mor1kx_dcache_marocchino
    *            +---------------------------------------------------------+
    */
 
+  // Number words per block
+  // 32 byte block : (8 words x 32 bits/word) / (4 words x 64 bits/word)
+  // 16 byte block : (4 words x 32 bits/word) / (2 words x 64 bits/word)
+  localparam NUM_WORDS_PER_BLOCK = (8 * (1 << OPTION_DCACHE_BLOCK_WIDTH)) / OPTION_OPERAND_WIDTH;
+
   // The tag is the part left of the index
   localparam TAG_WIDTH = (OPTION_DCACHE_LIMIT_WIDTH - WAY_WIDTH);
 
@@ -140,18 +145,18 @@ module mor1kx_dcache_marocchino
   // FSM state register
   reg [4:0] dc_state;
   // FSM state signals
-  wire dc_read       = (dc_state == DC_READ);
-  wire dc_write      = (dc_state == DC_WRITE);
-  wire dc_refill     = (dc_state == DC_REFILL);
-  wire dc_invalidate = (dc_state == DC_INVALIDATE);
+  wire dc_read       = dc_state[1];
+  wire dc_write      = dc_state[2];
+  wire dc_refill     = dc_state[3];
+  wire dc_invalidate = dc_state[4];
 
 
-  reg                [OPTION_OPERAND_WIDTH-1:0] way_wr_dat;
+  reg [OPTION_OPERAND_WIDTH-1:0] way_wr_dat;
 
-  reg                [OPTION_OPERAND_WIDTH-1:0] curr_refill_adr;
-  reg                                           refill_hit_r;     // 1-clock length
-  reg                                           refill_hit_was_r; // from re-fill-hit to re-fill-complete
-  reg  [(1<<(OPTION_DCACHE_BLOCK_WIDTH-2))-1:0] refill_done;
+  reg [OPTION_OPERAND_WIDTH-1:0] curr_refill_adr;
+  reg                            refill_hit_r;     // 1-clock length
+  reg                            refill_hit_was_r; // from re-fill-hit to re-fill-complete
+  reg  [NUM_WORDS_PER_BLOCK-1:0] refill_done;
 
   // The index we read and write from tag memory
   wire [OPTION_DCACHE_SET_WIDTH-1:0] tag_rindex;
@@ -311,7 +316,7 @@ module mor1kx_dcache_marocchino
     {curr_refill_adr[31:5], curr_refill_adr[4:0] + 5'd4} : // 32 byte = (8 words x 32 bits/word) = (4 words x 64 bits/word)
     {curr_refill_adr[31:4], curr_refill_adr[3:0] + 4'd4};  // 16 byte = (4 words x 32 bits/word) = (2 words x 64 bits/word)
 
-  assign refill_last_o = refill_done[next_refill_adr_o[OPTION_DCACHE_BLOCK_WIDTH-1:2]];
+  assign refill_last_o = refill_done[NUM_WORDS_PER_BLOCK-1];
 
 
 
@@ -358,7 +363,7 @@ module mor1kx_dcache_marocchino
       curr_refill_adr     <= {OPTION_OPERAND_WIDTH{1'b0}};  // on reset
       refill_hit_r        <= 1'b0;  // on reset
       refill_hit_was_r    <= 1'b0;  // on reset
-      refill_done         <= 0;     // on reset
+      refill_done         <= {NUM_WORDS_PER_BLOCK{1'b0}};     // on reset
       snoop_check         <= 1'b0;  // on reset
       snoop_tag           <= {TAG_WIDTH{1'b0}};               // on reset
       snoop_windex        <= {OPTION_DCACHE_SET_WIDTH{1'b0}}; // on reset
@@ -417,6 +422,7 @@ module mor1kx_dcache_marocchino
                 end
                 // 1st re-fill addrress
                 curr_refill_adr  <= phys_addr_cmd_i;  // read -> re-fill
+                refill_done      <= {{(NUM_WORDS_PER_BLOCK-1){1'b0}},1'b1}; // read -> re-fill
                 refill_hit_was_r <= 1'b0;             // read -> re-fill
                 // to RE-FILL
                 dc_state <= DC_REFILL;
@@ -460,26 +466,26 @@ module mor1kx_dcache_marocchino
           //    "SLAVE MUST NOT assert more than one of ACK, ERR or RTY"
           if (snoop_hit_o) begin
             refill_hit_was_r <= 1'b0;  // on snoop-hit during re-fill
-            refill_done      <= 0;     // on snoop-hit during re-fill
+            refill_done      <= {NUM_WORDS_PER_BLOCK{1'b0}}; // on snoop-hit during re-fill
             dc_state         <= refill_hit_was_r ? DC_IDLE : DC_READ;  // on snoop-hit during re-fill
           end
           else if (dbus_ack_i) begin
             if (refill_last_o) begin
               refill_hit_was_r <= 1'b0;  // on last re-fill
-              refill_done      <= 0;     // on last re-fill
+              refill_done      <= {NUM_WORDS_PER_BLOCK{1'b0}}; // on last re-fill
               tag_save_lru     <= {OPTION_DCACHE_WAYS{1'b0}}; // on last re-fill
               dc_state         <= DC_IDLE;  // on last re-fill
             end
             else begin
-              refill_hit_r     <= (refill_done == 0); // 1st re-fill is requested insn
-              refill_hit_was_r <= (refill_done == 0) | refill_hit_was_r; // 1st re-fill
-              refill_done[curr_refill_adr[OPTION_DCACHE_BLOCK_WIDTH-1:2]] <= 1'b1; // current re-fill
-              curr_refill_adr <= next_refill_adr_o;
+              refill_hit_r     <= (refill_done[0]); // 1st re-fill is requested insn
+              refill_hit_was_r <= (refill_done[0]) | refill_hit_was_r; // 1st re-fill
+              refill_done      <= {refill_done[(NUM_WORDS_PER_BLOCK-2):0],1'b0}; // current re-fill
+              curr_refill_adr  <= next_refill_adr_o;
             end // last or regulat
           end // snoop-hit / dbus-ack
           else if (dbus_err_instant_i) begin  // abort re-fill
             refill_hit_was_r <= 1'b0;     // on dbus error during re-fill
-            refill_done      <= 0;        // on dbus error during re-fill
+            refill_done      <= {NUM_WORDS_PER_BLOCK{1'b0}}; // on dbus error during re-fill
             tag_save_lru     <= {OPTION_DCACHE_WAYS{1'b0}}; // on dbus error during re-fill
             dc_state         <= DC_IDLE;  // on dbus error during re-fill
           end
@@ -497,7 +503,7 @@ module mor1kx_dcache_marocchino
           curr_refill_adr     <= {OPTION_OPERAND_WIDTH{1'b0}};  // on default
           refill_hit_r        <= 1'b0;  // on default
           refill_hit_was_r    <= 1'b0;  // on default
-          refill_done         <= 0;     // on default
+          refill_done         <= {NUM_WORDS_PER_BLOCK{1'b0}}; // on default
           snoop_check         <= 1'b0;  // on default
           snoop_tag           <= {TAG_WIDTH{1'b0}}; // on default
           snoop_windex        <= {OPTION_DCACHE_SET_WIDTH{1'b0}}; // on default
@@ -599,7 +605,7 @@ module mor1kx_dcache_marocchino
             //
             way_we = tag_save_lru; // on re-fill
             // Invalidate the way on the first write
-            if (refill_done == 0) begin
+            if (refill_done[0]) begin
               for (w2 = 0; w2 < OPTION_DCACHE_WAYS; w2 = w2 + 1) begin
                 if (tag_save_lru[w2]) begin
                   tag_way_in[w2][TAGMEM_WAY_VALID] = 1'b0;

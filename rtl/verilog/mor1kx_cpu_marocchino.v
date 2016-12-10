@@ -262,7 +262,6 @@ module mor1kx_cpu_marocchino
   wire  [DEST_REG_ADDR_WIDTH-1:0] wb_rfd2_adr; // low part of A or B operand
 
   wire                            dcod_op_jr;
-  wire                            stall_fetch;
   wire                            fetch_waiting_target;
 
   wire                            dcod_delay_slot;
@@ -450,8 +449,14 @@ module mor1kx_cpu_marocchino
   wire wb_except_syscall;
   wire wb_except_trap;
 
-  //  # combined IFETCH/DECODE exceptions flag
-  wire wb_fd_an_except;
+  //  # combined IFETCH/DECODE exceptions flags
+  //    flags that visible in DECODE & EXECUTE stages are used to
+  //    slall fetching new insructions till exception (or l.rfe)
+  //    reach WRITE-BACK
+  wire fetch_an_except;   // latched IFETCH exceptions visible in DECODE stage
+  //wire exec_fd_an_except; // latched IFETCH/DECODE exceptions visible in EXECUTE stage
+  wire comb_fd_an_except; // OR-combined of previuos twos                           
+  wire wb_fd_an_except;   // latched IFETCH/DECODE exceptions visible in WRITE-BACK stage
 
   //  # overflow exception
   wire except_overflow_enable;
@@ -591,6 +596,7 @@ module mor1kx_cpu_marocchino
     .fetch_except_ibus_err_o          (fetch_except_ibus_err), // FETCH
     .fetch_except_itlb_miss_o         (fetch_except_itlb_miss), // FETCH
     .fetch_except_ipagefault_o        (fetch_except_ipagefault), // FETCH
+    .fetch_an_except_o                (fetch_an_except), // FETCH
     .fetch_exception_taken_o          (fetch_ecxeption_taken) // FETCH
   );
 
@@ -1660,6 +1666,7 @@ module mor1kx_cpu_marocchino
     .fetch_except_ibus_err_i    (fetch_except_ibus_err), // OMAN
     .fetch_except_ipagefault_i  (fetch_except_ipagefault), // OMAN
     .fetch_except_itlb_miss_i   (fetch_except_itlb_miss), // OMAN
+    .fetch_an_except_i          (fetch_an_except), // OMAN
     .fetch_except_ibus_align_i  (fetch_except_ibus_align), // OMAN
     .dcod_except_illegal_i      (dcod_except_illegal), // OMAN
     .dcod_except_syscall_i      (dcod_except_syscall), // OMAN
@@ -1718,7 +1725,7 @@ module mor1kx_cpu_marocchino
     .exec_rfd2_adr_o            (exec_rfd2_adr), // OMAN
 
     // Stall fetch by specific type of hazards
-    .stall_fetch_o              (stall_fetch), // OMAN
+    .comb_fd_an_except_o        (comb_fd_an_except), // OMAN
     // Signal to FETCH that target address or flag isn't ready
     .fetch_waiting_target_o     (fetch_waiting_target), // OMAN
 
@@ -1868,7 +1875,7 @@ module mor1kx_cpu_marocchino
 
     // Inputs / Outputs for pipeline control signals
     .dcod_insn_valid_i                (dcod_insn_valid), // CTRL
-    .stall_fetch_i                    (stall_fetch), // CTRL
+    .comb_fd_an_except_i              (comb_fd_an_except), // CTRL
     .dcod_valid_i                     (dcod_valid), // CTRL
     .exec_valid_i                     (exec_valid), // CTRL
     .pipeline_flush_o                 (pipeline_flush), // CTRL

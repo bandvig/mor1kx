@@ -103,6 +103,7 @@ module mor1kx_oman_marocchino
   input                                 fetch_except_ibus_err_i,
   input                                 fetch_except_ipagefault_i,
   input                                 fetch_except_itlb_miss_i,
+  input                                 fetch_an_except_i,
   input                                 fetch_except_ibus_align_i,
   input                                 dcod_except_illegal_i,
   input                                 dcod_except_syscall_i,
@@ -161,7 +162,7 @@ module mor1kx_oman_marocchino
   output      [DEST_REG_ADDR_WIDTH-1:0] exec_rfd2_adr_o,
 
   // Stall fetch by specific type of hazards
-  output                                stall_fetch_o,
+  output                                comb_fd_an_except_o,
   // Signal to FETCH that target address or flag isn't ready
   output                                fetch_waiting_target_o,
 
@@ -286,11 +287,9 @@ module mor1kx_oman_marocchino
   wire interrupts_en = ~(dcod_op_lsu_store_i | dcod_op_mtspr_i | dcod_op_msync_i | dcod_op_rfe_i);
 
 
-  // Combine FETCH related exceptions
-  wire fetch_an_except = fetch_except_ibus_err_i  | fetch_except_ipagefault_i |
-                         fetch_except_itlb_miss_i | fetch_except_ibus_align_i;
   // Combine DECODE related exceptions
-  wire dcod_an_except = dcod_except_illegal_i | dcod_except_syscall_i |
+  wire dcod_an_except = fetch_except_ibus_align_i |
+                        dcod_except_illegal_i     | dcod_except_syscall_i |
                         dcod_except_trap_i;
 
 
@@ -317,7 +316,7 @@ module mor1kx_oman_marocchino
                   // Flag that istruction is restartable
                   interrupts_en,
                   // combined FETCH & DECODE exceptions flag
-                  (fetch_an_except | dcod_an_except),
+                  (fetch_an_except_i | dcod_an_except),
                   // FETCH & DECODE exceptions
                   fetch_except_ibus_err_i,
                   fetch_except_ipagefault_i,
@@ -798,7 +797,20 @@ module mor1kx_oman_marocchino
   // Stall FETCH advancing (see also CTRL) when an l.rfe/ecxeptions are in decode stage.
   // The main purpose of this is waiting till l.rfe/exceptions propagate
   // up to WB stage.
-  assign stall_fetch_o = dcod_op_rfe_i | dcod_an_except;
+  //  # latch for IFETCH/DECODE exceptions
+  reg exec_fd_an_except_r;
+  // ---
+  always @(posedge clk `OR_ASYNC_RST) begin
+    if (rst)
+      exec_fd_an_except_r <= 1'b0;
+    else if (pipeline_flush_i)
+      exec_fd_an_except_r <= 1'b0;
+    else if (padv_decode_i & ~exec_fd_an_except_r) // lock till flush
+      exec_fd_an_except_r <= (fetch_an_except_i | dcod_op_rfe_i | dcod_an_except);
+  end
+  // ---
+  assign comb_fd_an_except_o = (fetch_an_except_i | exec_fd_an_except_r);
+
 
   // Signal to FETCH that target address or flag isn't ready
   assign fetch_waiting_target_o = stall_by_jr | stall_by_brcond;

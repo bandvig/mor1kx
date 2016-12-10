@@ -69,7 +69,7 @@ module mor1kx_ctrl_marocchino
 
   // Inputs / Outputs for pipeline control signals
   input                                 dcod_insn_valid_i,
-  input                                 stall_fetch_i,
+  input                                 comb_fd_an_except_i,
   input                                 dcod_valid_i,
   input                                 exec_valid_i,
   output                                pipeline_flush_o,
@@ -432,11 +432,10 @@ module mor1kx_ctrl_marocchino
 
   // Advance IFETCH
   //  (a) without DU control
-  wire   padv_fetch   = (dcod_valid_i | (~dcod_insn_valid_i)) & (~spr_bus_wait_r) & (~stall_fetch_i);
+  wire   padv_fetch   = (dcod_valid_i | (~dcod_insn_valid_i)) & (~spr_bus_wait_r) & (~comb_fd_an_except_i);
   //  (b) for step-by-step execution
-  //        - pay attention that "stall_fetch" doesn't make sense here because
-  //      it depends on "operand B hazard for l.jr", but the hazard isn't
-  //      possible for step-by-step execution
+  //        - pay attention that "comb_fd_an_except" doesn't make sense here
+  //      because of step-by-step execution
   //        - but we block execution if SPR BUS is active, because it
   //      could be request from Debug System
   wire   padv_fetch_s = pstep[0] & (~dcod_insn_valid_i) & (~spr_bus_wait_r);
