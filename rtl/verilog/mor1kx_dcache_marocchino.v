@@ -74,6 +74,7 @@ module mor1kx_dcache_marocchino
   output                                dc_refill_req_o,
   input                                 dc_refill_allowed_i,
   output     [OPTION_OPERAND_WIDTH-1:0] next_refill_adr_o,
+  output                                refill_first_o,
   output                                refill_last_o,
   input      [OPTION_OPERAND_WIDTH-1:0] dbus_dat_i,
   input                                 dbus_ack_i,
@@ -154,7 +155,6 @@ module mor1kx_dcache_marocchino
   reg [OPTION_OPERAND_WIDTH-1:0] way_wr_dat;
 
   reg [OPTION_OPERAND_WIDTH-1:0] curr_refill_adr;
-  reg                            refill_hit_r;     // 1-clock length
   reg                            refill_hit_was_r; // from re-fill-hit to re-fill-complete
   reg  [NUM_WORDS_PER_BLOCK-1:0] refill_done;
 
@@ -179,7 +179,6 @@ module mor1kx_dcache_marocchino
   // WAYs related
   wire [OPTION_OPERAND_WIDTH-1:0] way_dout[OPTION_DCACHE_WAYS-1:0];
   reg    [OPTION_DCACHE_WAYS-1:0] way_we; // Write signals per way
-  wire   [OPTION_DCACHE_WAYS-1:0] way_re; // Read signals per way
 
   // Does any way hit?
   wire                          dc_hit;
@@ -257,7 +256,7 @@ module mor1kx_dcache_marocchino
   assign dc_access_o = (dc_read | dc_write | dc_refill) & dc_access;
 
   // if requested data were fetched befire snoop-hit, it is valid
-  assign dc_ack_o = (dc_access & dc_read & dc_hit & ~snoop_hit_o) | refill_hit_r;
+  assign dc_ack_o = (dc_access & dc_read & dc_hit & ~snoop_hit_o);
 
   // re-fill reqest is allowed only after completion snoop-processing
   // see refill-allowed in LSU
@@ -304,7 +303,7 @@ module mor1kx_dcache_marocchino
     dc_dat_o = {OPTION_OPERAND_WIDTH{1'b0}};
     // Put correct way on the data port
     for (w0 = 0; w0 < OPTION_DCACHE_WAYS; w0 = w0 + 1) begin
-      if (way_hit[w0] | (refill_hit_r & tag_save_lru[w0])) begin
+      if (way_hit[w0]) begin
         dc_dat_o = way_dout[w0];
       end
     end
@@ -316,7 +315,8 @@ module mor1kx_dcache_marocchino
     {curr_refill_adr[31:5], curr_refill_adr[4:0] + 5'd4} : // 32 byte = (8 words x 32 bits/word) = (4 words x 64 bits/word)
     {curr_refill_adr[31:4], curr_refill_adr[3:0] + 4'd4};  // 16 byte = (4 words x 32 bits/word) = (2 words x 64 bits/word)
 
-  assign refill_last_o = refill_done[NUM_WORDS_PER_BLOCK-1];
+  assign refill_first_o = refill_done[0];
+  assign refill_last_o  = refill_done[NUM_WORDS_PER_BLOCK-1];
 
 
 
@@ -361,7 +361,6 @@ module mor1kx_dcache_marocchino
     if (rst) begin
       dc_state            <= DC_IDLE;  // on reset
       curr_refill_adr     <= {OPTION_OPERAND_WIDTH{1'b0}};  // on reset
-      refill_hit_r        <= 1'b0;  // on reset
       refill_hit_was_r    <= 1'b0;  // on reset
       refill_done         <= {NUM_WORDS_PER_BLOCK{1'b0}};     // on reset
       snoop_check         <= 1'b0;  // on reset
@@ -459,7 +458,6 @@ module mor1kx_dcache_marocchino
         end
 
         DC_REFILL: begin
-          refill_hit_r <= 1'b0;
           // 1) Abort re-fill on snoop-hit
           //    TODO: only abort on snoop-hits to re-fill address
           // 2) In according with WISHBONE-B3 rule 3.45:
@@ -477,8 +475,7 @@ module mor1kx_dcache_marocchino
               dc_state         <= DC_IDLE;  // on last re-fill
             end
             else begin
-              refill_hit_r     <= (refill_done[0]); // 1st re-fill is requested insn
-              refill_hit_was_r <= (refill_done[0]) | refill_hit_was_r; // 1st re-fill
+              refill_hit_was_r <= (refill_first_o) | refill_hit_was_r; // 1st re-fill
               refill_done      <= {refill_done[(NUM_WORDS_PER_BLOCK-2):0],1'b0}; // current re-fill
               curr_refill_adr  <= next_refill_adr_o;
             end // last or regulat
@@ -501,7 +498,6 @@ module mor1kx_dcache_marocchino
         default: begin
           dc_state            <= DC_IDLE;  // on default
           curr_refill_adr     <= {OPTION_OPERAND_WIDTH{1'b0}};  // on default
-          refill_hit_r        <= 1'b0;  // on default
           refill_hit_was_r    <= 1'b0;  // on default
           refill_done         <= {NUM_WORDS_PER_BLOCK{1'b0}}; // on default
           snoop_check         <= 1'b0;  // on default
@@ -605,7 +601,7 @@ module mor1kx_dcache_marocchino
             //
             way_we = tag_save_lru; // on re-fill
             // Invalidate the way on the first write
-            if (refill_done[0]) begin
+            if (refill_first_o) begin
               for (w2 = 0; w2 < OPTION_DCACHE_WAYS; w2 = w2 + 1) begin
                 if (tag_save_lru[w2]) begin
                   tag_way_in[w2][TAGMEM_WAY_VALID] = 1'b0;
@@ -666,10 +662,9 @@ module mor1kx_dcache_marocchino
   // Write-only port (*_wp_*) controls
   wire [OPTION_DCACHE_WAYS-1:0] way_wp_en;
 
-  // On re-fill we force using RW-port to provide correct read-hit
   // WAY-RAM read address
-  wire [WAY_WIDTH-3:0] way_raddr = dc_refill ? curr_refill_adr[WAY_WIDTH-1:2] :
-                                               virt_addr_i[WAY_WIDTH-1:2];
+  wire [WAY_WIDTH-3:0] way_raddr = virt_addr_i[WAY_WIDTH-1:2];
+
   // WAY-RAM write address
   //  # As way size is equal to page one we able to use ether
   //    physical or virtual indexing. We use virual indexing because
@@ -681,16 +676,11 @@ module mor1kx_dcache_marocchino
 
   generate
   for (i = 0; i < OPTION_DCACHE_WAYS; i=i+1) begin : way_memories
-    // each way RAM read and write
-    //  # on re-fill we force using RW-port to provide correct read-hit
-    //  # pay attention that way-we already blocked by exceptions
-    assign way_re[i] = ram_re | (way_we[i] & dc_refill);
-
     // Read / Write port (*_rwp_*) controls
-    assign way_rwp_we[i] = way_we[i] & way_re[i] & way_rw_same_addr;
+    assign way_rwp_we[i] = way_we[i] & ram_re & way_rw_same_addr;
 
     // Write-only port (*_wp_*) controls
-    assign way_wp_en[i]  = way_we[i] & (~way_re[i] | ~way_rw_same_addr);
+    assign way_wp_en[i]  = way_we[i] & (~ram_re | ~way_rw_same_addr);
 
     // WAY-RAM instances
     mor1kx_dpram_en_w1st_sclk
@@ -704,7 +694,7 @@ module mor1kx_dcache_marocchino
       // common clock
       .clk    (clk),
       // port "a": Read / Write (for RW-conflict case)
-      .en_a   (way_re[i]),     // enable port "a"
+      .en_a   (ram_re),     // enable port "a"
       .we_a   (way_rwp_we[i]), // operation is "write"
       .addr_a (way_raddr),
       .din_a  (way_wr_dat),
@@ -742,8 +732,6 @@ module mor1kx_dcache_marocchino
 
 
   // TAG-RAM read address
-  //  # Opposite to WAY-RAM case we don't force using RW-port
-  //    on re-fill because  TAG either invalid or address miss
   assign tag_rindex = virt_addr_i[WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH];
 
   // TAG-RAM same address for read and write

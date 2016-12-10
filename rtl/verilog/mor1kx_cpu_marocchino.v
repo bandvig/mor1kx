@@ -1255,9 +1255,6 @@ module mor1kx_cpu_marocchino
 
   //  # various LSU <-> RSRVS connections
   wire lsu_taking_op;
-  wire lsu_excepts_any;   // non-registered
-  wire lsu_excepts_any_r; // registered
-  wire lsu_busy_rsrvs;    // busy due to reservation station is full
 
   // RSRVS -> LSU connections
   //  # commands
@@ -1325,7 +1322,7 @@ module mor1kx_cpu_marocchino
     .clk                      (clk),
     .rst                      (rst),
     // pipeline control signals in
-    .pipeline_flush_i         (lsu_excepts_any | pipeline_flush), // LSU_RSVRS
+    .pipeline_flush_i         (pipeline_flush), // LSU_RSVRS
     .padv_decode_i            (padv_decode), // LSU_RSVRS
     .taking_op_i              (lsu_taking_op), // LSU_RSVRS
     // input data from DECODE
@@ -1393,11 +1390,8 @@ module mor1kx_cpu_marocchino
     .exec_rfa2_o              (), // LSU_RSVRS
     .exec_rfb2_o              (), // LSU_RSVRS
     //   unit-is-busy flag
-    .unit_busy_o              (lsu_busy_rsrvs) // LSU_RSVRS
+    .unit_busy_o              (lsu_busy) // LSU_RSVRS
   );
-
-  // **** combined "lsu is busy" flag ****
-  assign lsu_busy = lsu_busy_rsrvs | lsu_excepts_any_r; // overall busy
 
 
   // **** LSU instance ****
@@ -1469,8 +1463,6 @@ module mor1kx_cpu_marocchino
     .sbuf_err_o                       (sbuf_err), // LSU
     // Outputs
     .lsu_taking_op_o                  (lsu_taking_op), // LSU
-    .lsu_excepts_any_o                (lsu_excepts_any), // LSU
-    .lsu_excepts_any_r_o              (lsu_excepts_any_r), // LSU
     .lsu_valid_o                      (lsu_valid), // LSU: result ready or exceptions
     .wb_lsu_result_o                  (wb_lsu_result), // LSU
     //  # particular LSU exception flags

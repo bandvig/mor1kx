@@ -155,7 +155,6 @@ module mor1kx_fetch_marocchino
   wire     [`OR1K_INSN_WIDTH-1:0] ic_dat;
   // ICACHE requests and performs refill
   wire                            ic_refill_req;
-  //reg                             ic_refill_allowed; // combinatorial
   wire                [IFOOW-1:0] next_refill_adr;
   wire                            ic_refill_first;
   wire                            ic_refill_last;
@@ -490,6 +489,8 @@ module mor1kx_fetch_marocchino
   // IBUS FSM status is stop
   // !!! should follows appropriate FSM condition,
   //     but without taking into account exceptions
+  // MAROCCHINO_TODO: remove IBUS-read related without performance impact ?
+  // MAROCCHINO_TODO: is single ic-ack enough now ?
   assign ibus_fsm_free = ibus_idle_state                | // IBUS FSM is free
                          (imem_req_state  & ic_ack)     | // IBUS FSM is free
                          (ibus_read_state & ibus_ack_i);  // IBUS FSM is free
@@ -498,22 +499,6 @@ module mor1kx_fetch_marocchino
   //  (a) read none-cached area
   //  (b) 1-st data during cache re-fill
   assign ibus_ack = ((ibus_read_state | (ic_refill_state & ic_refill_first)) & ibus_ack_i);
-
-  // ICACHE re-fill-allowed corresponds to refill-request position in IBUS FSM
-  // !!! exceptions and flushing are already taken into accaunt in ICACHE,
-  //     so we don't use them here
-  /*
-  always @(ibus_state or ic_refill_req) begin
-    // synthesis parallel_case full_case
-    case (ibus_state)
-      IMEM_REQ: begin
-        if (ic_refill_req) // automatically means (ic-access & ~ic-ack)
-          ic_refill_allowed = 1'b1;
-      end
-      default:
-        ic_refill_allowed = 1'b0;
-    endcase
-  end // always */
 
 
   // state machine itself
