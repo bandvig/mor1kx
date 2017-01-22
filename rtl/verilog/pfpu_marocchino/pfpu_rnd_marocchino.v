@@ -476,15 +476,6 @@ module pfpu_rnd_marocchino
 
 
   // WB: result
- `ifndef SYNTHESIS
-  // synthesis translate_off
-  initial begin
-    wb_fpxx_arith_res_hi_o = 32'd0;
-    wb_fpxx_arith_res_lo_o = 32'd0;
-  end
-  // synthesis translate_on
- `endif // !synth
-  // ---
   always @(posedge clk) begin
     if(padv_wb_i) begin
       // for WB-result #1
