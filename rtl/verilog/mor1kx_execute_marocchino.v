@@ -420,6 +420,7 @@ module mor1kx_divider_marocchino
   output reg                            wb_div_overflow_clear_o,
   //  # generate overflow exception by division
   input                                 except_overflow_enable_i,
+  output                                exec_except_overflow_div_o,
   output reg                            wb_except_overflow_div_o,
   //  # division result
   output reg [OPTION_OPERAND_WIDTH-1:0] wb_div_result_o
@@ -632,7 +633,7 @@ module mor1kx_divider_marocchino
   wire exec_div_overflow_clear = grant_wb_to_div_i & s3o_div_signed & (~s3o_dbz);
 
   //  # generate overflow exception by division
-  wire exec_except_overflow_div = except_overflow_enable_i & exec_div_overflow_set;
+  assign exec_except_overflow_div_o = except_overflow_enable_i & exec_div_overflow_set;
 
   // WB-latchers
   always @(posedge clk `OR_ASYNC_RST) begin
@@ -664,7 +665,7 @@ module mor1kx_divider_marocchino
       wb_div_overflow_set_o     <= exec_div_overflow_set;
       wb_div_overflow_clear_o   <= exec_div_overflow_clear;
       //  # generate overflow exception by division
-      wb_except_overflow_div_o  <= exec_except_overflow_div;
+      wb_except_overflow_div_o  <= exec_except_overflow_div_o;
     end
   end // @clock
 
@@ -724,6 +725,7 @@ module mor1kx_exec_1clk_marocchino
   output reg                            wb_1clk_overflow_clear_o,
   //  # generate overflow exception by 1clk-operation
   input                                 except_overflow_enable_i,
+  output                                exec_except_overflow_1clk_o,
   output reg                            wb_except_overflow_1clk_o,
 
   // integer comparison flag
@@ -738,6 +740,8 @@ module mor1kx_exec_1clk_marocchino
   input                                 except_fpu_enable_i,
   input                                 ctrl_fpu_mask_flags_inv_i,
   input                                 ctrl_fpu_mask_flags_inf_i,
+  // EXEC: not latched pre-WB
+  output                                exec_except_fp32_cmp_o,
   // WB: FP32 comparison results
   output                                wb_fp32_flag_set_o,
   output                                wb_fp32_flag_clear_o,
@@ -899,7 +903,7 @@ module mor1kx_exec_1clk_marocchino
   wire exec_1clk_overflow_clear = grant_wb_to_1clk_i & exec_op_add_i & (~adder_s_ovf);
 
   //  # generate overflow exception by 1clk-operation
-  wire exec_except_overflow_1clk = except_overflow_enable_i & exec_1clk_overflow_set;
+  assign exec_except_overflow_1clk_o = except_overflow_enable_i & exec_1clk_overflow_set;
 
   // WB-latchers
   always @(posedge clk `OR_ASYNC_RST) begin
@@ -931,7 +935,7 @@ module mor1kx_exec_1clk_marocchino
       wb_1clk_overflow_set_o     <= exec_1clk_overflow_set;
       wb_1clk_overflow_clear_o   <= exec_1clk_overflow_clear;
       //  # generate overflow exception by 1clk-operation
-      wb_except_overflow_1clk_o  <= exec_except_overflow_1clk;
+      wb_except_overflow_1clk_o  <= exec_except_overflow_1clk_o;
     end
   end // @clock
 
@@ -1004,6 +1008,8 @@ module mor1kx_exec_1clk_marocchino
     // Outputs
     //  # not WB-latched for flag forwarding
     .fp32_flag_set_o        (fp32_flag_set),
+    //  # not latched pre-WB
+    .exec_except_fp32_cmp_o (exec_except_fp32_cmp_o), // fp32-cmp
     //  # WB-latched
     .wb_fp32_flag_set_o     (wb_fp32_flag_set_o),   // fp32-cmp  result
     .wb_fp32_flag_clear_o   (wb_fp32_flag_clear_o), // fp32-cmp  result

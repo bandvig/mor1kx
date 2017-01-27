@@ -354,6 +354,7 @@ module mor1kx_cpu_marocchino
   // FPU-32 comparison part
   wire                            dcod_op_fp32_cmp;
   wire                      [2:0] dcod_opc_fp32_cmp;
+  wire                            exec_except_fp32_cmp;
   wire                            wb_fp32_flag_set;
   wire                            wb_fp32_flag_clear;
   wire                            wb_fp32_cmp_inv;
@@ -372,6 +373,7 @@ module mor1kx_cpu_marocchino
   wire                              dcod_op_fpxx_f2i; // to FPU3264_ARITH
   wire                              fpxx_arith_valid;
   wire                              grant_wb_to_fpxx_arith;
+  wire                              exec_except_fpxx_arith;
   wire  [`OR1K_FPCSR_ALLF_SIZE-1:0] wb_fpxx_arith_fpcsr;    // only flags
   wire                              wb_fpxx_arith_wb_fpcsr; // update FPCSR
   wire                              wb_except_fpxx_arith;   // generate FPx exception by FPx flags
@@ -382,6 +384,7 @@ module mor1kx_cpu_marocchino
   wire                            exec_op_fp64_cmp;
   wire                      [2:0] exec_opc_fp64_cmp;
   wire                            grant_wb_to_fp64_cmp;
+  wire                            exec_except_fp64_cmp;
   wire                            wb_fp64_flag_set;
   wire                            wb_fp64_flag_clear;
   wire                            wb_fp64_cmp_inv;
@@ -465,13 +468,17 @@ module mor1kx_cpu_marocchino
 
   // IFETCH/EXECETE exceptions flags are used to slall fetching and
   // decoding new insructions till l.rfe / exception reach WRITE-BACK
-  wire fetch_an_except; // latched IFETCH exceptions visible in DECODE stage
-  wire exec_an_except;  // latched l.rfe + IFETCH/DECODE exceptions visible in EXECUTE stage
-  wire wb_fd_an_except; // latched l.rfe + IFETCH/DECODE exceptions visible in WRITE-BACK stage
+  wire fetch_an_except;   // latched IFETCH exceptions to stall IFETCH
+  wire oman_fd_an_except; // latched IFETCH/DECODE to stall IFETCH and DECODE
+  wire exec_fd_an_except; // latched IFETCH/DECODE to WRITE-BACK
 
   //  # overflow exception
   wire except_overflow_enable;
+  //    ## from division
+  wire exec_except_overflow_div;
   wire wb_except_overflow_div;
+  //    ## from 1-CLOCK
+  wire exec_except_overflow_1clk;
   wire wb_except_overflow_1clk;
 
   // Exceptions: reported by LSU
@@ -482,7 +489,7 @@ module mor1kx_cpu_marocchino
   wire                            wb_except_dbus_align;
   wire [OPTION_OPERAND_WIDTH-1:0] wb_lsu_except_addr;
   //  # combined LSU exceptions flag
-  wire                            wb_an_except_lsu;
+  wire                            exec_an_except_lsu;
 
 
   // External Interrupts Collection
@@ -498,7 +505,6 @@ module mor1kx_cpu_marocchino
   //  # WB latches
   reg         wb_tt_interrupt_r;
   reg         wb_pic_interrupt_r;
-  reg         wb_an_interrupt_r; // from PIC or TT
 
 
   // Exeptions process:
@@ -508,6 +514,11 @@ module mor1kx_cpu_marocchino
   wire [OPTION_OPERAND_WIDTH-1:0] ctrl_branch_except_pc;
   //   exeptions process: fetch->ctrl
   wire fetch_ecxeption_taken;
+
+
+  // Combined exception/interrupt flag
+  wire exec_an_except;
+  reg  wb_an_except_r;
 
 
   // FETCH none latched outputs
@@ -954,7 +965,7 @@ module mor1kx_cpu_marocchino
     .exec_ext_adr_o             (exec_ext_adr), // OMAN
 
     // Stall fetch by specific type of hazards
-    .exec_an_except_o           (exec_an_except), // OMAN
+    .oman_fd_an_except_o        (oman_fd_an_except), // OMAN
     // Signal to FETCH that target address or flag isn't ready
     .fetch_waiting_target_o     (fetch_waiting_target), // OMAN
 
@@ -981,6 +992,9 @@ module mor1kx_cpu_marocchino
     // depending on the fact is instructions restartable or not
     .exec_interrupts_en_o       (exec_interrupts_en), // OMAN
 
+    // combined (l.rfe + IFETCH/DECODE) exceptions flag
+    .exec_fd_an_except_o        (exec_fd_an_except), // OMAN
+
     // WB outputs
     //  ## instruction related information
     .pc_wb_o                    (pc_wb), // OMAN
@@ -1002,9 +1016,7 @@ module mor1kx_cpu_marocchino
     //  ## DECODE exceptions
     .wb_except_illegal_o        (wb_except_illegal), // OMAN
     .wb_except_syscall_o        (wb_except_syscall), // OMAN
-    .wb_except_trap_o           (wb_except_trap), // OMAN
-    //  ## combined DECODE/IFETCH exceptions
-    .wb_fd_an_except_o          (wb_fd_an_except) // OMAN
+    .wb_except_trap_o           (wb_except_trap) // OMAN
   );
 
 
@@ -1218,6 +1230,7 @@ module mor1kx_cpu_marocchino
     .wb_1clk_overflow_clear_o         (wb_1clk_overflow_clear), // 1CLK
     //  # generate overflow exception by 1clk-operation
     .except_overflow_enable_i         (except_overflow_enable), // 1CLK
+    .exec_except_overflow_1clk_o      (exec_except_overflow_1clk), // 1CLK
     .wb_except_overflow_1clk_o        (wb_except_overflow_1clk), // 1CLK
 
     // integer comparison flag
@@ -1232,6 +1245,8 @@ module mor1kx_cpu_marocchino
     .except_fpu_enable_i              (except_fpu_enable), // 1CLK
     .ctrl_fpu_mask_flags_inv_i        (ctrl_fpu_mask_flags[`OR1K_FPCSR_IVF - `OR1K_FPCSR_OVF]), // 1CLK
     .ctrl_fpu_mask_flags_inf_i        (ctrl_fpu_mask_flags[`OR1K_FPCSR_INF - `OR1K_FPCSR_OVF]), // 1CLK
+    // EXEC: not latched pre-WB
+    .exec_except_fp32_cmp_o           (exec_except_fp32_cmp), // 1CLK
     // WB: FP32 comparison results
     .wb_fp32_flag_set_o               (wb_fp32_flag_set), // 1CLK
     .wb_fp32_flag_clear_o             (wb_fp32_flag_clear), // 1CLK
@@ -1469,6 +1484,7 @@ module mor1kx_cpu_marocchino
     .wb_div_overflow_clear_o          (wb_div_overflow_clear), // DIV
     //  # generate overflow exception by division
     .except_overflow_enable_i         (except_overflow_enable), // DIV
+    .exec_except_overflow_div_o       (exec_except_overflow_div), // DIV
     .wb_except_overflow_div_o         (wb_except_overflow_div), // DIV
     //  # division result
     .wb_div_result_o                  (wb_div_result) // DIV
@@ -1516,6 +1532,10 @@ module mor1kx_cpu_marocchino
     .exec_fpxx_b1_i             (exec_mclk_b1), // FPU3264
     .exec_fpxx_a2_i             (exec_mclk_a2), // FPU3264
     .exec_fpxx_b2_i             (exec_mclk_b2), // FPU3264
+
+    // Pre-WB outputs
+    .exec_except_fpxx_arith_o   (exec_except_fpxx_arith), // FPU3264
+    .exec_except_fp64_cmp_o     (exec_except_fp64_cmp), // FPU3264
 
     // FPU2364 arithmetic part
     .wb_fpxx_arith_res_hi_o     (wb_fpxx_arith_res_hi), // FPU3264
@@ -1745,6 +1765,8 @@ module mor1kx_cpu_marocchino
     .wb_rfd1_wb_lsu_miss_o            (wb_rfd1_wb_lsu_miss), // LSU
     .wb_flag_wb_lsu_miss_o            (wb_flag_wb_lsu_miss), // LSU
     // Exceprions & errors
+    .exec_an_except_lsu_o             (exec_an_except_lsu), // LSU
+    // store buffer
     .sbuf_eear_o                      (sbuf_eear), // LSU
     .sbuf_epcr_o                      (sbuf_epcr), // LSU
     .sbuf_err_o                       (sbuf_err), // LSU
@@ -1754,8 +1776,6 @@ module mor1kx_cpu_marocchino
     .wb_except_dtlb_miss_o            (wb_except_dtlb_miss), // LSU
     .wb_except_dbus_align_o           (wb_except_dbus_align), // LSU
     .wb_lsu_except_addr_o             (wb_lsu_except_addr), // LSU
-    //  # combined LSU exceptions flag
-    .wb_an_except_lsu_o               (wb_an_except_lsu), // LSU
 
     .wb_atomic_flag_set_o             (wb_atomic_flag_set), // LSU
     .wb_atomic_flag_clear_o           (wb_atomic_flag_clear) // LSU
@@ -1765,14 +1785,12 @@ module mor1kx_cpu_marocchino
   //-----------//
   // WB:result //
   //-----------//
-
   assign wb_result1 =  wb_alu_1clk_result   |
                        wb_div_result        | wb_mul_result |
                        wb_fpxx_arith_res_hi |
                        wb_lsu_result        | wb_mfspr_dat;
 
   assign wb_result2 = wb_fpxx_arith_res_lo;
-
 
   //------------------------------------//
   // WB: External Interrupts Collection //
@@ -1784,18 +1802,34 @@ module mor1kx_cpu_marocchino
     if (rst) begin
       wb_tt_interrupt_r   <= 1'b0;
       wb_pic_interrupt_r  <= 1'b0;
-      wb_an_interrupt_r   <= 1'b0;
     end
     else if (pipeline_flush) begin  // WB: External Interrupts Collection
       wb_tt_interrupt_r   <= 1'b0;
       wb_pic_interrupt_r  <= 1'b0;
-      wb_an_interrupt_r   <= 1'b0;
     end
     else if (padv_wb) begin  // WB: External Interrupts Collection
       wb_tt_interrupt_r   <= exec_tt_interrupt;
       wb_pic_interrupt_r  <= exec_pic_interrupt;
-      wb_an_interrupt_r   <= (exec_tt_interrupt | exec_pic_interrupt);
     end
+  end // @clock
+
+  //---------------------------------------//
+  // WB: Combined exception/interrupt flag //
+  //---------------------------------------//
+  assign exec_an_except = exec_fd_an_except        |
+                          exec_except_overflow_div | exec_except_overflow_1clk |
+                          exec_except_fp32_cmp     | exec_except_fp64_cmp      |
+                          exec_except_fpxx_arith   |
+                          exec_an_except_lsu       |
+                          exec_tt_interrupt        | exec_pic_interrupt;
+  // --- wb-latch ---
+  always @(posedge clk `OR_ASYNC_RST) begin
+    if (rst)
+      wb_an_except_r <= 1'b0;
+    else if (pipeline_flush) // WB: combined exception/interrupt flag
+      wb_an_except_r <= 1'b0;
+    else if (padv_wb) // WB: combined exception/interrupt flag
+      wb_an_except_r <= exec_an_except;
   end // @clock
 
 
@@ -1888,7 +1922,7 @@ module mor1kx_cpu_marocchino
     // Inputs / Outputs for pipeline control signals
     .dcod_insn_valid_i                (dcod_insn_valid), // CTRL
     .fetch_an_except_i                (fetch_an_except), // CTRL
-    .exec_an_except_i                 (exec_an_except), // CTRL
+    .oman_fd_an_except_i              (oman_fd_an_except), // CTRL
     .dcod_valid_i                     (dcod_valid), // CTRL
     .exec_valid_i                     (exec_valid), // CTRL
     .pipeline_flush_o                 (pipeline_flush), // CTRL
@@ -1959,7 +1993,6 @@ module mor1kx_cpu_marocchino
     .pic_interrupt_enable_o           (pic_interrupt_enable), // CTRL
     .wb_tt_interrupt_i                (wb_tt_interrupt_r), // CTRL
     .wb_pic_interrupt_i               (wb_pic_interrupt_r), // CTRL
-    .wb_an_interrupt_i                (wb_an_interrupt_r), // CTRL
 
     // WB: programm counter
     .pc_wb_i                          (pc_wb), // CTRL
@@ -2011,6 +2044,9 @@ module mor1kx_cpu_marocchino
     .sbuf_err_i                       (sbuf_err), // CTRL
     .wb_delay_slot_i                  (wb_delay_slot), // CTRL
 
+    //  # combined exceptions/interrupt flag
+    .wb_an_except_i                   (wb_an_except_r), // CTRL
+
     //  # particular IFETCH exception flags
     .wb_except_ibus_err_i             (wb_except_ibus_err), // CTRL
     .wb_except_itlb_miss_i            (wb_except_itlb_miss), // CTRL
@@ -2021,8 +2057,6 @@ module mor1kx_cpu_marocchino
     .wb_except_illegal_i              (wb_except_illegal), // CTRL
     .wb_except_syscall_i              (wb_except_syscall), // CTRL
     .wb_except_trap_i                 (wb_except_trap), // CTRL
-    //  # combined DECODE/IFETCH exceptions flag
-    .wb_fd_an_except_i                (wb_fd_an_except), // CTRL
     //  # LSU valid is miss (block padv-wb)
     .wb_lsu_valid_miss_i              (wb_lsu_valid_miss), // CTRL: block padv-wb
 
@@ -2031,8 +2065,6 @@ module mor1kx_cpu_marocchino
     .wb_except_dtlb_miss_i            (wb_except_dtlb_miss), // CTRL
     .wb_except_dpagefault_i           (wb_except_dpagefault), // CTRL
     .wb_except_dbus_align_i           (wb_except_dbus_align), // CTRL
-    //  # combined LSU exceptions flag
-    .wb_an_except_lsu_i               (wb_an_except_lsu), // CTRL
 
     //  # overflow exception processing
     .except_overflow_enable_o         (except_overflow_enable), // CTRL

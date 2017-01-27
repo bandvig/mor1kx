@@ -173,7 +173,7 @@ module mor1kx_oman_marocchino
   output      [DEST_EXT_ADDR_WIDTH-1:0] exec_ext_adr_o,
 
   // Stall fetch by specific type of hazards
-  output                                exec_an_except_o,
+  output reg                            oman_fd_an_except_o,
   // Signal to FETCH that target address or flag isn't ready
   output                                fetch_waiting_target_o,
 
@@ -200,6 +200,9 @@ module mor1kx_oman_marocchino
   // depending on the fact is instructions restartable or not
   output                                exec_interrupts_en_o,
 
+  // combined (l.rfe + IFETCH/DECODE) exceptions flag
+  output                                exec_fd_an_except_o,
+
   // WB outputs
   //  ## instruction related information
   output reg [OPTION_OPERAND_WIDTH-1:0] pc_wb_o,
@@ -221,9 +224,7 @@ module mor1kx_oman_marocchino
   //  ## output exceptions: DECODE
   output reg                            wb_except_illegal_o,
   output reg                            wb_except_syscall_o,
-  output reg                            wb_except_trap_o,
-  //  ## combined DECODE/IFETCH exceptions
-  output reg                            wb_fd_an_except_o
+  output reg                            wb_except_trap_o
 );
 
   // [O]rder [C]ontrol [B]uffer [T]ap layout
@@ -321,7 +322,6 @@ module mor1kx_oman_marocchino
                         dcod_except_illegal_i     |
                         dcod_except_syscall_i     | dcod_except_trap_i;
 
-
   // input pack
   wire  [OCBT_MSB:0] ocbi;
   assign ocbi = { // various instruction related information
@@ -347,8 +347,8 @@ module mor1kx_oman_marocchino
                   dcod_op_pass_exec_i,
                   // Flag that istruction is restartable
                   interrupts_en,
-                  // combined FETCH & DECODE exceptions flag
-                  (fetch_an_except_i | dcod_an_except),
+                  // combined IFETCH/DECODE exceptions flag
+                  (fetch_an_except_i | dcod_an_except), // !!! OMAN entrance, without l.rfe !!!
                   // FETCH & DECODE exceptions
                   fetch_except_ibus_err_i,
                   fetch_except_ipagefault_i,
@@ -779,28 +779,26 @@ module mor1kx_oman_marocchino
   // Stall DECODE advancing (see also CTRL) when l.rfe or ecxeptions are in EXECUTE stage.
   // The main purpose of this is waiting till l.rfe/exceptions propagate up to WB stage.
   // ---
-  reg exec_an_except_r;
-  // ---
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
-      exec_an_except_r <= 1'b0;
+      oman_fd_an_except_o <= 1'b0;
     else if (pipeline_flush_i)
-      exec_an_except_r <= 1'b0;
+      oman_fd_an_except_o <= 1'b0;
     else if (padv_decode_i)
-      exec_an_except_r <= (fetch_an_except_i | dcod_op_rfe_i | dcod_an_except);
+      oman_fd_an_except_o <= (fetch_an_except_i | dcod_an_except | dcod_op_rfe_i);
   end
-  // ---
-  assign exec_an_except_o = exec_an_except_r;
 
 
   // Support IBUS error handling in CTRL
   assign exec_jump_or_branch_o = ocbo00[OCBT_JUMP_OR_BRANCH_POS];
   assign pc_exec_o             = ocbo00[OCBT_PC_MSB:OCBT_PC_LSB];
 
-
   //   Flag to enabel/disable exterlal interrupts processing
   // depending on the fact is instructions restartable or not
   assign exec_interrupts_en_o = ocbo00[OCBT_INTERRUPTS_EN_POS];
+
+  // combined (l.rfe + IFETCH/DECODE) exceptions flag
+  assign exec_fd_an_except_o = ocbo00[OCBT_FD_AN_EXCEPT_POS];
 
 
   // D1 WB-to-RF request generated with taking
@@ -896,8 +894,6 @@ module mor1kx_oman_marocchino
       wb_except_illegal_o    <= 1'b0;
       wb_except_syscall_o    <= 1'b0;
       wb_except_trap_o       <= 1'b0;
-      // Combined DECODE/IFETCH exceptions
-      wb_fd_an_except_o      <= 1'b0;
     end
     else if (pipeline_flush_i) begin
       // RFE
@@ -911,8 +907,6 @@ module mor1kx_oman_marocchino
       wb_except_illegal_o    <= 1'b0;
       wb_except_syscall_o    <= 1'b0;
       wb_except_trap_o       <= 1'b0;
-      // Combined DECODE/IFETCH exceptions
-      wb_fd_an_except_o      <= 1'b0;
     end
     else if (padv_wb_i) begin
       // RFE
@@ -926,8 +920,6 @@ module mor1kx_oman_marocchino
       wb_except_illegal_o    <= ocbo00[2];
       wb_except_syscall_o    <= ocbo00[1];
       wb_except_trap_o       <= ocbo00[0];
-      // Combined DECODE/IFETCH exceptions
-      wb_fd_an_except_o      <= ocbo00[OCBT_FD_AN_EXCEPT_POS];
     end
   end // @clock
 

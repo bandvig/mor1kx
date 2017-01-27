@@ -298,6 +298,10 @@ module pfpu_top_marocchino
   input                        [31:0] exec_fpxx_a2_i,
   input                        [31:0] exec_fpxx_b2_i,
 
+  // pre WB outputs
+  output                              exec_except_fpxx_arith_o, // exception by FP3264-arithmetic
+  output                              exec_except_fp64_cmp_o,   // exception by FP64-comparison
+
   // FPU-64 arithmetic part
   output                       [31:0] wb_fpxx_arith_res_hi_o,   // arithmetic result
   output                       [31:0] wb_fpxx_arith_res_lo_o,   // arithmetic result 2
@@ -760,6 +764,8 @@ pfpu_rnd_marocchino u_pfpu_rnd
   .ocb_snan_i               (ocb_snan), // PFPU_RND
   .ocb_qnan_i               (ocb_qnan), // PFPU_RND
   .ocb_anan_sign_i          (ocb_anan_sign), // PFPU_RND
+  // pre-WB outputs
+  .exec_except_fpxx_arith_o (exec_except_fpxx_arith_o), // PFPU_RND
   // output WB latches
   .wb_fpxx_arith_res_hi_o   (wb_fpxx_arith_res_hi_o), // PFPU_RND
   .wb_fpxx_arith_res_lo_o   (wb_fpxx_arith_res_lo_o), // PFPU_RND
@@ -801,6 +807,8 @@ pfpu64_fcmp_marocchino u_fp64_cmp
   .ctrl_fpu_mask_flags_inv_i  (ctrl_fpu_mask_flags_i[`OR1K_FPCSR_IVF - `OR1K_FPCSR_OVF]), // FP64_CMP
   .ctrl_fpu_mask_flags_inf_i  (ctrl_fpu_mask_flags_i[`OR1K_FPCSR_INF - `OR1K_FPCSR_OVF]), // FP64_CMP
   // Outputs
+  //  # pre WB
+  .exec_except_fp64_cmp_o     (exec_except_fp64_cmp_o), // FP64_CMP
   //  # WB-latched
   .wb_fp64_flag_set_o         (wb_fp64_flag_set_o), // FP64_CMP
   .wb_fp64_flag_clear_o       (wb_fp64_flag_clear_o), // FP64_CMP

@@ -100,6 +100,8 @@ module mor1kx_lsu_marocchino
   output reg                            wb_rfd1_wb_lsu_miss_o,
   output reg                            wb_flag_wb_lsu_miss_o,
   // Exceprions & errors
+  //  # pre-WB
+  output                                exec_an_except_lsu_o,
   //  # Indicator of dbus exception came via the store buffer
   //    and appropriate PC
   output reg [OPTION_OPERAND_WIDTH-1:0] sbuf_eear_o,
@@ -112,8 +114,6 @@ module mor1kx_lsu_marocchino
   output reg                            wb_except_dtlb_miss_o,
   output reg                            wb_except_dbus_align_o,
   output reg [OPTION_OPERAND_WIDTH-1:0] wb_lsu_except_addr_o,
-  //  # combined LSU exceptions flag
-  output reg                            wb_an_except_lsu_o,
   // Atomic operation flag set/clear logic
   output reg                            wb_atomic_flag_set_o,
   output reg                            wb_atomic_flag_clear_o
@@ -601,6 +601,9 @@ module mor1kx_lsu_marocchino
       lsu_excepts_any_p <= 1'b1;
   end // @clock
 
+  // pre-WB to generate pipeline-flush
+  // MAROCCHINO_TODO: need more accurate processing for store buffer bus error
+  assign exec_an_except_lsu_o = (lsu_excepts_any_p | lsu_excepts_any) & (grant_wb_to_lsu_i | wb_lsu_valid_miss_o);
 
   // WB latches for LSU exceptions
   always @(posedge clk `OR_ASYNC_RST) begin
@@ -610,8 +613,6 @@ module mor1kx_lsu_marocchino
       wb_except_dpagefault_o <= 1'b0;
       wb_except_dtlb_miss_o  <= 1'b0;
       wb_except_dbus_align_o <= 1'b0;
-      //  # combined LSU exceptions flag
-      wb_an_except_lsu_o     <= 1'b0;
     end
     else if (flush_by_ctrl) begin  // drop WB-reported exceptions
       //  # particular LSU exception flags
@@ -619,8 +620,6 @@ module mor1kx_lsu_marocchino
       wb_except_dpagefault_o <= 1'b0;
       wb_except_dtlb_miss_o  <= 1'b0;
       wb_except_dbus_align_o <= 1'b0;
-      //  # combined LSU exceptions flag
-      wb_an_except_lsu_o     <= 1'b0;
     end
     else if (grant_wb_to_lsu) begin // rise WB-reported exceptions
       //  # particular LSU exception flags
@@ -628,8 +627,6 @@ module mor1kx_lsu_marocchino
       wb_except_dpagefault_o <= except_dpagefault_p | except_dpagefault;
       wb_except_dtlb_miss_o  <= except_dtlb_miss_p  | except_dtlb_miss;
       wb_except_dbus_align_o <= except_align_p      | except_align;
-      //  # combined LSU exceptions flag
-      wb_an_except_lsu_o     <= lsu_excepts_any_p   | lsu_excepts_any;
     end
   end // @clock
 

@@ -70,7 +70,7 @@ module mor1kx_ctrl_marocchino
   // Inputs / Outputs for pipeline control signals
   input                                 dcod_insn_valid_i,
   input                                 fetch_an_except_i,
-  input                                 exec_an_except_i,
+  input                                 oman_fd_an_except_i,
   input                                 dcod_valid_i,
   input                                 exec_valid_i,
   output                                pipeline_flush_o,
@@ -141,7 +141,6 @@ module mor1kx_ctrl_marocchino
   output                                pic_interrupt_enable_o,
   input                                 wb_tt_interrupt_i,
   input                                 wb_pic_interrupt_i,
-  input                                 wb_an_interrupt_i,
 
   // WB: programm counter
   input      [OPTION_OPERAND_WIDTH-1:0] pc_wb_i,
@@ -195,6 +194,9 @@ module mor1kx_ctrl_marocchino
   //    ## Instriction is in delay slot
   input                                 wb_delay_slot_i,
 
+  //  # combined exceptions/interrupt flag
+  input                                 wb_an_except_i,
+
   //  # particular IFETCH exception flags
   input                                 wb_except_ibus_err_i,
   input                                 wb_except_itlb_miss_i,
@@ -205,16 +207,12 @@ module mor1kx_ctrl_marocchino
   input                                 wb_except_illegal_i,
   input                                 wb_except_syscall_i,
   input                                 wb_except_trap_i,
-  //  # combined DECODE/IFETCH exceptions flag
-  input                                 wb_fd_an_except_i,
 
   //  # particular LSU exception flags
   input                                 wb_except_dbus_err_i,
   input                                 wb_except_dtlb_miss_i,
   input                                 wb_except_dpagefault_i,
   input                                 wb_except_dbus_align_i,
-  //  # combined LSU exceptions flag
-  input                                 wb_an_except_lsu_i,
   //  # LSU valid is miss (block padv-wb)
   input                                 wb_lsu_valid_miss_i,
 
@@ -349,19 +347,11 @@ module mor1kx_ctrl_marocchino
   // Exceptions processing support logic //
   //-------------------------------------//
 
-  // collect exceptions from all units
-  wire exception_re = wb_fd_an_except_i        |
-                      wb_except_overflow_div_i | wb_except_overflow_1clk_i |
-                      wb_except_fp32_cmp_i     | wb_except_fp64_cmp_i      |
-                      wb_except_fpxx_arith_i   |
-                      wb_an_except_lsu_i       | sbuf_err_i                |
-                      wb_an_interrupt_i;
-
   // Store exception vector
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
       exception_pc_addr <= {19'd0,`OR1K_RESET_VECTOR,8'd0};
-    else if (exception_re) begin
+    else if (wb_an_except_i) begin
       // synthesis parallel_case full_case
       casez({wb_except_itlb_miss_i,
              wb_except_ipagefault_i,
@@ -419,7 +409,7 @@ module mor1kx_ctrl_marocchino
       doing_exception_r <= 1'b0;
     else if ((doing_exception_r | du_cpu_unstall) & fetch_exception_taken_i)
       doing_exception_r <= 1'b0;
-    else if (exception_re)
+    else if (wb_an_except_i)
       doing_exception_r <= 1'b1;
   end // @ clock
 
@@ -455,19 +445,19 @@ module mor1kx_ctrl_marocchino
   // Pipeline control logic //
   //------------------------//
 
-  // Pipeline flush by DU/exceptions/rfe
-  assign pipeline_flush_o = du_cpu_flush | exception_re | wb_op_rfe_i;
+  // Pipeline flush by DU/exceptions/rfe (l.rfe is in wb-an-except)
+  assign pipeline_flush_o = du_cpu_flush | wb_an_except_i | wb_op_rfe_i;
 
 
   // Advance IFETCH
-  assign padv_fetch_o = (dcod_valid_i | (~dcod_insn_valid_i)) & (~spr_bus_wait_r) & (~fetch_an_except_i) & (~exec_an_except_i) &
+  assign padv_fetch_o = (dcod_valid_i | (~dcod_insn_valid_i)) & (~spr_bus_wait_r) & (~fetch_an_except_i) & (~oman_fd_an_except_i) &
                         (~du_cpu_stall) & ((~stepping) | pstep[0]); // DU enabling/disabling IFETCH
   // Pass step from IFETCH to DECODE
   wire   pass_step_to_decode = dcod_insn_valid_i & pstep[0]; // for DU
 
 
   // Advance DECODE->EXECUTE latches
-  assign padv_decode_o = dcod_valid_i & dcod_insn_valid_i & (~spr_bus_wait_r) & (~exec_an_except_i) &
+  assign padv_decode_o = dcod_valid_i & dcod_insn_valid_i & (~spr_bus_wait_r) & (~oman_fd_an_except_i) &
                          (~du_cpu_stall) & ((~stepping) | pstep[1]); // DU enabling/disabling DECODE
   // Pass step from DECODE to WB
   wire   pass_step_to_wb = pstep[1]; // for DU
@@ -540,7 +530,7 @@ module mor1kx_ctrl_marocchino
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
       spr_sr <= SPR_SR_RESET_VALUE;
-    else if (exception_re) begin
+    else if (wb_an_except_i) begin
       // Go into supervisor mode, disable interrupts, MMUs
       // it doesn't matter if the next features are enabled or not
       spr_sr[`OR1K_SPR_SR_SM ] <= 1'b1; // supervisor mode
@@ -592,7 +582,7 @@ module mor1kx_ctrl_marocchino
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
       spr_esr <= SPR_SR_RESET_VALUE;
-    else if (exception_re)
+    else if (wb_an_except_i)
       spr_esr <= spr_sr; // by exceptions
     else if (spr_sys_group_cs & (`SPR_OFFSET(spr_bus_addr_o) == `SPR_OFFSET(`OR1K_SPR_ESR0_ADDR)) &
              spr_sys_group_wr_r)
@@ -624,7 +614,7 @@ module mor1kx_ctrl_marocchino
     if (rst) begin
       spr_epcr <= {OPTION_OPERAND_WIDTH{1'b0}};
     end
-    else if (exception_re) begin
+    else if (wb_an_except_i) begin
       // Syscall is a special case, we return back to the instruction _after_
       // the syscall instruction, unless the syscall was in a delay slot
       if (wb_except_syscall_i)
@@ -650,7 +640,7 @@ module mor1kx_ctrl_marocchino
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
       spr_eear <= {OPTION_OPERAND_WIDTH{1'b0}};
-    else if (exception_re) begin
+    else if (wb_an_except_i) begin
       spr_eear <= lsu_err    ? wb_lsu_except_addr_i :
                   sbuf_err_i ? sbuf_eear_i          :
                                pc_wb_i;
@@ -1259,7 +1249,7 @@ module mor1kx_ctrl_marocchino
       if (rst)
         stepped_into_exception_r <= 1'b0;
       else
-        stepped_into_exception_r <= stepping & exception_re;
+        stepped_into_exception_r <= stepping & wb_an_except_i;
     end // @ clock
     // ---
     assign stepped_into_exception = stepped_into_exception_r; // DU enabled
