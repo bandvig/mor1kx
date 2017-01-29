@@ -449,11 +449,16 @@ module mor1kx_cpu_marocchino
   wire fetch_except_ipagefault;
   wire fetch_except_itlb_miss;
   wire fetch_except_ibus_align;
-  //  # connections OMAN(WB-latches)->CTRL
-  wire wb_except_ibus_err;
-  wire wb_except_ipagefault;
-  wire wb_except_itlb_miss;
-  wire wb_except_ibus_align;
+  //  # pre-WB IFETCH exceptions (OMAN output)
+  wire exec_except_ibus_err;
+  wire exec_except_ipagefault;
+  wire exec_except_itlb_miss;
+  wire exec_except_ibus_align;
+  //  # WB-latches for IFETCH exceptions (OMAN->CTRL)
+  reg  wb_except_ibus_err_r;
+  reg  wb_except_ipagefault_r;
+  reg  wb_except_itlb_miss_r;
+  reg  wb_except_ibus_align_r;
 
   // Exceptions: reported from DECODE to OMAN
   wire dcod_except_illegal;
@@ -461,16 +466,19 @@ module mor1kx_cpu_marocchino
   wire dcod_except_trap;
   // Enable l.trap exception
   wire du_trap_enable;
+  // Exceptions: pre-WB DECODE exceptions (OMAN output)
+  wire exec_except_illegal;
+  wire exec_except_syscall;
+  wire exec_except_trap;
   // Exceptions: latched by WB latches for processing in CONTROL-unit
-  wire wb_except_illegal;
-  wire wb_except_syscall;
-  wire wb_except_trap;
+  reg  wb_except_illegal_r;
+  reg  wb_except_syscall_r;
+  reg  wb_except_trap_r;
 
   // IFETCH/EXECETE exceptions flags are used to slall fetching and
   // decoding new insructions till l.rfe / exception reach WRITE-BACK
   wire fetch_an_except;   // latched IFETCH exceptions to stall IFETCH
   wire oman_fd_an_except; // latched IFETCH/DECODE to stall IFETCH and DECODE
-  wire exec_fd_an_except; // latched IFETCH/DECODE to WRITE-BACK
 
   //  # overflow exception
   wire except_overflow_enable;
@@ -509,7 +517,8 @@ module mor1kx_cpu_marocchino
 
   // Exeptions process:
   wire dcod_op_rfe;
-  wire wb_op_rfe;
+  wire exec_op_rfe;
+  reg  wb_op_rfe_r;
   wire ctrl_branch_exception;
   wire [OPTION_OPERAND_WIDTH-1:0] ctrl_branch_except_pc;
   //   exeptions process: fetch->ctrl
@@ -992,8 +1001,17 @@ module mor1kx_cpu_marocchino
     // depending on the fact is instructions restartable or not
     .exec_interrupts_en_o       (exec_interrupts_en), // OMAN
 
-    // combined (l.rfe + IFETCH/DECODE) exceptions flag
-    .exec_fd_an_except_o        (exec_fd_an_except), // OMAN
+    // pre-WB l.rfe
+    .exec_op_rfe_o              (exec_op_rfe), // OMAN
+    // pre-WB output exceptions: IFETCH
+    .exec_except_ibus_err_o     (exec_except_ibus_err), // OMAN
+    .exec_except_ipagefault_o   (exec_except_ipagefault), // OMAN
+    .exec_except_itlb_miss_o    (exec_except_itlb_miss), // OMAN
+    .exec_except_ibus_align_o   (exec_except_ibus_align), // OMAN
+    // pre-WB output exceptions: DECODE
+    .exec_except_illegal_o      (exec_except_illegal), // OMAN
+    .exec_except_syscall_o      (exec_except_syscall), // OMAN
+    .exec_except_trap_o         (exec_except_trap), // OMAN
 
     // WB outputs
     //  ## instruction related information
@@ -1005,18 +1023,7 @@ module mor1kx_cpu_marocchino
     .wb_carry_wb_o              (wb_carry_wb), // OMAN
     // for FPU64
     .wb_rfd2_adr_o              (wb_rfd2_adr), // OMAN
-    .wb_rfd2_wb_o               (wb_rfd2_wb), // OMAN
-    //  ## RFE processing
-    .wb_op_rfe_o                (wb_op_rfe), // OMAN
-    //  ## IFETCH exceptions
-    .wb_except_ibus_err_o       (wb_except_ibus_err), // OMAN
-    .wb_except_ipagefault_o     (wb_except_ipagefault), // OMAN
-    .wb_except_itlb_miss_o      (wb_except_itlb_miss), // OMAN
-    .wb_except_ibus_align_o     (wb_except_ibus_align), // OMAN
-    //  ## DECODE exceptions
-    .wb_except_illegal_o        (wb_except_illegal), // OMAN
-    .wb_except_syscall_o        (wb_except_syscall), // OMAN
-    .wb_except_trap_o           (wb_except_trap) // OMAN
+    .wb_rfd2_wb_o               (wb_rfd2_wb) // OMAN
   );
 
 
@@ -1813,10 +1820,60 @@ module mor1kx_cpu_marocchino
     end
   end // @clock
 
+
+  //--------------------------------//
+  // RFE & IFETCH/DECODE EXCEPTIONS //
+  //--------------------------------//
+
+  always @(posedge clk `OR_ASYNC_RST) begin
+    if (rst) begin
+      // RFE
+      wb_op_rfe_r            <= 1'b0;
+      // FETCH/DECODE exceptions
+      wb_except_ibus_err_r   <= 1'b0;
+      wb_except_ipagefault_r <= 1'b0;
+      wb_except_itlb_miss_r  <= 1'b0;
+      wb_except_ibus_align_r <= 1'b0;
+      // DECODE exceptions
+      wb_except_illegal_r    <= 1'b0;
+      wb_except_syscall_r    <= 1'b0;
+      wb_except_trap_r       <= 1'b0;
+    end
+    else if (pipeline_flush) begin
+      // RFE
+      wb_op_rfe_r            <= 1'b0;
+      // IFETCH exceptions
+      wb_except_ibus_err_r   <= 1'b0;
+      wb_except_ipagefault_r <= 1'b0;
+      wb_except_itlb_miss_r  <= 1'b0;
+      wb_except_ibus_align_r <= 1'b0;
+      // DECODE exceptions
+      wb_except_illegal_r    <= 1'b0;
+      wb_except_syscall_r    <= 1'b0;
+      wb_except_trap_r       <= 1'b0;
+    end
+    else if (padv_wb) begin
+      // RFE
+      wb_op_rfe_r            <= exec_op_rfe;
+      // IFETCH exceptions
+      wb_except_ibus_err_r   <= exec_except_ibus_err;
+      wb_except_ipagefault_r <= exec_except_ipagefault;
+      wb_except_itlb_miss_r  <= exec_except_itlb_miss;
+      wb_except_ibus_align_r <= exec_except_ibus_align;
+      // DECODE exceptions
+      wb_except_illegal_r    <= exec_except_illegal;
+      wb_except_syscall_r    <= exec_except_syscall;
+      wb_except_trap_r       <= exec_except_trap;
+    end
+  end // @clock
+
   //---------------------------------------//
   // WB: Combined exception/interrupt flag //
   //---------------------------------------//
-  assign exec_an_except = exec_fd_an_except        |
+  assign exec_an_except = exec_except_ibus_err     | exec_except_ipagefault    |
+                          exec_except_itlb_miss    | exec_except_ibus_align    |
+                          exec_except_illegal      | exec_except_syscall       |
+                          exec_except_trap         |
                           exec_except_overflow_div | exec_except_overflow_1clk |
                           exec_except_fp32_cmp     | exec_except_fp64_cmp      |
                           exec_except_fpxx_arith   |
@@ -2045,26 +2102,28 @@ module mor1kx_cpu_marocchino
     .wb_delay_slot_i                  (wb_delay_slot), // CTRL
 
     //  # combined exceptions/interrupt flag
+    .exec_an_except_i                 (exec_an_except), // CTRL
     .wb_an_except_i                   (wb_an_except_r), // CTRL
 
     //  # particular IFETCH exception flags
-    .wb_except_ibus_err_i             (wb_except_ibus_err), // CTRL
-    .wb_except_itlb_miss_i            (wb_except_itlb_miss), // CTRL
-    .wb_except_ipagefault_i           (wb_except_ipagefault), // CTRL
-    .wb_except_ibus_align_i           (wb_except_ibus_align), // CTRL
-    .wb_lsu_except_addr_i             (wb_lsu_except_addr), // CTRL
+    .wb_except_ibus_err_i             (wb_except_ibus_err_r), // CTRL
+    .wb_except_itlb_miss_i            (wb_except_itlb_miss_r), // CTRL
+    .wb_except_ipagefault_i           (wb_except_ipagefault_r), // CTRL
+    .wb_except_ibus_align_i           (wb_except_ibus_align_r), // CTRL
+
     //  # particular DECODE exception flags
-    .wb_except_illegal_i              (wb_except_illegal), // CTRL
-    .wb_except_syscall_i              (wb_except_syscall), // CTRL
-    .wb_except_trap_i                 (wb_except_trap), // CTRL
-    //  # LSU valid is miss (block padv-wb)
-    .wb_lsu_valid_miss_i              (wb_lsu_valid_miss), // CTRL: block padv-wb
+    .wb_except_illegal_i              (wb_except_illegal_r), // CTRL
+    .wb_except_syscall_i              (wb_except_syscall_r), // CTRL
+    .wb_except_trap_i                 (wb_except_trap_r), // CTRL
 
     //  # particular LSU exception flags
     .wb_except_dbus_err_i             (wb_except_dbus_err), // CTRL
     .wb_except_dtlb_miss_i            (wb_except_dtlb_miss), // CTRL
     .wb_except_dpagefault_i           (wb_except_dpagefault), // CTRL
     .wb_except_dbus_align_i           (wb_except_dbus_align), // CTRL
+    .wb_lsu_except_addr_i             (wb_lsu_except_addr), // CTRL
+    //  # LSU valid is miss (block padv-wb)
+    .wb_lsu_valid_miss_i              (wb_lsu_valid_miss), // CTRL: block padv-wb
 
     //  # overflow exception processing
     .except_overflow_enable_o         (except_overflow_enable), // CTRL
@@ -2076,7 +2135,8 @@ module mor1kx_cpu_marocchino
     .ctrl_branch_except_pc_o          (ctrl_branch_except_pc), // CTRL
     .fetch_exception_taken_i          (fetch_ecxeption_taken), // CTRL
     //  # l.rfe
-    .wb_op_rfe_i                      (wb_op_rfe), // CTRL
+    .exec_op_rfe_i                    (exec_op_rfe), // CTRL
+    .wb_op_rfe_i                      (wb_op_rfe_r), // CTRL
 
     // Multicore related
     .multicore_coreid_i               (multicore_coreid_i), // CTRL

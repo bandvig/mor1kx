@@ -73,7 +73,7 @@ module mor1kx_ctrl_marocchino
   input                                 oman_fd_an_except_i,
   input                                 dcod_valid_i,
   input                                 exec_valid_i,
-  output                                pipeline_flush_o,
+  output reg                            pipeline_flush_o,
   output                                padv_fetch_o,
   output                                padv_decode_o,
   output                                padv_wb_o,
@@ -195,6 +195,7 @@ module mor1kx_ctrl_marocchino
   input                                 wb_delay_slot_i,
 
   //  # combined exceptions/interrupt flag
+  input                                 exec_an_except_i, // to generate registered pipeline-flush
   input                                 wb_an_except_i,
 
   //  # particular IFETCH exception flags
@@ -202,7 +203,7 @@ module mor1kx_ctrl_marocchino
   input                                 wb_except_itlb_miss_i,
   input                                 wb_except_ipagefault_i,
   input                                 wb_except_ibus_align_i,
-  input      [OPTION_OPERAND_WIDTH-1:0] wb_lsu_except_addr_i,
+
   //  # particular DECODE exception flags
   input                                 wb_except_illegal_i,
   input                                 wb_except_syscall_i,
@@ -213,6 +214,7 @@ module mor1kx_ctrl_marocchino
   input                                 wb_except_dtlb_miss_i,
   input                                 wb_except_dpagefault_i,
   input                                 wb_except_dbus_align_i,
+  input      [OPTION_OPERAND_WIDTH-1:0] wb_lsu_except_addr_i,
   //  # LSU valid is miss (block padv-wb)
   input                                 wb_lsu_valid_miss_i,
 
@@ -226,6 +228,7 @@ module mor1kx_ctrl_marocchino
   output     [OPTION_OPERAND_WIDTH-1:0] ctrl_branch_except_pc_o,
   input                                 fetch_exception_taken_i,
   //  # l.rfe
+  input                                 exec_op_rfe_i, // to generate registered pipeline-flush
   input                                 wb_op_rfe_i,
 
   // Multicore related
@@ -446,7 +449,14 @@ module mor1kx_ctrl_marocchino
   //------------------------//
 
   // Pipeline flush by DU/exceptions/rfe (l.rfe is in wb-an-except)
-  assign pipeline_flush_o = du_cpu_flush | wb_an_except_i | wb_op_rfe_i;
+  always @(posedge clk `OR_ASYNC_RST) begin
+    if (rst)
+      pipeline_flush_o <= 1'b0;
+    else if (pipeline_flush_o)
+      pipeline_flush_o <= 1'b0;
+    else if (padv_wb_o | du_cpu_flush)
+      pipeline_flush_o <= (exec_an_except_i | exec_op_rfe_i | du_cpu_flush);
+  end // @ clock
 
 
   // Advance IFETCH
@@ -1145,24 +1155,8 @@ module mor1kx_ctrl_marocchino
     //   (b) When we perform transition to stall caused by external
     //       command or current step completion we generate pipe flushing
     //       AFTER the last instuction completes write back.
-    //   (c) If cpu already stalled we prevent manipulation with the register
-    //       because pipes were flushed previously
     //
-    reg du_cpu_flush_r;
-    // ---
-    always @(posedge clk `OR_ASYNC_RST) begin
-      if (rst)
-        du_cpu_flush_r <= 1'b0;
-      else if (du_cpu_stall)   // pipes were flushed previously
-        du_cpu_flush_r <= 1'b0;
-      else if (du_cpu_flush_r) // 1-clock lenght (eq. to exceptions/rfe pocessing)
-        du_cpu_flush_r <= 1'b0;
-      else if (du_cpu_stall_by_cmd | du_cpu_stall_by_stepping)
-        du_cpu_flush_r <= 1'b1;
-    end // @ clock
-    // ---
-    assign du_cpu_flush = du_cpu_flush_r;
-
+    assign du_cpu_flush = (du_cpu_stall_by_cmd | du_cpu_stall_by_stepping);
 
     //
     // goes out to the debug interface and
