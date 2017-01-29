@@ -257,7 +257,15 @@ module mor1kx_ctrl_marocchino
   reg [SPR_SR_WIDTH-1:0]            spr_esr;
   reg [OPTION_OPERAND_WIDTH-1:0]    spr_epcr;
   reg [OPTION_OPERAND_WIDTH-1:0]    spr_eear;
-  reg [OPTION_OPERAND_WIDTH-1:0]    spr_evbar;
+
+
+  // Exception vector base address
+  localparam  SPR_EVBAR_LSB   = 13;
+  localparam  SPR_EVBAR_WIDTH = OPTION_OPERAND_WIDTH - SPR_EVBAR_LSB;
+  // ---
+  reg  [SPR_EVBAR_WIDTH-1:0]        spr_evbar;
+  wire [OPTION_OPERAND_WIDTH-1:0]   exception_pc_addr;
+
 
   // FPU Control & Status Register
   // and related exeption signals
@@ -266,7 +274,6 @@ module mor1kx_ctrl_marocchino
   reg [OPTION_OPERAND_WIDTH-1:0]    spr_ppc;
   reg [OPTION_OPERAND_WIDTH-1:0]    spr_npc;
 
-  reg [OPTION_OPERAND_WIDTH-1:0]    exception_pc_addr;
 
 
   /* DU internal control signals */
@@ -351,9 +358,11 @@ module mor1kx_ctrl_marocchino
   //-------------------------------------//
 
   // Store exception vector
+  reg [4:0] exception_vector_r;
+  //---
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
-      exception_pc_addr <= {19'd0,`OR1K_RESET_VECTOR,8'd0};
+      exception_vector_r <= 5'd0;
     else if (wb_an_except_i) begin
       // synthesis parallel_case full_case
       casez({wb_except_itlb_miss_i,
@@ -372,25 +381,27 @@ module mor1kx_ctrl_marocchino
              wb_pic_interrupt_i,
              wb_tt_interrupt_i
             })
-        15'b1??????????????: exception_pc_addr <= spr_evbar | {19'd0,`OR1K_ITLB_VECTOR,8'd0};
-        15'b01?????????????: exception_pc_addr <= spr_evbar | {19'd0,`OR1K_IPF_VECTOR,8'd0};
-        15'b001????????????: exception_pc_addr <= spr_evbar | {19'd0,`OR1K_BERR_VECTOR,8'd0};
-        15'b0001???????????: exception_pc_addr <= spr_evbar | {19'd0,`OR1K_ILLEGAL_VECTOR,8'd0};
+        15'b1??????????????: exception_vector_r <= `OR1K_ITLB_VECTOR;
+        15'b01?????????????: exception_vector_r <= `OR1K_IPF_VECTOR;
+        15'b001????????????: exception_vector_r <= `OR1K_BERR_VECTOR;
+        15'b0001???????????: exception_vector_r <= `OR1K_ILLEGAL_VECTOR;
         15'b00001??????????,
-        15'b000001?????????: exception_pc_addr <= spr_evbar | {19'd0,`OR1K_ALIGN_VECTOR,8'd0};
-        15'b0000001????????: exception_pc_addr <= spr_evbar | {19'd0,`OR1K_SYSCALL_VECTOR,8'd0};
-        15'b00000001???????: exception_pc_addr <= spr_evbar | {19'd0,`OR1K_DTLB_VECTOR,8'd0};
-        15'b000000001??????: exception_pc_addr <= spr_evbar | {19'd0,`OR1K_DPF_VECTOR,8'd0};
-        15'b0000000001?????: exception_pc_addr <= spr_evbar | {19'd0,`OR1K_TRAP_VECTOR,8'd0};
-        15'b00000000001????: exception_pc_addr <= spr_evbar | {19'd0,`OR1K_BERR_VECTOR,8'd0};
-        15'b000000000001???: exception_pc_addr <= spr_evbar | {19'd0,`OR1K_RANGE_VECTOR,8'd0};
-        15'b0000000000001??: exception_pc_addr <= spr_evbar | {19'd0,`OR1K_FP_VECTOR,8'd0};
-        15'b00000000000001?: exception_pc_addr <= spr_evbar | {19'd0,`OR1K_INT_VECTOR,8'd0};
-        15'b000000000000001: exception_pc_addr <= spr_evbar | {19'd0,`OR1K_TT_VECTOR,8'd0};
-        default:             exception_pc_addr <= spr_evbar | {19'd0,`OR1K_RESET_VECTOR,8'd0};
+        15'b000001?????????: exception_vector_r <= `OR1K_ALIGN_VECTOR;
+        15'b0000001????????: exception_vector_r <= `OR1K_SYSCALL_VECTOR;
+        15'b00000001???????: exception_vector_r <= `OR1K_DTLB_VECTOR;
+        15'b000000001??????: exception_vector_r <= `OR1K_DPF_VECTOR;
+        15'b0000000001?????: exception_vector_r <= `OR1K_TRAP_VECTOR;
+        15'b00000000001????: exception_vector_r <= `OR1K_BERR_VECTOR;
+        15'b000000000001???: exception_vector_r <= `OR1K_RANGE_VECTOR;
+        15'b0000000000001??: exception_vector_r <= `OR1K_FP_VECTOR;
+        15'b00000000000001?: exception_vector_r <= `OR1K_INT_VECTOR;
+        15'b000000000000001: exception_vector_r <= `OR1K_TT_VECTOR;
+        default:             exception_vector_r <= `OR1K_RESET_VECTOR;
       endcase // casex (...
     end
   end // @ clock
+  //---
+  assign exception_pc_addr = {spr_evbar,exception_vector_r,8'd0};
 
   // flag to select l.rfe related branch vector
   reg doing_rfe_r;
@@ -706,10 +717,10 @@ module mor1kx_ctrl_marocchino
   // Exception Vector Address
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
-      spr_evbar <= {OPTION_OPERAND_WIDTH{1'b0}};
+      spr_evbar <= {SPR_EVBAR_WIDTH{1'b0}};
     else if (spr_sys_group_cs & (`SPR_OFFSET(spr_bus_addr_o) == `SPR_OFFSET(`OR1K_SPR_EVBAR_ADDR)) &
              spr_sys_group_wr_r)
-      spr_evbar <= {spr_bus_dat_o[OPTION_OPERAND_WIDTH-1:13], 13'd0};
+      spr_evbar <= spr_bus_dat_o[(OPTION_OPERAND_WIDTH-1):SPR_EVBAR_LSB];
   end // @ clock
 
   // configuration registers
@@ -900,7 +911,7 @@ module mor1kx_ctrl_marocchino
       `SPR_OFFSET(`OR1K_SPR_PCCFGR_ADDR)  : spr_sys_group_dat = spr_pccfgr;
       `SPR_OFFSET(`OR1K_SPR_VR2_ADDR)     : spr_sys_group_dat = {spr_vr2[31:8], `MOR1KX_PIPEID_CAPPUCCINO};
       `SPR_OFFSET(`OR1K_SPR_AVR_ADDR)     : spr_sys_group_dat = spr_avr;
-      `SPR_OFFSET(`OR1K_SPR_EVBAR_ADDR)   : spr_sys_group_dat = spr_evbar;
+      `SPR_OFFSET(`OR1K_SPR_EVBAR_ADDR)   : spr_sys_group_dat = {spr_evbar,{SPR_EVBAR_LSB{1'b0}}};
       `SPR_OFFSET(`OR1K_SPR_NPC_ADDR)     : spr_sys_group_dat = spr_npc;
       `SPR_OFFSET(`OR1K_SPR_SR_ADDR)      : spr_sys_group_dat = {{(OPTION_OPERAND_WIDTH-SPR_SR_WIDTH){1'b0}},
                                                                   spr_sr};
@@ -1055,84 +1066,83 @@ module mor1kx_ctrl_marocchino
 
     /* DU's Control registers and SPR BUS access cycle */
 
-    reg [31:0] spr_dmr1;
-    reg [31:0] spr_dmr2;
-    reg [31:0] spr_dsr;
-    reg [31:0] spr_drr;
+    reg spr_dmr1_st;
+    reg spr_dsr_te;
+    reg spr_drr_te;
 
     wire spr_bus_cs_du_dmr1 = (`SPR_OFFSET(spr_bus_addr_o) == `SPR_OFFSET(`OR1K_SPR_DMR1_ADDR));
-    wire spr_bus_cs_du_dmr2 = (`SPR_OFFSET(spr_bus_addr_o) == `SPR_OFFSET(`OR1K_SPR_DMR2_ADDR));
     wire spr_bus_cs_du_dsr  = (`SPR_OFFSET(spr_bus_addr_o) == `SPR_OFFSET(`OR1K_SPR_DSR_ADDR));
     wire spr_bus_cs_du_drr  = (`SPR_OFFSET(spr_bus_addr_o) == `SPR_OFFSET(`OR1K_SPR_DRR_ADDR));
 
-    reg        spr_du_wr_r;
-    reg [31:0] spr_bus_dat_du_r;
+    reg spr_du_wr_r;
+    reg spr_bus_du_dmr1_st_r, spr_bus_du_dXr_te_r;
 
     always @(posedge clk `OR_ASYNC_RST) begin
       if (rst) begin
-        spr_du_wr_r      <=  1'b0;
-        spr_bus_ack_du_r <=  1'b0;
-        spr_bus_dat_du_r <= 32'd0;
+        spr_du_wr_r           <= 1'b0;
+        spr_bus_ack_du_r      <= 1'b0;
+        spr_bus_du_dmr1_st_r  <= 1'b0;
+        spr_bus_du_dXr_te_r   <= 1'b0;
       end
       else if (spr_bus_ack_du_r) begin // end of cycle
-        spr_du_wr_r      <=  1'b0;
-        spr_bus_ack_du_r <=  1'b0;
-        spr_bus_dat_du_r <= 32'd0;
+        spr_du_wr_r           <= 1'b0;
+        spr_bus_ack_du_r      <= 1'b0;
+        spr_bus_du_dmr1_st_r  <= 1'b0;
+        spr_bus_du_dXr_te_r   <= 1'b0;
       end
       else if (spr_bus_cs_du) begin
         spr_bus_ack_du_r <= 1'b1;
         spr_du_wr_r      <= spr_bus_we_o;
         // data
         if (spr_bus_we_o) begin
-          spr_bus_dat_du_r <= 32'd0;
+          spr_bus_du_dmr1_st_r  <= 1'b0;
+          spr_bus_du_dXr_te_r   <= 1'b0;
         end
         else begin
-          spr_bus_dat_du_r <= spr_bus_cs_du_dmr1 ? spr_dmr1 :
-                              spr_bus_cs_du_dmr2 ? spr_dmr2 :
-                              spr_bus_cs_du_dsr  ? spr_dsr  :
-                              spr_bus_cs_du_drr  ? spr_drr  :
-                                                   32'd0;
-        end
+          spr_bus_du_dmr1_st_r  <= spr_bus_cs_du_dmr1 & spr_dmr1_st;
+          spr_bus_du_dXr_te_r   <= (spr_bus_cs_du_dsr & spr_dsr_te) | (spr_bus_cs_du_drr & spr_drr_te);
+       end
       end
     end // at clock
 
-    assign spr_bus_dat_du = spr_bus_dat_du_r; // DU enabled
+    assign spr_bus_dat_du = {
+                              {(OPTION_OPERAND_WIDTH - 1 - `OR1K_SPR_DMR1_ST){1'b0}}, // DU enabled: SPR BUS DAT DU
+                              spr_bus_du_dmr1_st_r,                                   // DU enabled: SPR BUS DAT DU
+                              {(`OR1K_SPR_DMR1_ST - 1 - `OR1K_SPR_DSR_TE){1'b0}},     // DU enabled: SPR BUS DAT DU
+                              spr_bus_du_dXr_te_r,                                    // DU enabled: SPR BUS DAT DU
+                              {`OR1K_SPR_DSR_TE{1'b0}}                                // DU enabled: SPR BUS DAT DU
+                            };
 
 
     /* DMR1 */
     always @(posedge clk `OR_ASYNC_RST) begin
       if (rst)
-        spr_dmr1 <= 32'd0;
+        spr_dmr1_st <= 1'b0;
       else if (spr_du_wr_r & spr_bus_cs_du_dmr1)
-        spr_dmr1[23:0] <= spr_bus_dat_o[23:0];
+        spr_dmr1_st <= spr_bus_dat_o[`OR1K_SPR_DMR1_ST];
     end // @ clock
-
-
-    /* DMR2 */
-    always @(posedge clk)
-      spr_dmr2 <= 0;
 
 
     /* DSR */
     always @(posedge clk `OR_ASYNC_RST) begin
       if (rst)
-        spr_dsr <= 32'd0;
+        spr_dsr_te <= 1'b0;
       else if (spr_du_wr_r & spr_bus_cs_du_dsr)
-        spr_dsr[13:0] <= spr_bus_dat_o[13:0];
+        spr_dsr_te <= spr_bus_dat_o[`OR1K_SPR_DSR_TE];
     end // @ clock
 
     // Pick the traps-cause-stall bit out of the DSR
-    assign du_trap_enable_o = spr_dsr[`OR1K_SPR_DSR_TE];
+    assign du_trap_enable_o = spr_dsr_te;
 
 
     /* DRR */
     always @(posedge clk `OR_ASYNC_RST) begin
       if (rst)
-        spr_drr <= 32'd0;
+        spr_drr_te <= 1'b0;
       else if (spr_du_wr_r & spr_bus_cs_du_drr)
-        spr_drr[13:0] <= spr_bus_dat_o[13:0];
+        spr_drr_te <= spr_bus_dat_o[`OR1K_SPR_DRR_TE];
       else if (wb_except_trap_i) // DU
-        spr_drr[`OR1K_SPR_DRR_TE] <= 1'b1;
+        spr_drr_te <= 1'b1;
     end // @ clock
 
 
@@ -1210,7 +1220,7 @@ module mor1kx_ctrl_marocchino
     assign du_npc_hold = du_npc_hold_r;
 
     /* Indicate step-by-step execution */
-    assign stepping = spr_dmr1[`OR1K_SPR_DMR1_ST] & spr_dsr[`OR1K_SPR_DSR_TE];
+    assign stepping = spr_dmr1_st & spr_dsr_te;
 
     reg [3:0] pstep_r;
     assign    pstep = pstep_r; // DU enabled

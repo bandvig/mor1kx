@@ -499,15 +499,13 @@ module mor1kx_lsu_marocchino
     end
   end // @clock
 
-  // l.msync cause LSU busy
-  wire cmd_msync_deassert = cmd_msync_r & (dbus_idle_state & sbuf_empty | dbus_err_instant); // deassert busy by l.msync
-  // ---
+  // LSU dosen't take next commad till completion all previous ones
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
       cmd_msync_r <= 1'b0;
-    else if (exec_op_msync_i)
+    else if (exec_op_msync_i) // assert busy by l.msync
       cmd_msync_r <= 1'b1;
-    else if (cmd_msync_deassert)
+    else if (dbus_idle_state & sbuf_empty) // deassert busy by l.msync
       cmd_msync_r <= 1'b0;
   end // @clock
 
@@ -523,12 +521,14 @@ module mor1kx_lsu_marocchino
   //  ## pay attention that l.swa is executed around of
   //     store buffer, so we don't take into accaunt
   //     atomic store here.
+  wire sbuf_err = dbus_err_instant & dbus_we & ~dbus_atomic;
+  // ---
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
       sbuf_err_o  <= 1'b0;
     else if (flush_by_ctrl) // prevent store buffer DBUS error report
       sbuf_err_o  <= 1'b0;
-    else if (dbus_err_instant & dbus_we & ~dbus_atomic)
+    else if (sbuf_err)      // rise store buffer DBUS error
       sbuf_err_o  <= 1'b1;
   end // @ clock
 
@@ -991,6 +991,8 @@ module mor1kx_lsu_marocchino
   (
     .clk          (clk), // STORE_BUFFER
     .rst          (rst), // STORE_BUFFER
+    // DBUS error during write data from store buffer (force empty)
+    .sbuf_err_i   (sbuf_err), // STORE_BUFFER
     // entry port
     .sbuf_epcr_i  (cmd_epcr), // STORE_BUFFER
     .virt_addr_i  (virt_addr_cmd), // STORE_BUFFER
