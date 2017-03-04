@@ -741,10 +741,12 @@ module mor1kx_oman_marocchino
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
       op_jr_p <= 1'b0;
-    else if ((op_jr_p & ~oman_jr_hazard) | pipeline_flush_i)
+    else if (pipeline_flush_i)
       op_jr_p <= 1'b0;
-    else if ((~op_jr_p) & padv_decode_i & dcod_op_jr_i & dcod_jr_hazard) begin
-      op_jr_p <= 1'b1;
+    else if (op_jr_p)
+      op_jr_p <= oman_jr_hazard;
+    else if (padv_decode_i) begin
+      op_jr_p          <= dcod_op_jr_i & dcod_jr_hazard;
       op_jr_d1b1_adr_p <= busy_hazard_d1b1_adr_o;
     end
   end // @clock
@@ -792,17 +794,24 @@ module mor1kx_oman_marocchino
       ocb_flag_mcycle_p <= 1'b0;
       op_1clk_cmp_p     <= 1'b0;
     end
-    else if ((op_bc_p & ~oman_bc_hazard) | pipeline_flush_i) begin
+    else if (pipeline_flush_i) begin
       op_bf_p           <= 1'b0;
       op_bnf_p          <= 1'b0;
       op_bc_p           <= 1'b0;
       ocb_flag_mcycle_p <= 1'b0;
       op_1clk_cmp_p     <= 1'b0;
     end
-    else if ((~op_bc_p) & padv_decode_i & dcod_op_bc & dcod_bc_hazard) begin
-      op_bf_p              <= dcod_op_bf_i;
-      op_bnf_p             <= dcod_op_bnf_i;
-      op_bc_p              <= 1'b1;
+    else if (op_bc_p) begin
+      op_bf_p           <= oman_bc_hazard & op_bf_p;
+      op_bnf_p          <= oman_bc_hazard & op_bnf_p;
+      op_bc_p           <= oman_bc_hazard;
+      ocb_flag_mcycle_p <= oman_bc_hazard & ocb_flag_mcycle_p;
+      op_1clk_cmp_p     <= oman_bc_hazard & op_1clk_cmp_p;
+    end
+    else if (padv_decode_i) begin
+      op_bf_p              <= dcod_op_bf_i  & dcod_bc_hazard;
+      op_bnf_p             <= dcod_op_bnf_i & dcod_bc_hazard;
+      op_bc_p              <= dcod_op_bc    & dcod_bc_hazard;
       ocb_flag_mcycle_p    <= ocb_flag_mcycle;
       op_1clk_cmp_p        <= ~ocb_flag_mcycle;
       dcod_to_imm_target_p <= dcod_to_imm_target_i;

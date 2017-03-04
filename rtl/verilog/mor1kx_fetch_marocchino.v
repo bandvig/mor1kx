@@ -266,26 +266,30 @@ module mor1kx_fetch_marocchino
       fetch_ds_p <= 1'b0;
     else if (padv_s1 | flush_by_ctrl)
       fetch_ds_p <= 1'b0;
-    else if ((~fetch_ds_p) & dcod_jump_or_branch_i & (~s1_fetching_next_insn))
-      fetch_ds_p <= 1'b1;
+    else if (~fetch_ds_p)
+      fetch_ds_p <= dcod_jump_or_branch_i & (~s1_fetching_next_insn);
   end // @ clock
   // ---
   wire fetch_ds_next = (dcod_jump_or_branch_i & (~s1_fetching_next_insn)) | fetch_ds_p;
 
   // flag to indicate that ICACHE/IBUS is fetchinng delay slot
-  reg fetching_ds_r;
+  wire fetching_ds;
+  reg  fetching_ds_r;
   // ---
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
       fetching_ds_r <= 1'b0;
-    else if ((fetching_ds & s2t_insn_or_excepts & padv_fetch_i) | flush_by_ctrl) // de-assert 'fetching-ds-r'
+    else if (flush_by_ctrl)
       fetching_ds_r <= 1'b0;
-    else if ((~fetching_ds_r) &
-             ((dcod_jump_or_branch_i & s1_fetching_next_insn) | (padv_s1 & fetch_ds_next))) // assert 'fetching-ds-r'
-      fetching_ds_r <= 1'b1;
+    else if (padv_s1)                                         // assert 'fetching-ds-r' on stage #1 advance
+      fetching_ds_r <= fetch_ds_next;
+    else if (padv_fetch_i)                                    // de-assert / keep 'fetching-ds-r'
+      fetching_ds_r <= (~s2t_insn_or_excepts) & fetching_ds;  // keep till an instruction or an except
+    else if (~fetching_ds_r)                                  // assert 'fetching-ds-r' on stage #1 halt
+      fetching_ds_r <= dcod_jump_or_branch_i & s1_fetching_next_insn;
   end // @ clock
   // combined fetching delay slot flag
-  wire fetching_ds = (dcod_jump_or_branch_i & s1_fetching_next_insn) | fetching_ds_r;
+  assign fetching_ds = (dcod_jump_or_branch_i & s1_fetching_next_insn) | fetching_ds_r;
 
 
   // store branch flag and target if stage #1 is busy
@@ -294,12 +298,20 @@ module mor1kx_fetch_marocchino
   // ---
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
-      do_branch_p <= 1'b0; // reset
-    else if ((padv_s1 & ~fetch_ds_next) | flush_by_ctrl)  // for clean up stored branch
-      do_branch_p <= 1'b0; // take stored branch or flush by pipe-flushing
-    else if ((~do_branch_p) & do_branch_i & (~fetch_jr_bc_hazard_i)) begin
-      do_branch_p        <= 1'b1;
-      do_branch_target_p <= do_branch_target_i;
+      do_branch_p <= 1'b0;  // reset
+    else if (flush_by_ctrl)
+      do_branch_p <= 1'b0;  // flushing
+    else if (padv_s1) begin // clean up / keep stored branch
+      if (do_branch_p)
+        do_branch_p <= fetch_ds_next; // keep stored branch if fetch delay slot
+      else if (fetch_ds_next) begin
+        do_branch_p        <= do_branch_i & (~fetch_jr_bc_hazard_i); // at fetch delay slot
+        do_branch_target_p <= do_branch_target_i;                    // at fetch delay slot
+      end
+    end
+    else if (~do_branch_p) begin
+      do_branch_p        <= do_branch_i & (~fetch_jr_bc_hazard_i); // if IFETCH's stage #1 stalled
+      do_branch_target_p <= do_branch_target_i;                    // if IFETCH's stage #1 stalled
     end
   end // @ clock
 
