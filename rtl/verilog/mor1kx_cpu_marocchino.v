@@ -136,7 +136,6 @@ module mor1kx_cpu_marocchino
   wire                            dcod_insn_valid;
 
   wire [OPTION_OPERAND_WIDTH-1:0] pc_decode;
-  wire [OPTION_OPERAND_WIDTH-1:0] pc_exec;
   wire [OPTION_OPERAND_WIDTH-1:0] pc_wb;
 
   wire                            wb_atomic_flag_set;
@@ -150,9 +149,6 @@ module mor1kx_cpu_marocchino
 
   wire                            dcod_flag_wb; // instruction writes comparison flag
   wire                            dcod_carry_wb; // instruction writes carry flag
-
-  wire                            dcod_flag_req;  // instructions require comparison flag
-  wire                            dcod_carry_req; // instructions require carry flag
 
   wire                            dcod_op_mfspr; // to OMAN & CTRL (not latched)
   wire                            dcod_op_mtspr; // to OMAN & CTRL (not latched)
@@ -215,11 +211,6 @@ module mor1kx_cpu_marocchino
   wire                            omn2dec_a_hazard_lsu;
   wire                            omn2dec_a_hazard_1clk;
   wire                            omn2dec_a_hazard_mclk;
-  //  by FLAG and CARRY
-  wire                            busy_hazard_f;
-  wire  [DEST_EXT_ADDR_WIDTH-1:0] busy_hazard_f_adr;
-  wire                            busy_hazard_c;
-  wire  [DEST_EXT_ADDR_WIDTH-1:0] busy_hazard_c_adr;
   //  by operands
   wire                            busy_hazard_d1a1;
   wire  [DEST_EXT_ADDR_WIDTH-1:0] busy_hazard_d1a1_adr;
@@ -252,8 +243,6 @@ module mor1kx_cpu_marocchino
   wire                            exe2dec_hazard_d2a2;
   wire                            exe2dec_hazard_d2b2;
   // Hazard could be passed from DECODE to EXECUTE
-  wire                            exec_flag_wb;
-  wire                            exec_carry_wb;
   wire                            exec_rfd1_wb;
   wire                            exec_rfd2_wb;
   wire  [DEST_EXT_ADDR_WIDTH-1:0] exec_ext_adr;
@@ -270,28 +259,35 @@ module mor1kx_cpu_marocchino
   wire                            wb_rfd2_wb;  // WB instruction is writting RF
   wire [OPTION_RF_ADDR_WIDTH-1:0] wb_rfd2_adr; // low part of A or B operand
 
+
+
+  // Logic to support Jump / Branch taking
   wire                            dcod_op_jr;
-  wire                            fetch_waiting_target;
-
-  wire                            dcod_delay_slot;
-  wire                            wb_delay_slot;
-
-
-  // branching
+  wire                            dcod_op_jimm;
+  wire                            dcod_op_bf;
+  wire                            dcod_op_bnf;
+  // pc-relative target
+  wire [OPTION_OPERAND_WIDTH-1:0] dcod_to_imm_target;
+  wire                            fetch_jr_bc_hazard;
   //  ## detect jump/branch to indicate "delay slot" for next fetched instruction
   wire                            dcod_jump_or_branch;
   //  ## support IBUS error handling in CTRL
-  wire                            exec_jump_or_branch;
+  wire                            wb_jump_or_branch;
   //  ## do branch (pedicted or unconditional)
-  wire                            dcod_do_branch;
-  wire [OPTION_OPERAND_WIDTH-1:0] dcod_do_branch_target;
-
+  wire                            do_branch;
+  wire [OPTION_OPERAND_WIDTH-1:0] do_branch_target;
+  //  ## support NPC handling in CTRL
+  wire                            wb_do_branch;
+  wire [OPTION_OPERAND_WIDTH-1:0] wb_do_branch_target;
   // Signals to stall FETCH if we are waiting flag
   //  # flag is going to be written by multi-cycle instruction
   //  # like 64-bit FPU comparison or l.swa
   wire                            dcod_flag_wb_mcycle;
-  //  # conditional branch: l.bf or l.bnf
-  wire                            dcod_op_brcond;
+
+
+  // Delay slot
+  wire                            dcod_delay_slot;
+  wire                            wb_delay_slot;
 
 
 
@@ -320,7 +316,6 @@ module mor1kx_cpu_marocchino
   wire                            dcod_adder_do_carry;
 
   wire                            dcod_op_jal;
-  wire [OPTION_OPERAND_WIDTH-1:0] dcod_jal_result;
 
   wire                            dcod_op_shift;
   wire                            dcod_op_ffl1;
@@ -393,10 +388,13 @@ module mor1kx_cpu_marocchino
   wire                            wb_except_fp64_cmp;
 
   // Forwarding comparision flag
+  wire  [DEST_EXT_ADDR_WIDTH-1:0] dcod_ext_bits;
+  // on BUSY stage of 1CLK_RSRVS
   wire                            busy_op_1clk_cmp; // integer or fp32
-  // # either l.sf* or lf.sf*
-  //   !!! MUST BE in [0] of OPC-word of reservation station
+  wire  [DEST_EXT_ADDR_WIDTH-1:0] busy_ext_bits_1clk;
+  // on EXECUTE stage of 1CLK_RSRVS
   wire                            exec_op_1clk_cmp;
+  wire  [DEST_EXT_ADDR_WIDTH-1:0] exec_ext_bits_1clk;
   // integer or fp32 comparison result
   wire                            exec_flag_set;
 
@@ -448,7 +446,6 @@ module mor1kx_cpu_marocchino
   wire fetch_except_ibus_err;
   wire fetch_except_ipagefault;
   wire fetch_except_itlb_miss;
-  wire fetch_except_ibus_align;
   //  # pre-WB IFETCH exceptions (OMAN output)
   wire exec_except_ibus_err;
   wire exec_except_ipagefault;
@@ -531,7 +528,6 @@ module mor1kx_cpu_marocchino
 
 
   // FETCH none latched outputs
-  wire                            fetch_rf_adr_valid; // fetch->rf
   wire [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfa1_adr;     // fetch->rf
   wire [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfb1_adr;     // fetch->rf
   // for FPU64
@@ -563,7 +559,6 @@ module mor1kx_cpu_marocchino
 
     // pipeline control
     .padv_fetch_i                     (padv_fetch), // FETCH
-    .fetch_waiting_target_i           (fetch_waiting_target), // FETCH
     .pipeline_flush_i                 (pipeline_flush), // FETCH
 
     // configuration
@@ -596,15 +591,15 @@ module mor1kx_cpu_marocchino
     //  ## detect jump/branch to indicate "delay slot" for next fetched instruction
     .dcod_jump_or_branch_i            (dcod_jump_or_branch), // FETCH
     //  ## do branch (pedicted or unconditional)
-    .dcod_do_branch_i                 (dcod_do_branch), // FETCH
-    .dcod_do_branch_target_i          (dcod_do_branch_target), // FETCH
+    .do_branch_i                      (do_branch), // FETCH
+    .do_branch_target_i               (do_branch_target), // FETCH
+    .fetch_jr_bc_hazard_i             (fetch_jr_bc_hazard), // FETCH
 
     // DU/exception/rfe control transfer
     .ctrl_branch_exception_i          (ctrl_branch_exception), // FETCH
     .ctrl_branch_except_pc_i          (ctrl_branch_except_pc), // FETCH
 
     //   To RF
-    .fetch_rf_adr_valid_o             (fetch_rf_adr_valid), // FETCH (bus-access-done & padv-fetch)
     .fetch_rfa1_adr_o                 (fetch_rfa1_adr), // FETCH (not latched, to RF)
     .fetch_rfb1_adr_o                 (fetch_rfb1_adr), // FETCH (not latched, to RF)
     // for FPU64
@@ -650,6 +645,7 @@ module mor1kx_cpu_marocchino
     .rst                              (rst), // RF
     // pipeline control signals
     .pipeline_flush_i                 (pipeline_flush), // RF
+    .padv_fetch_i                     (padv_fetch), // RF
     // SPR bus
     .spr_bus_addr_i                   (spr_bus_addr_o), // RF
     .spr_bus_stb_i                    (spr_bus_stb_o), // RF
@@ -658,7 +654,6 @@ module mor1kx_cpu_marocchino
     .spr_bus_ack_gpr_o                (spr_bus_ack_gpr), // RF
     .spr_bus_dat_gpr_o                (spr_bus_dat_gpr), // RF
     // from FETCH
-    .fetch_rf_adr_valid_i             (fetch_rf_adr_valid), // RF
     .fetch_rfa1_adr_i                 (fetch_rfa1_adr), // RF
     .fetch_rfb1_adr_i                 (fetch_rfb1_adr), // RF
     // for FPU64
@@ -694,6 +689,9 @@ module mor1kx_cpu_marocchino
     .dcod_rfb1_o                      (dcod_rfb1), // RF
     .dcod_rfa2_o                      (dcod_rfa2), // RF
     .dcod_rfb2_o                      (dcod_rfb2), // RF
+    // we use adder for l.jl/l.jalr to compute return address: (pc+8)
+    .dcod_op_jal_i                    (dcod_op_jal), // RF
+    .pc_decode_i                      (pc_decode), // RF
     // Special case for l.jr/l.jalr
     .dcod_rfb1_jr_o                   (dcod_rfb1_jr) // RF
   );
@@ -715,9 +713,6 @@ module mor1kx_cpu_marocchino
   (
     // INSN
     .dcod_insn_i                      (dcod_insn), // DECODE & DECODE->EXE
-    // Data dependancy detection
-    .dcod_op_jr_o                     (dcod_op_jr), // DECODE & DECODE->EXE
-    .exe2dec_hazard_d1b1_i            (exe2dec_hazard_d1b1), // DECODE & DECODE->EXE
     // PC
     .pc_decode_i                      (pc_decode), // DECODE & DECODE->EXE
     // IMM
@@ -730,29 +725,24 @@ module mor1kx_cpu_marocchino
     .dcod_rfd1_adr_o                  (dcod_rfd1_adr), // DECODE & DECODE->EXE
     .dcod_flag_wb_o                   (dcod_flag_wb), // DECODE & DECODE->EXE
     .dcod_carry_wb_o                  (dcod_carry_wb), // DECODE & DECODE->EXE
-    .dcod_flag_req_o                  (dcod_flag_req), // DECODE & DECODE->EXE
-    .dcod_carry_req_o                 (dcod_carry_req), // DECODE & DECODE->EXE
     // for FPU64
     .dcod_rfa2_req_o                  (dcod_rfa2_req), // DECODE & DECODE->EXE
     .dcod_rfb2_req_o                  (dcod_rfb2_req), // DECODE & DECODE->EXE
     .insn_rfd2_adr_i                  (insn_rfd2_adr), // DECODE & DECODE->EXE
     .dcod_rfd2_adr_o                  (dcod_rfd2_adr), // DECODE & DECODE->EXE
+    // Logic to support Jump / Branch taking
+    .dcod_op_jr_o                     (dcod_op_jr), // DECODE & DECODE->EXE
+    .dcod_op_jimm_o                   (dcod_op_jimm), // DECODE
+    .dcod_op_bf_o                     (dcod_op_bf), // DECODE
+    .dcod_op_bnf_o                    (dcod_op_bnf), // DECODE
+    // pc-relative target
+    .dcod_to_imm_target_o             (dcod_to_imm_target), // DECODE
     // flag & branches
     .dcod_jump_or_branch_o            (dcod_jump_or_branch), // DECODE & DECODE->EXE
-    // Forwarding comparision flag
-    .exec_op_1clk_cmp_i               (exec_op_1clk_cmp), // DECODE & DECODE->EXE
-    .exec_flag_set_i                  (exec_flag_set), // DECODE & DECODE->EXE
-    .ctrl_flag_i                      (ctrl_flag), // DECODE & DECODE->EXE
-    // Do jump/branch and jump/branch target for FETCH
-    .dcod_rfb1_jr_i                   (dcod_rfb1_jr), // DECODE & DECODE->EXE
-    .dcod_do_branch_o                 (dcod_do_branch), // DECODE & DECODE->EXE
-    .dcod_do_branch_target_o          (dcod_do_branch_target), // DECODE & DECODE->EXE
     // Signals to stall FETCH if we are waiting flag
     //  # flag is going to be written by multi-cycle instruction
     //  # like 64-bit FPU comparison or l.swa
     .dcod_flag_wb_mcycle_o            (dcod_flag_wb_mcycle), // DECODE & DECODE->EXE
-    //  # conditional branch
-    .dcod_op_brcond_o                 (dcod_op_brcond), // DECODE & DECODE->EXE
     // LSU related
     .dcod_imm16_o                     (dcod_imm16), // DECODE & DECODE->EXE
     .dcod_op_lsu_load_o               (dcod_op_lsu_load), // DECODE & DECODE->EXE
@@ -780,7 +770,6 @@ module mor1kx_cpu_marocchino
     .dcod_opc_logic_o                 (dcod_opc_logic), // DECODE & DECODE->EXE
     // Jump & Link
     .dcod_op_jal_o                    (dcod_op_jal), // DECODE & DECODE->EXE
-    .dcod_jal_result_o                (dcod_jal_result), // DECODE & DECODE->EXE
     // Set flag related
     .dcod_op_setflag_o                (dcod_op_setflag), // DECODE & DECODE->EXE
     .dcod_op_fp32_cmp_o               (dcod_op_fp32_cmp), // DECODE & DECODE->EXE
@@ -810,7 +799,6 @@ module mor1kx_cpu_marocchino
     //  ## enable l.trap exception
     .du_trap_enable_i                 (du_trap_enable), // DECODE & DECODE->EXE
     //  ## outcome exception flags
-    .fetch_except_ibus_align_o        (fetch_except_ibus_align), // DECODE & DECODE->EXE
     .dcod_except_illegal_o            (dcod_except_illegal), // DECODE & DECODE->EXE
     .dcod_except_syscall_o            (dcod_except_syscall), // DECODE & DECODE->EXE
     .dcod_except_trap_o               (dcod_except_trap), // DECODE & DECODE->EXE
@@ -871,11 +859,6 @@ module mor1kx_cpu_marocchino
     .dcod_rfa1_adr_i            (dcod_rfa1_adr), // OMAN
     .dcod_rfb1_req_i            (dcod_rfb1_req), // OMAN
     .dcod_rfb1_adr_i            (dcod_rfb1_adr), // OMAN
-    .dcod_flag_req_i            (dcod_flag_req), // OMAN
-    .dcod_carry_req_i           (dcod_carry_req), // OMAN
-    .dcod_op_jr_i               (dcod_op_jr), // OMAN
-    .dcod_op_brcond_i           (dcod_op_brcond), // OMAN
-    .busy_op_1clk_cmp_i         (busy_op_1clk_cmp), // OMAN
     //  part #3: information required for create enable for
     //           for external (timer/ethernet/uart/etc) interrupts
     .dcod_op_lsu_store_i        (dcod_op_lsu_store), // OMAN
@@ -910,16 +893,12 @@ module mor1kx_cpu_marocchino
     .dcod_wb2dec_eq_adr_d1b1_i  (dcod_wb2dec_eq_adr_d1b1), // OMAN
     .dcod_wb2dec_eq_adr_d1a2_i  (dcod_wb2dec_eq_adr_d1a2), // OMAN
     .dcod_wb2dec_eq_adr_d1b2_i  (dcod_wb2dec_eq_adr_d1b2), // OMAN
-    // D1 relased EXECUTE-to-DECODE hazards for LSU WB miss processing
-    .exec_wb2exe_hazard_d1xx_i  (exec_wb2exe_hazard_d1xx_1clk), // OMAN specially for l.bf/l.bnf
-    .exec_op_1clk_cmp_i         (exec_op_1clk_cmp), // OMAN specially for l.bf/l.bnf
 
     // FETCH & DECODE exceptions
     .fetch_except_ibus_err_i    (fetch_except_ibus_err), // OMAN
     .fetch_except_ipagefault_i  (fetch_except_ipagefault), // OMAN
     .fetch_except_itlb_miss_i   (fetch_except_itlb_miss), // OMAN
     .fetch_an_except_i          (fetch_an_except), // OMAN
-    .fetch_except_ibus_align_i  (fetch_except_ibus_align), // OMAN
     .dcod_except_illegal_i      (dcod_except_illegal), // OMAN
     .dcod_except_syscall_i      (dcod_except_syscall), // OMAN
     .dcod_except_trap_i         (dcod_except_trap), // OMAN
@@ -929,11 +908,6 @@ module mor1kx_cpu_marocchino
     .omn2dec_a_hazard_lsu_o     (omn2dec_a_hazard_lsu), // OMAN
     .omn2dec_a_hazard_1clk_o    (omn2dec_a_hazard_1clk), // OMAN
     .omn2dec_a_hazard_mclk_o    (omn2dec_a_hazard_mclk), // OMAN
-    //  by FLAG and CARRY
-    .busy_hazard_f_o            (busy_hazard_f), // OMAN
-    .busy_hazard_f_adr_o        (busy_hazard_f_adr), // OMAN
-    .busy_hazard_c_o            (busy_hazard_c), // OMAN
-    .busy_hazard_c_adr_o        (busy_hazard_c_adr), // OMAN
     //  by operands
     .busy_hazard_d1a1_o         (busy_hazard_d1a1), // OMAN
     .busy_hazard_d1a1_adr_o     (busy_hazard_d1a1_adr), // OMAN
@@ -967,16 +941,12 @@ module mor1kx_cpu_marocchino
     .exe2dec_hazard_d2a2_o      (exe2dec_hazard_d2a2), // OMAN
     .exe2dec_hazard_d2b2_o      (exe2dec_hazard_d2b2), // OMAN
     // Data for resolving hazards by passing from DECODE to EXECUTE
-    .exec_flag_wb_o             (exec_flag_wb), // OMAN
-    .exec_carry_wb_o            (exec_carry_wb), // OMAN
     .exec_rfd1_wb_o             (exec_rfd1_wb), // OMAN
     .exec_rfd2_wb_o             (exec_rfd2_wb), // OMAN
     .exec_ext_adr_o             (exec_ext_adr), // OMAN
 
     // Stall fetch by specific type of hazards
     .oman_fd_an_except_o        (oman_fd_an_except), // OMAN
-    // Signal to FETCH that target address or flag isn't ready
-    .fetch_waiting_target_o     (fetch_waiting_target), // OMAN
 
     // DECODE result could be processed by EXECUTE
     .dcod_valid_o               (dcod_valid), // OMAN
@@ -993,9 +963,33 @@ module mor1kx_cpu_marocchino
     // for FPU64
     .grant_wb_to_fp64_cmp_o     (grant_wb_to_fp64_cmp), // OMAN
 
+    // Logic to support Jump / Branch taking
+    .dcod_op_jr_i               (dcod_op_jr), // OMAN
+    .dcod_op_jimm_i             (dcod_op_jimm), // OMAN
+    .dcod_op_bf_i               (dcod_op_bf), // OMAN
+    .dcod_op_bnf_i              (dcod_op_bnf), // OMAN
+    // pc-relative target
+    .dcod_to_imm_target_i       (dcod_to_imm_target), // OMAN
+    // register target
+    .dcod_rfb1_jr_i             (dcod_rfb1_jr), // OMAN
+    .wb_result1_i               (wb_result1), // OMAN
+    // Forwarding comparision flag
+    .dcod_ext_bits_o            (dcod_ext_bits), // OMAN
+    .busy_op_1clk_cmp_i         (busy_op_1clk_cmp), // OMAN
+    .busy_ext_bits_1clk_i       (busy_ext_bits_1clk), // OMAN
+    .exec_wb2exe_hazard_d1xx_i  (exec_wb2exe_hazard_d1xx_1clk), // OMAN
+    .exec_op_1clk_cmp_i         (exec_op_1clk_cmp), // OMAN
+    .exec_ext_bits_1clk_i       (exec_ext_bits_1clk), // OMAN
+    .exec_flag_set_i            (exec_flag_set), // OMAN
+    .ctrl_flag_i                (ctrl_flag), // OMAN
+    // jump/branch signals to IFETCH
+    .do_branch_o                (do_branch), // OMAN
+    .do_branch_target_o         (do_branch_target), // OMAN
+    .fetch_jr_bc_hazard_o       (fetch_jr_bc_hazard), // OMAN
     // Support IBUS error handling in CTRL
-    .exec_jump_or_branch_o      (exec_jump_or_branch), // OMAN
-    .pc_exec_o                  (pc_exec), // OMAN
+    .wb_jump_or_branch_o        (wb_jump_or_branch), // OMAN
+    .wb_do_branch_o             (wb_do_branch), // OMAN
+    .wb_do_branch_target_o      (wb_do_branch_target), // OMAN
 
     //   Flag to enabel/disable exterlal interrupts processing
     // depending on the fact is instructions restartable or not
@@ -1046,16 +1040,15 @@ module mor1kx_cpu_marocchino
   //  # logic
   wire                           exec_op_logic;
   wire [`OR1K_ALU_OPC_WIDTH-1:0] exec_opc_logic;
-  //  # jump & link
-  wire                            exec_op_jal;
-  wire [OPTION_OPERAND_WIDTH-1:0] exec_jal_result;
   //  # flag related inputs
   wire                           exec_op_setflag;
   wire                           exec_op_fp32_cmp;
   wire                     [2:0] exec_opc_fp32_cmp;
 
-  // attributes include all of earlier components
-  localparam ONE_CLK_ATTR_WIDTH = 15 + (2 * `OR1K_ALU_OPC_WIDTH) + OPTION_OPERAND_WIDTH;
+  // attributes include all of earlier components:
+  //    (+ DEST_EXT_ADDR_WIDTH): dcod_ext_bits
+  //    (13 + exec_op_1clk_cmp) = 14;  <-- must be in [0]
+  localparam ONE_CLK_ATTR_WIDTH = 14 + (2 * `OR1K_ALU_OPC_WIDTH) + DEST_EXT_ADDR_WIDTH;
 
   // from BUSY stage of 1-clk reservation station
   wire [ONE_CLK_ATTR_WIDTH-1:0] busy_opc_1clk;
@@ -1091,16 +1084,16 @@ module mor1kx_cpu_marocchino
     .DCOD_RFXX_WIDTH              (2 * OPTION_OPERAND_WIDTH), // 1CLK_RSRVS
     // OMAN-to-DECODE hazards layout for various reservation stations:
     //  # LSU : {   x,    x,    x,    x, d2b1, d2a1, d1b1, d1a1 }
-    //  # 1CLK: {   x,    x, carr, flag, d2b1, d2a1, d1b1, d1a1 }
+    //  # 1CLK: {   x,    x,    x,    x, d2b1, d2a1, d1b1, d1a1 }
     //  # MCLK: {d2b2, d2a2, d1b2, d1a2, d2b1, d2a1, d1b1, d1a1 }
-    .BUSY_HAZARDS_FLAGS_WIDTH     (6), // 1CLK_RSVRS
-    .BUSY_HAZARDS_ADDRS_WIDTH     (6 * DEST_EXT_ADDR_WIDTH), // 1CLK_RSVRS
+    .BUSY_HAZARDS_FLAGS_WIDTH     (4), // 1CLK_RSVRS
+    .BUSY_HAZARDS_ADDRS_WIDTH     (4 * DEST_EXT_ADDR_WIDTH), // 1CLK_RSVRS
     // BUSY-to-EXECUTE pass hazards data layout for various reservation stations:
     // (it is also layout for WB-resolving hazards)
-    //  # LSU : {    x,     x, d2_wr, d1_wr, ext_bits }
-    //  # 1CLK: { carr,  flag, d2_wr, d1_wr, ext_bits }
-    //  # MCLK: {    x,     x, d2_wr, d1_wr, ext_bits }
-    .BUSY2EXEC_PASS_DATA_WIDTH    (4 + DEST_EXT_ADDR_WIDTH), // 1CLK_RSVRS
+    //  # LSU : { d2_wr, d1_wr, ext_bits }
+    //  # 1CLK: { d2_wr, d1_wr, ext_bits }
+    //  # MCLK: { d2_wr, d1_wr, ext_bits }
+    .BUSY2EXEC_PASS_DATA_WIDTH    (2 + DEST_EXT_ADDR_WIDTH), // 1CLK_RSVRS
     // EXEC-to-DECODE hazards layout for various reservation stations:
     //  # LSU : {   x,    x,    x,    x, d2b1, d2a1, d1b1, d1a1 }
     //  # 1CLK: {   x,    x,    x,    x, d2b1, d2a1, d1b1, d1a1 }
@@ -1122,12 +1115,10 @@ module mor1kx_cpu_marocchino
     //  combined flag
     .omn2dec_a_hazard_i         (omn2dec_a_hazard_1clk), // 1CLK_RSVRS
     //  # hazards flags
-    .busy_hazards_flags_i       ({busy_hazard_c,    busy_hazard_f, // 1CLK_RSVRS
-                                  busy_hazard_d2b1, busy_hazard_d2a1, // 1CLK_RSVRS
+    .busy_hazards_flags_i       ({busy_hazard_d2b1, busy_hazard_d2a1, // 1CLK_RSVRS
                                   busy_hazard_d1b1, busy_hazard_d1a1}), // 1CLK_RSVRS
     //  # hasards addresses
-    .busy_hazards_addrs_i       ({busy_hazard_c_adr,    busy_hazard_f_adr, // 1CLK_RSVRS
-                                  busy_hazard_d2b1_adr, busy_hazard_d2a1_adr, // 1CLK_RSVRS
+    .busy_hazards_addrs_i       ({busy_hazard_d2b1_adr, busy_hazard_d2a1_adr, // 1CLK_RSVRS
                                   busy_hazard_d1b1_adr, busy_hazard_d1a1_adr}), // 1CLK_RSVRS
     // EXEC-to-DECODE hazards
     //  combined flag
@@ -1137,14 +1128,12 @@ module mor1kx_cpu_marocchino
                                   exe2dec_hazard_d1b1, exe2dec_hazard_d1a1}), // 1CLK_RSVRS
     // Hazard could be passed from DECODE to EXECUTE
     //  ## packed input
-    .busy2exec_pass_data_i      ({exec_carry_wb, exec_flag_wb, // 1CLK_RSVRS
-                                  exec_rfd2_wb,  exec_rfd1_wb, exec_ext_adr}), // 1CLK_RSVRS
+    .busy2exec_pass_data_i      ({exec_rfd2_wb,  exec_rfd1_wb, exec_ext_adr}), // 1CLK_RSVRS
     //  ## passing only with writting back
     .padv_wb_i                  (padv_wb), // 1CLK_RSVRS
     // Hazard could be resolving
     //  ## packed input
-    .wb2exe_hazards_data_i      ({wb_carry_wb, wb_flag_wb, // 1CLK_RSVRS
-                                  wb_rfd2_wb,  wb_rfd1_wb, // 1CLK_RSVRS
+    .wb2exe_hazards_data_i      ({wb_rfd2_wb,  wb_rfd1_wb, // 1CLK_RSVRS
                                   wb_rfd1_adr[(DEST_REG_ADDR_WIDTH-1):OPTION_RF_ADDR_WIDTH]}), // 1CLK_RSVRS
     //  ## forwarding results
     .wb_result1_i               (wb_result1), // 1CLK_RSVRS
@@ -1157,9 +1146,8 @@ module mor1kx_cpu_marocchino
                                   dcod_op_add, dcod_adder_do_sub, dcod_adder_do_carry, // 1CLK_RSVRS
                                   dcod_op_shift, dcod_op_ffl1, dcod_op_movhi, dcod_op_cmov, // 1CLK_RSVRS
                                   (|dcod_opc_logic), dcod_opc_logic, // 1CLK_RSVRS
-                                  dcod_op_jal, dcod_jal_result, // 1CLK_RSVRS
                                   dcod_op_setflag, dcod_op_fp32_cmp, dcod_opc_fp32_cmp, // 1CLK_RSVRS
-                                  (dcod_op_setflag | dcod_op_fp32_cmp)}), // 1CLK_RSVRS
+                                  dcod_ext_bits, (dcod_op_setflag | dcod_op_fp32_cmp)}), // 1CLK_RSVRS
     //   command attributes from busy stage
     .busy_opc_o                 (busy_opc_1clk), // 1CLK_RSVRS
     //   combined D1XX hazards
@@ -1171,9 +1159,8 @@ module mor1kx_cpu_marocchino
                                   exec_op_add, exec_adder_do_sub, exec_adder_do_carry, // 1CLK_RSVRS
                                   exec_op_shift, exec_op_ffl1, exec_op_movhi, exec_op_cmov, // 1CLK_RSVRS
                                   exec_op_logic, exec_opc_logic, // 1CLK_RSVRS
-                                  exec_op_jal, exec_jal_result, // 1CLK_RSVRS
                                   exec_op_setflag, exec_op_fp32_cmp, exec_opc_fp32_cmp, // 1CLK_RSVRS
-                                  exec_op_1clk_cmp}), // 1CLK_RSVRS
+                                  exec_ext_bits_1clk, exec_op_1clk_cmp}), // 1CLK_RSVRS
     //   operands
     .exec_rfa1_o                (exec_1clk_a1), // 1CLK_RSVRS
     .exec_rfb1_o                (exec_1clk_b1), // 1CLK_RSVRS
@@ -1185,7 +1172,8 @@ module mor1kx_cpu_marocchino
   );
 
   // to OMAN for hazards detection
-  assign busy_op_1clk_cmp = busy_opc_1clk[0];
+  assign busy_ext_bits_1clk = busy_opc_1clk[DEST_EXT_ADDR_WIDTH:1];
+  assign busy_op_1clk_cmp   = busy_opc_1clk[0];
 
   // **** 1clk ****
   mor1kx_exec_1clk_marocchino
@@ -1224,9 +1212,6 @@ module mor1kx_cpu_marocchino
     // logic
     .exec_op_logic_i                  (exec_op_logic), // 1CLK
     .exec_opc_logic_i                 (exec_opc_logic), // 1CLK
-    // jump & link
-    .exec_op_jal_i                    (exec_op_jal), // 1CLK
-    .exec_jal_result_i                (exec_jal_result), // 1CLK
     // WB-latched 1-clock arithmetic result
     .wb_alu_1clk_result_o             (wb_alu_1clk_result), // 1CLK
     //  # update carry flag by 1clk-operation
@@ -1325,15 +1310,15 @@ module mor1kx_cpu_marocchino
     .DCOD_RFXX_WIDTH              (4 * OPTION_OPERAND_WIDTH), // MCLK_RSRVS
     // OMAN-to-DECODE hazards layout for various reservation stations:
     //  # LSU : {   x,    x,    x,    x, d2b1, d2a1, d1b1, d1a1 }
-    //  # 1CLK: {   x,    x, carr, flag, d2b1, d2a1, d1b1, d1a1 }
+    //  # 1CLK: {   x,    x,    x,    x, d2b1, d2a1, d1b1, d1a1 }
     //  # MCLK: {d2b2, d2a2, d1b2, d1a2, d2b1, d2a1, d1b1, d1a1 }
     .BUSY_HAZARDS_FLAGS_WIDTH     (8), // MCLK_RSVRS
     .BUSY_HAZARDS_ADDRS_WIDTH     (8 * DEST_EXT_ADDR_WIDTH), // MCLK_RSVRS
     // BUSY-to-EXECUTE pass hazards data layout for various reservation stations:
     // (it is also layout for WB-resolving hazards)
-    //  # LSU : {    x,     x, d2_wr, d1_wr, ext_bits }
-    //  # 1CLK: { carr,  flag, d2_wr, d1_wr, ext_bits }
-    //  # MCLK: {    x,     x, d2_wr, d1_wr, ext_bits }
+    //  # LSU : { d2_wr, d1_wr, ext_bits }
+    //  # 1CLK: { d2_wr, d1_wr, ext_bits }
+    //  # MCLK: { d2_wr, d1_wr, ext_bits }
     .BUSY2EXEC_PASS_DATA_WIDTH    (2 + DEST_EXT_ADDR_WIDTH), // MCLK_RSVRS
     // EXEC-to-DECODE hazards layout for various reservation stations:
     //  # LSU : {   x,    x,    x,    x, d2b1, d2a1, d1b1, d1a1 }
@@ -1617,15 +1602,15 @@ module mor1kx_cpu_marocchino
     .DCOD_RFXX_WIDTH              (2 * OPTION_OPERAND_WIDTH), // LSU_RSRVS
     // OMAN-to-DECODE hazards layout for various reservation stations:
     //  # LSU : {   x,    x,    x,    x, d2b1, d2a1, d1b1, d1a1 }
-    //  # 1CLK: {   x,    x, carr, flag, d2b1, d2a1, d1b1, d1a1 }
+    //  # 1CLK: {   x,    x,    x,    x, d2b1, d2a1, d1b1, d1a1 }
     //  # MCLK: {d2b2, d2a2, d1b2, d1a2, d2b1, d2a1, d1b1, d1a1 }
     .BUSY_HAZARDS_FLAGS_WIDTH     (4), // LSU_RSRVS
     .BUSY_HAZARDS_ADDRS_WIDTH     (4 * DEST_EXT_ADDR_WIDTH), // LSU_RSRVS
     // BUSY-to-EXECUTE pass hazards data layout for various reservation stations:
     // (it is also layout for WB-resolving hazards)
-    //  # LSU : {    x,     x, d2_wr, d1_wr, ext_bits }
-    //  # 1CLK: { carr,  flag, d2_wr, d1_wr, ext_bits }
-    //  # MCLK: {    x,     x, d2_wr, d1_wr, ext_bits }
+    //  # LSU : { d2_wr, d1_wr, ext_bits }
+    //  # 1CLK: { d2_wr, d1_wr, ext_bits }
+    //  # MCLK: { d2_wr, d1_wr, ext_bits }
     .BUSY2EXEC_PASS_DATA_WIDTH    (2 + DEST_EXT_ADDR_WIDTH), // LSU_RSRVS
     // EXEC-to-DECODE hazards layout for various reservation stations:
     //  # LSU : {   x,    x,    x,    x, d2b1, d2a1, d1b1, d1a1 }
@@ -1997,12 +1982,10 @@ module mor1kx_cpu_marocchino
     //  ## result to WB_MUX
     .wb_mfspr_dat_o                   (wb_mfspr_dat), // CTRL: for WB_MUX
 
-    // Track branch address for exception processing support
-    .dcod_do_branch_i                 (dcod_do_branch), // CTRL
-    .dcod_do_branch_target_i          (dcod_do_branch_target), // CTRL
     // Support IBUS error handling in CTRL
-    .exec_jump_or_branch_i            (exec_jump_or_branch), // CTRL
-    .pc_exec_i                        (pc_exec), // CTRL
+    .wb_jump_or_branch_i              (wb_jump_or_branch), // CTRL
+    .wb_do_branch_i                   (wb_do_branch), // CTRL
+    .wb_do_branch_target_i            (wb_do_branch_target), // CTRL
 
     // Debug System accesses CPU SPRs through DU
     .du_addr_i                        (du_addr_i), // CTRL

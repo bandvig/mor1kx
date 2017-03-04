@@ -712,9 +712,6 @@ module mor1kx_exec_1clk_marocchino
   // logic
   input                                 exec_op_logic_i,
   input       [`OR1K_ALU_OPC_WIDTH-1:0] exec_opc_logic_i,
-  // jump & link
-  input                                 exec_op_jal_i,
-  input      [OPTION_OPERAND_WIDTH-1:0] exec_jal_result_i,
   // WB-latched 1-clock arithmetic result
   output reg [OPTION_OPERAND_WIDTH-1:0] wb_alu_1clk_result_o,
   //  # update carry flag by 1clk-operation
@@ -764,7 +761,7 @@ module mor1kx_exec_1clk_marocchino
   wire             adder_carryout;
   wire [EXEDW-1:0] adder_result;
   // inputs
-  wire [EXEDW-1:0] b_mux = exec_adder_do_sub_i ? (~exec_1clk_b1_i) : exec_1clk_b1_i;
+  wire [EXEDW-1:0] b_mux = {EXEDW{exec_adder_do_sub_i}} ^ exec_1clk_b1_i; // inverse for l.sub
   wire carry_in = exec_adder_do_sub_i | (exec_adder_do_carry_i & carry_i);
   // Adder
   assign {adder_carryout, adder_result} =
@@ -878,13 +875,12 @@ module mor1kx_exec_1clk_marocchino
   //------------------------------------------------------------------//
   // Muxing and registering 1-clk results and integer comparison flag //
   //------------------------------------------------------------------//
-  wire [EXEDW-1:0] alu_1clk_result_mux = ({EXEDW{exec_op_shift_i}} & shift_result ) |
-                                         ({EXEDW{exec_op_ffl1_i}}  & ffl1_result  ) |
-                                         ({EXEDW{exec_op_add_i}}   & adder_result ) |
-                                         ({EXEDW{exec_op_logic_i}} & logic_result ) |
-                                         ({EXEDW{exec_op_cmov_i}}  & cmov_result  ) |
-                                         ({EXEDW{exec_op_movhi_i}} & exec_1clk_b1_i   ) |
-                                         ({EXEDW{exec_op_jal_i}}   & exec_jal_result_i ); // for GPR[9]
+  wire [EXEDW-1:0] alu_1clk_result_mux = ({EXEDW{exec_op_shift_i}} & shift_result   ) |
+                                         ({EXEDW{exec_op_ffl1_i}}  & ffl1_result    ) |
+                                         ({EXEDW{exec_op_add_i}}   & adder_result   ) |
+                                         ({EXEDW{exec_op_logic_i}} & logic_result   ) |
+                                         ({EXEDW{exec_op_cmov_i}}  & cmov_result    ) |
+                                         ({EXEDW{exec_op_movhi_i}} & exec_1clk_b1_i );
 
   //  registering output for 1-clock operations
   always @(posedge clk) begin
