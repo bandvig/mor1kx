@@ -532,17 +532,6 @@ module mor1kx_lsu_marocchino
       sbuf_err_o  <= 1'b1;
   end // @ clock
 
-  // --- addresses for bus error during bus access from store buffer ---
-  //  ## pay attention that l.swa is executed around of
-  //     store buffer, so we don't take into accaunt
-  //     atomic store here.
-  always @(posedge clk) begin
-    if (dbus_err_instant & dbus_we & ~dbus_atomic) begin
-      sbuf_eear_o <= sbuf_virt_addr;
-      sbuf_epcr_o <= sbuf_epcr;
-    end
-  end // @ clock
-
   // --- align error detection ---
   wire align_err_word  = |virt_addr_cmd[1:0];
   wire align_err_short = virt_addr_cmd[0];
@@ -843,6 +832,10 @@ module mor1kx_lsu_marocchino
             dbus_dat_o  <= sbuf_dat;        // dmem req -> write : from buffer output
             dbus_atomic <= 1'b0;            // dmem req -> write : from buffer output : l.swa goes around buffer
             sbuf_odata  <= 1'b0;            // dmem req -> write : from buffer output
+            //  # update data for potential (!) DBUS error on write
+            //  # they make sense only if sbuf-err is raised
+            sbuf_eear_o <= sbuf_virt_addr;  // dmem req -> write : from buffer output
+            sbuf_epcr_o <= sbuf_epcr;       // dmem req -> write : from buffer output
             // DBUS FSM state
             dbus_state  <= DBUS_WRITE;      // dmem req -> write : from buffer output
           end

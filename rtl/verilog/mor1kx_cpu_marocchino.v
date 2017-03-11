@@ -1858,15 +1858,15 @@ module mor1kx_cpu_marocchino
   //---------------------------------------//
   // WB: Combined exception/interrupt flag //
   //---------------------------------------//
-  assign exec_an_except = exec_except_ibus_err     | exec_except_ipagefault    |
-                          exec_except_itlb_miss    | exec_except_ibus_align    |
-                          exec_except_illegal      | exec_except_syscall       |
-                          exec_except_trap         |
-                          exec_except_overflow_div | exec_except_overflow_1clk |
-                          exec_except_fp32_cmp     | exec_except_fp64_cmp      |
-                          exec_except_fpxx_arith   |
-                          exec_an_except_lsu       |
-                          exec_tt_interrupt        | exec_pic_interrupt;
+  assign exec_an_except = exec_except_ibus_err     | exec_except_ipagefault    |  // EXEC-AN-EXCEPT
+                          exec_except_itlb_miss    | exec_except_ibus_align    |  // EXEC-AN-EXCEPT
+                          exec_except_illegal      | exec_except_syscall       |  // EXEC-AN-EXCEPT
+                          exec_except_trap         |                              // EXEC-AN-EXCEPT
+                          exec_except_overflow_div | exec_except_overflow_1clk |  // EXEC-AN-EXCEPT
+                          exec_except_fp32_cmp     | exec_except_fp64_cmp      |  // EXEC-AN-EXCEPT
+                          exec_except_fpxx_arith   |                              // EXEC-AN-EXCEPT
+                          exec_an_except_lsu       | sbuf_err                  |  // EXEC-AN-EXCEPT
+                          exec_tt_interrupt        | exec_pic_interrupt;          // EXEC-AN-EXCEPT
   // --- wb-latch ---
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)

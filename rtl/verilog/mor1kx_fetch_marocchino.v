@@ -258,38 +258,51 @@ module mor1kx_fetch_marocchino
   //   PC in DECODE and IFETCH differs by 4
   wire s1_fetching_next_insn = virt_addr_fetch[2] ^ pc_decode_o[2];
 
-  // pending "fetch delay slot" till next padv-s1
-  reg fetch_ds_p;
+  // tracking delay slot processing
+  localparam [2:0] FETCH_JB_WAIT = 3'b001;
+  localparam [2:0] FETCH_DS_NEXT = 3'b010;
+  localparam [2:0] FETCHING_DS   = 3'b100;
+  // ---
+  reg [2:0] jb_taking_state_r;
   // ---
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
-      fetch_ds_p <= 1'b0;
-    else if (padv_s1 | flush_by_ctrl)
-      fetch_ds_p <= 1'b0;
-    else if (~fetch_ds_p)
-      fetch_ds_p <= dcod_jump_or_branch_i & (~s1_fetching_next_insn);
-  end // @ clock
-  // ---
-  wire fetch_ds_next = (dcod_jump_or_branch_i & (~s1_fetching_next_insn)) | fetch_ds_p;
-
-  // flag to indicate that ICACHE/IBUS is fetchinng delay slot
-  wire fetching_ds;
-  reg  fetching_ds_r;
-  // ---
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      fetching_ds_r <= 1'b0;
+      jb_taking_state_r <= FETCH_JB_WAIT;
     else if (flush_by_ctrl)
-      fetching_ds_r <= 1'b0;
-    else if (padv_s1)                                         // assert 'fetching-ds-r' on stage #1 advance
-      fetching_ds_r <= fetch_ds_next;
-    else if (padv_fetch_i)                                    // de-assert / keep 'fetching-ds-r'
-      fetching_ds_r <= (~s2t_insn_or_excepts) & fetching_ds;  // keep till an instruction or an except
-    else if (~fetching_ds_r)                                  // assert 'fetching-ds-r' on stage #1 halt
-      fetching_ds_r <= dcod_jump_or_branch_i & s1_fetching_next_insn;
+      jb_taking_state_r <= FETCH_JB_WAIT;
+    else begin
+      // synthesis parallel_case full_case
+      case (jb_taking_state_r)
+        // stage #1 is fetchind delay slot
+        FETCHING_DS : begin
+          if (padv_fetch_i) // tracking delay slot processing: FETCHING-DS
+            jb_taking_state_r <= s2t_insn_or_excepts ? FETCH_JB_WAIT : FETCHING_DS;
+        end
+        // stay here till delay slot star fetching
+        FETCH_DS_NEXT : begin
+          if (padv_s1) // tracking delay slot processing: FETCH-DS-NEXT
+            jb_taking_state_r <= FETCHING_DS;
+        end
+        // wait jump/branch instruction in DECODE
+        FETCH_JB_WAIT : begin
+          if (padv_fetch_i) // tracking delay slot processing: FETCH-JB-WAIT
+            jb_taking_state_r <= (dcod_jump_or_branch_i & ~s1_fetching_next_insn) ? FETCH_DS_NEXT :
+                                 (dcod_jump_or_branch_i &  s1_fetching_next_insn) ?
+                                              (s2t_insn_or_excepts ? FETCH_JB_WAIT : FETCHING_DS) : FETCH_JB_WAIT;
+          else
+            jb_taking_state_r <= (dcod_jump_or_branch_i & ~s1_fetching_next_insn) ? FETCH_DS_NEXT :
+                                 (dcod_jump_or_branch_i &  s1_fetching_next_insn) ? FETCHING_DS   : FETCH_JB_WAIT;
+        end
+        // by default
+        default :
+          jb_taking_state_r <= FETCH_JB_WAIT;
+      endcase
+    end
   end // @ clock
-  // combined fetching delay slot flag
-  assign fetching_ds = (dcod_jump_or_branch_i & s1_fetching_next_insn) | fetching_ds_r;
+  // --- "fetch delay slot at next padv-s1" ---
+  wire fetch_ds_next = (dcod_jump_or_branch_i & (~s1_fetching_next_insn)) | jb_taking_state_r[1];
+  // --- combined fetching delay slot flag ---
+  wire fetching_ds   = (dcod_jump_or_branch_i &   s1_fetching_next_insn)  | jb_taking_state_r[2];
 
 
   // store branch flag and target if stage #1 is busy
