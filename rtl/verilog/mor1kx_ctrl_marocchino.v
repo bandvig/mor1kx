@@ -387,22 +387,22 @@ module mor1kx_ctrl_marocchino
       spr_epcr <= {OPTION_OPERAND_WIDTH{1'b0}};
     else if (wb_an_except_i) begin
       // synthesis parallel_case full_case
-      casez({(wb_except_itlb_miss_i | wb_except_ipagefault_i),
-              wb_except_ibus_err_i,
-             (wb_except_illegal_i   | wb_except_dbus_align_i | wb_except_ibus_align_i),
-              wb_except_syscall_i,
+      casez({(wb_except_itlb_miss_i | wb_except_ipagefault_i |
+              wb_except_ibus_err_i  |
+              wb_except_illegal_i   | wb_except_dbus_align_i | wb_except_ibus_align_i),
+             wb_except_syscall_i,
              (wb_except_dtlb_miss_i | wb_except_dpagefault_i),
-              wb_except_trap_i,
-              sbuf_err_i
+             wb_except_trap_i,
+             sbuf_err_i,
+             wb_except_dbus_err_i
             })
-        7'b1??????: spr_epcr <= epcr_default;                                           // ITLB miss, IPAGE fault
-        7'b01?????: spr_epcr <= wb_jump_or_branch_i ? pc_wb_i : last_jump_or_branch_pc; // IBUS error
-        7'b001????: spr_epcr <= epcr_default;                                           // Illegal, DBUS align, IBUS align
-        7'b0001???: spr_epcr <= wb_delay_slot_i ? last_jump_or_branch_pc : pc_nxt_wb;   // syscall
-        7'b00001??: spr_epcr <= epcr_default;                                           // DTLB miss, DPAGE fault
-        7'b000001?: spr_epcr <= spr_epcr;                                               // software breakpoint
-        7'b0000001: spr_epcr <= sbuf_epcr_i;                                            // Store buffer error
-        default   : spr_epcr <= epcr_default;                                           // by default
+        6'b1?????: spr_epcr <= epcr_default; // ITLB miss, IPAGE fault, IBUS error, Illegal, DBUS align, IBUS align
+        6'b01????: spr_epcr <= wb_delay_slot_i ? last_jump_or_branch_pc : pc_nxt_wb;   // syscall
+        6'b001???: spr_epcr <= epcr_default;                                           // DTLB miss, DPAGE fault
+        6'b0001??: spr_epcr <= spr_epcr;                                               // software breakpoint
+        6'b00001?: spr_epcr <= sbuf_epcr_i;                                            // Store buffer error
+        6'b000001: spr_epcr <= epcr_default;                                           // load or atomic load/store
+        default  : spr_epcr <= epcr_default;                                           // by default
       endcase
     end
     else if (spr_sys_group_cs & (`SPR_OFFSET(spr_bus_addr_o) == `SPR_OFFSET(`OR1K_SPR_EPCR0_ADDR)) &
@@ -410,6 +410,28 @@ module mor1kx_ctrl_marocchino
       spr_epcr <= spr_bus_dat_o;
     end
   end // @ clock
+
+
+  // Exception Effective Address
+  always @(posedge clk `OR_ASYNC_RST) begin
+    if (rst)
+      spr_eear <= {OPTION_OPERAND_WIDTH{1'b0}};
+    else if (wb_an_except_i) begin
+      // synthesis parallel_case full_case
+      casez({(wb_except_itlb_miss_i | wb_except_ipagefault_i | wb_except_ibus_align_i | wb_except_ibus_err_i),
+             (wb_except_dtlb_miss_i | wb_except_dpagefault_i | wb_except_dbus_align_i),
+             sbuf_err_i,
+             wb_except_dbus_err_i
+            })
+        4'b1???: spr_eear <= pc_wb_i;              // ITLB miss, IPAGE fault, IBUS error, IBUS align
+        4'b01??: spr_eear <= wb_lsu_except_addr_i; // DTLB miss, DPAGE fault, DBUS align
+        4'b001?: spr_eear <= sbuf_eear_i;          // STORE BUFFER write error
+        4'b0001: spr_eear <= wb_lsu_except_addr_i; // load or atomic load/store
+        default: spr_eear <= pc_wb_i;              // by default
+      endcase
+    end
+  end // @ clock
+
 
   // Store exception vector
   reg [4:0] exception_vector_r;
@@ -660,20 +682,6 @@ module mor1kx_ctrl_marocchino
     else if (spr_sys_group_cs & (`SPR_OFFSET(spr_bus_addr_o) == `SPR_OFFSET(`OR1K_SPR_ESR0_ADDR)) &
              spr_sys_group_wr_r)
       spr_esr <= spr_bus_dat_o[SPR_SR_WIDTH-1:0];
-  end // @ clock
-
-
-  // Exception Effective Address
-  wire lsu_err = wb_except_dbus_align_i | wb_except_dtlb_miss_i | wb_except_dpagefault_i;
-  // ---
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      spr_eear <= {OPTION_OPERAND_WIDTH{1'b0}};
-    else if (wb_an_except_i) begin
-      spr_eear <= lsu_err    ? wb_lsu_except_addr_i :
-                  sbuf_err_i ? sbuf_eear_i          :
-                               pc_wb_i;
-    end
   end // @ clock
 
 

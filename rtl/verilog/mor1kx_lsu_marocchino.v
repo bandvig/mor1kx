@@ -806,7 +806,7 @@ module mor1kx_lsu_marocchino
       dbus_adr_o  <= {LSUOOW{1'b0}};  // DBUS error
       dbus_dat_o  <= {LSUOOW{1'b0}};  // DBUS error
       dbus_atomic <= 1'b0;            // DBUS error
-      sbuf_odata  <= 1'b0;            // DBUS error; MAROCCHINO_TODO: force buffer empty by DBUS error ?
+      sbuf_odata  <= 1'b0;            // DBUS error
       // DBUS FSM state
       dbus_state  <= DBUS_IDLE;       // DBUS error
     end
