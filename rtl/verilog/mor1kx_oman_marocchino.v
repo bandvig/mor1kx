@@ -372,33 +372,34 @@ module mor1kx_oman_marocchino
 
   mor1kx_ocb_marocchino
   #(
-    .NUM_TAPS   (7),          // 8-th is in Write-Back stage
-    .NUM_OUTS   (7),          // must be at least 1
-    .DATA_SIZE  (OCBT_WIDTH)
+    .NUM_TAPS   (7), // INSN_OCB: 8-th is in Write-Back stage
+    .NUM_OUTS   (7), // INSN_OCB
+    .DATA_SIZE  (OCBT_WIDTH) // INSN_OCB
   )
   u_ocb
   (
-    // clocks, resets and other input controls
-    .clk              (clk),
-    .rst              (rst),
-    .pipeline_flush_i (pipeline_flush_i), // flush pipe
-    .padv_decode_i    (padv_decode_i),    // write: advance DECODE
-    .padv_wb_i        (padv_wb_i),        // read:  advance WB
+    // clocks, resets 
+    .clk              (clk), // INSN_OCB
+    .rst              (rst), // INSN_OCB
+    // pipe controls
+    .pipeline_flush_i (pipeline_flush_i), // INSN_OCB
+    .write_i          (padv_decode_i), // INSN_OCB
+    .read_i           (padv_wb_i), // INSN_OCB
     // value at reset/flush
-    .default_value_i  ({OCBT_WIDTH{1'b0}}),
+    .default_value_i  ({OCBT_WIDTH{1'b0}}), // INSN_OCB
     // data input
-    .ocbi_i           (ocbi),
+    .ocbi_i           (ocbi), // INSN_OCB
     // "OCB is empty" flag
-    .empty_o          (ocb_empty),
+    .empty_o          (ocb_empty), // INSN_OCB
     // "OCB is full" flag
     //   (a) external control logic must stop the "writing without reading"
     //       operation if OCB is full
     //   (b) however, the "writing + reading" is possible
     //       because it just pushes OCB and keeps it full
-    .full_o           (ocb_full),
+    .full_o           (ocb_full), // INSN_OCB
     // ouput layout
     // { out[n-1], out[n-2], ... out[0] } : DECODE (entrance) -> EXECUTE (exit)
-    .ocbo_o           ({ocbo06,ocbo05,ocbo04,ocbo03,ocbo02,ocbo01,ocbo00})
+    .ocbo_o           ({ocbo06,ocbo05,ocbo04,ocbo03,ocbo02,ocbo01,ocbo00}) // INSN_OCB
   );
 
 
@@ -874,6 +875,9 @@ module mor1kx_oman_marocchino
     };
   // --- output data fields for JB_ATTR_OCB ---
   wire [JB_ATTR_MSB:0] jb_attr_ocbo;
+  // --- JB_ATTR_OCB controls ---
+  wire jb_attr_ocb_write = padv_decode_i & dcod_jump_or_branch_i;
+  wire jb_attr_ocb_read  = padv_wb_i & ocbo00[OCBT_JUMP_OR_BRANCH_POS];
   // --- JB_ATTR_OCB instance ---
   mor1kx_ocb_miss_marocchino
   #(
@@ -888,8 +892,8 @@ module mor1kx_oman_marocchino
     .rst                (rst), // JB_ATTR_OCB
     // pipe controls
     .pipeline_flush_i   (pipeline_flush_i), // JB_ATTR_OCB
-    .padv_decode_i      (padv_decode_i & dcod_jump_or_branch_i), // JB_ATTR_OCB
-    .padv_wb_i          (padv_wb_i & ocbo00[OCBT_JUMP_OR_BRANCH_POS]), // JB_ATTR_OCB
+    .write_i            (jb_attr_ocb_write), // JB_ATTR_OCB
+    .read_i             (jb_attr_ocb_read), // JB_ATTR_OCB
     // value at reset/flush
     .default_value_i    ({JB_ATTR_WIDTH{1'b0}}), // JB_ATTR_OCB
     // data input

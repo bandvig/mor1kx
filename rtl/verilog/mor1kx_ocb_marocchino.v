@@ -75,12 +75,13 @@ module mor1kx_ocb_marocchino
   parameter DATA_SIZE   = 2
 )
 (
-  // clocks, resets and other input controls
+  // clocks, resets
   input                  clk,
   input                  rst,
+  // pipe controls
   input                  pipeline_flush_i, // flush pipe
-  input                  padv_decode_i,    // write: advance DECODE
-  input                  padv_wb_i,        // read:  advance WB
+  input                  write_i,
+  input                  read_i,
   // value at reset/flush
   input  [DATA_SIZE-1:0] default_value_i,
   // data input
@@ -102,21 +103,17 @@ module mor1kx_ocb_marocchino
   reg   [NUM_TAPS:0] ptr_curr; // on current active tap
   reg [NUM_TAPS-1:0] ptr_prev; // on previous active tap
 
-  // pointers are zero: tap #0 (output) is active
-  wire ptr_curr_0 = ptr_curr[0];
-  wire ptr_prev_0 = ptr_prev[0];
-
   // "OCB is empty" flag
-  assign empty_o = ptr_curr_0 & ptr_prev_0;
+  assign empty_o = ptr_curr[0] & ptr_prev[0];
 
   // "OCB is full" flag
   //  # no more availaible taps, pointer is out of range
   assign full_o = ptr_curr[NUM_TAPS];
 
   // control to increment/decrement pointers
-  wire rd_only = ~padv_decode_i &  padv_wb_i;
-  wire wr_only =  padv_decode_i & ~padv_wb_i;
-  wire wr_rd   =  padv_decode_i &  padv_wb_i;
+  wire rd_only = ~write_i &  read_i;
+  wire wr_only =  write_i & ~read_i;
+  wire wr_rd   =  write_i &  read_i;
 
 
   // operation algorithm:
@@ -133,46 +130,40 @@ module mor1kx_ocb_marocchino
   //              |       tap[ptr_prev] <= ocbi_i;
   //-----------------------------------------------------------------------------
 
-
-  wire ptr_curr_inc = wr_only; // increment pointer on current tap
-  wire ptr_curr_dec = rd_only & ~ptr_curr_0; // decrement ...
-  wire ptr_prev_dec = rd_only & ~ptr_prev_0; // decrement ... previous ...
+  wire ptrs_inc = wr_only; // try to increment pointers
+  wire ptrs_dec = rd_only; // try to decrement pointers
 
   // update pointer on current tap
   always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      ptr_curr <= {{NUM_TAPS{1'b0}},1'b1};
-    else if (pipeline_flush_i)
-      ptr_curr <= {{NUM_TAPS{1'b0}},1'b1};
-    else if (ptr_curr_inc)
-      ptr_curr <= (ptr_curr << 1);
-    else if (ptr_curr_dec)
-      ptr_curr <= (ptr_curr >> 1);
-  end // @clock
-
-  // update pointer on previous tap
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
+    if (rst) begin
       ptr_prev <= {{(NUM_TAPS-1){1'b0}},1'b1};
-    else if (pipeline_flush_i)
+      ptr_curr <= {{NUM_TAPS{1'b0}},1'b1};
+    end
+    else if (pipeline_flush_i) begin
       ptr_prev <= {{(NUM_TAPS-1){1'b0}},1'b1};
-    else if (ptr_curr_inc)
+      ptr_curr <= {{NUM_TAPS{1'b0}},1'b1};
+    end
+    else if (ptrs_inc) begin
       ptr_prev <= ptr_curr[NUM_TAPS-1:0];
-    else if (ptr_prev_dec)
-      ptr_prev <= (ptr_prev >> 1);
+      ptr_curr <= {ptr_curr[NUM_TAPS-1:0],1'b0};
+    end
+    else if (ptrs_dec) begin
+      ptr_prev <= (ptr_prev[0] ? ptr_prev : {1'b0,ptr_prev[NUM_TAPS-1:1]});
+      ptr_curr <= (ptr_curr[0] ? ptr_curr : {1'b0,ptr_curr[NUM_TAPS:1]});
+    end
   end // @clock
 
 
   // enable signals for taps
-  wire [NUM_TAPS-1:0] en_curr_tap = {NUM_TAPS{wr_only}} & ptr_curr[NUM_TAPS-1:0];
-  wire [NUM_TAPS-1:0] push_taps =
-    en_curr_tap |           // tap[ptr_curr] <= ocbi_i (note: by wr_only)
-    {NUM_TAPS{padv_wb_i}};  // tap[k-1] <= tap[k]
+  wire [NUM_TAPS-1:0] en_by_wr_only = {NUM_TAPS{wr_only}} & ptr_curr[NUM_TAPS-1:0];
+
+  // enable signals for taps
+  wire [NUM_TAPS-1:0] push_taps = en_by_wr_only |     // PUSH_TAPS: tap[ptr_curr] <= ocbi_i (particular by write only)
+                                  {NUM_TAPS{read_i}}; // PUSH_TAPS: tap[k-1] <= tap[k]      (all by a read)
 
   // control for forwarding multiplexors
-  wire [NUM_TAPS-1:0] use_forwarded_value =
-    en_curr_tap |                   // tap[ptr_curr] <= ocbi_i (note: by wr_only)
-    ({NUM_TAPS{wr_rd}} & ptr_prev); // tap[ptr_prev] <= ocbi_i;
+  wire [NUM_TAPS-1:0] use_forwarded_value = en_by_wr_only |                 // FWD_INPUT: tap[ptr_curr] <= ocbi_i (if write only)
+                                            ({NUM_TAPS{wr_rd}} & ptr_prev); // FWD_INPUT: tap[ptr_prev] <= ocbi_i (if simultaneously write & read)
 
 
   // declare interconnection (one extra than taps number for input)
@@ -245,8 +236,8 @@ module mor1kx_ocb_miss_marocchino
   input                  rst,
   // pipe controls
   input                  pipeline_flush_i, // flush pipe
-  input                  padv_decode_i,    // write: advance DECODE
-  input                  padv_wb_i,        // read:  advance WB
+  input                  write_i,
+  input                  read_i,
   // value at reset/flush
   input  [DATA_SIZE-1:0] default_value_i,
   // data input
@@ -267,9 +258,9 @@ module mor1kx_ocb_miss_marocchino
 
   // control to increment/decrement pointers
   // if miss then write continously, so no read only
-  wire wr_only = ~padv_wb_i &  (padv_decode_i | is_miss);
-  wire rd_only =  padv_wb_i & ~(padv_decode_i | is_miss);
-  wire wr_rd   =  padv_wb_i &  (padv_decode_i | is_miss);
+  wire wr_only = ~read_i &  (write_i | is_miss);
+  wire rd_only =  read_i & ~(write_i | is_miss);
+  wire wr_rd   =  read_i &  (write_i | is_miss);
 
 
   // operation algorithm:
@@ -314,8 +305,8 @@ module mor1kx_ocb_miss_marocchino
   wire [NUM_TAPS-1:0] en_by_wr_only = {NUM_TAPS{wr_only}} & (is_miss ? ptr_prev : ptr_curr[NUM_TAPS-1:0]);
 
   // enable signals for taps
-  wire [NUM_TAPS-1:0] push_taps = en_by_wr_only |        // PUSH_TAPS: tap[ptr_curr] <= ocbi_i (particular if write only)
-                                  {NUM_TAPS{padv_wb_i}}; // PUSH_TAPS: tap[k-1] <= tap[k]      (all if a read)
+  wire [NUM_TAPS-1:0] push_taps = en_by_wr_only |     // PUSH_TAPS: tap[ptr_curr] <= ocbi_i (particular if write only)
+                                  {NUM_TAPS{read_i}}; // PUSH_TAPS: tap[k-1] <= tap[k]      (all if a read)
 
   // use forwarding value for simultaneously write & read
   wire [NUM_TAPS-1:0] fw_by_wr_rd = {NUM_TAPS{wr_rd}} & (ptr_prev[0] ? ptr_prev : (is_miss ? {1'b0,ptr_prev[NUM_TAPS-1:1]} : ptr_prev));

@@ -275,9 +275,9 @@ wire rnd_op_fp64_arith;
 // PFPU [O]rder [C]ontrol [B]uffer instance
 mor1kx_ocb_marocchino
 #(
-  .NUM_TAPS   (4),
-  .NUM_OUTS   (1),
-  .DATA_SIZE (11)
+  .NUM_TAPS   (4), // PFPU_OCB
+  .NUM_OUTS   (1), // PFPU_OCB
+  .DATA_SIZE (11) // PFPU_OCB
 )
 u_pfpu_ocb
 (
@@ -286,8 +286,8 @@ u_pfpu_ocb
   .rst                (rst), // PFPU_OCB
   // pipe controls
   .pipeline_flush_i   (pipeline_flush_i), // PFPU_OCB
-  .padv_decode_i      (taking_op_fpxx_arith), // PFPU_OCB
-  .padv_wb_i          (rnd_taking_op), // PFPU_OCB
+  .write_i            (taking_op_fpxx_arith), // PFPU_OCB
+  .read_i             (rnd_taking_op), // PFPU_OCB
   // value at reset/flush
   .default_value_i    (11'd0),
   // data input
