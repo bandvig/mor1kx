@@ -820,9 +820,6 @@ module mor1kx_oman_marocchino
   end // @clock
 
 
-  // Combine IFETCH hazards
-  assign fetch_jr_bc_hazard_o = (dcod_op_jr_i & dcod_jr_hazard) | (op_jr_p & oman_jr_hazard) | // IFETCH waiting rB for l.jr/l.jalr
-                                (dcod_op_bc   & dcod_bc_hazard) | (op_bc_p & oman_bc_hazard);  // IFETCH waiting flag for l.bf/l.bnf
   // forwarded flag
   wire fwd_flag = exec_op_1clk_cmp_i ? exec_flag_set_i : ctrl_flag_i;
   // ---
@@ -846,6 +843,15 @@ module mor1kx_oman_marocchino
   // For JB_ATTR_OCB only.
   wire   oman_except_ibus_align = op_jr_p & (~oman_jr_hazard) & (|wb_result1_i[1:0]);
 
+  // Combine IFETCH hazards
+  assign fetch_jr_bc_hazard_o = (dcod_op_jr_i & dcod_jr_hazard) | (op_jr_p & oman_jr_hazard) | // IFETCH waiting rB for l.jr/l.jalr
+                                (dcod_op_bc   & dcod_bc_hazard) | (op_bc_p & oman_bc_hazard);  // IFETCH waiting flag for l.bf/l.bnf
+
+  // jump / branch has no any hazarad (valid command)
+  wire jr_bc_valid = dcod_op_jimm_i |                                                 // jump to immediate is valid permanently
+                     (dcod_op_jr_i & ~dcod_jr_hazard) | (op_jr_p & ~oman_jr_hazard) | // valid rB for l.jr/l.jalr
+                     (dcod_op_bc   & ~dcod_bc_hazard) | (op_bc_p & ~oman_bc_hazard);  // valid flag for l.bf/l.bnf
+
 
   // JUMP/BRANCH attributes [O]rder [C]ontrol [B]uffer (JB_ATTR_OCB)
   localparam  JB_ATTR_TARGET_LSB            = 0;
@@ -853,29 +859,23 @@ module mor1kx_oman_marocchino
   localparam  JB_ATTR_DO_BRANCH_POS         = JB_ATTR_TARGET_MSB            + 1; // if "do" the "target" makes sence
   localparam  JP_ATTR_EXCEPT_IBUS_ALIGN_POS = JB_ATTR_DO_BRANCH_POS         + 1;
   localparam  JB_ATTR_VALID_POS             = JP_ATTR_EXCEPT_IBUS_ALIGN_POS + 1;
+  localparam  JB_ATTR_MISS_POS              = JB_ATTR_VALID_POS             + 1; // MUST be in MSB
   //---
-  localparam  JB_ATTR_MSB   = JB_ATTR_VALID_POS;
+  localparam  JB_ATTR_MSB   = JB_ATTR_MISS_POS;
   localparam  JB_ATTR_WIDTH = JB_ATTR_MSB + 1;
   // --- input data fields for JB_ATTR_OCB ---
   wire [JB_ATTR_MSB:0] jb_attr_ocbi =
     {
-      1'b1,                                              // JB_ATTR_OCB input fields: if pushed into JB_ATTR_OCB then valid
+      fetch_jr_bc_hazard_o,                              // JB_ATTR_OCB input fields: miss
+      jr_bc_valid,                                       // JB_ATTR_OCB input fields
       (dcod_except_ibus_align | oman_except_ibus_align), // JB_ATTR_OCB input fields: align exception
       do_branch_o,                                       // JB_ATTR_OCB input fields: jump or taken branch
       do_branch_target_o                                 // JB_ATTR_OCB input fields
     };
   // --- output data fields for JB_ATTR_OCB ---
   wire [JB_ATTR_MSB:0] jb_attr_ocbo;
-  // --- push new data to JB_ATTR_OCB ---
-  wire push_jb_attr_ocb = (padv_decode_i & ( dcod_op_jimm_i                  |    // PUSH JB_ATTR_OCB from DECODE
-                                            (dcod_op_jr_i & ~dcod_jr_hazard) |    // PUSH JB_ATTR_OCB from DECODE
-                                            (dcod_op_bc   & ~dcod_bc_hazard))) |  // PUSH JB_ATTR_OCB from DECODE
-                          (op_jr_p & ~oman_jr_hazard) |                           // PUSH JB_ATTR_OCB from OMAN
-                          (op_bc_p & ~oman_bc_hazard);                            // PUSH JB_ATTR_OCB from OMAN
-  // --- "read" buffer output ---
-  wire read_jb_attr_ocb = padv_wb_i & ocbo00[OCBT_JUMP_OR_BRANCH_POS];
   // --- JB_ATTR_OCB instance ---
-  mor1kx_ocb_marocchino
+  mor1kx_ocb_miss_marocchino
   #(
     .NUM_TAPS   (4), // half of regular OCB (second half is delay slots)
     .NUM_OUTS   (1), // only "EXECUTE" level is intresting
@@ -888,16 +888,12 @@ module mor1kx_oman_marocchino
     .rst                (rst), // JB_ATTR_OCB
     // pipe controls
     .pipeline_flush_i   (pipeline_flush_i), // JB_ATTR_OCB
-    .padv_decode_i      (push_jb_attr_ocb), // JB_ATTR_OCB
-    .padv_wb_i          (read_jb_attr_ocb), // JB_ATTR_OCB
+    .padv_decode_i      (padv_decode_i & dcod_jump_or_branch_i), // JB_ATTR_OCB
+    .padv_wb_i          (padv_wb_i & ocbo00[OCBT_JUMP_OR_BRANCH_POS]), // JB_ATTR_OCB
     // value at reset/flush
     .default_value_i    ({JB_ATTR_WIDTH{1'b0}}), // JB_ATTR_OCB
     // data input
     .ocbi_i             (jb_attr_ocbi), // JB_ATTR_OCB
-    // "OCB is empty" flag
-    .empty_o            (), // JB_ATTR_OCB
-    // "OCB is full" flag
-    .full_o             (), // JB_ATTR_OCB
     // data ouputs
     .ocbo_o             (jb_attr_ocbo) // JB_ATTR_OCB
   );

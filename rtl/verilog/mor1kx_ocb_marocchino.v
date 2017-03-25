@@ -98,8 +98,6 @@ module mor1kx_ocb_marocchino
   output [DATA_SIZE*NUM_OUTS-1:0] ocbo_o
 );
 
-  genvar k, m;
-
   // "pointers"
   reg   [NUM_TAPS:0] ptr_curr; // on current active tap
   reg [NUM_TAPS-1:0] ptr_prev; // on previous active tap
@@ -144,11 +142,11 @@ module mor1kx_ocb_marocchino
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
       ptr_curr <= {{NUM_TAPS{1'b0}},1'b1};
-    else if(pipeline_flush_i)
+    else if (pipeline_flush_i)
       ptr_curr <= {{NUM_TAPS{1'b0}},1'b1};
-    else if(ptr_curr_inc)
+    else if (ptr_curr_inc)
       ptr_curr <= (ptr_curr << 1);
-    else if(ptr_curr_dec)
+    else if (ptr_curr_dec)
       ptr_curr <= (ptr_curr >> 1);
   end // @clock
 
@@ -156,11 +154,11 @@ module mor1kx_ocb_marocchino
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
       ptr_prev <= {{(NUM_TAPS-1){1'b0}},1'b1};
-    else if(pipeline_flush_i)
+    else if (pipeline_flush_i)
       ptr_prev <= {{(NUM_TAPS-1){1'b0}},1'b1};
-    else if(ptr_curr_inc)
+    else if (ptr_curr_inc)
       ptr_prev <= ptr_curr[NUM_TAPS-1:0];
-    else if(ptr_prev_dec)
+    else if (ptr_prev_dec)
       ptr_prev <= (ptr_prev >> 1);
   end // @clock
 
@@ -182,6 +180,7 @@ module mor1kx_ocb_marocchino
 
   // taps placement
   generate
+  genvar k;
   for (k = 0; k < NUM_TAPS; k = k + 1) begin : tap_k
     ocb_tap
     #(
@@ -204,6 +203,7 @@ module mor1kx_ocb_marocchino
 
   // outputs assignement
   generate
+  genvar m;
   for (m = 0; m < NUM_OUTS; m = m + 1) begin : out_m
     assign ocbo_o [(DATA_SIZE*(m+1)-1):(DATA_SIZE*m)] = ocb_bus[m];
   end
@@ -213,6 +213,163 @@ module mor1kx_ocb_marocchino
   assign ocb_bus[NUM_TAPS] = default_value_i;
 
 endmodule // mor1kx_ocb_marocchino
+
+
+
+//-----------------------------------------------------------------//
+//       Order Control Buffer with "MISS" detection                //
+//-----------------------------------------------------------------//
+//   Currently used for jump/branch attribute tracking             //
+//   If jump/branch attributee are not valid (miss target for      //
+// l.jr/l.jalr or flag for l.b/l.bnf we:                           //
+//     (a) roll-back reading and writing pointers                  //
+//     (b) block moving them till miss resolving                   //
+//     (c) do continously writting into tap with "miss" flag till  //
+//         miss resolving                                          //
+//   We don't need empty and full flags because the OCB is guided  //
+// iderictly by major order control processing                     //
+//   The module implemented separetaly from major OCB to avoid     //
+// extra complexity in source code.                                //
+//   "MISS bit" is hardcoded to be "MSB" of input data             //
+//-----------------------------------------------------------------//
+
+module mor1kx_ocb_miss_marocchino
+#(
+  parameter NUM_TAPS    = 7, // 8-th is in Write-Back stage
+  parameter NUM_OUTS    = 7, // must be at least 1
+  parameter DATA_SIZE   = 2
+)
+(
+  // clocks, resets and other input controls
+  input                  clk,
+  input                  rst,
+  // pipe controls
+  input                  pipeline_flush_i, // flush pipe
+  input                  padv_decode_i,    // write: advance DECODE
+  input                  padv_wb_i,        // read:  advance WB
+  // value at reset/flush
+  input  [DATA_SIZE-1:0] default_value_i,
+  // data input
+  input  [DATA_SIZE-1:0] ocbi_i,
+  // ouput layout
+  // { out[n-1], out[n-2], ... out[0] } : DECODE (entrance) -> EXECUTE (exit)
+  output [DATA_SIZE*NUM_OUTS-1:0] ocbo_o
+);
+
+  localparam MISS_BIT = DATA_SIZE - 1;
+
+  wire is_miss; // combined miss flag
+
+  // "pointers"
+  reg   [NUM_TAPS:0] ptr_curr; // on current active tap, no miss
+  reg [NUM_TAPS-1:0] ptr_prev; // on previous active tap, no miss
+
+
+  // control to increment/decrement pointers
+  // if miss then write continously, so no read only
+  wire wr_only = ~padv_wb_i &  (padv_decode_i | is_miss);
+  wire rd_only =  padv_wb_i & ~(padv_decode_i | is_miss);
+  wire wr_rd   =  padv_wb_i &  (padv_decode_i | is_miss);
+
+
+  // operation algorithm:
+  //-----------------------------------------------------------------------------
+  // read only    | push: tap[k-1] <= tap[k], tap[num_taps-1] <= reset_value;
+  //              | update pointers: if(~ptr_prev_0) ptr_prev <= (ptr_prev >> 1);
+  //              |                  if(~ptr_curr_0) ptr_curr <= (ptr_curr >> 1);
+  //-----------------------------------------------------------------------------
+  // write only   | tap[ptr_curr] <= ocbi_i
+  //              | ptr_prev <= ptr_curr;
+  //              | ptr_curr <= (ptr_curr << 1);
+  //-----------------------------------------------------------------------------
+  // read & write | push: tap[k-1] <= tap[k]
+  //              |       tap[ptr_prev] <= ocbi_i;
+  //-----------------------------------------------------------------------------
+
+  wire ptrs_inc = wr_only; // try to increment pointers
+  wire ptrs_dec = rd_only | (wr_rd & is_miss); // try to decrement pointers
+
+  // update pointer on current tap
+  always @(posedge clk `OR_ASYNC_RST) begin
+    if (rst) begin
+      ptr_prev <= {{(NUM_TAPS-1){1'b0}},1'b1};
+      ptr_curr <= {{NUM_TAPS{1'b0}},1'b1};
+    end
+    else if (pipeline_flush_i) begin
+      ptr_prev <= {{(NUM_TAPS-1){1'b0}},1'b1};
+      ptr_curr <= {{NUM_TAPS{1'b0}},1'b1};
+    end
+    else if (ptrs_inc) begin
+      ptr_prev <= (is_miss ? ptr_prev :  ptr_curr[NUM_TAPS-1:0]);
+      ptr_curr <= (is_miss ? ptr_curr : {ptr_curr[NUM_TAPS-1:0],1'b0});
+    end
+    else if (ptrs_dec) begin
+      ptr_prev <= (ptr_prev[0] ? ptr_prev : {1'b0,ptr_prev[NUM_TAPS-1:1]});
+      ptr_curr <= (ptr_curr[0] ? ptr_curr : {1'b0,ptr_curr[NUM_TAPS:1]});
+    end
+  end // @clock
+
+
+  // enable by write only
+  wire [NUM_TAPS-1:0] en_by_wr_only = {NUM_TAPS{wr_only}} & (is_miss ? ptr_prev : ptr_curr[NUM_TAPS-1:0]);
+
+  // enable signals for taps
+  wire [NUM_TAPS-1:0] push_taps = en_by_wr_only |        // PUSH_TAPS: tap[ptr_curr] <= ocbi_i (particular if write only)
+                                  {NUM_TAPS{padv_wb_i}}; // PUSH_TAPS: tap[k-1] <= tap[k]      (all if a read)
+
+  // use forwarding value for simultaneously write & read
+  wire [NUM_TAPS-1:0] fw_by_wr_rd = {NUM_TAPS{wr_rd}} & (ptr_prev[0] ? ptr_prev : (is_miss ? {1'b0,ptr_prev[NUM_TAPS-1:1]} : ptr_prev));
+
+  // control for forwarding multiplexors
+  wire [NUM_TAPS-1:0] use_forwarded_value = en_by_wr_only | // FWD_INPUT: tap[ptr_curr] <= ocbi_i (if write only)
+                                            fw_by_wr_rd;    // FWD_INPUT: tap[ptr_prev] <= ocbi_i (if simultaneously write & read)
+
+
+  // declare interconnection (one extra than taps number for input)
+  wire [DATA_SIZE-1:0] ocb_bus[0:NUM_TAPS];
+  wire  [NUM_TAPS-1:0] is_tap_miss;
+
+  // taps placement
+  generate
+  genvar k;
+  for (k = 0; k < NUM_TAPS; k = k + 1) begin : tap_k
+    // taps
+    ocb_tap
+    #(
+      .DATA_SIZE              (DATA_SIZE)
+    )
+    u_tap_k
+    (
+      .clk                    (clk),
+      .rst                    (rst),
+      .flush_i                (pipeline_flush_i),
+      .push_i                 (push_taps[k]),
+      .default_value_i        (default_value_i),
+      .prev_tap_out_i         (ocb_bus[k+1]),
+      .forwarded_value_i      (ocbi_i),
+      .use_forwarded_value_i  (use_forwarded_value[k]),
+      .out_o                  (ocb_bus[k])
+    );
+    // miss bits collection
+    assign is_tap_miss[k] = ocb_bus[k][MISS_BIT];
+  end
+  endgenerate
+
+  // miss is detected
+  assign is_miss = |is_tap_miss;
+
+  // outputs assignement
+  generate
+  genvar m;
+  for (m = 0; m < NUM_OUTS; m = m + 1) begin : out_m
+    assign ocbo_o [(DATA_SIZE*(m+1)-1):(DATA_SIZE*m)] = ocb_bus[m];
+  end
+  endgenerate
+
+  // and assign input of all queue:
+  assign ocb_bus[NUM_TAPS] = default_value_i;
+
+endmodule // mor1kx_ocb_miss_marocchino
 
 
 
