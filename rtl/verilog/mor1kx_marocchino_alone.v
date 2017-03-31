@@ -180,7 +180,8 @@ module mor1kx_marocchino_alone
 
 
   // BUS-Bridge for CPU instruction port
-  mor1kx_bus_if_wb32
+  //mor1kx_bus_if_wb32
+  mor1kx_bus_if_wb32_cdc
   #(
     .BUS_IF_TYPE(IBUS_WB_TYPE),
     .BURST_LENGTH((OPTION_ICACHE_BLOCK_WIDTH == 4) ? 4 :
@@ -189,8 +190,10 @@ module mor1kx_marocchino_alone
   ibus_bridge
   (
     // clocks & resets
-    .clk          (clk),
-    .rst          (rst),
+    .wb_clk       (clk),
+    .wb_rst       (rst),
+    //.clk          (clk),
+    //.rst          (rst),
     // Outputs
     .cpu_err_o    (ibus_err_i),
     .cpu_ack_o    (ibus_ack_i),
@@ -217,7 +220,8 @@ module mor1kx_marocchino_alone
   );
 
   // BUS-Bridge for CPU data port
-  mor1kx_bus_if_wb32
+  //mor1kx_bus_if_wb32
+  mor1kx_bus_if_wb32_cdc
   #(
     .BUS_IF_TYPE(DBUS_WB_TYPE),
     .BURST_LENGTH((OPTION_DCACHE_BLOCK_WIDTH == 4) ? 4 :
@@ -226,8 +230,10 @@ module mor1kx_marocchino_alone
   dbus_bridge
   (
     // clocks and resets
-    .clk          (clk),
-    .rst          (rst),
+    .wb_clk       (clk),
+    .wb_rst       (rst),
+    //.clk          (clk),
+    //.rst          (rst),
     // Outputs
     .cpu_err_o    (dbus_err_i),
     .cpu_ack_o    (dbus_ack_i),
