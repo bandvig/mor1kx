@@ -160,17 +160,21 @@ module mor1kx_marocchino_alone
   wire [OPTION_OPERAND_WIDTH-1:0] dbus_dat_o;
   wire                            dbus_req_o;
   wire                            dbus_we_o;
+  wire                            dbus_err_i;
   wire                            dbus_ack_i;
   wire [OPTION_OPERAND_WIDTH-1:0] dbus_dat_i;
-  wire                            dbus_err_i;
+  wire [OPTION_OPERAND_WIDTH-1:0] dbus_burst_adr_i;
+  wire                            dbus_burst_last_i;
 
   // BUS-Bridge <-> CPU instruction port
   wire [OPTION_OPERAND_WIDTH-1:0] ibus_adr_o;
   wire                            ibus_burst_o;
   wire                            ibus_req_o;
+  wire                            ibus_err_i;
   wire                            ibus_ack_i;
   wire [OPTION_OPERAND_WIDTH-1:0] ibus_dat_i;
-  wire                            ibus_err_i;
+  wire [OPTION_OPERAND_WIDTH-1:0] ibus_burst_adr_i;
+  wire                            ibus_burst_last_i;
 
   // SPR access ???
   wire [15:0]                     spr_bus_addr_o;
@@ -190,33 +194,35 @@ module mor1kx_marocchino_alone
   ibus_bridge
   (
     // clocks & resets
-    .wb_clk       (clk),
-    .wb_rst       (rst),
-    //.clk          (clk),
-    //.rst          (rst),
-    // Outputs
-    .cpu_err_o    (ibus_err_i),
-    .cpu_ack_o    (ibus_ack_i),
-    .cpu_dat_o    (ibus_dat_i[`OR1K_INSN_WIDTH-1:0]),
-    .wbm_adr_o    (iwbm_adr_o),
-    .wbm_stb_o    (iwbm_stb_o),
-    .wbm_cyc_o    (iwbm_cyc_o),
-    .wbm_sel_o    (iwbm_sel_o),
-    .wbm_we_o     (iwbm_we_o),
-    .wbm_cti_o    (iwbm_cti_o),
-    .wbm_bte_o    (iwbm_bte_o),
-    .wbm_dat_o    (iwbm_dat_o),
-    // Inputs
-    .cpu_adr_i    (ibus_adr_o),
-    .cpu_dat_i    ({OPTION_OPERAND_WIDTH{1'b0}}),
-    .cpu_req_i    (ibus_req_o),
-    .cpu_bsel_i   (4'b1111),
-    .cpu_we_i     (1'b0),
-    .cpu_burst_i  (ibus_burst_o),
-    .wbm_err_i    (iwbm_err_i),
-    .wbm_ack_i    (iwbm_ack_i),
-    .wbm_dat_i    (iwbm_dat_i),
-    .wbm_rty_i    (iwbm_rty_i)
+    .wb_clk           (clk), // IBUS_BRIDGE
+    .wb_rst           (rst), // IBUS_BRIDGE
+    //.clk              (clk), // IBUS_BRIDGE
+    //.rst              (rst), // IBUS_BRIDGE
+    // CPU side
+    .cpu_err_o        (ibus_err_i), // IBUS_BRIDGE
+    .cpu_ack_o        (ibus_ack_i), // IBUS_BRIDGE
+    .cpu_dat_o        (ibus_dat_i[`OR1K_INSN_WIDTH-1:0]), // IBUS_BRIDGE
+    .cpu_burst_adr_o  (ibus_burst_adr_i), // IBUS_BRIDGE
+    .cpu_burst_last_o (ibus_burst_last_i), // IBUS_BRIDGE
+    .cpu_adr_i        (ibus_adr_o), // IBUS_BRIDGE
+    .cpu_dat_i        ({OPTION_OPERAND_WIDTH{1'b0}}), // IBUS_BRIDGE
+    .cpu_req_i        (ibus_req_o), // IBUS_BRIDGE
+    .cpu_bsel_i       (4'b1111), // IBUS_BRIDGE
+    .cpu_we_i         (1'b0), // IBUS_BRIDGE
+    .cpu_burst_i      (ibus_burst_o), // IBUS_BRIDGE
+    // Wishbone side
+    .wbm_adr_o        (iwbm_adr_o), // IBUS_BRIDGE
+    .wbm_stb_o        (iwbm_stb_o), // IBUS_BRIDGE
+    .wbm_cyc_o        (iwbm_cyc_o), // IBUS_BRIDGE
+    .wbm_sel_o        (iwbm_sel_o), // IBUS_BRIDGE
+    .wbm_we_o         (iwbm_we_o), // IBUS_BRIDGE
+    .wbm_cti_o        (iwbm_cti_o), // IBUS_BRIDGE
+    .wbm_bte_o        (iwbm_bte_o), // IBUS_BRIDGE
+    .wbm_dat_o        (iwbm_dat_o), // IBUS_BRIDGE
+    .wbm_err_i        (iwbm_err_i), // IBUS_BRIDGE
+    .wbm_ack_i        (iwbm_ack_i), // IBUS_BRIDGE
+    .wbm_dat_i        (iwbm_dat_i), // IBUS_BRIDGE
+    .wbm_rty_i        (iwbm_rty_i) // IBUS_BRIDGE
   );
 
   // BUS-Bridge for CPU data port
@@ -230,33 +236,35 @@ module mor1kx_marocchino_alone
   dbus_bridge
   (
     // clocks and resets
-    .wb_clk       (clk),
-    .wb_rst       (rst),
-    //.clk          (clk),
-    //.rst          (rst),
-    // Outputs
-    .cpu_err_o    (dbus_err_i),
-    .cpu_ack_o    (dbus_ack_i),
-    .cpu_dat_o    (dbus_dat_i[OPTION_OPERAND_WIDTH-1:0]),
-    .wbm_adr_o    (dwbm_adr_o),
-    .wbm_stb_o    (dwbm_stb_o),
-    .wbm_cyc_o    (dwbm_cyc_o),
-    .wbm_sel_o    (dwbm_sel_o),
-    .wbm_we_o     (dwbm_we_o),
-    .wbm_cti_o    (dwbm_cti_o),
-    .wbm_bte_o    (dwbm_bte_o),
-    .wbm_dat_o    (dwbm_dat_o),
-    // Inputs
-    .cpu_adr_i    (dbus_adr_o[31:0]),
-    .cpu_dat_i    (dbus_dat_o),
-    .cpu_req_i    (dbus_req_o),
-    .cpu_bsel_i   (dbus_bsel_o),
-    .cpu_we_i     (dbus_we_o),
-    .cpu_burst_i  (dbus_burst_o),
-    .wbm_err_i    (dwbm_err_i),
-    .wbm_ack_i    (dwbm_ack_i),
-    .wbm_dat_i    (dwbm_dat_i),
-    .wbm_rty_i    (dwbm_rty_i)
+    .wb_clk           (clk), // DBUS_BRIDGE
+    .wb_rst           (rst), // DBUS_BRIDGE
+    //.clk              (clk), // DBUS_BRIDGE
+    //.rst              (rst), // DBUS_BRIDGE
+    // CPU side
+    .cpu_err_o        (dbus_err_i), // DBUS_BRIDGE
+    .cpu_ack_o        (dbus_ack_i), // DBUS_BRIDGE
+    .cpu_dat_o        (dbus_dat_i), // DBUS_BRIDGE
+    .cpu_burst_adr_o  (dbus_burst_adr_i), // DBUS_BRIDGE
+    .cpu_burst_last_o (dbus_burst_last_i), // DBUS_BRIDGE
+    .cpu_adr_i        (dbus_adr_o), // DBUS_BRIDGE
+    .cpu_dat_i        (dbus_dat_o), // DBUS_BRIDGE
+    .cpu_req_i        (dbus_req_o), // DBUS_BRIDGE
+    .cpu_bsel_i       (dbus_bsel_o), // DBUS_BRIDGE
+    .cpu_we_i         (dbus_we_o), // DBUS_BRIDGE
+    .cpu_burst_i      (dbus_burst_o), // DBUS_BRIDGE
+    // Wishbone side
+    .wbm_adr_o        (dwbm_adr_o), // DBUS_BRIDGE
+    .wbm_stb_o        (dwbm_stb_o), // DBUS_BRIDGE
+    .wbm_cyc_o        (dwbm_cyc_o), // DBUS_BRIDGE
+    .wbm_sel_o        (dwbm_sel_o), // DBUS_BRIDGE
+    .wbm_we_o         (dwbm_we_o), // DBUS_BRIDGE
+    .wbm_cti_o        (dwbm_cti_o), // DBUS_BRIDGE
+    .wbm_bte_o        (dwbm_bte_o), // DBUS_BRIDGE
+    .wbm_dat_o        (dwbm_dat_o), // DBUS_BRIDGE
+    .wbm_err_i        (dwbm_err_i), // DBUS_BRIDGE
+    .wbm_ack_i        (dwbm_ack_i), // DBUS_BRIDGE
+    .wbm_dat_i        (dwbm_dat_i), // DBUS_BRIDGE
+    .wbm_rty_i        (dwbm_rty_i) // DBUS_BRIDGE
   );
 
   // instance of MAROCCHINO pipeline
@@ -311,48 +319,52 @@ module mor1kx_marocchino_alone
   u_cpu_marocchino
   (
     // clocks and inputs
-    .clk  (clk),
-    .rst  (rst),
+    .clk                      (clk),
+    .rst                      (rst),
     // Outputs
-    .ibus_adr_o     (ibus_adr_o[OPTION_OPERAND_WIDTH-1:0]),
-    .ibus_req_o     (ibus_req_o),
-    .ibus_burst_o   (ibus_burst_o),
-    .dbus_adr_o     (dbus_adr_o[OPTION_OPERAND_WIDTH-1:0]),
-    .dbus_dat_o     (dbus_dat_o[OPTION_OPERAND_WIDTH-1:0]),
-    .dbus_req_o     (dbus_req_o),
-    .dbus_bsel_o    (dbus_bsel_o[3:0]),
-    .dbus_we_o      (dbus_we_o),
-    .dbus_burst_o   (dbus_burst_o),
-    .du_dat_o       (du_dat_o[OPTION_OPERAND_WIDTH-1:0]),
-    .du_ack_o       (du_ack_o),
-    .du_stall_o     (du_stall_o),
+    .ibus_adr_o               (ibus_adr_o),
+    .ibus_req_o               (ibus_req_o),
+    .ibus_burst_o             (ibus_burst_o),
+    .dbus_adr_o               (dbus_adr_o),
+    .dbus_dat_o               (dbus_dat_o),
+    .dbus_req_o               (dbus_req_o),
+    .dbus_bsel_o              (dbus_bsel_o),
+    .dbus_we_o                (dbus_we_o),
+    .dbus_burst_o             (dbus_burst_o),
+    .du_dat_o                 (du_dat_o),
+    .du_ack_o                 (du_ack_o),
+    .du_stall_o               (du_stall_o),
     .traceport_exec_valid_o   (traceport_exec_valid_o),
-    .traceport_exec_pc_o      (traceport_exec_pc_o[31:0]),
+    .traceport_exec_pc_o      (traceport_exec_pc_o),
     .traceport_exec_insn_o    (traceport_exec_insn_o[`OR1K_INSN_WIDTH-1:0]),
-    .traceport_exec_wbdata_o  (traceport_exec_wbdata_o[OPTION_OPERAND_WIDTH-1:0]),
-    .traceport_exec_wbreg_o   (traceport_exec_wbreg_o[OPTION_RF_ADDR_WIDTH-1:0]),
+    .traceport_exec_wbdata_o  (traceport_exec_wbdata_o),
+    .traceport_exec_wbreg_o   (traceport_exec_wbreg_o),
     .traceport_exec_wben_o    (traceport_exec_wben_o),
-    .spr_bus_addr_o  (spr_bus_addr_o[15:0]),
-    .spr_bus_we_o    (spr_bus_we_o),
-    .spr_bus_stb_o   (spr_bus_stb_o),
-    .spr_bus_dat_o   (spr_bus_dat_o[OPTION_OPERAND_WIDTH-1:0]),
+    .spr_bus_addr_o           (spr_bus_addr_o[15:0]),
+    .spr_bus_we_o             (spr_bus_we_o),
+    .spr_bus_stb_o            (spr_bus_stb_o),
+    .spr_bus_dat_o            (spr_bus_dat_o),
     // Inputs
-    .ibus_err_i     (ibus_err_i),
-    .ibus_ack_i     (ibus_ack_i),
-    .ibus_dat_i     (ibus_dat_i[`OR1K_INSN_WIDTH-1:0]),
-    .dbus_err_i     (dbus_err_i),
-    .dbus_ack_i     (dbus_ack_i),
-    .dbus_dat_i     (dbus_dat_i[OPTION_OPERAND_WIDTH-1:0]),
-    .irq_i  (irq_i[31:0]),
-    .du_addr_i   (du_addr_i),
-    .du_stb_i    (du_stb_i),
-    .du_dat_i    (du_dat_i[OPTION_OPERAND_WIDTH-1:0]),
-    .du_we_i     (du_we_i),
-    .du_stall_i  (du_stall_i),
-    .multicore_coreid_i    (multicore_coreid_i[OPTION_OPERAND_WIDTH-1:0]),
-    .multicore_numcores_i  (multicore_numcores_i[OPTION_OPERAND_WIDTH-1:0]),
-    .snoop_adr_i  (snoop_adr_i[31:0]),
-    .snoop_en_i   (snoop_en_i)
+    .ibus_err_i               (ibus_err_i),
+    .ibus_ack_i               (ibus_ack_i),
+    .ibus_dat_i               (ibus_dat_i[`OR1K_INSN_WIDTH-1:0]),
+    .ibus_burst_adr_i         (ibus_burst_adr_i),
+    .ibus_burst_last_i        (ibus_burst_last_i),
+    .dbus_err_i               (dbus_err_i),
+    .dbus_ack_i               (dbus_ack_i),
+    .dbus_dat_i               (dbus_dat_i),
+    .dbus_burst_adr_i         (dbus_burst_adr_i),
+    .dbus_burst_last_i        (dbus_burst_last_i),
+    .irq_i                    (irq_i[31:0]),
+    .du_addr_i                (du_addr_i),
+    .du_stb_i                 (du_stb_i),
+    .du_dat_i                 (du_dat_i),
+    .du_we_i                  (du_we_i),
+    .du_stall_i               (du_stall_i),
+    .multicore_coreid_i       (multicore_coreid_i),
+    .multicore_numcores_i     (multicore_numcores_i),
+    .snoop_adr_i              (snoop_adr_i[31:0]),
+    .snoop_en_i               (snoop_en_i)
   ); // pipe instance
 
 endmodule // mor1kx_marocchino_alone

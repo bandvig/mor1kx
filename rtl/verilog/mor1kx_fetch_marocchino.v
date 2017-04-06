@@ -78,6 +78,8 @@ module mor1kx_fetch_marocchino
   input                                 ibus_err_i,
   input                                 ibus_ack_i,
   input          [`OR1K_INSN_WIDTH-1:0] ibus_dat_i,
+  input      [OPTION_OPERAND_WIDTH-1:0] ibus_burst_adr_i,
+  input                                 ibus_burst_last_i,
   output reg                            ibus_req_o,
   output reg [OPTION_OPERAND_WIDTH-1:0] ibus_adr_o,
   output                                ibus_burst_o,
@@ -154,9 +156,7 @@ module mor1kx_fetch_marocchino
   wire     [`OR1K_INSN_WIDTH-1:0] ic_dat;
   // ICACHE requests and performs refill
   wire                            ic_refill_req;
-  wire                [IFOOW-1:0] next_refill_adr;
   wire                            ic_refill_first;
-  wire                            ic_refill_last;
 
 
   /* IBUS access state machine controls */
@@ -330,7 +330,7 @@ module mor1kx_fetch_marocchino
 
 
   // provide higher priority than exception at reset
-  reg fetch_addr_next_r; 
+  reg fetch_addr_next_r;
   // ---
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
@@ -595,13 +595,10 @@ module mor1kx_fetch_marocchino
         end
 
         IBUS_IC_REFILL: begin
-          if (ibus_ack_i) begin
-            ibus_adr_o <= next_refill_adr;  // ICACHE refill: next address
-            if (ic_refill_last) begin
-              ibus_req_o <= 1'b0;           // ICACHE refill -> idling
-              ibus_adr_o <= {IFOOW{1'b0}};  // ICACHE refill -> idling
-              ibus_state <= IBUS_IDLE;      // ICACHE refill -> idling
-            end
+          if (ibus_ack_i & ibus_burst_last_i) begin
+            ibus_req_o <= 1'b0;           // ICACHE refill -> idling
+            ibus_adr_o <= {IFOOW{1'b0}};  // ICACHE refill -> idling
+            ibus_state <= IBUS_IDLE;      // ICACHE refill -> idling
           end
         end // ic-refill
 
@@ -628,7 +625,7 @@ module mor1kx_fetch_marocchino
   end // @ clock
 
   // And burst mode
-  assign ibus_burst_o = (ic_refill_state & ~ic_refill_last);
+  assign ibus_burst_o = ic_refill_state;
 
 
   //---------------//
@@ -680,10 +677,10 @@ module mor1kx_fetch_marocchino
     .ibus_access_req_o    (ibus_access_req), // ICACHE
     // re-fill
     .refill_req_o         (ic_refill_req), // ICACHE
-    .next_refill_adr_o    (next_refill_adr), // ICACHE
     .ic_refill_first_o    (ic_refill_first), // ICACHE
-    .ic_refill_last_o     (ic_refill_last), // ICACHE
     .ibus_dat_i           (ibus_dat_i), // ICACHE
+    .ibus_burst_adr_i     (ibus_burst_adr_i), // ICACHE
+    .ibus_burst_last_i    (ibus_burst_last_i), // ICACHE
     .ibus_ack_i           (ibus_ack_i), // ICACHE
     // SPR bus
     .spr_bus_addr_i       (spr_bus_addr_i[15:0]), // ICACHE

@@ -62,7 +62,7 @@ module mor1kx_cpu_marocchino
                               `OR1K_RESET_VECTOR,8'd0},
 
   parameter FEATURE_DIVIDER = "SERIAL",
-  
+
   parameter FEATURE_PSYNC = "NONE",
   parameter FEATURE_CSYNC = "NONE",
 
@@ -81,6 +81,8 @@ module mor1kx_cpu_marocchino
   input                             ibus_err_i,
   input                             ibus_ack_i,
   input      [`OR1K_INSN_WIDTH-1:0] ibus_dat_i,
+  input  [OPTION_OPERAND_WIDTH-1:0] ibus_burst_adr_i,
+  input                             ibus_burst_last_i,
   output [OPTION_OPERAND_WIDTH-1:0] ibus_adr_o,
   output                            ibus_req_o,
   output                            ibus_burst_o,
@@ -89,6 +91,8 @@ module mor1kx_cpu_marocchino
   input                             dbus_err_i,
   input                             dbus_ack_i,
   input  [OPTION_OPERAND_WIDTH-1:0] dbus_dat_i,
+  input  [OPTION_OPERAND_WIDTH-1:0] dbus_burst_adr_i,
+  input                             dbus_burst_last_i,
   output [OPTION_OPERAND_WIDTH-1:0] dbus_adr_o,
   output [OPTION_OPERAND_WIDTH-1:0] dbus_dat_o,
   output                            dbus_req_o,
@@ -585,6 +589,8 @@ module mor1kx_cpu_marocchino
     .ibus_err_i                       (ibus_err_i), // FETCH
     .ibus_ack_i                       (ibus_ack_i), // FETCH
     .ibus_dat_i                       (ibus_dat_i[`OR1K_INSN_WIDTH-1:0]), // FETCH
+    .ibus_burst_adr_i                 (ibus_burst_adr_i), // FETCH
+    .ibus_burst_last_i                (ibus_burst_last_i), // FETCH
     .ibus_req_o                       (ibus_req_o), // FETCH
     .ibus_adr_o                       (ibus_adr_o), // FETCH
     .ibus_burst_o                     (ibus_burst_o), // FETCH
@@ -1742,7 +1748,9 @@ module mor1kx_cpu_marocchino
     // DBUS bridge interface
     .dbus_err_i                       (dbus_err_i), // LSU
     .dbus_ack_i                       (dbus_ack_i), // LSU
-    .dbus_dat_i                       (dbus_dat_i[OPTION_OPERAND_WIDTH-1:0]), // LSU
+    .dbus_dat_i                       (dbus_dat_i), // LSU
+    .dbus_burst_adr_i                 (dbus_burst_adr_i), // LSU
+    .dbus_burst_last_i                (dbus_burst_last_i), // LSU
     .dbus_adr_o                       (dbus_adr_o), // LSU
     .dbus_req_o                       (dbus_req_o), // LSU
     .dbus_dat_o                       (dbus_dat_o), // LSU

@@ -89,6 +89,8 @@ module mor1kx_lsu_marocchino
   input                                 dbus_err_i,
   input                                 dbus_ack_i,
   input      [OPTION_OPERAND_WIDTH-1:0] dbus_dat_i,
+  input      [OPTION_OPERAND_WIDTH-1:0] dbus_burst_adr_i,
+  input                                 dbus_burst_last_i,
   // Cache sync for multi-core environment
   input                          [31:0] snoop_adr_i,
   input                                 snoop_en_i,
@@ -180,9 +182,7 @@ module mor1kx_lsu_marocchino
   wire                              dc_access_read;
   wire                              dc_refill_req;
   reg                               dc_refill_allowed; // combinatorial
-  wire   [OPTION_OPERAND_WIDTH-1:0] next_refill_adr;
   wire                              dc_refill_first;
-  wire                              dc_refill_last;
 
 
   // Store buffer
@@ -322,9 +322,8 @@ module mor1kx_lsu_marocchino
                         snoop_hit;        // assert overall lsu-valid-miss: MAROCCHINO_TODO: already taken into accaunt by others ?
 
   // De-assert overall lsu-valid-miss
-  assign lsu_miss_off = ((dbus_read_state | dc_refill_last) & dbus_ack_i) | // de-assert overall lsu-valid-miss
-                        lsu_ack_store  | lsu_ack_swa;                       // de-assert overall lsu-valid-miss
-                        /*dbus_ack_load | cmd_store_r | lsu_ack_swa; */
+  assign lsu_miss_off = ((dbus_read_state | dbus_burst_last_i) & dbus_ack_i) | // de-assert overall lsu-valid-miss
+                        lsu_ack_store  | lsu_ack_swa;                          // de-assert overall lsu-valid-miss
 
 
   //----------------------------------------------------//
@@ -758,7 +757,7 @@ module mor1kx_lsu_marocchino
   // DBUS FSM //
   //----------//
 
-  assign dbus_burst_o = dc_refill_state & ~dc_refill_last;
+  assign dbus_burst_o = dc_refill_state;
 
   // Slightly subtle, but if there is an atomic store coming out from the
   // store buffer, and the link has been broken while it was waiting there,
@@ -881,13 +880,10 @@ module mor1kx_lsu_marocchino
             dbus_adr_o  <= {LSUOOW{1'b0}};                        // DC-REFILL: snoop-hit
             dbus_state  <= flush_by_ctrl ? DBUS_IDLE : DMEM_REQ;  // DC-REFILL: snoop-hit
           end
-          else if (dbus_ack_i) begin
-            dbus_adr_o <= next_refill_adr;    // DC-REFILL: DBUS-ack
-            if (dc_refill_last) begin
-              dbus_req_o  <= 1'b0;            // DC-REFILL: DBUS-last-ack
-              dbus_adr_o  <= {LSUOOW{1'b0}};  // DC-REFILL: DBUS-last-ack
-              dbus_state  <= DBUS_IDLE;       // DC-REFILL: DBUS-last-ack
-            end
+          else if (dbus_ack_i & dbus_burst_last_i) begin
+            dbus_req_o  <= 1'b0;            // DC-REFILL: DBUS-last-ack
+            dbus_adr_o  <= {LSUOOW{1'b0}};  // DC-REFILL: DBUS-last-ack
+            dbus_state  <= DBUS_IDLE;       // DC-REFILL: DBUS-last-ack
           end
         end // dc-refill
 
@@ -1148,11 +1144,11 @@ module mor1kx_lsu_marocchino
     // re-fill
     .dc_refill_req_o            (dc_refill_req), // DCACHE
     .dc_refill_allowed_i        (dc_refill_allowed), // DCACHE
-    .next_refill_adr_o          (next_refill_adr), // DCACHE
     .refill_first_o             (dc_refill_first), // DCACHE
-    .refill_last_o              (dc_refill_last), // DCACHE
     .dbus_dat_i                 (dbus_dat_i), // DCACHE
     .dbus_ack_i                 (dbus_ack_i), // DCACHE
+    .dbus_burst_adr_i           (dbus_burst_adr_i), // DCACHE
+    .dbus_burst_last_i          (dbus_burst_last_i), // DCACHE
     // SNOOP
     .snoop_adr_i                (snoop_adr_i[31:0]), // DCACHE
     .snoop_event_i              (snoop_event), // DCACHE

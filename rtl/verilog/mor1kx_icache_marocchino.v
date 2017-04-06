@@ -64,10 +64,10 @@ module mor1kx_icache_marocchino
 
   // re-fill
   output                                refill_req_o,
-  output     [OPTION_OPERAND_WIDTH-1:0] next_refill_adr_o,
-  output                                ic_refill_first_o,
-  output                                ic_refill_last_o,
+  output reg                            ic_refill_first_o,
   input          [`OR1K_INSN_WIDTH-1:0] ibus_dat_i,
+  input      [OPTION_OPERAND_WIDTH-1:0] ibus_burst_adr_i,
+  input                                 ibus_burst_last_i,
   input                                 ibus_ack_i,
 
   // SPR interface
@@ -87,11 +87,6 @@ module mor1kx_icache_marocchino
    * (index) -> | LRU | wayN valid | wayN tag |...| way0 valid | way0 tag |
    *            +---------------------------------------------------------+
    */
-
-  // Number words per block
-  // 32 byte block : (8 words x 32 bits/word) / (4 words x 64 bits/word)
-  // 16 byte block : (4 words x 32 bits/word) / (2 words x 64 bits/word)
-  localparam NUM_WORDS_PER_BLOCK = (8 * (1 << OPTION_ICACHE_BLOCK_WIDTH)) / OPTION_OPERAND_WIDTH;
 
   // The tag is the part left of the index
   localparam TAG_WIDTH = (OPTION_ICACHE_LIMIT_WIDTH - WAY_WIDTH);
@@ -131,9 +126,6 @@ module mor1kx_icache_marocchino
   wire ic_refill     = ic_state[2];
   wire ic_invalidate = ic_state[3];
 
-
-  reg [OPTION_OPERAND_WIDTH-1:0] curr_refill_adr;
-  reg  [NUM_WORDS_PER_BLOCK-1:0] refill_done;
 
   // The index we read and write from tag memory
   wire [OPTION_ICACHE_SET_WIDTH-1:0] tag_rindex;
@@ -266,14 +258,6 @@ module mor1kx_icache_marocchino
   end // always
 
 
-  assign next_refill_adr_o = (OPTION_ICACHE_BLOCK_WIDTH == 5) ?
-    {curr_refill_adr[31:5], curr_refill_adr[4:0] + 5'd4} : // 32 byte = (8 words x 32 bits/word) = (4 words x 64 bits/word)
-    {curr_refill_adr[31:4], curr_refill_adr[3:0] + 4'd4};  // 16 byte = (4 words x 32 bits/word) = (2 words x 64 bits/word)
-
-  assign ic_refill_first_o = refill_done[0];
-  assign ic_refill_last_o  = refill_done[NUM_WORDS_PER_BLOCK-1];
-
-
   // SPR bus interface
   //  # detect SPR request to ICACHE
   //  # (only invalidation command is implemented)
@@ -288,11 +272,10 @@ module mor1kx_icache_marocchino
   integer w1;
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst) begin
-      curr_refill_adr <= {OPTION_OPERAND_WIDTH{1'b0}};  // reset
-      lru_way_r       <= {OPTION_ICACHE_WAYS{1'b0}};    // reset
-      refill_done     <= {NUM_WORDS_PER_BLOCK{1'b0}};   // reset
-      ic_state        <= IC_IDLE; // reset
-      spr_bus_ack_o   <= 1'b0;    // reset
+      lru_way_r         <= {OPTION_ICACHE_WAYS{1'b0}};    // reset
+      ic_refill_first_o <= 1'b0;    // reset
+      ic_state          <= IC_IDLE; // reset
+      spr_bus_ack_o     <= 1'b0;    // reset
     end
     else begin
       // states
@@ -321,13 +304,12 @@ module mor1kx_icache_marocchino
               tag_way_save[w1] <= tag_way_out[w1];
             end
             // 1st re-fill addrress
-            curr_refill_adr <= phys_addr_fetch_i; // to re-fill
-            refill_done     <= {{(NUM_WORDS_PER_BLOCK-1){1'b0}},1'b1}; // to re-fill
+            ic_refill_first_o <= 1'b1; // to re-fill
             // to re-fill
             ic_state <= IC_REFILL;
           end
           else if (ic_fsm_adv)                                                   // FSM: READ: ibus_access_req_o ? idle : read
-            ic_state <= ((~is_cacheble) & fetch_req_hit_i) ? IC_IDLE : IC_READ;  // FSM: READ: 
+            ic_state <= ((~is_cacheble) & fetch_req_hit_i) ? IC_IDLE : IC_READ;  // FSM: READ:
           else // no advancing
             ic_state <= IC_IDLE;
         end
@@ -336,20 +318,16 @@ module mor1kx_icache_marocchino
           // In according with WISHBONE-B3 rule 3.45:
           // "SLAVE MUST NOT assert more than one of ACK, ERR or RTY"
           if (ibus_err_i) begin // during re-fill
-            refill_done <= {NUM_WORDS_PER_BLOCK{1'b0}}; // IBUS error during re-fill
             lru_way_r   <= {OPTION_ICACHE_WAYS{1'b0}};  // IBUS error during re-fill
             ic_state    <= IC_IDLE;                     // IBUS error during re-fill
           end
           else if (ibus_ack_i) begin
-            if (ic_refill_last_o) begin
-              refill_done <= {NUM_WORDS_PER_BLOCK{1'b0}}; // last re-fill
-              lru_way_r   <= {OPTION_ICACHE_WAYS{1'b0}};  // last re-fill
-              ic_state    <= IC_IDLE;                     // last re-fill
+            ic_refill_first_o <= 1'b0;                  // first re-fill
+            // last re-fill
+            if (ibus_burst_last_i) begin
+              lru_way_r <= {OPTION_ICACHE_WAYS{1'b0}};  // last re-fill
+              ic_state  <= IC_IDLE;                     // last re-fill
             end
-            else begin
-              refill_done     <= {refill_done[(NUM_WORDS_PER_BLOCK-2):0],1'b0}; // re-fill
-              curr_refill_adr <= next_refill_adr_o;                             // re-fill
-            end // last or regulat
           end // IBUS ACK
         end // RE-FILL
 
@@ -359,11 +337,10 @@ module mor1kx_icache_marocchino
         end
 
         default: begin
-          curr_refill_adr <= {OPTION_OPERAND_WIDTH{1'b0}};  // default
-          lru_way_r       <= {OPTION_ICACHE_WAYS{1'b0}};    // default
-          refill_done     <= {NUM_WORDS_PER_BLOCK{1'b0}};   // default
-          ic_state        <= IC_IDLE; // default
-          spr_bus_ack_o   <= 1'b0;    // default
+          lru_way_r         <= {OPTION_ICACHE_WAYS{1'b0}}; // default
+          ic_refill_first_o <= 1'b0;    // default
+          ic_state          <= IC_IDLE; // default
+          spr_bus_ack_o     <= 1'b0;    // default
         end
       endcase
     end // reset / regular update
@@ -381,8 +358,8 @@ module mor1kx_icache_marocchino
   // we don't do these simultaneously
   wire [WAY_WIDTH-3:0] way_addr;
   // ---
-  assign way_addr = ic_refill ? curr_refill_adr[WAY_WIDTH-1:2] : // for RE-FILL only
-                                virt_addr_mux_i[WAY_WIDTH-1:2];
+  assign way_addr = ic_refill ? ibus_burst_adr_i[WAY_WIDTH-1:2] : // WAY_ADDR at re-fill
+                                virt_addr_mux_i[WAY_WIDTH-1:2];   // WAY_ADDR default
 
   // WAY-RAM instances
   generate
@@ -481,13 +458,13 @@ module mor1kx_icache_marocchino
           tag_we = 1'b1;
           // MAROCCHINO_TODO: how to handle LRU in the case?
         end
-        else if (ibus_ack_i & ic_refill_last_o) begin
+        else if (ibus_ack_i & ibus_burst_last_i) begin
           // After refill update the tag memory entry of the
           // filled way with the LRU history, the tag and set
           // valid to 1.
           for (w2 = 0; w2 < OPTION_ICACHE_WAYS; w2 = w2 + 1) begin
             tag_way_in[w2] =
-              lru_way_r[w2] ? {1'b1,curr_refill_adr[OPTION_ICACHE_LIMIT_WIDTH-1:WAY_WIDTH]} :
+              lru_way_r[w2] ? {1'b1,ibus_burst_adr_i[OPTION_ICACHE_LIMIT_WIDTH-1:WAY_WIDTH]} :
                               tag_way_save[w2];
           end
           access_lru_history = lru_way_r;
@@ -525,9 +502,9 @@ module mor1kx_icache_marocchino
    * The tag mem is written during reads to write the LRU info
    * and during refill and invalidate
    */
-  assign tag_windex = ic_read       ? phys_addr_fetch_i[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH] : // at update LRU field
-                      ic_invalidate ? spr_bus_dat_i[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH]     : // at invalidate
-                                      curr_refill_adr[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH];    // at re-fill
+  assign tag_windex = ic_refill     ? ibus_burst_adr_i[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH]  : // TAG_WR_ADDR at re-fill
+                      ic_invalidate ? spr_bus_dat_i[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH]     : // TAG_WR_ADDR at invalidate
+                                      phys_addr_fetch_i[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH];  // TAG_WR_ADDR at update LRU field
 
   // TAG read address
   assign tag_rindex = virt_addr_mux_i[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH];
