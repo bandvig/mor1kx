@@ -94,7 +94,7 @@ module mor1kx_ocb_marocchino
   //   (b) however, the "writing + reading" is possible
   //       because it just pushes OCB and keeps it full
   output                 full_o,
-  // ouput layout
+  // output layout
   // { out[n-1], out[n-2], ... out[0] } : DECODE (entrance) -> EXECUTE (exit)
   output [DATA_SIZE*NUM_OUTS-1:0] ocbo_o
 );
@@ -242,7 +242,7 @@ module mor1kx_ocb_miss_marocchino
   input  [DATA_SIZE-1:0] default_value_i,
   // data input
   input  [DATA_SIZE-1:0] ocbi_i,
-  // ouput layout
+  // output layout
   // { out[n-1], out[n-2], ... out[0] } : DECODE (entrance) -> EXECUTE (exit)
   output [DATA_SIZE*NUM_OUTS-1:0] ocbo_o
 );

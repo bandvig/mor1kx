@@ -397,7 +397,7 @@ module mor1kx_oman_marocchino
     //   (b) however, the "writing + reading" is possible
     //       because it just pushes OCB and keeps it full
     .full_o           (ocb_full), // INSN_OCB
-    // ouput layout
+    // output layout
     // { out[n-1], out[n-2], ... out[0] } : DECODE (entrance) -> EXECUTE (exit)
     .ocbo_o           ({ocbo06,ocbo05,ocbo04,ocbo03,ocbo02,ocbo01,ocbo00}) // INSN_OCB
   );

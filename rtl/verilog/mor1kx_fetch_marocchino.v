@@ -180,7 +180,6 @@ module mor1kx_fetch_marocchino
   wire              ibus_read_state = ibus_state[2];
   wire              ic_refill_state = ibus_state[3];
   // IBUS error processing
-  wire              ibus_err_instant; // error reported "just now"
   reg               except_ibus_err;  // masked by stage #2 flushing (see later)
 
 
@@ -233,15 +232,13 @@ module mor1kx_fetch_marocchino
   /* IFETCH exeptions */
   /********************/
 
-  // IBUS error during IBUS access
-  assign ibus_err_instant = ibus_req_o & ibus_err_i;
   // IBUS error pending
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
       except_ibus_err <= 1'b0;
     else if (padv_s1 | flush_by_ctrl)
       except_ibus_err <= 1'b0;
-    else if (ibus_err_instant)
+    else if (ibus_err_i)
       except_ibus_err <= 1'b1;
   end // @ clock
 
@@ -558,8 +555,8 @@ module mor1kx_fetch_marocchino
       ibus_adr_o <= {IFOOW{1'b0}};  // by reset
       ibus_state <= IBUS_IDLE;      // by reset
     end
-    else if (ibus_err_instant) begin // IBUS FSM
-      ibus_req_o <= 1'b0;           // by IBUS error
+    else if (ibus_err_i) begin // IBUS FSM
+      ibus_req_o <= ibus_req_o;     // by IBUS error: no toggle
       ibus_adr_o <= {IFOOW{1'b0}};  // by IBUS error
       ibus_state <= IBUS_IDLE;      // by IBUS error
     end
@@ -578,12 +575,12 @@ module mor1kx_fetch_marocchino
             ibus_state <= IBUS_IDLE;  // memory system request -> idling (exceptions or flushing)
           end
           else if (ic_refill_req) begin
-            ibus_req_o <= 1'b1;             // memory system request -> ICACHE refill
+            ibus_req_o <= ~ibus_req_o;      // memory system request -> ICACHE refill
             ibus_adr_o <= phys_addr_fetch;  // memory system request -> ICACHE refill
             ibus_state <= IBUS_IC_REFILL;   // memory system request -> ICACHE refill
           end
           else if (ibus_access_req) begin
-            ibus_req_o <= 1'b1;             // memory system request -> IBUS read
+            ibus_req_o <= ~ibus_req_o;      // memory system request -> IBUS read
             ibus_adr_o <= phys_addr_fetch;  // memory system request -> IBUS read
             ibus_state <= IBUS_READ;        // memory system request -> IBUS read
           end
@@ -596,7 +593,6 @@ module mor1kx_fetch_marocchino
 
         IBUS_IC_REFILL: begin
           if (ibus_ack_i & ibus_burst_last_i) begin
-            ibus_req_o <= 1'b0;           // ICACHE refill -> idling
             ibus_adr_o <= {IFOOW{1'b0}};  // ICACHE refill -> idling
             ibus_state <= IBUS_IDLE;      // ICACHE refill -> idling
           end
@@ -604,7 +600,6 @@ module mor1kx_fetch_marocchino
 
         IBUS_READ: begin
           if (ibus_ack_i) begin
-            ibus_req_o <= 1'b0;                 // IBUS read: complete
             ibus_adr_o <= {IFOOW{1'b0}};        // IBUS read: complete
             if (flush_by_ctrl)                  // IBUS READ -> IDLE: also priority in IMMU and ICACHE
               ibus_state <= IBUS_IDLE;          // IBUS READ -> IDLE by flushing
@@ -616,7 +611,7 @@ module mor1kx_fetch_marocchino
         end // read
 
         default: begin
-          ibus_req_o <= 1'b0;           // default
+          ibus_req_o <= ibus_req_o;     // default: no toggle
           ibus_adr_o <= {IFOOW{1'b0}};  // default
           ibus_state <= IBUS_IDLE;      // default
         end

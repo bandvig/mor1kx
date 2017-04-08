@@ -184,8 +184,7 @@ module mor1kx_marocchino_alone
 
 
   // BUS-Bridge for CPU instruction port
-  //mor1kx_bus_if_wb32
-  mor1kx_bus_if_wb32_cdc
+  mor1kx_bus_if_wb32_marocchino
   #(
     .BUS_IF_TYPE(IBUS_WB_TYPE),
     .BURST_LENGTH((OPTION_ICACHE_BLOCK_WIDTH == 4) ? 4 :
@@ -193,11 +192,12 @@ module mor1kx_marocchino_alone
   )
   ibus_bridge
   (
-    // clocks & resets
-    .wb_clk           (clk), // IBUS_BRIDGE
-    .wb_rst           (rst), // IBUS_BRIDGE
-    //.clk              (clk), // IBUS_BRIDGE
-    //.rst              (rst), // IBUS_BRIDGE
+    // WB-domain: clock and reset
+    .wb_clk           (clk), // IBUS_BRIDGE : MAROCCHINO_TODO: should be wb-clock
+    .wb_rst           (rst), // IBUS_BRIDGE : MAROCCHINO_TODO: should be wb-rst
+    // CPU-domain: clock and reset
+    .cpu_clk          (clk), // IBUS_BRIDGE : MAROCCHINO_TODO: should be cpu-clock
+    .cpu_rst          (rst), // IBUS_BRIDGE : MAROCCHINO_TODO: should be cpu-rst
     // CPU side
     .cpu_err_o        (ibus_err_i), // IBUS_BRIDGE
     .cpu_ack_o        (ibus_ack_i), // IBUS_BRIDGE
@@ -226,8 +226,7 @@ module mor1kx_marocchino_alone
   );
 
   // BUS-Bridge for CPU data port
-  //mor1kx_bus_if_wb32
-  mor1kx_bus_if_wb32_cdc
+  mor1kx_bus_if_wb32_marocchino
   #(
     .BUS_IF_TYPE(DBUS_WB_TYPE),
     .BURST_LENGTH((OPTION_DCACHE_BLOCK_WIDTH == 4) ? 4 :
@@ -235,11 +234,12 @@ module mor1kx_marocchino_alone
   )
   dbus_bridge
   (
-    // clocks and resets
-    .wb_clk           (clk), // DBUS_BRIDGE
-    .wb_rst           (rst), // DBUS_BRIDGE
-    //.clk              (clk), // DBUS_BRIDGE
-    //.rst              (rst), // DBUS_BRIDGE
+    // WB-domain: clock and reset
+    .wb_clk           (clk), // DBUS_BRIDGE : MAROCCHINO_TODO: should be wb-clock
+    .wb_rst           (rst), // DBUS_BRIDGE : MAROCCHINO_TODO: should be wb-rst
+    // CPU-domain: clock and reset
+    .cpu_clk          (clk), // DBUS_BRIDGE : MAROCCHINO_TODO: should be cpu-clock
+    .cpu_rst          (rst), // DBUS_BRIDGE : MAROCCHINO_TODO: should be cpu-rst
     // CPU side
     .cpu_err_o        (dbus_err_i), // DBUS_BRIDGE
     .cpu_ack_o        (dbus_ack_i), // DBUS_BRIDGE

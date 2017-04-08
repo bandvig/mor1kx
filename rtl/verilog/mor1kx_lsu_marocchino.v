@@ -216,8 +216,6 @@ module mor1kx_lsu_marocchino
   wire                              except_dpagefault;
   // # combination of all previous
   wire                              lsu_excepts_addr;
-  // # instant DBUS acceess error
-  wire                              dbus_err_instant;
   // # combined of address + DBUS related exceptions
   wire                              lsu_excepts_any; // non-registered
 
@@ -269,7 +267,7 @@ module mor1kx_lsu_marocchino
   //  # exceptions related to address computation and conversion
   assign lsu_excepts_addr  = except_align | except_dtlb_miss | except_dpagefault;
   //  # all exceptions
-  assign lsu_excepts_any = lsu_excepts_addr | dbus_err_instant;
+  assign lsu_excepts_any = lsu_excepts_addr | dbus_err_i;
 
 
   // Signal to take new LSU command (less priority than flushing or exceptions)
@@ -513,14 +511,11 @@ module mor1kx_lsu_marocchino
   // LSU exceptions //
   //----------------//
 
-  // --- bus error ---
-  assign dbus_err_instant = dbus_req_o & dbus_err_i;
-
   // --- bus error during bus access from store buffer ---
   //  ## pay attention that l.swa is executed around of
   //     store buffer, so we don't take into accaunt
   //     atomic store here.
-  wire sbuf_err = dbus_err_instant & dbus_we & ~dbus_atomic;
+  wire sbuf_err = dbus_err_i & dbus_we & ~dbus_atomic;
   // ---
   always @(posedge clk `OR_ASYNC_RST) begin
     if (rst)
@@ -555,7 +550,7 @@ module mor1kx_lsu_marocchino
       except_dbus_err_p <= 1'b0;
     else if (flush_by_ctrl) // drop DBUS error pending latch
       except_dbus_err_p <= 1'b0;
-    else if (dbus_err_instant)
+    else if (dbus_err_i)
       except_dbus_err_p <= 1'b1;
   end // @clock
 
@@ -611,7 +606,7 @@ module mor1kx_lsu_marocchino
     end
     else if (grant_wb_to_lsu) begin // rise WB-reported exceptions
       //  # particular LSU exception flags
-      wb_except_dbus_err_o   <= except_dbus_err_p   | dbus_err_instant;
+      wb_except_dbus_err_o   <= except_dbus_err_p   | dbus_err_i;
       wb_except_dpagefault_o <= except_dpagefault_p | except_dpagefault;
       wb_except_dtlb_miss_o  <= except_dtlb_miss_p  | except_dtlb_miss;
       wb_except_dbus_align_o <= except_align_p      | except_align;
@@ -797,9 +792,9 @@ module mor1kx_lsu_marocchino
       // DBUS FSM state
       dbus_state  <= DBUS_IDLE;       // DBUS reset
     end
-    else if (dbus_err_instant) begin // in DBUS FSM: highest priority
+    else if (dbus_err_i) begin // in DBUS FSM: highest priority
       // DBUS controls
-      dbus_req_o  <= 1'b0;            // DBUS error
+      dbus_req_o  <= dbus_req_o;      // DBUS error: no toggle
       dbus_we     <= 1'b0;            // DBUS error
       dbus_bsel_o <= 4'hf;            // DBUS error
       dbus_adr_o  <= {LSUOOW{1'b0}};  // DBUS error
@@ -824,7 +819,7 @@ module mor1kx_lsu_marocchino
           if (sbuf_odata) begin
             // DBUS controls
             //  # buffered data for write == store buffer is not empty
-            dbus_req_o  <= 1'b1;            // dmem req -> write : from buffer output
+            dbus_req_o  <= ~dbus_req_o;     // dmem req -> write : from buffer output
             dbus_we     <= 1'b1;            // dmem req -> write : from buffer output
             dbus_bsel_o <= sbuf_bsel;       // dmem req -> write : from buffer output
             dbus_adr_o  <= sbuf_phys_addr;  // dmem req -> write : from buffer output
@@ -847,7 +842,7 @@ module mor1kx_lsu_marocchino
               //  # no buffered data for write == store buffer is empty
               //    we wrte data in buffer, but it keeps empty in the case
               //    because we also perform implicit instant reading
-              dbus_req_o  <= 1'b1;          // dmem req -> write : 1st write in empty buffer
+              dbus_req_o  <= ~dbus_req_o;   // dmem req -> write : 1st write in empty buffer
               dbus_we     <= 1'b1;          // dmem req -> write : 1st write in empty buffer
               dbus_bsel_o <= dbus_bsel;     // dmem req -> write : 1st write in empty buffer
               dbus_adr_o  <= phys_addr_cmd; // dmem req -> write : 1st write in empty buffer
@@ -859,12 +854,12 @@ module mor1kx_lsu_marocchino
             end
           end
           else if (dc_refill_req) begin // it automatically means (l.load & dc-access)
-            dbus_req_o  <= 1'b1;
+            dbus_req_o  <= ~dbus_req_o;   // dmem-req -> dcache-re-fill
             dbus_adr_o  <= phys_addr_cmd;
             dbus_state  <= DBUS_DC_REFILL;
           end
           else if (cmd_load_r & ~dc_access_read) begin // not cached or DCACHE is disabled
-            dbus_req_o  <= 1'b1;
+            dbus_req_o  <= ~dbus_req_o;   // dmem-req -> dbus-read
             dbus_adr_o  <= phys_addr_cmd;
             dbus_bsel_o <= dbus_bsel;
             dbus_state  <= DBUS_READ;
@@ -876,12 +871,10 @@ module mor1kx_lsu_marocchino
 
         DBUS_DC_REFILL: begin
           if (snoop_hit) begin
-            dbus_req_o  <= 1'b0;                                  // DC-REFILL: snoop-hit
             dbus_adr_o  <= {LSUOOW{1'b0}};                        // DC-REFILL: snoop-hit
             dbus_state  <= flush_by_ctrl ? DBUS_IDLE : DMEM_REQ;  // DC-REFILL: snoop-hit
           end
           else if (dbus_ack_i & dbus_burst_last_i) begin
-            dbus_req_o  <= 1'b0;            // DC-REFILL: DBUS-last-ack
             dbus_adr_o  <= {LSUOOW{1'b0}};  // DC-REFILL: DBUS-last-ack
             dbus_state  <= DBUS_IDLE;       // DC-REFILL: DBUS-last-ack
           end
@@ -889,7 +882,6 @@ module mor1kx_lsu_marocchino
 
         DBUS_READ: begin
           if (dbus_ack_i) begin
-            dbus_req_o  <= 1'b0;                                 // DBUS: read complete
             dbus_bsel_o <= 4'hf;                                 // DBUS: read complete
             dbus_adr_o  <= {LSUOOW{1'b0}};                       // DBUS: read complete
             dbus_state  <= flush_by_ctrl ? DBUS_IDLE : DMEM_REQ; // DBUS: read complete
@@ -899,7 +891,6 @@ module mor1kx_lsu_marocchino
         DBUS_WRITE: begin
           if (dbus_ack_i) begin
             // DBUS controls
-            dbus_req_o  <= 1'b0;           // DBUS: write complete
             dbus_we     <= 1'b0;           // DBUS: write complete
             dbus_bsel_o <= 4'hf;           // DBUS: write complete
             dbus_adr_o  <= {LSUOOW{1'b0}}; // DBUS: write complete
@@ -919,7 +910,7 @@ module mor1kx_lsu_marocchino
 
         default: begin
           // DBUS controls
-          dbus_req_o  <= 1'b0;            // DBUS deault
+          dbus_req_o  <= dbus_req_o;      // DBUS deault: no toggle
           dbus_we     <= 1'b0;            // DBUS deault
           dbus_bsel_o <= 4'hf;            // DBUS deault
           dbus_adr_o  <= {LSUOOW{1'b0}};  // DBUS deault
