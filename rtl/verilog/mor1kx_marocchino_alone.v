@@ -64,6 +64,9 @@ module mor1kx_marocchino_alone
   parameter OPTION_IMMU_CLEAR_ON_INIT  =  0, // !!! activate for simulation only !!!
 
   // Timer
+  parameter TIMER_CLOCK_DOMAIN         = "CPU_CLOCK", // "WB_CLOCK" / "CPU_CLOCK" (default)
+
+  // Debug unit
   parameter FEATURE_DEBUGUNIT          = "NONE",
   parameter FEATURE_PERFCOUNTERS       = "NONE",
 
@@ -286,21 +289,22 @@ module mor1kx_marocchino_alone
     // write buffer
     .OPTION_STORE_BUFFER_DEPTH_WIDTH    (OPTION_STORE_BUFFER_DEPTH_WIDTH),
     .OPTION_STORE_BUFFER_CLEAR_ON_INIT  (OPTION_STORE_BUFFER_CLEAR_ON_INIT),
-    // instructon cache
+    // instruction cache
     .OPTION_ICACHE_BLOCK_WIDTH        (OPTION_ICACHE_BLOCK_WIDTH),
     .OPTION_ICACHE_SET_WIDTH          (OPTION_ICACHE_SET_WIDTH),
     .OPTION_ICACHE_WAYS               (OPTION_ICACHE_WAYS),
     .OPTION_ICACHE_LIMIT_WIDTH        (OPTION_ICACHE_LIMIT_WIDTH),
     .OPTION_ICACHE_CLEAR_ON_INIT      (OPTION_ICACHE_CLEAR_ON_INIT),
-    // instrucion mmu
+    // instruction mmu
     .FEATURE_IMMU_HW_TLB_RELOAD       (FEATURE_IMMU_HW_TLB_RELOAD),
     .OPTION_IMMU_SET_WIDTH            (OPTION_IMMU_SET_WIDTH),
     .OPTION_IMMU_WAYS                 (OPTION_IMMU_WAYS),
     .OPTION_IMMU_CLEAR_ON_INIT        (OPTION_IMMU_CLEAR_ON_INIT),
-    // interrupt cintroller
+    // interrupt controller
     .OPTION_PIC_TRIGGER               (OPTION_PIC_TRIGGER),
     .OPTION_PIC_NMI_WIDTH             (OPTION_PIC_NMI_WIDTH),
-    // timer
+    // timer, debug unit, performance counters, m-core, trace
+    .TIMER_CLOCK_DOMAIN               (TIMER_CLOCK_DOMAIN), 
     .FEATURE_DEBUGUNIT                (FEATURE_DEBUGUNIT),
     .FEATURE_PERFCOUNTERS             (FEATURE_PERFCOUNTERS),
     .FEATURE_MULTICORE                (FEATURE_MULTICORE),
@@ -309,6 +313,7 @@ module mor1kx_marocchino_alone
     .OPTION_RF_CLEAR_ON_INIT          (OPTION_RF_CLEAR_ON_INIT),
     .OPTION_RF_ADDR_WIDTH             (OPTION_RF_ADDR_WIDTH),
     //.OPTION_RF_WORDS(OPTION_RF_WORDS), // MAROCCHINO_TODO
+    // starting PC
     .OPTION_RESET_PC                  (OPTION_RESET_PC),
      // arithmetic modules
     .FEATURE_DIVIDER                  (FEATURE_DIVIDER),
@@ -318,9 +323,12 @@ module mor1kx_marocchino_alone
   )
   u_cpu_marocchino
   (
-    // clocks and inputs
-    .clk                      (clk),
-    .rst                      (rst),
+    // Wishbone clock and reset
+    .wb_clk                   (clk), // CPU : MAROCCHINO_TODO: should be wb-clock
+    .wb_rst                   (rst), // CPU : MAROCCHINO_TODO: should be wb-rst
+    // CPU clock and reset
+    .clk                      (clk), // CPU : MAROCCHINO_TODO: should be cpu-clock
+    .rst                      (rst), // CPU : MAROCCHINO_TODO: should be cpu-rst
     // Outputs
     .ibus_adr_o               (ibus_adr_o),
     .ibus_req_o               (ibus_req_o),

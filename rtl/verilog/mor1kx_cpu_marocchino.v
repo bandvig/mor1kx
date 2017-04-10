@@ -37,6 +37,9 @@ module mor1kx_cpu_marocchino
   parameter OPTION_DMMU_SET_WIDTH       = 6,
   parameter OPTION_DMMU_WAYS            = 1,
   parameter OPTION_DMMU_CLEAR_ON_INIT   = 0,
+  // write buffer
+  parameter OPTION_STORE_BUFFER_DEPTH_WIDTH   = 4, // 16 taps
+  parameter OPTION_STORE_BUFFER_CLEAR_ON_INIT = 0,
   // instruction cache
   parameter OPTION_ICACHE_BLOCK_WIDTH   = 5,
   parameter OPTION_ICACHE_SET_WIDTH     = 9,
@@ -48,32 +51,33 @@ module mor1kx_cpu_marocchino
   parameter OPTION_IMMU_SET_WIDTH       = 6,
   parameter OPTION_IMMU_WAYS            = 1,
   parameter OPTION_IMMU_CLEAR_ON_INIT   = 0,
-
-  parameter FEATURE_DEBUGUNIT    = "NONE",
-  parameter FEATURE_PERFCOUNTERS = "NONE",
-
-  parameter OPTION_PIC_TRIGGER   = "LEVEL",
-  parameter OPTION_PIC_NMI_WIDTH = 0,
-
-  parameter OPTION_RF_CLEAR_ON_INIT  = 0,
-  parameter OPTION_RF_ADDR_WIDTH     = 5,
-
-  parameter OPTION_RESET_PC = {{(OPTION_OPERAND_WIDTH-13){1'b0}},
-                              `OR1K_RESET_VECTOR,8'd0},
-
-  parameter FEATURE_DIVIDER = "SERIAL",
-
-  parameter FEATURE_PSYNC = "NONE",
-  parameter FEATURE_CSYNC = "NONE",
-
-  parameter OPTION_STORE_BUFFER_DEPTH_WIDTH   = 4, // 16 taps
-  parameter OPTION_STORE_BUFFER_CLEAR_ON_INIT = 0,
-
-  parameter FEATURE_MULTICORE      = "NONE",
-
-  parameter FEATURE_TRACEPORT_EXEC = "NONE"
+  // interrupt controller
+  parameter OPTION_PIC_TRIGGER          = "LEVEL",
+  parameter OPTION_PIC_NMI_WIDTH        = 0,
+  // timer, debug unit, performance counters, m-core, trace
+  parameter TIMER_CLOCK_DOMAIN          = "CPU_CLOCK", // "WB_CLOCK" / "CPU_CLOCK" (default)
+  parameter FEATURE_DEBUGUNIT           = "NONE",
+  parameter FEATURE_PERFCOUNTERS        = "NONE",
+  parameter FEATURE_MULTICORE           = "NONE",
+  parameter FEATURE_TRACEPORT_EXEC      = "NONE",
+  // Redister File
+  parameter OPTION_RF_CLEAR_ON_INIT     = 0,
+  parameter OPTION_RF_ADDR_WIDTH        = 5,
+  // starting PC
+  parameter OPTION_RESET_PC             = {{(OPTION_OPERAND_WIDTH-13){1'b0}},
+                                           `OR1K_RESET_VECTOR,8'd0},
+  // arithmetic modules
+  parameter FEATURE_DIVIDER             = "SERIAL",
+  // special instructions
+  parameter FEATURE_PSYNC               = "NONE",
+  parameter FEATURE_CSYNC               = "NONE"
 )
 (
+  // Wishbone clock and reset
+  input                             wb_clk,
+  input                             wb_rst,
+
+  // CPU clock and reset
   input                             clk,
   input                             rst,
 
@@ -1893,11 +1897,18 @@ module mor1kx_cpu_marocchino
   wire [31:0] spr_bus_dat_tt;
   wire        spr_bus_ack_tt;
   //  # timer instance
-  mor1kx_ticktimer_oneself u_ticktimer
+  mor1kx_ticktimer_marocchino
+  #(
+    .TIMER_CLOCK_DOMAIN (TIMER_CLOCK_DOMAIN) // TIMER
+  )
+  u_ticktimer
   (
-    // clock and reset
-    .clk                (clk), // TIMER
-    .rst                (rst), // TIMER
+    // Wishbone clock and reset
+    .wb_clk             (wb_clk), // TIMER
+    .wb_rst             (wb_rst), // TIMER
+    // CPU clock and reset
+    .cpu_clk            (clk), // TIMER
+    .cpu_rst            (rst), // TIMER
     // ready flag
     .tt_rdy_o           (tt_rdy), // TIMER
     // SPR interface
