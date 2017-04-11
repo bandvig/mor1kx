@@ -1928,16 +1928,19 @@ module mor1kx_cpu_marocchino
   wire [31:0] spr_bus_dat_pic;
   wire        spr_bus_ack_pic;
   //  # timer instance
-  mor1kx_pic_oneself
+  mor1kx_pic_marocchino
   #(
     .OPTION_PIC_TRIGGER   (OPTION_PIC_TRIGGER), // PIC
     .OPTION_PIC_NMI_WIDTH (OPTION_PIC_NMI_WIDTH) // PIC
   )
   u_pic
   (
-    // clock and reset
-    .clk                (clk), // PIC
-    .rst                (rst), // PIC
+    // Wishbone clock and reset
+    .wb_clk             (wb_clk), // PIC
+    .wb_rst             (wb_rst), // PIC
+    // CPU clock and reset
+    .cpu_clk            (clk), // PIC
+    .cpu_rst            (rst), // PIC
     // input interrupt lines
     .irq_i              (irq_i), // PIC
     // output interrupt lines

@@ -9,13 +9,15 @@
 //    (b) Only CLASSIC and B3_REGISTERED_FEEDBACK modes               //
 //        are implemented                                             //
 //    (c) Actually, CDC is not implemented completely yet.            //
-//        The CPU and WB clocks must be aligned. The current          //
-//        implementation is intermediate step.                        //
+//        The CPU clock could be greater or equal to Wishbone one,    //
+//        buth them must be aligned. So, synchronizers consist of     //
+//        single latch named "*_r2". To implement full synchronizers  //
+//        latches *_r1 shuld be appropriatelly added.                 //
 //    (d) Even with such incomplete CDC implementation, IFETCH's      //
 //        ibus_req and LSU's dbus_req behavior has been changed       //
 //        from "level" to "toggle" for correct transfering requests   //
 //        tightly coupled on high CPU clock. That is why the modole   //
-//        designed exclusively for MAROCCHINO                         // 
+//        designed exclusively for MAROCCHINO                         //
 //                                                                    //
 ////////////////////////////////////////////////////////////////////////
 //                                                                    //
@@ -317,20 +319,11 @@ module mor1kx_bus_if_wb32_marocchino
   assign queue2cpu_rdy_pulse = queue2cpu_rdy_r2 ^ queue2cpu_rdy_r3;
 
 
-  //--------------------------//
-  // CPU-pulse -> QUEUE-pulse //
-  //--------------------------//
+  //---------------------------//
+  // CPU-toggle -> QUEUE-pulse //
+  //---------------------------//
 
   //  ACK: CPU has read QUEUE output data
-  //  Clock domain: CPU
-  reg  cpu2queue_ack_toggle_r;
-  // ---
-  always @(posedge cpu_clk) begin
-    if (cpu_rst)
-      cpu2queue_ack_toggle_r <= 1'b0;
-    else if (queue2cpu_rdy_pulse)
-      cpu2queue_ack_toggle_r <= ~cpu2queue_ack_toggle_r;
-  end // @cpu-clock
   //  Clock domain: WBM
   //  As CDC is not completely implemented (see note (c) at
   //  the begining of the file), each synchronizer
@@ -345,7 +338,7 @@ module mor1kx_bus_if_wb32_marocchino
       cpu2queue_ack_r3 <= 1'b0;
     end
     else begin
-      cpu2queue_ack_r2 <= cpu2queue_ack_toggle_r;
+      cpu2queue_ack_r2 <= queue2cpu_rdy_r3;
       cpu2queue_ack_r3 <= cpu2queue_ack_r2;
     end
   end // @wb-clock

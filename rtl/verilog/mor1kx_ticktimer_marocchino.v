@@ -11,13 +11,18 @@
 //      controlled by TIMER_CLOCK_DOMAIN parameter.                   //
 //      Wishbone BUS clock domain is useful for bacward compatibility //
 //      with already compiled applications and toolchains.            //
+//    - Actually, CDC is not implemented completely yet.              //
+//      The CPU clock could be greater or equal to Wishbone one,      //
+//      buth them must be aligned. So, synchronizers consist of       //
+//      single latch named "*_r2". To implement full synchronizers    //
+//      latches *_r1 shuld be appropriatelly added.                   //
 //                                                                    //
 ////////////////////////////////////////////////////////////////////////
 //                                                                    //
 //   Copyright (C) 2012 Julius Baxter                                 //
 //                      juliusbaxter@gmail.com                        //
 //                                                                    //
-//   Copyright (C) 2016 Andrey Bacherov                               //
+//   Copyright (C) 2017 Andrey Bacherov                               //
 //                      avbacherov@opencores.org                      //
 //                                                                    //
 //      This Source Code Form is subject to the terms of the          //
@@ -94,7 +99,7 @@ module mor1kx_ticktimer_marocchino
   wire [31:0] cpu2tt_dat;
   //  # read/write control
   reg         ttmr_cs_r, ttcr_cs_r, tt_we_r, tt_ack_r;
-  
+
 
   generate
   /* verilator lint_off WIDTH */
@@ -136,7 +141,9 @@ module mor1kx_ticktimer_marocchino
     reg [34:0] cpu2tt_cmd_r; // {"ttmr-cs", "ttcr-cs", "we", dat}
     // ---
     always @(posedge wb_clk) begin
-      if (wb_rst | tt_ack_r)
+      if (wb_rst)
+        cpu2tt_cmd_r <= 35'd0;
+      else if (tt_ack_r)
         cpu2tt_cmd_r <= 35'd0;
       else if (cpu2tt_cs_take)
         cpu2tt_cmd_r <= {spr_ttmr_cs, spr_ttcr_cs, spr_bus_we_i, spr_bus_dat_i};
@@ -169,9 +176,9 @@ module mor1kx_ticktimer_marocchino
                                          32'd0;
       end
     end
-    // --- 
+    // ---
     assign tt2cpu_dat = tt2cpu_dat_r;
-    
+
 
     // TT-ack-pulse -> CPU-ack-pulse
     //   As CPU clock assumed to be faster or equal to TT's one, we
@@ -207,11 +214,11 @@ module mor1kx_ticktimer_marocchino
     always @(posedge cpu_clk) begin
       if (cpu_rst)
         tt_rdy_r2 <= 1'b0;
-      else if (tt2cpu_ack & spr_ttmr_cs & spr_bus_we_i)
-        tt_rdy_r2 <= spr_bus_dat_i[28];
+      else if (spr_tt_cs)
+        tt_rdy_r2 <= 1'b0;
       else
         tt_rdy_r2 <= spr_ttmr[28];
-    end    
+    end
     // ---
     assign tt_rdy_o = tt_rdy_r2;
 
@@ -248,30 +255,30 @@ module mor1kx_ticktimer_marocchino
 
   // SPR BUS: output data and ack (CPU clock domain)
   always @(posedge cpu_clk) begin
-    if (cpu_rst | spr_bus_ack_tt_o) begin
+    if (cpu_rst) begin
       spr_bus_ack_tt_o <=  1'b0;
       spr_bus_dat_tt_o <= 32'd0;
     end
-    else if (tt2cpu_ack) begin
-      spr_bus_ack_tt_o <= 1'b1;
-      spr_bus_dat_tt_o <= tt2cpu_dat;
+    else begin
+      spr_bus_ack_tt_o <= tt2cpu_ack;
+      spr_bus_dat_tt_o <= tt2cpu_dat & {32{tt2cpu_ack}};
     end
   end
 
 
-  // Read/Write contol 
+  // Read/Write contol
   always @(posedge tt_clk) begin
-    if (tt_rst | tt_ack_r) begin
+    if (tt_rst) begin
       ttmr_cs_r <= 1'b0;
       ttcr_cs_r <= 1'b0;
       tt_we_r   <= 1'b0;
       tt_ack_r  <= 1'b0;
     end
-    else if (cpu2tt_cs_pulse) begin
-      ttmr_cs_r <= cpu2tt_ttmr_cs;
-      ttcr_cs_r <= cpu2tt_ttcr_cs;
-      tt_we_r   <= cpu2tt_we;
-      tt_ack_r  <= 1'b1;
+    else begin
+      ttmr_cs_r <= cpu2tt_cs_pulse & cpu2tt_ttmr_cs;
+      ttcr_cs_r <= cpu2tt_cs_pulse & cpu2tt_ttcr_cs;
+      tt_we_r   <= cpu2tt_cs_pulse & cpu2tt_we;
+      tt_ack_r  <= cpu2tt_cs_pulse;
     end
   end // at clock
 
