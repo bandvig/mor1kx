@@ -84,17 +84,19 @@ module mor1kx_pic_marocchino
   wire spr_pic_cs_pulse = spr_pic_cs & (~spr_pic_cs_r);
 
 
-  // CPU clock domain:
-  wire        pic2cpu_ack;
-  reg  [31:0] pic2cpu_dat_r;
-
   // Wishbone clock domain:
   //  # synched SPR access
   reg         cpu2pic_cs_pulse_r;
   wire        cpu2pic_picmr_cs, cpu2pic_picsr_cs, cpu2pic_we;
   wire [31:0] cpu2pic_dat;
-  //  # read/write control
-  reg         picmr_cs_r, picsr_cs_r, pic_we_r, pic_ack_r;
+  //  # read/write done
+  reg         pic_ack_r;
+  //  # data for output to SPR BUS
+  reg  [31:0] pic_dato_r;
+
+
+  // CPU clock domain:
+  wire        pic2cpu_ack;
 
 
   // CPU-toggle -> PIC-pulse
@@ -127,35 +129,37 @@ module mor1kx_pic_marocchino
   wire cpu2pic_cs_take = cpu2pic_cs_r2 ^ cpu2pic_cs_r3;
   // ---
   reg [34:0] cpu2pic_cmd_r; // {"picmr-cs", "picsr-cs", "we", dat}
-  // ---
+  // --- latch SPR access parameters in Wishbone clock domain ---
   always @(posedge wb_clk) begin
     if (wb_rst)
-      cpu2pic_cmd_r <= 35'd0;
-    else if (pic_ack_r)
       cpu2pic_cmd_r <= 35'd0;
     else if (cpu2pic_cs_take)
       cpu2pic_cmd_r <= {spr_picmr_cs, spr_picsr_cs, spr_bus_we_i, spr_bus_dat_i};
   end
-  // ---
+  // --- unpack SPR access parameters ---
   assign cpu2pic_picmr_cs = cpu2pic_cmd_r[34];
   assign cpu2pic_picsr_cs = cpu2pic_cmd_r[33];
   assign cpu2pic_we       = cpu2pic_cmd_r[32];
   assign cpu2pic_dat      = cpu2pic_cmd_r[31:0];
-  // ---
+  // --- generate "cs_pulse" to perform read/write and "ack" ---
   always @(posedge wb_clk) begin
-    if (wb_rst)
+    if (wb_rst) begin
       cpu2pic_cs_pulse_r <= 1'b0;
-    else
+      pic_ack_r          <= 1'b0;
+    end
+    else begin
       cpu2pic_cs_pulse_r <= cpu2pic_cs_take;
+      pic_ack_r          <= cpu2pic_cs_pulse_r;
+    end
   end
 
 
   // snap data for output regardless of "we"
   always @(posedge wb_clk) begin
     if (cpu2pic_cs_pulse_r) begin
-      pic2cpu_dat_r <= cpu2pic_picmr_cs ? spr_picmr :
-                       cpu2pic_picsr_cs ? spr_picsr :
-                                          32'd0;
+      pic_dato_r <= cpu2pic_picmr_cs ? spr_picmr :
+                    cpu2pic_picsr_cs ? spr_picsr :
+                                       32'd0;
     end
   end
 
@@ -211,26 +215,10 @@ module mor1kx_pic_marocchino
     end
     else begin
       spr_bus_ack_pic_o <= pic2cpu_ack;
-      spr_bus_dat_pic_o <= pic2cpu_dat_r & {32{pic2cpu_ack}};
+      spr_bus_dat_pic_o <= pic_dato_r & {32{pic2cpu_ack}};
     end
   end
 
-
-  // Read/Write contol
-  always @(posedge wb_clk) begin
-    if (wb_rst) begin
-      picmr_cs_r <= 1'b0;
-      picsr_cs_r <= 1'b0;
-      pic_we_r   <= 1'b0;
-      pic_ack_r  <= 1'b0;
-    end
-    else begin
-      picmr_cs_r <= cpu2pic_cs_pulse_r & cpu2pic_picmr_cs;
-      picsr_cs_r <= cpu2pic_cs_pulse_r & cpu2pic_picsr_cs;
-      pic_we_r   <= cpu2pic_cs_pulse_r & cpu2pic_we;
-      pic_ack_r  <= cpu2pic_cs_pulse_r;
-    end
-  end // at clock
 
 
   // PIC (un)mask register
@@ -238,12 +226,10 @@ module mor1kx_pic_marocchino
     if (wb_rst)
       spr_picmr <= {{(32-OPTION_PIC_NMI_WIDTH){1'b0}},
                     {OPTION_PIC_NMI_WIDTH{1'b1}}};
-    else if (picmr_cs_r & pic_we_r)
+    else if (cpu2pic_cs_pulse_r & cpu2pic_picmr_cs & cpu2pic_we)
       spr_picmr <= {spr_bus_dat_i[31:OPTION_PIC_NMI_WIDTH],
                     {OPTION_PIC_NMI_WIDTH{1'b1}}};
   end
-
-
 
 
   generate
@@ -275,7 +261,7 @@ module mor1kx_pic_marocchino
         else if (irq_unmasked_edge[irqline])
           spr_picsr[irqline] <= 1'b1;
         // Clear
-        else if (picsr_cs_r & pic_we_r & cpu2pic_dat[irqline])
+        else if (cpu2pic_cs_pulse_r & cpu2pic_picsr_cs & cpu2pic_we & cpu2pic_dat[irqline])
           spr_picsr[irqline] <= 1'b0;
       end
     end
@@ -299,7 +285,7 @@ module mor1kx_pic_marocchino
       always @(posedge wb_clk) begin
         if (wb_rst)
           spr_picsr[irqline] <= 1'b0;
-        else if (picsr_cs_r & pic_we_r)
+        else if (cpu2pic_cs_pulse_r & cpu2pic_picsr_cs & cpu2pic_we)
           spr_picsr[irqline] <= irq_unmasked[irqline] | spr_bus_dat_i[irqline];
         else
           spr_picsr[irqline] <= spr_picsr[irqline] | irq_unmasked[irqline];

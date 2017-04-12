@@ -97,8 +97,6 @@ module mor1kx_ticktimer_marocchino
   wire        cpu2tt_cs_pulse;
   wire        cpu2tt_ttmr_cs, cpu2tt_ttcr_cs, cpu2tt_we;
   wire [31:0] cpu2tt_dat;
-  //  # read/write control
-  reg         ttmr_cs_r, ttcr_cs_r, tt_we_r, tt_ack_r;
 
 
   generate
@@ -139,28 +137,31 @@ module mor1kx_ticktimer_marocchino
     wire cpu2tt_cs_take = cpu2tt_cs_r2 ^ cpu2tt_cs_r3;
     // ---
     reg [34:0] cpu2tt_cmd_r; // {"ttmr-cs", "ttcr-cs", "we", dat}
-    // ---
+    // --- latch SPR access parameters in Wishbone clock domain ---
     always @(posedge wb_clk) begin
       if (wb_rst)
-        cpu2tt_cmd_r <= 35'd0;
-      else if (tt_ack_r)
         cpu2tt_cmd_r <= 35'd0;
       else if (cpu2tt_cs_take)
         cpu2tt_cmd_r <= {spr_ttmr_cs, spr_ttcr_cs, spr_bus_we_i, spr_bus_dat_i};
     end
-    // ---
+    // --- unpack SPR access parameters ---
     assign cpu2tt_ttmr_cs = cpu2tt_cmd_r[34];
     assign cpu2tt_ttcr_cs = cpu2tt_cmd_r[33];
     assign cpu2tt_we      = cpu2tt_cmd_r[32];
     assign cpu2tt_dat     = cpu2tt_cmd_r[31:0];
-    // ---
+    // --- generate "cs_pulse" to perform read/write and "ack" ---
     reg cpu2tt_cs_pulse_r;
+    reg tt_ack_r;
     // ---
     always @(posedge wb_clk) begin
-      if (wb_rst)
+      if (wb_rst) begin
         cpu2tt_cs_pulse_r <= 1'b0;
-      else
+        tt_ack_r          <= 1'b0;
+      end
+      else begin
         cpu2tt_cs_pulse_r <= cpu2tt_cs_take;
+        tt_ack_r          <= cpu2tt_cs_pulse_r;
+      end
     end
     // ---
     assign cpu2tt_cs_pulse = cpu2tt_cs_pulse_r;
@@ -239,7 +240,7 @@ module mor1kx_ticktimer_marocchino
     assign cpu2tt_dat = spr_bus_dat_i;
 
     // output ACK
-    assign tt2cpu_ack = tt_ack_r;
+    assign tt2cpu_ack = spr_tt_cs_pulse;
 
     // output data for SPR BUS
     assign tt2cpu_dat = spr_ttmr_cs ? spr_ttmr :
@@ -266,23 +267,6 @@ module mor1kx_ticktimer_marocchino
   end
 
 
-  // Read/Write contol
-  always @(posedge tt_clk) begin
-    if (tt_rst) begin
-      ttmr_cs_r <= 1'b0;
-      ttcr_cs_r <= 1'b0;
-      tt_we_r   <= 1'b0;
-      tt_ack_r  <= 1'b0;
-    end
-    else begin
-      ttmr_cs_r <= cpu2tt_cs_pulse & cpu2tt_ttmr_cs;
-      ttcr_cs_r <= cpu2tt_cs_pulse & cpu2tt_ttcr_cs;
-      tt_we_r   <= cpu2tt_cs_pulse & cpu2tt_we;
-      tt_ack_r  <= cpu2tt_cs_pulse;
-    end
-  end // at clock
-
-
   // Timer
   wire ttcr_match = (spr_ttcr[27:0] == spr_ttmr[27:0]);
 
@@ -290,7 +274,7 @@ module mor1kx_ticktimer_marocchino
   always @(posedge tt_clk) begin
     if (tt_rst)
       spr_ttmr <= 1'b0;
-    else if (ttmr_cs_r & tt_we_r)
+    else if (cpu2tt_cs_pulse & cpu2tt_ttmr_cs & cpu2tt_we)
       spr_ttmr <= cpu2tt_dat;
     else if (ttcr_match & spr_ttmr[29])
       spr_ttmr[28] <= 1'b1; // Generate interrupt
@@ -308,7 +292,7 @@ module mor1kx_ticktimer_marocchino
   always @(posedge tt_clk) begin
     if (tt_rst)
       spr_ttcr <= 32'd0;
-    else if (ttcr_cs_r & tt_we_r)
+    else if (cpu2tt_cs_pulse & cpu2tt_ttcr_cs & cpu2tt_we)
       spr_ttcr <= cpu2tt_dat;
     else if (ttcr_clear)
       spr_ttcr <= 32'd0;
