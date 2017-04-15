@@ -104,6 +104,9 @@ module mor1kx_immu_marocchino
   reg                              spr_immu_we_r;  // write on next posedge clock
   reg                              spr_immu_re_r;  // read on next posedge clock
   reg                              spr_immu_mux_r; // mux read output and latch it
+  //  Latch address and data to simplify routing of SPR BUS 
+  reg   [OPTION_OPERAND_WIDTH-1:0] spr_bus_dat_r;
+  reg  [OPTION_IMMU_SET_WIDTH-1:0] spr_bus_addr_r;
 
   reg                              itlb_match_spr_cs_r;
   reg                              itlb_trans_spr_cs_r;
@@ -221,6 +224,8 @@ module mor1kx_immu_marocchino
       spr_way_idx_r       <= {spr_bus_addr_i[10], spr_bus_addr_i[8]};
       spr_immu_we_r       <= spr_bus_we_i;
       spr_immu_re_r       <= ~spr_bus_we_i;
+      spr_bus_dat_r       <= spr_bus_dat_i;
+      spr_bus_addr_r      <= spr_bus_addr_i[OPTION_IMMU_SET_WIDTH-1:0];
       spr_immu_mux_r      <= 1'b0;
       spr_bus_ack_o       <= spr_bus_we_i; // write on next posedge of clock and finish
       spr_bus_dat_o       <= {OPTION_OPERAND_WIDTH{1'b0}};
@@ -234,7 +239,7 @@ module mor1kx_immu_marocchino
     if (rst)
       immucr <= {OPTION_OPERAND_WIDTH{1'b0}};
     else if (immucr_spr_cs_r & spr_immu_we_r)
-      immucr <= spr_bus_dat_i;
+      immucr <= spr_bus_dat_r;
   end // @ clock
 
 
@@ -299,24 +304,24 @@ module mor1kx_immu_marocchino
 
   // match 8KB input address
   assign itlb_match_addr =
-    (itlb_match_spr_cs_r & (spr_immu_we_r | spr_immu_re_r)) ? spr_bus_addr_i[OPTION_IMMU_SET_WIDTH-1:0] :
+    (itlb_match_spr_cs_r & (spr_immu_we_r | spr_immu_re_r)) ? spr_bus_addr_r :
                                                               virt_addr_mux_i[13+(OPTION_IMMU_SET_WIDTH-1):13];
   // match huge address and write command
   assign itlb_match_huge_addr = virt_addr_mux_i[24+(OPTION_IMMU_SET_WIDTH-1):24];
   assign itlb_match_huge_we   = itlb_match_reload_we & tlb_reload_huge;
   // match data in
-  assign itlb_match_din = itlb_match_reload_we ? itlb_match_reload_din : spr_bus_dat_i;
+  assign itlb_match_din = itlb_match_reload_we ? itlb_match_reload_din : spr_bus_dat_r;
 
 
   // translation 8KB input address
   assign itlb_trans_addr =
-    (itlb_trans_spr_cs_r & (spr_immu_we_r | spr_immu_re_r)) ? spr_bus_addr_i[OPTION_IMMU_SET_WIDTH-1:0] :
+    (itlb_trans_spr_cs_r & (spr_immu_we_r | spr_immu_re_r)) ? spr_bus_addr_r :
                                                               virt_addr_mux_i[13+(OPTION_IMMU_SET_WIDTH-1):13];
   // translation huge address and write command
   assign itlb_trans_huge_addr = virt_addr_mux_i[24+(OPTION_IMMU_SET_WIDTH-1):24];
   assign itlb_trans_huge_we   = itlb_trans_reload_we & tlb_reload_huge;
   // translation data in
-  assign itlb_trans_din = itlb_trans_reload_we ? itlb_trans_reload_din : spr_bus_dat_i;
+  assign itlb_trans_din = itlb_trans_reload_we ? itlb_trans_reload_din : spr_bus_dat_r;
 
 
   /*

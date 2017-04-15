@@ -130,6 +130,8 @@ module mor1kx_icache_marocchino
   // The index we read and write from tag memory
   wire [OPTION_ICACHE_SET_WIDTH-1:0] tag_rindex;
   wire [OPTION_ICACHE_SET_WIDTH-1:0] tag_windex;
+  //  Latch for invalidate index to simplify routing of SPR BUS
+  reg  [OPTION_ICACHE_SET_WIDTH-1:0] tag_invdex;
 
   // The data from the tag memory
   wire       [TAGMEM_WIDTH-1:0] tag_dout;
@@ -282,11 +284,13 @@ module mor1kx_icache_marocchino
       // synthesis parallel_case full_case
       case (ic_state)
         IC_IDLE: begin
+          spr_bus_ack_o <= 1'b0; // idling
+          // next states
           if (flush_by_ctrl_i) // ICACHE FSM: keep idle
             ic_state <= IC_IDLE;
           else if (spr_bus_ic_invalidate) begin
             ic_state      <= IC_INVALIDATE; // idling -> invalidate
-            spr_bus_ack_o <= 1'b1;          // idling -> invalidate
+            tag_invdex    <= spr_bus_dat_i[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH]; // idling -> invalidate
           end
           else if (ic_fsm_adv)
             ic_state <= IC_READ;
@@ -333,7 +337,7 @@ module mor1kx_icache_marocchino
 
         IC_INVALIDATE: begin
           ic_state      <= IC_IDLE; // invalidate -> idling
-          spr_bus_ack_o <= 1'b0;    // invalidate -> idling
+          spr_bus_ack_o <= 1'b1;    // invalidate -> idling
         end
 
         default: begin
@@ -503,7 +507,7 @@ module mor1kx_icache_marocchino
    * and during refill and invalidate
    */
   assign tag_windex = ic_refill     ? ibus_burst_adr_i[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH]  : // TAG_WR_ADDR at re-fill
-                      ic_invalidate ? spr_bus_dat_i[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH]     : // TAG_WR_ADDR at invalidate
+                      ic_invalidate ? tag_invdex                                               : // TAG_WR_ADDR at invalidate
                                       phys_addr_fetch_i[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH];  // TAG_WR_ADDR at update LRU field
 
   // TAG read address

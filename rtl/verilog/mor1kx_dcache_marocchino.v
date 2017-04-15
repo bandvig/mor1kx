@@ -154,6 +154,8 @@ module mor1kx_dcache_marocchino
   // The index we read and write from tag memory
   wire [OPTION_DCACHE_SET_WIDTH-1:0] tag_rindex;
   reg  [OPTION_DCACHE_SET_WIDTH-1:0] tag_windex;
+  //  Latch for invalidate index to simplify routing of SPR BUS
+  reg  [OPTION_DCACHE_SET_WIDTH-1:0] tag_invdex;
 
   // The data from the tag memory
   wire       [TAGMEM_WIDTH-1:0] tag_dout;
@@ -379,8 +381,10 @@ module mor1kx_dcache_marocchino
           // next states
           if (dc_force_idle | snoop_hit_o) // keep idle (overcome advance commands)
             dc_state <= DC_IDLE;
-          else if (spr_bus_dc_invalidate)
-            dc_state <= DC_INVALIDATE;
+          else if (spr_bus_dc_invalidate) begin
+            dc_state   <= DC_INVALIDATE;
+            tag_invdex <= spr_bus_dat_i[WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH]; // idling -> invalidate
+          end
           else if (dc_takes_load)
             dc_state <= DC_READ;
           else if (dc_takes_store)
@@ -477,16 +481,17 @@ module mor1kx_dcache_marocchino
         end
 
         default: begin
-          dc_state            <= DC_IDLE;  // on default
-          refill_hit_was_r    <= 1'b0; // on default
-          refill_first_o      <= 1'b0; // on default
-          snoop_check         <= 1'b0; // on default
-          snoop_tag           <= {TAG_WIDTH{1'b0}}; // on default
-          snoop_windex        <= {OPTION_DCACHE_SET_WIDTH{1'b0}}; // on default
-          tag_lru_save        <= {OPTION_DCACHE_WAYS{1'b0}}; // on default
+          dc_state         <= DC_IDLE;  // on default
+          refill_hit_was_r <= 1'b0; // on default
+          refill_first_o   <= 1'b0; // on default
+          snoop_check      <= 1'b0; // on default
+          snoop_tag        <= {TAG_WIDTH{1'b0}}; // on default
+          snoop_windex     <= {OPTION_DCACHE_SET_WIDTH{1'b0}}; // on default
+          tag_lru_save     <= {OPTION_DCACHE_WAYS{1'b0}}; // on default
           for (w1 = 0; w1 < OPTION_DCACHE_WAYS; w1 = w1 + 1) begin
             tag_way_save[w1] <= {TAGMEM_WAY_WIDTH{1'b0}};
           end
+          spr_bus_ack_o    <= 1'b0;    // on default
         end
       endcase
     end
@@ -598,7 +603,7 @@ module mor1kx_dcache_marocchino
           //    l.mf(t)spr commands after successfull completion of
           //    all previous instructions.
           //
-          tag_windex = spr_bus_dat_i[WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH]; // on invalidate
+          tag_windex = tag_invdex; // on invalidate
           tag_we     = 1'b1;
           tag_lru_in = 0;
           for (w2 = 0; w2 < OPTION_DCACHE_WAYS; w2 = w2 + 1) begin
