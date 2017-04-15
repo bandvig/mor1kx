@@ -49,8 +49,8 @@ module mor1kx_lsu_marocchino
 )
 (
   // clocks & resets
-  input                                 clk,
-  input                                 rst,
+  input                                 cpu_clk,
+  input                                 cpu_rst,
   // Pipeline controls
   input                                 pipeline_flush_i,
   input                                 padv_wb_i,
@@ -330,14 +330,14 @@ module mor1kx_lsu_marocchino
 
   reg lsu_speculative_valid_r;
   // ---
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | pipeline_flush_i)
       lsu_speculative_valid_r <= 1'b0;
-    else if (lsu_excepts_any | pipeline_flush_i) // drop speculative valid flag
+    else if (lsu_excepts_any)                // drop speculative valid flag
       lsu_speculative_valid_r <= 1'b0;
-    else if (lsu_taking_ls)                      // set speculative valid flag
+    else if (lsu_taking_ls)                  // set speculative valid flag
       lsu_speculative_valid_r <= 1'b1;
-    else if (padv_wb_i & grant_wb_to_lsu_i)      // drop speculative valid flag
+    else if (padv_wb_i & grant_wb_to_lsu_i)  // drop speculative valid flag
       lsu_speculative_valid_r <= 1'b0;
   end // @clock
   // ---
@@ -350,10 +350,8 @@ module mor1kx_lsu_marocchino
 
   // Any kind of LSU's ACK miss
   //   - prevents padv-wb in CTRL
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      wb_lsu_valid_miss_o <= 1'b0;
-    else if (flush_by_ctrl) // drop any-miss
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | flush_by_ctrl) // drop any-miss
       wb_lsu_valid_miss_o <= 1'b0;
     else if (padv_wb_i & grant_wb_to_lsu_i) // set any-miss
       wb_lsu_valid_miss_o <= lsu_miss_on;
@@ -364,10 +362,8 @@ module mor1kx_lsu_marocchino
   // LSU's load ACK miss
   //   - prevents resolving D1 related hazards
   //   - prevents write back to RF
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      wb_rfd1_wb_lsu_miss_o <= 1'b0;
-    else if (flush_by_ctrl) // drop load-miss
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | flush_by_ctrl) // drop load-miss
       wb_rfd1_wb_lsu_miss_o <= 1'b0;
     else if (padv_wb_i & grant_wb_to_lsu_i) // try load-ack at 1st time
       wb_rfd1_wb_lsu_miss_o <= lsu_miss_load;
@@ -377,10 +373,8 @@ module mor1kx_lsu_marocchino
 
   // LSU's l.swa ACK miss
   //   - prevents write back flag nad taking conditional branches
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      wb_flag_wb_lsu_miss_o <= 1'b0;
-    else if (flush_by_ctrl) // drop swa-miss
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | flush_by_ctrl) // drop swa-miss
       wb_flag_wb_lsu_miss_o <= 1'b0;
     else if (padv_wb_i & grant_wb_to_lsu_i) // try swa-ack at 1st time
       wb_flag_wb_lsu_miss_o <= lsu_miss_swa;
@@ -393,8 +387,15 @@ module mor1kx_lsu_marocchino
   // Flushing from pipeline-flush-i till DBUS transaction completion //
   //-----------------------------------------------------------------//
 
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
+  // initial value of flush-r for simulations
+ `ifndef SYNTHESIS
+  // synthesis translate_off
+  initial flush_r = 1'b0;
+  // synthesis translate_on
+ `endif // !synth
+  // ----
+  always @(posedge cpu_clk) begin
+    if (cpu_rst)
       flush_r <= 1'b0; // on reset
     else if (flush_r & dbus_idle_state)
       flush_r <= 1'b0; // on de-assert
@@ -422,12 +423,12 @@ module mor1kx_lsu_marocchino
   //---------------------------//
 
   // latches for load (either atomic or not) commands
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst) begin
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | pipeline_flush_i) begin
       cmd_load_r  <= 1'b0;
       cmd_lwa_r   <= 1'b0;
     end
-    else if (lsu_excepts_any | pipeline_flush_i) begin // drop load command (either atomic or not)
+    else if (lsu_excepts_any) begin // drop load command (either atomic or not)
       cmd_load_r  <= 1'b0;
       cmd_lwa_r   <= 1'b0;
     end
@@ -442,10 +443,10 @@ module mor1kx_lsu_marocchino
   end // @clock
 
   // latches for none atomic store command
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | pipeline_flush_i)
       cmd_store_r <= 1'b0;
-    else if (lsu_excepts_any | pipeline_flush_i) // drop none atomic store command
+    else if (lsu_excepts_any) // drop none atomic store command
       cmd_store_r <= 1'b0;
     else if (lsu_takes_store) // latch none atomic store command
       cmd_store_r <= ~exec_op_lsu_atomic_i;
@@ -454,10 +455,10 @@ module mor1kx_lsu_marocchino
   end // @clock
 
   // latches for atomic store command
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | pipeline_flush_i)
       cmd_swa_r <= 1'b0;
-    else if (lsu_excepts_any | pipeline_flush_i) // drop atomic store command
+    else if (lsu_excepts_any) // drop atomic store command
       cmd_swa_r <= 1'b0;
     else if (lsu_takes_store) // latch atomic store command
       cmd_swa_r <= exec_op_lsu_atomic_i;
@@ -466,21 +467,21 @@ module mor1kx_lsu_marocchino
   end // @clock
 
   // latches for store buffer EPCR
-  always @(posedge clk) begin
+  always @(posedge cpu_clk) begin
     if (lsu_takes_store) // store buffer EPCR: doesn't matter atomic or not
       cmd_epcr <= exec_sbuf_epcr_i;
   end // @clock
 
   // Latch for operand 'B'
-  always @(posedge clk) begin
+  always @(posedge cpu_clk) begin
     if (lsu_taking_ls)
       cmd_rfb <= exec_lsu_b1_i;
   end // @clock
 
   // latch additional parameters of a command
   //       and calculated virtual adderss
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst) begin
+  always @(posedge cpu_clk) begin
+    if (cpu_rst) begin
       // additional parameters of a command
       cmd_length    <= 2'd0;
       cmd_zext      <= 1'b0;
@@ -497,8 +498,8 @@ module mor1kx_lsu_marocchino
   end // @clock
 
   // LSU dosen't take next commad till completion all previous ones
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
+  always @(posedge cpu_clk) begin
+    if (cpu_rst)
       cmd_msync_r <= 1'b0;
     else if (exec_op_msync_i) // assert busy by l.msync
       cmd_msync_r <= 1'b1;
@@ -517,12 +518,10 @@ module mor1kx_lsu_marocchino
   //     atomic store here.
   wire sbuf_err = dbus_err_i & dbus_we & ~dbus_atomic;
   // ---
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | flush_by_ctrl) // prevent store buffer DBUS error report
       sbuf_err_o  <= 1'b0;
-    else if (flush_by_ctrl) // prevent store buffer DBUS error report
-      sbuf_err_o  <= 1'b0;
-    else if (sbuf_err)      // rise store buffer DBUS error
+    else if (sbuf_err)          // rise store buffer DBUS error
       sbuf_err_o  <= 1'b1;
   end // @ clock
 
@@ -535,50 +534,40 @@ module mor1kx_lsu_marocchino
                          ((cmd_length == 2'b01) & align_err_short));  // Align Exception: wrong short align
 
   // --- pending latch for align exception ---
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      except_align_p <= 1'b0;
-    else if (flush_by_ctrl) // drop align exception pending latch
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | flush_by_ctrl) // drop align exception pending latch
       except_align_p <= 1'b0;
     else if (except_align)
       except_align_p <= 1'b1;
   end // @clock
 
   // --- pending latch for DBUS error ---
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      except_dbus_err_p <= 1'b0;
-    else if (flush_by_ctrl) // drop DBUS error pending latch
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | flush_by_ctrl) // drop DBUS error pending latch
       except_dbus_err_p <= 1'b0;
     else if (dbus_err_i)
       except_dbus_err_p <= 1'b1;
   end // @clock
 
   // --- pending latch for DTLB-MISS ---
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      except_dtlb_miss_p <= 1'b0;
-    else if (flush_by_ctrl) // drop DTLB-MISS pending latch
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | flush_by_ctrl) // drop DTLB-MISS pending latch
       except_dtlb_miss_p <= 1'b0;
     else if (except_dtlb_miss)
       except_dtlb_miss_p <= 1'b1;
   end // @clock
 
   // --- pending latch for page fault ---
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      except_dpagefault_p <= 1'b0;
-    else if (flush_by_ctrl)  // drop page fault pending latch
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | flush_by_ctrl)  // drop page fault pending latch
       except_dpagefault_p <= 1'b0;
     else if (except_dpagefault)
       except_dpagefault_p <= 1'b1;
   end // @clock
 
   // --- pending latch for any LSU exception ---
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      lsu_excepts_any_p <= 1'b0;
-    else if (flush_by_ctrl)  // drop any LSU exception pending latch
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | flush_by_ctrl)  // drop any LSU exception pending latch
       lsu_excepts_any_p <= 1'b0;
     else if (lsu_excepts_any)
       lsu_excepts_any_p <= 1'b1;
@@ -589,15 +578,8 @@ module mor1kx_lsu_marocchino
   assign exec_an_except_lsu_o = (lsu_excepts_any_p | lsu_excepts_any) & (grant_wb_to_lsu_i | wb_lsu_valid_miss_o);
 
   // WB latches for LSU exceptions
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst) begin
-      //  # particular LSU exception flags
-      wb_except_dbus_err_o   <= 1'b0;
-      wb_except_dpagefault_o <= 1'b0;
-      wb_except_dtlb_miss_o  <= 1'b0;
-      wb_except_dbus_align_o <= 1'b0;
-    end
-    else if (flush_by_ctrl) begin  // drop WB-reported exceptions
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | flush_by_ctrl) begin  // drop WB-reported exceptions
       //  # particular LSU exception flags
       wb_except_dbus_err_o   <= 1'b0;
       wb_except_dpagefault_o <= 1'b0;
@@ -614,7 +596,7 @@ module mor1kx_lsu_marocchino
   end // @clock
 
   // WB latches RAM address related to an LSU exception
-  always @(posedge clk) begin
+  always @(posedge cpu_clk) begin
     if (padv_wb_i & grant_wb_to_lsu_i) // latch WB-reported RAM address related to an LSU exception
       wb_lsu_except_addr_o <= virt_addr_cmd;
   end // @clock
@@ -661,20 +643,20 @@ module mor1kx_lsu_marocchino
   //------------------------------//
 
   // pending 'store ready' flag for WB_MUX
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | flush_by_ctrl) // prevent 'store ready' pending
       lsu_ack_store_p <= 1'b0;
-    else if (grant_wb_to_lsu | lsu_excepts_any | flush_by_ctrl) // prevent 'store ready' pending
+    else if (grant_wb_to_lsu | lsu_excepts_any) // prevent 'store ready' pending
       lsu_ack_store_p <= 1'b0;
     else if (lsu_ack_store | lsu_ack_swa)
       lsu_ack_store_p <= 1'b1;
   end // @clock
 
   // pending 'load ready' flag for WB_MUX
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | flush_by_ctrl) // prevent 'load ready' pending
       lsu_ack_load_p <= 1'b0;
-    else if (grant_wb_to_lsu | lsu_excepts_any | flush_by_ctrl) // prevent 'load ready' pending
+    else if (grant_wb_to_lsu | lsu_excepts_any) // prevent 'load ready' pending
       lsu_ack_load_p <= 1'b0;
     else if (lsu_ack_load)
       lsu_ack_load_p <= 1'b1;
@@ -683,7 +665,7 @@ module mor1kx_lsu_marocchino
   // pending loaded word
   reg [LSUOOW-1:0] load_result_p;
   // ---
-  always @(posedge clk) begin
+  always @(posedge cpu_clk) begin
     if (lsu_ack_load)
       load_result_p <= lsu_ldat_extended;
   end // @clock
@@ -693,7 +675,7 @@ module mor1kx_lsu_marocchino
   // LSU load result write-back latches //
   //------------------------------------//
 
-  always @(posedge clk) begin
+  always @(posedge cpu_clk) begin
     if (flush_by_ctrl) begin // clean up LSU result (if missed)
       wb_lsu_result_o <= {LSUOOW{1'b0}};
     end
@@ -779,8 +761,8 @@ module mor1kx_lsu_marocchino
   end // always
 
   // state machine
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst) begin
+  always @(posedge cpu_clk) begin
+    if (cpu_rst) begin
       // DBUS controls
       dbus_req_o  <= 1'b0;            // DBUS reset
       dbus_we     <= 1'b0;            // DBUS reset
@@ -969,8 +951,8 @@ module mor1kx_lsu_marocchino
   )
   u_store_buffer
   (
-    .clk          (clk), // STORE_BUFFER
-    .rst          (rst), // STORE_BUFFER
+    .cpu_clk      (cpu_clk), // STORE_BUFFER
+    .cpu_rst      (cpu_rst), // STORE_BUFFER
     // DBUS error during write data from store buffer (force empty)
     .sbuf_err_i   (sbuf_err), // STORE_BUFFER
     // entry port
@@ -1008,12 +990,12 @@ module mor1kx_lsu_marocchino
   assign dbus_swa_success = dbus_swa_ack &  atomic_reserve; // for WB & DCACHE
   wire   dbus_swa_fail    = dbus_swa_ack & ~atomic_reserve; // for WB
   // ---
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst) begin
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | pipeline_flush_i) begin // drop atomic reserve
       atomic_reserve <= 1'b0;
       atomic_addr    <= {LSUOOW{1'b0}};
     end
-    else if (lsu_excepts_any | pipeline_flush_i |                 // drop atomic reserve
+    else if (lsu_excepts_any |                                    // drop atomic reserve
              dbus_swa_ack |                                       // drop atomic reserve
              (cmd_store_r & (phys_addr_cmd == atomic_addr)) |     // drop atomic reserve
              (snoop_event & (snoop_adr_i == atomic_addr))) begin  // drop atomic reserve
@@ -1036,12 +1018,12 @@ module mor1kx_lsu_marocchino
   reg atomic_flag_set_p;
   reg atomic_flag_clear_p;
   // ---
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst) begin
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | flush_by_ctrl) begin // prevent set/clear atomic flag pending
       atomic_flag_set_p   <= 1'b0;
       atomic_flag_clear_p <= 1'b0;
     end
-    else if (grant_wb_to_lsu | lsu_excepts_any | flush_by_ctrl) begin // prevent set/clear atomic flag pending
+    else if (grant_wb_to_lsu | lsu_excepts_any) begin // prevent set/clear atomic flag pending
       atomic_flag_set_p   <= 1'b0;
       atomic_flag_clear_p <= 1'b0;
     end
@@ -1052,12 +1034,12 @@ module mor1kx_lsu_marocchino
   end // @clock
 
   // atomic flags for WB_MUX
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst) begin
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | flush_by_ctrl) begin // drop WB atomic flags
       wb_atomic_flag_set_o   <= 1'b0;
       wb_atomic_flag_clear_o <= 1'b0;
     end
-    else if (lsu_excepts_any | flush_by_ctrl) begin // drop WB atomic flags
+    else if (lsu_excepts_any) begin // drop WB atomic flags
       wb_atomic_flag_set_o   <= 1'b0;
       wb_atomic_flag_clear_o <= 1'b0;
     end
@@ -1106,8 +1088,8 @@ module mor1kx_lsu_marocchino
   u_dcache
   (
     // clock & reset
-    .clk                        (clk), // DCACHE
-    .rst                        (rst), // DCACHE
+    .cpu_clk                    (cpu_clk), // DCACHE
+    .cpu_rst                    (cpu_rst), // DCACHE
     // pipe controls
     .lsu_takes_load_i           (lsu_takes_load), // DCACHE
     .lsu_takes_store_i          (lsu_takes_store), // DCACHE
@@ -1170,8 +1152,8 @@ module mor1kx_lsu_marocchino
   u_dmmu
   (
     // clocks and resets
-    .clk                              (clk), // DMMU
-    .rst                              (rst), // DMMU
+    .cpu_clk                          (cpu_clk), // DMMU
+    .cpu_rst                          (cpu_rst), // DMMU
     // pipe controls
     .lsu_takes_ls_i                   (lsu_taking_ls), // DMMU
     .pipeline_flush_i                 (pipeline_flush_i), // DMMU

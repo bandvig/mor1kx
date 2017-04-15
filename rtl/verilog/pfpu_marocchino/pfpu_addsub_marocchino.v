@@ -48,8 +48,8 @@
 module pfpu_addsub_marocchino
 (
   // clocks and resets
-  input             clk,
-  input             rst,
+  input             cpu_clk,
+  input             cpu_rst,
   // ADD/SUB pipe controls
   input             pipeline_flush_i,
   input             add_start_i,
@@ -136,7 +136,7 @@ module pfpu_addsub_marocchino
   reg [52:0] s1o_fract53_fsh;
   reg        s1o_op_fp64_arith;
   //  registering
-  always @(posedge clk) begin
+  always @(posedge cpu_clk) begin
     if (s1_adv) begin
       s1o_aeqb          <= addsub_aeqb_i;
       s1o_shr           <= s1t_shr & {6{~opc_0_i}};
@@ -150,10 +150,8 @@ module pfpu_addsub_marocchino
   end // @clock
 
   // ready is special case
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      s1o_ready <= 1'b0;
-    else if (pipeline_flush_i)
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | pipeline_flush_i)
       s1o_ready <= 1'b0;
     else if (s1_adv)
       s1o_ready <= 1'b1;
@@ -243,7 +241,7 @@ module pfpu_addsub_marocchino
   reg        s2o_sticky;      // rounding support
   reg        s2o_op_fp64_arith;
   //  registering
-  always @(posedge clk) begin
+  always @(posedge cpu_clk) begin
     if (s2_adv) begin
       s2o_signc         <= s1o_sign_nsh;
       s2o_exp13c        <= s1o_exp13c;
@@ -257,10 +255,8 @@ module pfpu_addsub_marocchino
   end // @clock
 
   // ready is special case
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      s2o_ready <= 1'b0;
-    else if (pipeline_flush_i)
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | pipeline_flush_i)
       s2o_ready <= 1'b0;
     else if (s2_adv)
       s2o_ready <= 1'b1;
@@ -371,7 +367,7 @@ module pfpu_addsub_marocchino
   wire s3t_sticky = s2o_sticky | ((~s2o_op_fp64_arith) & (|s3t_fract56_add[28:0]));
 
   // registering output
-  always @(posedge clk) begin
+  always @(posedge cpu_clk) begin
     if (s3_adv) begin
       add_sign_o      <= s2o_signc;
       add_sub_0_o     <= s2o_sub_0; // MAROCCHINO_TODO: optimize ?
@@ -383,10 +379,8 @@ module pfpu_addsub_marocchino
   end // @clock
 
   // ready is special case
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      add_rdy_o <= 1'b0;
-    else if (pipeline_flush_i)
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | pipeline_flush_i)
       add_rdy_o <= 1'b0;
     else if (s3_adv)
       add_rdy_o <= 1'b1;

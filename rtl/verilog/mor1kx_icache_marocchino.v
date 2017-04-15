@@ -38,8 +38,8 @@ module mor1kx_icache_marocchino
 )
 (
   // clock and reset
-  input                                 clk,
-  input                                 rst,
+  input                                 cpu_clk,
+  input                                 cpu_rst,
 
   // pipe controls
   input                                 padv_s1_i,
@@ -190,10 +190,8 @@ module mor1kx_icache_marocchino
   // Stored "ICACHE enable" flag for ibus_access_req_o
   reg ic_enable_r;
   // ---
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      ic_enable_r <= 1'b0;
-    else if (flush_by_ctrl_i)
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | flush_by_ctrl_i)
       ic_enable_r <= 1'b0;
     else if (padv_s1_i)
       ic_enable_r <= ic_enable_i;
@@ -272,8 +270,8 @@ module mor1kx_icache_marocchino
   // Cache FSM //
   //-----------//
   integer w1;
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst) begin
+  always @(posedge cpu_clk) begin
+    if (cpu_rst) begin
       lru_way_r         <= {OPTION_ICACHE_WAYS{1'b0}};    // reset
       ic_refill_first_o <= 1'b0;    // reset
       ic_state          <= IC_IDLE; // reset
@@ -371,20 +369,20 @@ module mor1kx_icache_marocchino
     // WAY-RAM instance
     mor1kx_spram_en_w1st
     #(
-      .ADDR_WIDTH    (WAY_WIDTH-2),
-      .DATA_WIDTH    (OPTION_OPERAND_WIDTH),
-      .CLEAR_ON_INIT (OPTION_ICACHE_CLEAR_ON_INIT)
+      .ADDR_WIDTH    (WAY_WIDTH-2), // ICACHE_WAY_RAM
+      .DATA_WIDTH    (OPTION_OPERAND_WIDTH), // ICACHE_WAY_RAM
+      .CLEAR_ON_INIT (OPTION_ICACHE_CLEAR_ON_INIT) // ICACHE_WAY_RAM
     )
     ic_way_ram
     (
       // clock
-      .clk  (clk),
+      .clk  (cpu_clk), // ICACHE_WAY_RAM
       // port
-      .en   (way_en[i]),  // enable
-      .we   (way_we[i]),  // operation is write
-      .addr (way_addr),
-      .din  (ibus_dat_i),
-      .dout (way_dout[i])
+      .en   (way_en[i]), // ICACHE_WAY_RAM
+      .we   (way_we[i]), // ICACHE_WAY_RAM
+      .addr (way_addr), // ICACHE_WAY_RAM
+      .din  (ibus_dat_i), // ICACHE_WAY_RAM
+      .dout (way_dout[i]) // ICACHE_WAY_RAM
     );
   end // block: way_memories
   endgenerate
@@ -404,17 +402,17 @@ module mor1kx_icache_marocchino
   /* verilator lint_on WIDTH */
     mor1kx_cache_lru
     #(
-      .NUMWAYS(OPTION_ICACHE_WAYS)
+      .NUMWAYS(OPTION_ICACHE_WAYS) // ICACHE_LRU
     )
     ic_lru
     (
       // Outputs
-      .update      (next_lru_history),
-      .lru_pre     (lru_way),
-      .lru_post    (),
+      .update      (next_lru_history), // ICACHE_LRU
+      .lru_pre     (lru_way), // ICACHE_LRU
+      .lru_post    (), // ICACHE_LRU
       // Inputs
-      .current     (current_lru_history),
-      .access      (access_lru_history)
+      .current     (current_lru_history), // ICACHE_LRU
+      .access      (access_lru_history) // ICACHE_LRU
     );
   end
   else begin // single way
@@ -525,26 +523,26 @@ module mor1kx_icache_marocchino
   // TAG-RAM instance
   mor1kx_dpram_en_w1st_sclk
   #(
-    .ADDR_WIDTH     (OPTION_ICACHE_SET_WIDTH),
-    .DATA_WIDTH     (TAGMEM_WIDTH),
-    .CLEAR_ON_INIT  (OPTION_ICACHE_CLEAR_ON_INIT)
+    .ADDR_WIDTH     (OPTION_ICACHE_SET_WIDTH), // ICACHE_TAG_RAM
+    .DATA_WIDTH     (TAGMEM_WIDTH), // ICACHE_TAG_RAM
+    .CLEAR_ON_INIT  (OPTION_ICACHE_CLEAR_ON_INIT) // ICACHE_TAG_RAM
   )
   ic_tag_ram
   (
     // common clock
-    .clk    (clk),
+    .clk    (cpu_clk), // ICACHE_TAG_RAM
     // port "a": Read / Write (for RW-conflict case)
-    .en_a   (ic_ram_re),  // TAG-RAM: enable port "a"
-    .we_a   (tr_rwp_we),  // TAG-RAM: operation is "write"
-    .addr_a (tag_rindex),
-    .din_a  (tag_din),
-    .dout_a (tag_dout),
+    .en_a   (ic_ram_re), // ICACHE_TAG_RAM
+    .we_a   (tr_rwp_we), // ICACHE_TAG_RAM
+    .addr_a (tag_rindex), // ICACHE_TAG_RAM
+    .din_a  (tag_din), // ICACHE_TAG_RAM
+    .dout_a (tag_dout), // ICACHE_TAG_RAM
     // port "b": Write if no RW-conflict
-    .en_b   (tr_wp_en),   // TAG-RAM: enable port "b"
-    .we_b   (tag_we),     // TAG-RAM: operation is "write"
-    .addr_b (tag_windex),
-    .din_b  (tag_din),
-    .dout_b ()            // not used
+    .en_b   (tr_wp_en), // ICACHE_TAG_RAM
+    .we_b   (tag_we), // ICACHE_TAG_RAM
+    .addr_b (tag_windex), // ICACHE_TAG_RAM
+    .din_b  (tag_din), // ICACHE_TAG_RAM
+    .dout_b () // ICACHE_TAG_RAM
   );
 
 endmodule // mor1kx_icache_marocchino

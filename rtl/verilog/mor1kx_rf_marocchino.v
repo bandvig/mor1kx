@@ -35,8 +35,8 @@ module mor1kx_rf_marocchino
   parameter OPTION_OPERAND_WIDTH     = 32
 )
 (
-  input                             clk,
-  input                             rst,
+  input                             cpu_clk,
+  input                             cpu_rst,
 
   // pipeline control signals
   input                             pipeline_flush_i,
@@ -183,7 +183,7 @@ module mor1kx_rf_marocchino
   rfa_even
   (
     // common clock
-    .clk    (clk),
+    .clk    (cpu_clk),
     // port "a": Read / Write (for RW-conflict case)
     .en_a   (rfa_even_rwp_en & ~pipeline_flush_i),
     .we_a   (rfa_even_rwp_we),
@@ -220,7 +220,7 @@ module mor1kx_rf_marocchino
   rfa_odd
   (
     // common clock
-    .clk    (clk),
+    .clk    (cpu_clk),
     // port "a": Read / Write (for RW-conflict case)
     .en_a   (rfa_odd_rwp_en & ~pipeline_flush_i),
     .we_a   (rfa_odd_rwp_we),
@@ -257,7 +257,7 @@ module mor1kx_rf_marocchino
   rfb_even
   (
     // common clock
-    .clk    (clk),
+    .clk    (cpu_clk),
     // port "a": Read / Write (for RW-conflict case)
     .en_a   (rfb_even_rwp_en & ~pipeline_flush_i),
     .we_a   (rfb_even_rwp_we),
@@ -294,7 +294,7 @@ module mor1kx_rf_marocchino
   rfb_odd
   (
     // common clock
-    .clk    (clk),
+    .clk    (cpu_clk),
     // port "a": Read / Write (for RW-conflict case)
     .en_a   (rfb_odd_rwp_en & ~pipeline_flush_i),
     .we_a   (rfb_odd_rwp_we),
@@ -335,8 +335,8 @@ module mor1kx_rf_marocchino
     reg [(RF_DW-1):0] spr_bus_dat_gpr_r;
 
     // SPR processing cycle
-    always @(posedge clk `OR_ASYNC_RST) begin
-      if (rst) begin
+    always @(posedge cpu_clk) begin
+      if (cpu_rst) begin
         spr_gpr_we_r      <= 1'b0;
         spr_gpr_re_r      <= 1'b0;
         spr_gpr_mux_r     <= 1'b0;
@@ -391,7 +391,7 @@ module mor1kx_rf_marocchino
     rfspr
     (
       // common clock
-      .clk    (clk),
+      .clk    (cpu_clk),
       // port "a"
       .en_a   ((rfspr_p1_we | spr_gpr_re_r) & ~pipeline_flush_i),
       .we_a   (rfspr_p1_we),
@@ -410,8 +410,8 @@ module mor1kx_rf_marocchino
   else begin : rfspr_disabled
 
     // make ACK
-    always @(posedge clk `OR_ASYNC_RST) begin
-      if (rst)
+    always @(posedge cpu_clk) begin
+      if (cpu_rst)
         spr_bus_ack_gpr_o <= 1'b0;
       else if (spr_bus_ack_gpr_o)
         spr_bus_ack_gpr_o <= 1'b0;

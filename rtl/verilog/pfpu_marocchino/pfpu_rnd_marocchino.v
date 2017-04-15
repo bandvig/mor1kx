@@ -42,8 +42,8 @@
 module pfpu_rnd_marocchino
 (
   // clocks, resets
-  input                             clk,
-  input                             rst,
+  input                             cpu_clk,
+  input                             cpu_rst,
   // pipe controls
   input                             pipeline_flush_i,
   output                            rnd_taking_add_o,
@@ -324,7 +324,7 @@ module pfpu_rnd_marocchino
   reg        s1o_div_op, s1o_div_dbz;
   reg        s1o_f2i_ovf, s1o_f2i;
   // registering
-  always @(posedge clk) begin
+  always @(posedge cpu_clk) begin
     if(s1_adv) begin
       s1o_sign          <= s1t_sign;
       s1o_exp13         <= s1t_exp13;
@@ -347,10 +347,8 @@ module pfpu_rnd_marocchino
   end // @clock
 
   // ready is special case
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      s1o_ready <= 1'b0;
-    else if (pipeline_flush_i)
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | pipeline_flush_i)
       s1o_ready <= 1'b0;
     else if (s1_adv)
       s1o_ready <= 1'b1;
@@ -478,7 +476,7 @@ module pfpu_rnd_marocchino
 
 
   // WB: result
-  always @(posedge clk) begin
+  always @(posedge cpu_clk) begin
     if(padv_wb_i) begin
       // for WB-result #1
       wb_fpxx_arith_res_hi_o <= (s1o_op_fp64_arith ? s2t_opc64[63:32] : s2t_opc32) &
@@ -490,12 +488,8 @@ module pfpu_rnd_marocchino
   end // @clock
 
   // WB: exception
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst) begin
-      wb_fpxx_arith_fpcsr_o  <= {`OR1K_FPCSR_ALLF_SIZE{1'b0}};
-      wb_except_fpxx_arith_o <= 1'b0;
-    end
-    else if(pipeline_flush_i) begin
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | pipeline_flush_i) begin
       wb_fpxx_arith_fpcsr_o  <= {`OR1K_FPCSR_ALLF_SIZE{1'b0}};
       wb_except_fpxx_arith_o <= 1'b0;
     end
@@ -506,10 +500,8 @@ module pfpu_rnd_marocchino
   end // @clock
 
   // WB: update FPCSR (1-clock to prevent extra writes into FPCSR)
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      wb_fpxx_arith_wb_fpcsr_o <= 1'b0;
-    else if (pipeline_flush_i)
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | pipeline_flush_i)
       wb_fpxx_arith_wb_fpcsr_o <= 1'b0;
     else if (padv_wb_i)
       wb_fpxx_arith_wb_fpcsr_o <= grant_wb_to_fpxx_arith_i;

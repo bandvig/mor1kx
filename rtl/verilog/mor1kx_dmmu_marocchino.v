@@ -34,8 +34,8 @@ module mor1kx_dmmu_marocchino
 )
 (
   // clocks and resest
-  input                                 clk,
-  input                                 rst,
+  input                                 cpu_clk,
+  input                                 cpu_rst,
 
   // pipe controls
   input                                 lsu_takes_ls_i,
@@ -111,7 +111,7 @@ module mor1kx_dmmu_marocchino
   reg                              spr_dmmu_we_r;  // write on next posedge clock
   reg                              spr_dmmu_re_r;  // read on next posedge clock
   reg                              spr_dmmu_mux_r; // mux read output and latch it
-  //  Latch address and data to simplify routing of SPR BUS 
+  //  Latch address and data to simplify routing of SPR BUS
   reg   [OPTION_OPERAND_WIDTH-1:0] spr_bus_dat_r;
   reg  [OPTION_DMMU_SET_WIDTH-1:0] spr_bus_addr_r;
 
@@ -144,14 +144,14 @@ module mor1kx_dmmu_marocchino
   reg supervisor_mode_r;
   reg cmd_store_r, cmd_load_r;
   // ---
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst) begin
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | pipeline_flush_i) begin
       enable_r          <= 1'b0;
       supervisor_mode_r <= 1'b0;
       cmd_store_r       <= 1'b0;
       cmd_load_r        <= 1'b0;
     end
-    else if (lsu_excepts_any_i | pipeline_flush_i | spr_dmmu_cs) begin
+    else if (lsu_excepts_any_i | spr_dmmu_cs) begin
       enable_r          <= 1'b0;
       supervisor_mode_r <= 1'b0;
       cmd_store_r       <= 1'b0;
@@ -184,8 +184,8 @@ module mor1kx_dmmu_marocchino
   assign spr_dmmu_cs = spr_bus_stb_i & (`SPR_BASE(spr_bus_addr_i) == `OR1K_SPR_DMMU_BASE);
 
   // SPR processing cycle
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst) begin
+  always @(posedge cpu_clk) begin
+    if (cpu_rst) begin
       dtlb_match_spr_cs_r <= 1'b0;
       dtlb_trans_spr_cs_r <= 1'b0;
       dmmucr_spr_cs_r     <= 1'b0;
@@ -250,8 +250,8 @@ module mor1kx_dmmu_marocchino
 
   // Process DMMU Control Register
   //  # DMMUCR proc
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
+  always @(posedge cpu_clk) begin
+    if (cpu_rst)
       dmmucr <= {OPTION_OPERAND_WIDTH{1'b0}};
     else if (dmmucr_spr_cs_r & spr_dmmu_we_r)
       dmmucr <= spr_bus_dat_r;
@@ -394,7 +394,7 @@ module mor1kx_dmmu_marocchino
 
     assign tlb_reload_pagefault_o = tlb_reload_pagefault & ~tlb_reload_pagefault_clear_i;
 
-    always @(posedge clk) begin
+    always @(posedge cpu_clk) begin
       if (tlb_reload_pagefault_clear_i)
         tlb_reload_pagefault  <= 1'b0;
 
@@ -501,7 +501,7 @@ module mor1kx_dmmu_marocchino
   else begin // SW reload
     assign tlb_reload_pagefault_o = 1'b0;
     assign tlb_reload_busy_o      = 1'b0;
-    always @(posedge clk) begin
+    always @(posedge cpu_clk) begin
       tlb_reload_req_o      <= 1'b0;
       tlb_reload_addr_o     <= {OPTION_OPERAND_WIDTH{1'b0}};
       tlb_reload_pagefault  <= 1'b0;
@@ -535,7 +535,7 @@ module mor1kx_dmmu_marocchino
     dtlb_match_regs
     (
       // common clock
-      .clk    (clk),
+      .clk    (cpu_clk),
       // port "a": 8KB pages
       .en_a   (ram_re | dtlb_match_we[i]),
       .we_a   (dtlb_match_we[i]),
@@ -559,7 +559,7 @@ module mor1kx_dmmu_marocchino
     dtlb_trans_regs
     (
       // common clock
-      .clk    (clk),
+      .clk    (cpu_clk),
       // port "a": 8KB pages
       .en_a   (ram_re | dtlb_trans_we[i]),
       .we_a   (dtlb_trans_we[i]),

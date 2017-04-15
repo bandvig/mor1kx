@@ -49,8 +49,8 @@
 module pfpu64_fcmp_marocchino
 (
   // clock and reset
-  input              clk,
-  input              rst,
+  input              cpu_clk,
+  input              cpu_rst,
   // pipeline controls
   input              pipeline_flush_i,     // flush pipe
   input              padv_wb_i,            // advance output latches
@@ -199,18 +199,8 @@ assign exec_except_fp64_cmp_o = except_fpu_enable_i & (exec_fp64_cmp_inv | exec_
 
 ////////////////////////////////////////////////////////////////////////
 // WB latches: flag set/clear; fp-related flags; exception
-always @(posedge clk `OR_ASYNC_RST) begin
-  if (rst) begin
-    // comparison results
-    wb_fp64_flag_set_o   <= 1'b0;
-    wb_fp64_flag_clear_o <= 1'b0;
-    // comparison flags
-    wb_fp64_cmp_inv_o    <= 1'b0;
-    wb_fp64_cmp_inf_o    <= 1'b0;
-    // comparison exception
-    wb_except_fp64_cmp_o <= 1'b0;
-  end
-  else if(pipeline_flush_i) begin
+always @(posedge cpu_clk) begin
+  if (cpu_rst | pipeline_flush_i) begin
     // comparison results
     wb_fp64_flag_set_o   <= 1'b0;
     wb_fp64_flag_clear_o <= 1'b0;
@@ -234,10 +224,8 @@ end // @clock
 
 ////////////////////////////////////////////////////////////////////////
 // WB latches: update FPCSR (1-clock to prevent extra writes into FPCSR)
-always @(posedge clk `OR_ASYNC_RST) begin
-  if (rst)
-    wb_fp64_cmp_wb_fpcsr_o <= 1'b0;
-  else if (pipeline_flush_i)
+always @(posedge cpu_clk) begin
+  if (cpu_rst | pipeline_flush_i)
     wb_fp64_cmp_wb_fpcsr_o <= 1'b0;
   else if (padv_wb_i)
     wb_fp64_cmp_wb_fpcsr_o <= exec_fp64_cmp_wb;

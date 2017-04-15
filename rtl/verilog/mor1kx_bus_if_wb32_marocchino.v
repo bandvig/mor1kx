@@ -331,6 +331,16 @@ module mor1kx_bus_if_wb32_marocchino
   //  starts from _r2 (*_r1 should be 1st in full sync. implementation).
   reg cpu2queue_ack_r2;
   reg cpu2queue_ack_r3;
+  // initial value for correct simulation
+  //  (prevent 'X' in cpu2queue_ack_pulse and next in queue_flush)
+ `ifndef SYNTHESIS
+  // synthesis translate_off
+  initial begin
+    cpu2queue_ack_r2 = 1'b0;
+    cpu2queue_ack_r3 = 1'b0;
+  end
+  // synthesis translate_on
+ `endif // !synth
   // ---
   always @(posedge wb_clk) begin
     if (wb_rst) begin

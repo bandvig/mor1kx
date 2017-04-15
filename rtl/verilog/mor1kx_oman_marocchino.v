@@ -32,8 +32,8 @@ module mor1kx_oman_marocchino
 )
 (
   // clock & reset
-  input                                 clk,
-  input                                 rst,
+  input                                 cpu_clk,
+  input                                 cpu_rst,
 
   // pipeline control
   input                                 padv_decode_i,
@@ -294,7 +294,7 @@ module mor1kx_oman_marocchino
   // synthesis translate_on
  `endif // !synth
   // ---
-  always @(posedge clk) begin
+  always @(posedge cpu_clk) begin
     if (padv_decode_i)
       dcod_ext_bits_o <= dcod_ext_bits_o + 1'b1;
   end // @clock
@@ -378,9 +378,9 @@ module mor1kx_oman_marocchino
   )
   u_ocb
   (
-    // clocks, resets 
-    .clk              (clk), // INSN_OCB
-    .rst              (rst), // INSN_OCB
+    // clocks, resets
+    .clk              (cpu_clk), // INSN_OCB
+    .rst              (cpu_rst), // INSN_OCB
     // pipe controls
     .pipeline_flush_i (pipeline_flush_i), // INSN_OCB
     .write_i          (padv_decode_i), // INSN_OCB
@@ -739,10 +739,8 @@ module mor1kx_oman_marocchino
   // ---
   wire oman_jr_hazard = (op_jr_d1b1_adr_p != wb_rfd1_ext) | (wb_rfd1_wb_r & wb_rfd1_wb_lsu_miss_i); // l.jr/l.jalr hazard in OMAN
   // ---
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      op_jr_p <= 1'b0;
-    else if (pipeline_flush_i)
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | pipeline_flush_i)
       op_jr_p <= 1'b0;
     else if (op_jr_p)
       op_jr_p <= oman_jr_hazard;
@@ -787,15 +785,8 @@ module mor1kx_oman_marocchino
                         (ocb_flag_mcycle_p & ((op_bc_flag_adr_p != wb_rfd1_ext) |                                 // l.bf/l.bnf hazard in OMAN
                                               (wb_flag_wb_r & wb_flag_wb_lsu_miss_i)));                           // l.bf/l.bnf hazard in OMAN
   // ---
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst) begin
-      op_bf_p           <= 1'b0;
-      op_bnf_p          <= 1'b0;
-      op_bc_p           <= 1'b0;
-      ocb_flag_mcycle_p <= 1'b0;
-      op_1clk_cmp_p     <= 1'b0;
-    end
-    else if (pipeline_flush_i) begin
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | pipeline_flush_i) begin
       op_bf_p           <= 1'b0;
       op_bnf_p          <= 1'b0;
       op_bc_p           <= 1'b0;
@@ -888,8 +879,8 @@ module mor1kx_oman_marocchino
   u_jb_attr_ocb
   (
     // clocks and resets
-    .clk                (clk), // JB_ATTR_OCB
-    .rst                (rst), // JB_ATTR_OCB
+    .clk                (cpu_clk), // JB_ATTR_OCB
+    .rst                (cpu_rst), // JB_ATTR_OCB
     // pipe controls
     .pipeline_flush_i   (pipeline_flush_i), // JB_ATTR_OCB
     .write_i            (jb_attr_ocb_write), // JB_ATTR_OCB
@@ -905,12 +896,8 @@ module mor1kx_oman_marocchino
   assign exec_jb_attr_valid = jb_attr_ocbo[JB_ATTR_VALID_POS];
 
   // WB JUMP or BRANCH attributes
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst) begin
-      wb_jump_or_branch_o <= 1'b0;
-      wb_do_branch_o      <= 1'b0;
-    end
-    else if (pipeline_flush_i) begin
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | pipeline_flush_i) begin
       wb_jump_or_branch_o <= 1'b0;
       wb_do_branch_o      <= 1'b0;
     end
@@ -930,10 +917,8 @@ module mor1kx_oman_marocchino
   // Stall DECODE advancing (see also CTRL) when l.rfe or ecxeptions are in EXECUTE stage.
   // The main purpose of this is waiting till l.rfe/exceptions propagate up to WB stage.
   // ---
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      oman_fd_an_except_o <= 1'b0;
-    else if (pipeline_flush_i)
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | pipeline_flush_i)
       oman_fd_an_except_o <= 1'b0;
     else if (padv_decode_i)
       oman_fd_an_except_o <= (fetch_an_except_i | dcod_an_except  | dcod_op_rfe_i);
@@ -962,10 +947,8 @@ module mor1kx_oman_marocchino
 
   // D1 WB-to-RF request generated with taking
   // into accaunt speculative WB for LSU load command
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      wb_rfd1_wb_r <= 1'b0;
-    else if (pipeline_flush_i)
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | pipeline_flush_i)
       wb_rfd1_wb_r <= 1'b0;
     else if (padv_wb_i)
       wb_rfd1_wb_r <= ocbo00[OCBT_RFD1_WB_POS];
@@ -977,10 +960,8 @@ module mor1kx_oman_marocchino
 
 
   // D2 WB-to-RF request (1-clock length)
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      wb_rfd2_wb_o <= 1'b0;
-    else if (pipeline_flush_i)
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | pipeline_flush_i)
       wb_rfd2_wb_o <= 1'b0;
     else if (padv_wb_i)
       wb_rfd2_wb_o <= ocbo00[OCBT_RFD2_WB_POS];
@@ -991,10 +972,8 @@ module mor1kx_oman_marocchino
 
   // OMAN WB-to-FLAG-request generated with taking
   // into accaunt speculative WB for LSU load command
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      wb_flag_wb_r <= 1'b0;
-    else if (pipeline_flush_i)
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | pipeline_flush_i)
       wb_flag_wb_r <= 1'b0;
     else if (padv_wb_i)
       wb_flag_wb_r <= ocbo00[OCBT_FLAG_WB_POS];
@@ -1006,10 +985,8 @@ module mor1kx_oman_marocchino
 
 
   // WB-to-CARRY-request (1-clock to prevent extra writes)
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      wb_carry_wb_o <= 1'b0;
-    else if (pipeline_flush_i)
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | pipeline_flush_i)
       wb_carry_wb_o <= 1'b0;
     else if (padv_wb_i)
       wb_carry_wb_o <= ocbo00[OCBT_CARRY_WB_POS];
@@ -1019,10 +996,8 @@ module mor1kx_oman_marocchino
 
 
   // WB delay slot
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      wb_delay_slot_o <= 1'b0;
-    else if (pipeline_flush_i)
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | pipeline_flush_i)
       wb_delay_slot_o <= 1'b0;
     else if (padv_wb_i)
       wb_delay_slot_o <= ocbo00[OCBT_DELAY_SLOT_POS];
@@ -1030,7 +1005,7 @@ module mor1kx_oman_marocchino
 
 
   // address of D1 end D2 PC
-  always @(posedge clk) begin
+  always @(posedge cpu_clk) begin
     if (padv_wb_i & ~pipeline_flush_i) begin
       wb_rfd1_adr_o <= {ocbo00[OCBT_EXT_ADR_MSB:OCBT_EXT_ADR_LSB], ocbo00[OCBT_RFD1_ADR_MSB:OCBT_RFD1_ADR_LSB]};
       wb_rfd2_adr_o <=  ocbo00[OCBT_RFD2_ADR_MSB:OCBT_RFD2_ADR_LSB];

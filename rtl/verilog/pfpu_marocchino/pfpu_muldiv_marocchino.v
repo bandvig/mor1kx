@@ -42,8 +42,8 @@
 module pfpu_muldiv_marocchino
 (
   // clocks and resets
-  input             clk,
-  input             rst,
+  input             cpu_clk,
+  input             cpu_rst,
   // pipe controls
   input             pipeline_flush_i,   // flushe pipe
   input             mul_start_i,
@@ -247,7 +247,7 @@ module pfpu_muldiv_marocchino
   reg        s0o_dbz;
   reg        s0o_op_fp64_arith;
   // registering
-  always @(posedge clk) begin
+  always @(posedge cpu_clk) begin
     if (s0_adv) begin
       s0o_opc_0         <= opc_0_i;
       s0o_signc         <= signa_i ^ signb_i;
@@ -263,12 +263,8 @@ module pfpu_muldiv_marocchino
   end
 
   // stage #0 is ready
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst) begin
-      s0o_div_ready <= 1'b0;
-      s0o_mul_ready <= 1'b0;
-    end
-    else if (pipeline_flush_i) begin
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | pipeline_flush_i) begin
       s0o_div_ready <= 1'b0;
       s0o_mul_ready <= 1'b0;
     end
@@ -312,7 +308,7 @@ module pfpu_muldiv_marocchino
   reg        s1o_dbz;
   reg        s1o_op_fp64_arith;
   //   registering
-  always @(posedge clk) begin
+  always @(posedge cpu_clk) begin
     if (s1_adv) begin
       s1o_opc_0         <= s0o_opc_0;
       s1o_signc         <= s0o_signc;
@@ -325,12 +321,8 @@ module pfpu_muldiv_marocchino
   end // @clock
 
   // ready for MUL instruction
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst) begin
-      s1o_mul_ready <= 1'b0;
-      s1o_div_ready <= 1'b0;
-    end
-    else if (pipeline_flush_i) begin
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | pipeline_flush_i) begin
       s1o_mul_ready <= 1'b0;
       s1o_div_ready <= 1'b0;
     end
@@ -376,8 +368,8 @@ module pfpu_muldiv_marocchino
   pfpu_mul_marocchino u_fp64_mul
   (
     // clocks and resets
-    .clk                  (clk), // FP64_MUL
-    .rst                  (rst), // FP64_MUL
+    .cpu_clk              (cpu_clk), // FP64_MUL
+    .cpu_rst              (cpu_rst), // FP64_MUL
     // pipe controls
     .pipeline_flush_i     (pipeline_flush_i), // FP64_MUL
     .s1o_mul_ready_i      (s1o_mul_ready), // FP64_MUL
@@ -408,8 +400,8 @@ module pfpu_muldiv_marocchino
   pfpu_div_marocchino u_fp64_div
   (
     // clocks and resets
-    .clk                  (clk), // FP64_DIV
-    .rst                  (rst), // FP64_DIV
+    .cpu_clk              (cpu_clk), // FP64_DIV
+    .cpu_rst              (cpu_rst), // FP64_DIV
     // pipe controls
     .pipeline_flush_i     (pipeline_flush_i), // FP64_DIV
     .s1o_div_ready_i      (s1o_div_ready), // FP64_DIV

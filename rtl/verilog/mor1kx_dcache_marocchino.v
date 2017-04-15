@@ -39,8 +39,8 @@ module mor1kx_dcache_marocchino
 )
 (
   // clock & reset
-  input                                 clk,
-  input                                 rst,
+  input                                 cpu_clk,
+  input                                 cpu_rst,
 
   // pipe controls
   input                                 lsu_takes_load_i,
@@ -343,8 +343,8 @@ module mor1kx_dcache_marocchino
 
   integer w1;
 
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst) begin
+  always @(posedge cpu_clk) begin
+    if (cpu_rst) begin
       dc_state            <= DC_IDLE;  // on reset
       refill_hit_was_r    <= 1'b0; // on reset
       refill_first_o      <= 1'b0; // on reset
@@ -650,26 +650,26 @@ module mor1kx_dcache_marocchino
     // WAY-RAM instances
     mor1kx_dpram_en_w1st_sclk
     #(
-      .ADDR_WIDTH     (WAY_WIDTH-2),
-      .DATA_WIDTH     (OPTION_OPERAND_WIDTH),
-      .CLEAR_ON_INIT  (OPTION_DCACHE_CLEAR_ON_INIT)
+      .ADDR_WIDTH     (WAY_WIDTH-2), // DCACHE_WAY_RAM
+      .DATA_WIDTH     (OPTION_OPERAND_WIDTH), // DCACHE_WAY_RAM
+      .CLEAR_ON_INIT  (OPTION_DCACHE_CLEAR_ON_INIT) // DCACHE_WAY_RAM
     )
     dc_way_ram
     (
       // common clock
-      .clk    (clk),
+      .clk    (cpu_clk), // DCACHE_WAY_RAM
       // port "a": Read / Write (for RW-conflict case)
-      .en_a   (ram_re), // WAY-RAM: enable port "a"
-      .we_a   (way_rwp_we[i]),                  // WAY-RAM:  operation is "write"
-      .addr_a (way_raddr),
-      .din_a  (way_wr_dat),
-      .dout_a (way_dout[i]),
+      .en_a   (ram_re), // DCACHE_WAY_RAM
+      .we_a   (way_rwp_we[i]), // DCACHE_WAY_RAM
+      .addr_a (way_raddr), // DCACHE_WAY_RAM
+      .din_a  (way_wr_dat), // DCACHE_WAY_RAM
+      .dout_a (way_dout[i]), // DCACHE_WAY_RAM
       // port "b": Write if no RW-conflict
-      .en_b   (way_wp_en[i]), // WAY-RAM:  enable port "b"
-      .we_b   (way_we[i]),                            // WAY-RAM:  operation is "write"
-      .addr_b (way_waddr),
-      .din_b  (way_wr_dat),
-      .dout_b ()            // WAY-RAM: not used
+      .en_b   (way_wp_en[i]), // DCACHE_WAY_RAM
+      .we_b   (way_we[i]), // DCACHE_WAY_RAM
+      .addr_b (way_waddr), // DCACHE_WAY_RAM
+      .din_b  (way_wr_dat), // DCACHE_WAY_RAM
+      .dout_b () // DCACHE_WAY_RAM
     );
   end
 
@@ -711,26 +711,26 @@ module mor1kx_dcache_marocchino
   // TAG-RAM instance
   mor1kx_dpram_en_w1st_sclk
   #(
-    .ADDR_WIDTH     (OPTION_DCACHE_SET_WIDTH),
-    .DATA_WIDTH     (TAGMEM_WIDTH),
-    .CLEAR_ON_INIT  (OPTION_DCACHE_CLEAR_ON_INIT)
+    .ADDR_WIDTH     (OPTION_DCACHE_SET_WIDTH), // DCAHCE_TAG_RAM
+    .DATA_WIDTH     (TAGMEM_WIDTH), // DCAHCE_TAG_RAM
+    .CLEAR_ON_INIT  (OPTION_DCACHE_CLEAR_ON_INIT) // DCAHCE_TAG_RAM
   )
   dc_tag_ram
   (
     // common clock
-    .clk    (clk),
+    .clk    (cpu_clk), // DCAHCE_TAG_RAM
     // port "a": Read / Write (for RW-conflict case)
-    .en_a   (ram_re), // TAG-RAM: enable port "a"
-    .we_a   (tr_rwp_we),                                    // TAG-RAM: operation is "write"
-    .addr_a (tag_rindex),
-    .din_a  (tag_din),
-    .dout_a (tag_dout),
+    .en_a   (ram_re), // DCAHCE_TAG_RAM
+    .we_a   (tr_rwp_we), // DCAHCE_TAG_RAM
+    .addr_a (tag_rindex), // DCAHCE_TAG_RAM
+    .din_a  (tag_din), // DCAHCE_TAG_RAM
+    .dout_a (tag_dout), // DCAHCE_TAG_RAM
     // port "b": Write if no RW-conflict
-    .en_b   (tr_wp_en), // TAG-RAM: enable port "b"
-    .we_b   (tag_we),                                         // TAG-RAM: operation is "write"
-    .addr_b (tag_windex),
-    .din_b  (tag_din),
-    .dout_b ()            // TAG-RAM: not used
+    .en_b   (tr_wp_en), // DCAHCE_TAG_RAM
+    .we_b   (tag_we), // DCAHCE_TAG_RAM
+    .addr_b (tag_windex), // DCAHCE_TAG_RAM
+    .din_b  (tag_din), // DCAHCE_TAG_RAM
+    .dout_b () // DCAHCE_TAG_RAM
   );
 
 
@@ -761,26 +761,26 @@ module mor1kx_dcache_marocchino
     // SNOOP-TAG-RAM instance
     mor1kx_dpram_en_w1st_sclk
     #(
-      .ADDR_WIDTH     (OPTION_DCACHE_SET_WIDTH),
-      .DATA_WIDTH     (TAGMEM_WIDTH),
-      .CLEAR_ON_INIT  (OPTION_DCACHE_CLEAR_ON_INIT)
+      .ADDR_WIDTH     (OPTION_DCACHE_SET_WIDTH), // DCACHE_SNOOP_TAG_RAM
+      .DATA_WIDTH     (TAGMEM_WIDTH), // DCACHE_SNOOP_TAG_RAM
+      .CLEAR_ON_INIT  (OPTION_DCACHE_CLEAR_ON_INIT) // DCACHE_SNOOP_TAG_RAM
     )
     dc_snoop_tag_ram
     (
       // clock
-      .clk    (clk),
+      .clk    (cpu_clk), // DCACHE_SNOOP_TAG_RAM
       // port "a": Read / Write (for RW-conflict case)
-      .en_a   (str_re),       // SNOOP-TAG-RAM: enable port
-      .we_a   (str_rwp_we),   // SNOOP-TAG-RAM: operation is "write"
-      .addr_a (snoop_rindex),
-      .din_a  (tag_din),
-      .dout_a (snoop_dout),
+      .en_a   (str_re), // DCACHE_SNOOP_TAG_RAM
+      .we_a   (str_rwp_we), // DCACHE_SNOOP_TAG_RAM
+      .addr_a (snoop_rindex), // DCACHE_SNOOP_TAG_RAM
+      .din_a  (tag_din), // DCACHE_SNOOP_TAG_RAM
+      .dout_a (snoop_dout), // DCACHE_SNOOP_TAG_RAM
       // port "b": Write if no RW-conflict
-      .en_b   (str_wp_en),  // SNOOP-TAG-RAM: enable port "b"
-      .we_b   (str_we),     // SNOOP-TAG-RAM: operation is "write"
-      .addr_b (tag_windex),
-      .din_b  (tag_din),
-      .dout_b ()            // SNOOP-TAG-RAM: not used
+      .en_b   (str_wp_en), // DCACHE_SNOOP_TAG_RAM
+      .we_b   (str_we), // DCACHE_SNOOP_TAG_RAM
+      .addr_b (tag_windex), // DCACHE_SNOOP_TAG_RAM
+      .din_b  (tag_din), // DCACHE_SNOOP_TAG_RAM
+      .dout_b () // DCACHE_SNOOP_TAG_RAM
     );
   end
   endgenerate

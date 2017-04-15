@@ -38,8 +38,8 @@
 module pfpu_f2i_marocchino
 (
   // clocks and resets
-  input             clk,
-  input             rst,
+  input             cpu_clk,
+  input             cpu_rst,
   // pipe controls
   input             pipeline_flush_i,
   input             start_i,
@@ -106,7 +106,7 @@ module pfpu_f2i_marocchino
 
 
   // registering output
-  always @(posedge clk) begin
+  always @(posedge cpu_clk) begin
     if (s1_adv) begin
       f2i_sign_o  <= signa_i & (~(qnan_i | snan_i)); // if 'a' is a NaN than ouput is max. positive
       // for rounding engine we re-pack single precision 24-bits mantissa to LSBs
@@ -118,10 +118,8 @@ module pfpu_f2i_marocchino
   end // @clock
 
   // ready is special case
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      f2i_rdy_o <= 1'b0;
-    else if (pipeline_flush_i)
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | pipeline_flush_i)
       f2i_rdy_o <= 1'b0;
     else if (s1_adv)
       f2i_rdy_o <= 1'b1;

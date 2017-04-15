@@ -41,8 +41,8 @@
 module pfpu_mul_marocchino
 (
   // clocks and resets
-  input             clk,
-  input             rst,
+  input             cpu_clk,
+  input             cpu_rst,
   // pipe controls
   input             pipeline_flush_i,
   input             s1o_mul_ready_i,
@@ -122,7 +122,7 @@ module pfpu_mul_marocchino
   //   partial multiplies
   reg [25:0] s2o_a0b0, s2o_a0b1, s2o_a1b0, s2o_a1b1;
   //   registering
-  always @(posedge clk) begin
+  always @(posedge cpu_clk) begin
     if (s2_adv) begin
       // computation related
       s2o_signc         <= s1o_signc_i;
@@ -148,10 +148,8 @@ module pfpu_mul_marocchino
   end // @clock
 
   // ready is special case
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      s2o_mul_ready <= 1'b0;
-    else if (pipeline_flush_i)
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | pipeline_flush_i)
       s2o_mul_ready <= 1'b0;
     else if (s2_adv)
       s2o_mul_ready <= 1'b1;
@@ -193,7 +191,7 @@ module pfpu_mul_marocchino
   reg [26:0] s3o_psum26;
   reg        s3o_sticky;
   //   registering
-  always @(posedge clk) begin
+  always @(posedge cpu_clk) begin
     if (s3_adv) begin
         // computation related
       s3o_signc   <= s2o_signc;
@@ -219,10 +217,8 @@ module pfpu_mul_marocchino
   end // @clock
 
   // ready is special case
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      s3o_mul_ready <= 1'b0;
-    else if (pipeline_flush_i)
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | pipeline_flush_i)
       s3o_mul_ready <= 1'b0;
     else if (s3_adv)
       s3o_mul_ready <= 1'b1;
@@ -259,7 +255,7 @@ module pfpu_mul_marocchino
   reg [27:0] s4o_psum28;
   reg        s4o_sticky;
   //   registering
-  always @(posedge clk) begin
+  always @(posedge cpu_clk) begin
     if (s4_adv) begin
         // computation related
       s4o_signc   <= s3o_signc;
@@ -283,10 +279,8 @@ module pfpu_mul_marocchino
   end // @clock
 
   // ready is special case
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      s4o_mul_ready <= 1'b0;
-    else if (pipeline_flush_i)
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | pipeline_flush_i)
       s4o_mul_ready <= 1'b0;
     else if (s4_adv)
       s4o_mul_ready <= 1'b1;
@@ -321,7 +315,7 @@ module pfpu_mul_marocchino
   reg [27:0] s5o_psum28;
   reg  [2:0] s5o_qrs;
   //   registering
-  always @(posedge clk) begin
+  always @(posedge cpu_clk) begin
     if (s5_adv) begin
         // computation related
       s5o_signc   <= s4o_signc;
@@ -340,10 +334,8 @@ module pfpu_mul_marocchino
   end // @clock
 
   // ready is special case
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      s5o_mul_ready <= 1'b0;
-    else if (pipeline_flush_i)
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | pipeline_flush_i)
       s5o_mul_ready <= 1'b0;
     else if (s5_adv)
       s5o_mul_ready <= 1'b1;
@@ -363,7 +355,7 @@ module pfpu_mul_marocchino
                         {26'd0, s5o_psum28};
 
   // output
-  always @(posedge clk) begin
+  always @(posedge cpu_clk) begin
     if (out_adv_d | out_adv_s) begin
       mul_sign_o     <= (s5o_mul_ready ? s5o_signc   : s2o_signc);
       mul_shr_o      <= (s5o_mul_ready ? s5o_shrx    : s2o_shrx);
@@ -374,10 +366,8 @@ module pfpu_mul_marocchino
   end // @clock
 
   // ready is special case
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      mul_rdy_o <= 1'b0;
-    else if (pipeline_flush_i)
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | pipeline_flush_i)
       mul_rdy_o <= 1'b0;
     else if (out_adv_d | out_adv_s)
       mul_rdy_o <= 1'b1;

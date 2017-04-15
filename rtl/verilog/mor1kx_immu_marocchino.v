@@ -36,8 +36,8 @@ module mor1kx_immu_marocchino
 )
 (
   // clock & reset
-  input                                 clk,
-  input                                 rst,
+  input                                 cpu_clk,
+  input                                 cpu_rst,
 
   // controls
   input                                 padv_s1_i,        // advance
@@ -104,7 +104,7 @@ module mor1kx_immu_marocchino
   reg                              spr_immu_we_r;  // write on next posedge clock
   reg                              spr_immu_re_r;  // read on next posedge clock
   reg                              spr_immu_mux_r; // mux read output and latch it
-  //  Latch address and data to simplify routing of SPR BUS 
+  //  Latch address and data to simplify routing of SPR BUS
   reg   [OPTION_OPERAND_WIDTH-1:0] spr_bus_dat_r;
   reg  [OPTION_IMMU_SET_WIDTH-1:0] spr_bus_addr_r;
 
@@ -136,12 +136,12 @@ module mor1kx_immu_marocchino
   reg enable_r;
   reg supervisor_mode_r;
   // ---
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst) begin
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | flush_by_ctrl_i) begin
       enable_r          <= 1'b0;
       supervisor_mode_r <= 1'b0;
     end
-    else if (flush_by_ctrl_i | spr_immu_cs) begin
+    else if (spr_immu_cs) begin
       enable_r          <= 1'b0;
       supervisor_mode_r <= 1'b0;
     end
@@ -169,8 +169,8 @@ module mor1kx_immu_marocchino
   assign spr_immu_cs = spr_bus_stb_i & (`SPR_BASE(spr_bus_addr_i) == `OR1K_SPR_IMMU_BASE);
 
   // SPR processing cycle
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst) begin
+  always @(posedge cpu_clk) begin
+    if (cpu_rst) begin
       itlb_match_spr_cs_r <= 1'b0;
       itlb_trans_spr_cs_r <= 1'b0;
       immucr_spr_cs_r     <= 1'b0;
@@ -235,8 +235,8 @@ module mor1kx_immu_marocchino
 
   // Process IMMU Control Register
   //  # IMMUCR proc
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
+  always @(posedge cpu_clk) begin
+    if (cpu_rst)
       immucr <= {OPTION_OPERAND_WIDTH{1'b0}};
     else if (immucr_spr_cs_r & spr_immu_we_r)
       immucr <= spr_bus_dat_r;
@@ -364,8 +364,8 @@ module mor1kx_immu_marocchino
     assign tlb_reload_busy_o      = (tlb_reload_state != TLB_IDLE) | do_reload;
     assign tlb_reload_pagefault_o = tlb_reload_pagefault & ~tlb_reload_pagefault_clear_i;
 
-    always @(posedge clk `OR_ASYNC_RST) begin
-      if (rst)
+    always @(posedge cpu_clk) begin
+      if (cpu_rst)
         tlb_reload_pagefault <= 1'b0;
       else if(tlb_reload_pagefault_clear_i)
         tlb_reload_pagefault <= 1'b0;
@@ -468,7 +468,7 @@ module mor1kx_immu_marocchino
   else begin // SW reload
     assign tlb_reload_pagefault_o = 1'b0;
     assign tlb_reload_busy_o      = 1'b0;
-    always @(posedge clk) begin
+    always @(posedge cpu_clk) begin
       tlb_reload_req_o      <= 1'b0;
       tlb_reload_addr_o     <= {OPTION_OPERAND_WIDTH{1'b0}};
       tlb_reload_pagefault  <= 1'b0;
@@ -498,7 +498,7 @@ module mor1kx_immu_marocchino
     itlb_match_regs
     (
       // common clock
-      .clk    (clk),
+      .clk    (cpu_clk),
       // port "a": 8KB pages
       .en_a   (ram_re | itlb_match_we[i]),
       .we_a   (itlb_match_we[i]),
@@ -523,7 +523,7 @@ module mor1kx_immu_marocchino
     itlb_trans_regs
     (
       // common clock
-      .clk    (clk),
+      .clk    (cpu_clk),
       // port "a": 8KB pages
       .en_a   (ram_re | itlb_trans_we[i]),
       .we_a   (itlb_trans_we[i]),

@@ -78,8 +78,8 @@ module mor1kx_cpu_marocchino
   input                             wb_rst,
 
   // CPU clock and reset
-  input                             clk,
-  input                             rst,
+  input                             cpu_clk,
+  input                             cpu_rst,
 
   // Instruction bus
   input                             ibus_err_i,
@@ -564,8 +564,8 @@ module mor1kx_cpu_marocchino
   u_fetch
   (
     // clocks & resets
-    .clk                              (clk), // FETCH
-    .rst                              (rst), // FETCH
+    .cpu_clk                          (cpu_clk), // FETCH
+    .cpu_rst                          (cpu_rst), // FETCH
 
     // pipeline control
     .padv_fetch_i                     (padv_fetch), // FETCH
@@ -653,8 +653,8 @@ module mor1kx_cpu_marocchino
   u_rf
   (
     // clocks & resets
-    .clk                              (clk), // RF
-    .rst                              (rst), // RF
+    .cpu_clk                          (cpu_clk), // RF
+    .cpu_rst                          (cpu_rst), // RF
     // pipeline control signals
     .pipeline_flush_i                 (pipeline_flush), // RF
     .padv_fetch_i                     (padv_fetch), // RF
@@ -833,8 +833,8 @@ module mor1kx_cpu_marocchino
   u_oman
   (
     // clock & reset
-    .clk                        (clk), // OMAN
-    .rst                        (rst), // OMAN
+    .cpu_clk                    (cpu_clk), // OMAN
+    .cpu_rst                    (cpu_rst), // OMAN
 
     // pipeline control
     .padv_decode_i              (padv_decode), // OMAN
@@ -1115,8 +1115,8 @@ module mor1kx_cpu_marocchino
   u_1clk_rsrvs
   (
     // clocks and resets
-    .clk                        (clk), // 1CLK_RSVRS
-    .rst                        (rst), // 1CLK_RSVRS
+    .cpu_clk                    (cpu_clk), // 1CLK_RSVRS
+    .cpu_rst                    (cpu_rst), // 1CLK_RSVRS
     // pipeline control signals in
     .pipeline_flush_i           (pipeline_flush), // 1CLK_RSVRS
     .padv_decode_i              (padv_decode), // 1CLK_RSVRS
@@ -1195,8 +1195,8 @@ module mor1kx_cpu_marocchino
   u_exec_1clk
   (
     // clocks & resets
-    .clk                              (clk), // 1CLK
-    .rst                              (rst), // 1CLK
+    .cpu_clk                          (cpu_clk), // 1CLK
+    .cpu_rst                          (cpu_rst), // 1CLK
 
     // pipeline controls
     .pipeline_flush_i                 (pipeline_flush), // 1CLK
@@ -1341,8 +1341,8 @@ module mor1kx_cpu_marocchino
   u_mclk_rsrvs
   (
     // clocks and resets
-    .clk                        (clk), // MCLK_RSVRS
-    .rst                        (rst), // MCLK_RSVRS
+    .cpu_clk                    (cpu_clk), // MCLK_RSVRS
+    .cpu_rst                    (cpu_rst), // MCLK_RSVRS
     // pipeline control signals in
     .pipeline_flush_i           (pipeline_flush), // MCLK_RSVRS
     .padv_decode_i              (padv_decode), // MCLK_RSVRS
@@ -1426,8 +1426,8 @@ module mor1kx_cpu_marocchino
   u_multiplier
   (
     // clocks & resets
-    .clk                              (clk), // MUL
-    .rst                              (rst), // MUL
+    .cpu_clk                          (cpu_clk), // MUL
+    .cpu_rst                          (cpu_rst), // MUL
     // pipeline controls
     .pipeline_flush_i                 (pipeline_flush), // MUL
     .padv_wb_i                        (padv_wb), // MUL
@@ -1464,8 +1464,8 @@ module mor1kx_cpu_marocchino
   u_divider
   (
     // clocks & resets
-    .clk                              (clk), // DIV
-    .rst                              (rst), // DIV
+    .cpu_clk                          (cpu_clk), // DIV
+    .cpu_rst                          (cpu_rst), // DIV
     // pipeline controls
     .pipeline_flush_i                 (pipeline_flush), // DIV
     .padv_wb_i                        (padv_wb), // DIV
@@ -1502,8 +1502,8 @@ module mor1kx_cpu_marocchino
   pfpu_top_marocchino  u_pfpu3264
   (
     // clock & reset
-    .clk                        (clk), // FPU3264
-    .rst                        (rst), // FPU3264
+    .cpu_clk                    (cpu_clk), // FPU3264
+    .cpu_rst                    (cpu_rst), // FPU3264
 
     // pipeline control
     .pipeline_flush_i           (pipeline_flush), // FPU3264
@@ -1634,8 +1634,8 @@ module mor1kx_cpu_marocchino
   u_lsu_rsrvs
   (
     // clocks and resets
-    .clk                        (clk),
-    .rst                        (rst),
+    .cpu_clk                    (cpu_clk), // LSU_RSVRS
+    .cpu_rst                    (cpu_rst), // LSU_RSVRS
     // pipeline control signals in
     .pipeline_flush_i           (pipeline_flush), // LSU_RSVRS
     .padv_decode_i              (padv_decode), // LSU_RSVRS
@@ -1719,8 +1719,8 @@ module mor1kx_cpu_marocchino
   u_lsu
   (
     // clocks & resets
-    .clk                              (clk), // LSU
-    .rst                              (rst), // LSU
+    .cpu_clk                          (cpu_clk), // LSU
+    .cpu_rst                          (cpu_rst), // LSU
     // Pipeline controls
     .pipeline_flush_i                 (pipeline_flush), // LSU
     .padv_wb_i                        (padv_wb), // LSU
@@ -1805,12 +1805,8 @@ module mor1kx_cpu_marocchino
   wire exec_tt_interrupt  = tt_rdy       & tt_interrupt_enable  & exec_interrupts_en; // from "Tick Timer"
   wire exec_pic_interrupt = (|spr_picsr) & pic_interrupt_enable & exec_interrupts_en; // from "Programmble Interrupt Controller"
   // --- wb-latches ---
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst) begin
-      wb_tt_interrupt_r   <= 1'b0;
-      wb_pic_interrupt_r  <= 1'b0;
-    end
-    else if (pipeline_flush) begin  // WB: External Interrupts Collection
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | pipeline_flush) begin  // WB: External Interrupts Collection
       wb_tt_interrupt_r   <= 1'b0;
       wb_pic_interrupt_r  <= 1'b0;
     end
@@ -1825,24 +1821,11 @@ module mor1kx_cpu_marocchino
   // RFE & IFETCH/DECODE EXCEPTIONS //
   //--------------------------------//
 
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst) begin
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | pipeline_flush) begin
       // RFE
       wb_op_rfe_r            <= 1'b0;
       // FETCH/DECODE exceptions
-      wb_except_ibus_err_r   <= 1'b0;
-      wb_except_ipagefault_r <= 1'b0;
-      wb_except_itlb_miss_r  <= 1'b0;
-      wb_except_ibus_align_r <= 1'b0;
-      // DECODE exceptions
-      wb_except_illegal_r    <= 1'b0;
-      wb_except_syscall_r    <= 1'b0;
-      wb_except_trap_r       <= 1'b0;
-    end
-    else if (pipeline_flush) begin
-      // RFE
-      wb_op_rfe_r            <= 1'b0;
-      // IFETCH exceptions
       wb_except_ibus_err_r   <= 1'b0;
       wb_except_ipagefault_r <= 1'b0;
       wb_except_itlb_miss_r  <= 1'b0;
@@ -1880,10 +1863,8 @@ module mor1kx_cpu_marocchino
                           exec_an_except_lsu       | sbuf_err                  |  // EXEC-AN-EXCEPT
                           exec_tt_interrupt        | exec_pic_interrupt;          // EXEC-AN-EXCEPT
   // --- wb-latch ---
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      wb_an_except_r <= 1'b0;
-    else if (pipeline_flush) // WB: combined exception/interrupt flag
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | pipeline_flush) // WB: combined exception/interrupt flag
       wb_an_except_r <= 1'b0;
     else if (padv_wb) // WB: combined exception/interrupt flag
       wb_an_except_r <= exec_an_except;
@@ -1907,8 +1888,8 @@ module mor1kx_cpu_marocchino
     .wb_clk             (wb_clk), // TIMER
     .wb_rst             (wb_rst), // TIMER
     // CPU clock and reset
-    .cpu_clk            (clk), // TIMER
-    .cpu_rst            (rst), // TIMER
+    .cpu_clk            (cpu_clk), // TIMER
+    .cpu_rst            (cpu_rst), // TIMER
     // ready flag
     .tt_rdy_o           (tt_rdy), // TIMER
     // SPR interface
@@ -1939,8 +1920,8 @@ module mor1kx_cpu_marocchino
     .wb_clk             (wb_clk), // PIC
     .wb_rst             (wb_rst), // PIC
     // CPU clock and reset
-    .cpu_clk            (clk), // PIC
-    .cpu_rst            (rst), // PIC
+    .cpu_clk            (cpu_clk), // PIC
+    .cpu_rst            (cpu_rst), // PIC
     // input interrupt lines
     .irq_i              (irq_i), // PIC
     // output interrupt lines
@@ -1983,8 +1964,8 @@ module mor1kx_cpu_marocchino
   u_ctrl
   (
     // clocks & resets
-    .clk                              (clk), // CTRL
-    .rst                              (rst), // CTRL
+    .cpu_clk                          (cpu_clk), // CTRL
+    .cpu_rst                          (cpu_rst), // CTRL
 
     // Inputs / Outputs for pipeline control signals
     .dcod_insn_valid_i                (dcod_insn_valid), // CTRL
@@ -2173,9 +2154,9 @@ module mor1kx_cpu_marocchino
 
    reg            traceport_waitexec;
 
-   always @(posedge clk) begin
+   always @(posedge cpu_clk) begin
       if (FEATURE_TRACEPORT_EXEC != "NONE") begin
-   if (rst) begin
+   if (cpu_rst) begin
       traceport_waitexec <= 0;
    end else begin
       if (padv_decode) begin
@@ -2210,7 +2191,7 @@ module mor1kx_cpu_marocchino
       traceport_exec_valid_o <= 1'b0;
          end
       end // else: !if(!traceport_waitexec)
-   end // else: !if(rst)
+   end // else: !if(cpu_rst)
       end else begin // if (FEATURE_TRACEPORT_EXEC != "NONE")
    traceport_stage_dcod_insn <= {`OR1K_INSN_WIDTH{1'b0}};
    traceport_stage_exec_insn <= {`OR1K_INSN_WIDTH{1'b0}};

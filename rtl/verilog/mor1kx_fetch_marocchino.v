@@ -49,8 +49,8 @@ module mor1kx_fetch_marocchino
 )
 (
   // clock and reset
-  input                                 clk,
-  input                                 rst,
+  input                                 cpu_clk,
+  input                                 cpu_rst,
 
   // pipeline control
   input                                 padv_fetch_i,
@@ -233,10 +233,8 @@ module mor1kx_fetch_marocchino
   /********************/
 
   // IBUS error pending
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      except_ibus_err <= 1'b0;
-    else if (padv_s1 | flush_by_ctrl)
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | flush_by_ctrl)
       except_ibus_err <= 1'b0;
     else if (ibus_err_i)
       except_ibus_err <= 1'b1;
@@ -262,10 +260,8 @@ module mor1kx_fetch_marocchino
   // ---
   reg [2:0] jb_taking_state_r;
   // ---
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      jb_taking_state_r <= FETCH_JB_WAIT;
-    else if (flush_by_ctrl)
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | flush_by_ctrl)
       jb_taking_state_r <= FETCH_JB_WAIT;
     else begin
       // synthesis parallel_case full_case
@@ -306,11 +302,9 @@ module mor1kx_fetch_marocchino
   reg             do_branch_p;
   reg [IFOOW-1:0] do_branch_target_p;
   // ---
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      do_branch_p <= 1'b0;  // reset
-    else if (flush_by_ctrl)
-      do_branch_p <= 1'b0;  // flushing
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | flush_by_ctrl)
+      do_branch_p <= 1'b0;  // reset / flushing
     else if (padv_s1) begin // clean up / keep stored branch
       if (do_branch_p)
         do_branch_p <= fetch_ds_next; // keep stored branch if fetch delay slot
@@ -329,8 +323,8 @@ module mor1kx_fetch_marocchino
   // provide higher priority than exception at reset
   reg fetch_addr_next_r;
   // ---
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
+  always @(posedge cpu_clk) begin
+    if (cpu_rst)
       fetch_addr_next_r <= 1'b1;
     else if (flush_by_ctrl)
       fetch_addr_next_r <= 1'b0;
@@ -340,10 +334,10 @@ module mor1kx_fetch_marocchino
 
 
   // 1-clock fetch-exception-taken
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | flush_by_ctrl)
       fetch_exception_taken_o <= 1'b0;
-    else if (fetch_exception_taken_o | flush_by_ctrl)
+    else if (fetch_exception_taken_o)
       fetch_exception_taken_o <= 1'b0;
     else if (padv_s1)
       fetch_exception_taken_o <= ctrl_branch_exception_i;
@@ -365,18 +359,16 @@ module mor1kx_fetch_marocchino
   // new fetch request is valid
   wire fetch_req_hit = fetch_ds_next | (~fetch_jr_bc_hazard_i);
   // ---
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | flush_by_ctrl)
       fetch_req_hit_r <= 1'b0; // start fetching from "virt-addr-next" (see hierarhy in virt-addr-mux)
-    else if (flush_by_ctrl)
-      fetch_req_hit_r <= 1'b0;
     else if (padv_s1)
       fetch_req_hit_r <= fetch_req_hit;
   end // @ clock
 
   // ICACHE/IMMU match address store register
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
+  always @(posedge cpu_clk) begin
+    if (cpu_rst)
       virt_addr_fetch <= OPTION_RESET_PC - 4; // reset: will be restored on 1st advance
     else if (flush_by_ctrl)
       virt_addr_fetch <= virt_addr_fetch;     // flushing
@@ -397,16 +389,16 @@ module mor1kx_fetch_marocchino
 
   // ACK and DATA from IBUS/ICAHCE stored till nearest advance
   //  # ACK
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | flush_by_ctrl)
       imem_ack_p <= 1'b0;
-    else if (padv_fetch_i | flush_by_ctrl)
+    else if (padv_fetch_i)
       imem_ack_p <= 1'b0;
     else if (ic_ack | ibus_ack)
       imem_ack_p <= 1'b1;
   end // @ clock
   //  # ICACHE
-  always @(posedge clk) begin
+  always @(posedge cpu_clk) begin
     if (ic_ack)
       imem_dat_p <= ic_dat;
     else if (ibus_ack)
@@ -433,8 +425,8 @@ module mor1kx_fetch_marocchino
                       {`OR1K_OPCODE_NOP,26'd0};
 
   // to DECODE: delay slot flag
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst) begin
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | flush_by_ctrl) begin
       dcod_delay_slot_o         <= 1'b0;
       dcod_insn_o               <= {`OR1K_OPCODE_NOP,26'd0};
       dcod_insn_valid_o         <= 1'b0;
@@ -444,19 +436,7 @@ module mor1kx_fetch_marocchino
       fetch_except_ipagefault_o <= 1'b0;
       fetch_an_except_o         <= 1'b0;
       // actual programm counter
-      pc_decode_o               <= {IFOOW{1'b0}}; // reset
-    end
-    else if (flush_by_ctrl) begin
-      dcod_delay_slot_o         <= 1'b0;
-      dcod_insn_o               <= {`OR1K_OPCODE_NOP,26'd0};
-      dcod_insn_valid_o         <= 1'b0;
-      // exceptions
-      fetch_except_ibus_err_o   <= 1'b0;
-      fetch_except_itlb_miss_o  <= 1'b0;
-      fetch_except_ipagefault_o <= 1'b0;
-      fetch_an_except_o         <= 1'b0;
-      // actual programm counter
-      pc_decode_o               <= {IFOOW{1'b0}}; // flush
+      pc_decode_o               <= {IFOOW{1'b0}}; // reset / flush
     end
     else if (padv_fetch_i) begin
       dcod_delay_slot_o         <= fetching_ds & s2t_insn_or_excepts;
@@ -486,13 +466,8 @@ module mor1kx_fetch_marocchino
   // ---
   reg [(OPTION_RF_ADDR_WIDTH-1):0] dcod_rfa2_adr_r, dcod_rfb2_adr_r, insn_rfd2_adr_r;
   // ---
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst) begin
-      dcod_rfa2_adr_r <= {{(OPTION_RF_ADDR_WIDTH-1){1'b0}},1'b1};
-      dcod_rfb2_adr_r <= {{(OPTION_RF_ADDR_WIDTH-1){1'b0}},1'b1};
-      insn_rfd2_adr_r <= {{(OPTION_RF_ADDR_WIDTH-1){1'b0}},1'b1};
-    end
-    else if (flush_by_ctrl) begin
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | flush_by_ctrl) begin
       dcod_rfa2_adr_r <= {{(OPTION_RF_ADDR_WIDTH-1){1'b0}},1'b1};
       dcod_rfb2_adr_r <= {{(OPTION_RF_ADDR_WIDTH-1){1'b0}},1'b1};
       insn_rfd2_adr_r <= {{(OPTION_RF_ADDR_WIDTH-1){1'b0}},1'b1};
@@ -517,9 +492,15 @@ module mor1kx_fetch_marocchino
 
   // store flush command till IBUS transactions complete
   reg flush_r;
+  // initial value of flush-r for simulations
+ `ifndef SYNTHESIS
+  // synthesis translate_off
+  initial flush_r = 1'b0;
+  // synthesis translate_on
+ `endif // !synth
   // ----
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
+  always @(posedge cpu_clk) begin
+    if (cpu_rst)
       flush_r <= 1'b0;
     else if (ibus_fsm_free)
       flush_r <= 1'b0;
@@ -549,8 +530,8 @@ module mor1kx_fetch_marocchino
 
 
   // state machine itself
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst) begin
+  always @(posedge cpu_clk) begin
+    if (cpu_rst) begin
       ibus_req_o <= 1'b0;           // by reset
       ibus_adr_o <= {IFOOW{1'b0}};  // by reset
       ibus_state <= IBUS_IDLE;      // by reset
@@ -651,8 +632,8 @@ module mor1kx_fetch_marocchino
   u_icache
   (
     // clock and reset
-    .clk                  (clk), // ICACHE
-    .rst                  (rst), // ICACHE
+    .cpu_clk              (cpu_clk), // ICACHE
+    .cpu_rst              (cpu_rst), // ICACHE
     // pipe controls
     .padv_s1_i            (padv_s1), // ICACHE
     .flush_by_ctrl_i      (flush_by_ctrl), // ICACHE
@@ -702,8 +683,8 @@ module mor1kx_fetch_marocchino
   )
   u_immu
   (
-    .clk                            (clk), // IMMU
-    .rst                            (rst), // IMMU
+    .cpu_clk                        (cpu_clk), // IMMU
+    .cpu_rst                        (cpu_rst), // IMMU
     // controls
     .padv_s1_i                      (padv_s1), // IMMU
     .flush_by_ctrl_i                (flush_by_ctrl), // IMMU

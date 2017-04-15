@@ -31,8 +31,8 @@ module mor1kx_store_buffer_marocchino
   parameter CLEAR_ON_INIT        = 0
 )
 (
-  input                               clk,
-  input                               rst,
+  input                               cpu_clk,
+  input                               cpu_rst,
   // DBUS error during write data from store buffer (force empty)
   input                               sbuf_err_i,
   // entry port
@@ -63,15 +63,15 @@ module mor1kx_store_buffer_marocchino
 
   reg         [DEPTH_WIDTH:0] write_pointer;
   wire        [DEPTH_WIDTH:0] write_pointer_next;
-  
+
   reg         [DEPTH_WIDTH:0] read_pointer;
   wire        [DEPTH_WIDTH:0] read_pointer_next;
 
   // write pointer update
   assign write_pointer_next = write_pointer + 1'b1;
   // ---
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
+  always @(posedge cpu_clk) begin
+    if (cpu_rst)
       write_pointer <= {(DEPTH_WIDTH+1){1'b0}};
     else if (sbuf_err_i)
       write_pointer <= {(DEPTH_WIDTH+1){1'b0}};
@@ -82,8 +82,8 @@ module mor1kx_store_buffer_marocchino
   // read pointer update
   assign read_pointer_next = read_pointer + 1'b1;
   // ---
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
+  always @(posedge cpu_clk) begin
+    if (cpu_rst)
       read_pointer <= {(DEPTH_WIDTH+1){1'b0}};
     else if (sbuf_err_i)
       read_pointer <= {(DEPTH_WIDTH+1){1'b0}};
@@ -122,7 +122,7 @@ module mor1kx_store_buffer_marocchino
   fifo_ram
   (
     // common clock
-    .clk    (clk),
+    .clk    (cpu_clk),
     // port "a": Read / Write (for RW-conflict case)
     .en_a   (read_i), // enable port "a"
     .we_a   (rwp_we), // operation is "write"

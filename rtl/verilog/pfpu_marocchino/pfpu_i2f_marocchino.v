@@ -38,8 +38,8 @@
 module pfpu_i2f_marocchino
 (
   // clocks and resets
-  input             clk,
-  input             rst,
+  input             cpu_clk,
+  input             cpu_rst,
   // I2F pipe controls
   input             pipeline_flush_i,
   input             start_i,
@@ -179,7 +179,7 @@ module pfpu_i2f_marocchino
 
 
   // registering output
-  always @(posedge clk) begin
+  always @(posedge cpu_clk) begin
     if (s1_adv) begin
         // computation related
       i2f_sign_o     <= s1t_signa;
@@ -195,10 +195,8 @@ module pfpu_i2f_marocchino
   end // @clock
 
   // ready is special case
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      i2f_rdy_o <= 1'b0;
-    else if (pipeline_flush_i)
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | pipeline_flush_i)
       i2f_rdy_o <= 1'b0;
     else if (s1_adv)
       i2f_rdy_o <= 1'b1;

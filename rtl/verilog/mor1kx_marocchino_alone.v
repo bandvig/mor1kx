@@ -304,7 +304,7 @@ module mor1kx_marocchino_alone
     .OPTION_PIC_TRIGGER               (OPTION_PIC_TRIGGER),
     .OPTION_PIC_NMI_WIDTH             (OPTION_PIC_NMI_WIDTH),
     // timer, debug unit, performance counters, m-core, trace
-    .TIMER_CLOCK_DOMAIN               (TIMER_CLOCK_DOMAIN), 
+    .TIMER_CLOCK_DOMAIN               (TIMER_CLOCK_DOMAIN),
     .FEATURE_DEBUGUNIT                (FEATURE_DEBUGUNIT),
     .FEATURE_PERFCOUNTERS             (FEATURE_PERFCOUNTERS),
     .FEATURE_MULTICORE                (FEATURE_MULTICORE),
@@ -327,8 +327,8 @@ module mor1kx_marocchino_alone
     .wb_clk                   (clk), // CPU : MAROCCHINO_TODO: should be wb-clock
     .wb_rst                   (rst), // CPU : MAROCCHINO_TODO: should be wb-rst
     // CPU clock and reset
-    .clk                      (clk), // CPU : MAROCCHINO_TODO: should be cpu-clock
-    .rst                      (rst), // CPU : MAROCCHINO_TODO: should be cpu-rst
+    .cpu_clk                  (clk), // CPU : MAROCCHINO_TODO: should be cpu-clock
+    .cpu_rst                  (rst), // CPU : MAROCCHINO_TODO: should be cpu-rst
     // Outputs
     .ibus_adr_o               (ibus_adr_o),
     .ibus_req_o               (ibus_req_o),

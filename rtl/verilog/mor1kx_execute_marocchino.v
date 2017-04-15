@@ -37,8 +37,8 @@ module mor1kx_multiplier_marocchino
 )
 (
   // clocks and resets
-  input                                 clk,
-  input                                 rst,
+  input                                 cpu_clk,
+  input                                 cpu_rst,
 
   // pipeline control signal in
   input                                 pipeline_flush_i,
@@ -88,7 +88,7 @@ module mor1kx_multiplier_marocchino
   reg [MULHDW-1:0] mul_s1_ah;
   reg [MULHDW-1:0] mul_s1_bh;
   //  registering
-  always @(posedge clk) begin
+  always @(posedge cpu_clk) begin
     if (mul_adv_s1) begin
       mul_s1_al <= exec_mul_a1_i[MULHDW-1:0];
       mul_s1_bl <= exec_mul_b1_i[MULHDW-1:0];
@@ -97,10 +97,8 @@ module mor1kx_multiplier_marocchino
     end
   end // @clock
   //  ready flag
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      mul_s1_rdy <= 1'b0;
-    else if (pipeline_flush_i)
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | pipeline_flush_i)
       mul_s1_rdy <= 1'b0;
     else if (mul_adv_s1)
       mul_s1_rdy <= 1'b1;
@@ -113,7 +111,7 @@ module mor1kx_multiplier_marocchino
   reg [MULDW-1:0] mul_s2_ahbl;
   reg [MULDW-1:0] mul_s2_bhal;
   //  registering
-  always @(posedge clk) begin
+  always @(posedge cpu_clk) begin
     if (mul_adv_s2) begin
       mul_s2_albl <= mul_s1_al * mul_s1_bl;
       mul_s2_ahbl <= mul_s1_ah * mul_s1_bl;
@@ -121,10 +119,8 @@ module mor1kx_multiplier_marocchino
     end
   end // @clock
   //  ready flag
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      mul_s2_rdy <= 1'b0;
-    else if (pipeline_flush_i)
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | pipeline_flush_i)
       mul_s2_rdy <= 1'b0;
     else if (mul_adv_s2)
       mul_s2_rdy <= 1'b1;
@@ -138,7 +134,7 @@ module mor1kx_multiplier_marocchino
                        {mul_s2_ahbl[MULHDW-1:0],{MULHDW{1'b0}}} +
                         mul_s2_albl;
   //  registering
-  always @(posedge clk) begin
+  always @(posedge cpu_clk) begin
     if (padv_wb_i)
       wb_mul_result_o <= {MULDW{grant_wb_to_mul_i}} & mul_s3t_sum;
   end // @clock
@@ -170,8 +166,8 @@ module srt4_kernel
 )
 (
   // clock and reset
-  input              clk,
-  input              rst,
+  input              cpu_clk,
+  input              cpu_rst,
   // pipeline controls
   input              pipeline_flush_i,
   input              div_start_i,      // take operands and start
@@ -203,7 +199,7 @@ module srt4_kernel
   reg [2:0] q_digit_2or3_r;
   reg [2:0] q_digit_minus_2or3_r;
   // ---
-  always @(posedge clk) begin
+  always @(posedge cpu_clk) begin
     if (div_start_i) begin
       q_digit_2or3_r       <= {2'b01, ~den_i[N-2]};
       q_digit_minus_2or3_r <= { 1'b1,  den_i[N-2], ~den_i[N-2]};
@@ -232,7 +228,7 @@ module srt4_kernel
   reg [N-1:0] one_den_r;    // 1 * denominator
   reg   [N:0] three_den_r;  // 3 * denominator
   // ---
-  always @(posedge clk) begin
+  always @(posedge cpu_clk) begin
     if (div_start_i) begin
       one_den_r   <= den_i;
       three_den_r <= {1'b0, den_i} + {den_i, 1'b0};
@@ -261,7 +257,7 @@ module srt4_kernel
   assign nrem = four_rem + (mult_den ^ {(N+1){sub}}) + {{N{1'b0}},sub};
 
   // and partial reminder update
-  always @(posedge clk) begin
+  always @(posedge cpu_clk) begin
     if (div_start_i) begin
       prem_hi_r <= {1'b0,num_i[2*N-1:N]};
       prem_lo_r <= num_i[N-1:0];
@@ -276,7 +272,7 @@ module srt4_kernel
   //  # part Q
   reg   [N-1:0] q_r;
   //  # ---
-  always @(posedge clk) begin
+  always @(posedge cpu_clk) begin
     if (div_start_i)
       q_r <= {N{1'b0}};
     else if (div_proc_o) begin
@@ -295,7 +291,7 @@ module srt4_kernel
   //  # part QM
   reg   [N-1:0] qm_r;
   //  # ---
-  always @(posedge clk) begin
+  always @(posedge cpu_clk) begin
     if (div_start_i)
       qm_r <= {{(N-2){1'b0}},2'b11};
     else if (div_proc_o) begin
@@ -318,7 +314,7 @@ module srt4_kernel
   //assign rem_o  = prem_hi_r[N-1:0] + ({N{prem_hi_r[N]}} & one_den_r[N-1:0]);
   //  # quotient
   reg div_neg_r; // negate result
-  always @(posedge clk) begin
+  always @(posedge cpu_clk) begin
     if (div_start_i) begin
       div_neg_r <= div_neg_i;
     end
@@ -334,14 +330,8 @@ module srt4_kernel
   // ---
   reg [LOG2N2-1:0] div_count_r;
   // division controller
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst) begin
-      div_valid_o <= 1'b0;
-      dbz_o       <= 1'b0;
-      div_proc_o  <= 1'b0;
-      div_count_r <= {LOG2N2{1'b0}};
-    end
-    else if (pipeline_flush_i) begin
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | pipeline_flush_i) begin
       div_valid_o <= 1'b0;
       dbz_o       <= 1'b0;
       div_proc_o  <= 1'b0;
@@ -391,8 +381,8 @@ module mor1kx_divider_marocchino
 )
 (
   // clocks and resets
-  input                                 clk,
-  input                                 rst,
+  input                                 cpu_clk,
+  input                                 cpu_rst,
 
   // pipeline control signal in
   input                                 pipeline_flush_i,
@@ -439,7 +429,7 @@ module mor1kx_divider_marocchino
   /* verilator lint_off WIDTH */
   if (FEATURE_DIVIDER == "SERIAL") begin : radix2_divisor
   /* verilator lint_on WIDTH */
-  
+
     // divider controls
     //  ## iterations counter
     reg [5:0] div_count;
@@ -449,16 +439,11 @@ module mor1kx_divider_marocchino
     assign idiv_taking_op_o = exec_op_div_i & (div_valid_r ? (padv_wb_i & grant_wb_to_div_i) : (~div_proc_r));
     //  ## result valid
     assign div_valid_o = div_valid_r;
-  
-  
+
+
     // division controller
-    always @(posedge clk `OR_ASYNC_RST) begin
-      if (rst) begin
-        div_valid_r <= 1'b0;
-        div_proc_r  <= 1'b0;
-        div_count   <= 6'd0;
-      end
-      if (pipeline_flush_i) begin
+    always @(posedge cpu_clk) begin
+      if (cpu_rst | pipeline_flush_i) begin
         div_valid_r <= 1'b0;
         div_proc_r  <= 1'b0;
         div_count   <= 6'd0;
@@ -481,22 +466,22 @@ module mor1kx_divider_marocchino
         div_count <= div_count - 6'd1;
       end
     end // @clock
-  
+
     // regs of divider
     reg [DIVDW-1:0] div_n;
     reg [DIVDW-1:0] div_d;
     reg [DIVDW-1:0] div_r;
     reg             div_neg;
     reg             dbz_r;
-  
+
     // signums of input operands
     wire op_div_sign_a = exec_div_a1_i[DIVDW-1] & exec_op_div_signed_i;
     wire op_div_sign_b = exec_div_b1_i[DIVDW-1] & exec_op_div_signed_i;
-  
+
     // partial reminder
     wire [DIVDW:0] div_sub = {div_r[DIVDW-2:0],div_n[DIVDW-1]} - div_d;
-  
-    always @(posedge clk) begin
+
+    always @(posedge cpu_clk) begin
       if (idiv_taking_op_o) begin
         // Convert negative operands in the case of signed division.
         // If only one of the operands is negative, the result is
@@ -520,13 +505,13 @@ module mor1kx_divider_marocchino
         end
       end // ~done
     end // @clock
-  
+
     assign s3t_div_result = (div_n ^ {DIVDW{div_neg}}) + {{(DIVDW-1){1'b0}},div_neg}; // SERIAL_DIV
     assign s3o_dbz = dbz_r; // SERIAL_DIV
 
   end       // radix2_divisor
   else begin : radix4_divisor
-  
+
    `ifndef SYNTHESIS // DIV: Normalization supports 32-bits operands only
     // synthesis translate_off
     if (OPTION_OPERAND_WIDTH != 32) begin
@@ -537,7 +522,7 @@ module mor1kx_divider_marocchino
     end
     // synthesis translate_on
    `endif // !synth
-  
+
     // divider controls
     //  ## Write Back taking DIV result
     wire wb_taking_div = padv_wb_i & grant_wb_to_div_i;
@@ -553,10 +538,10 @@ module mor1kx_divider_marocchino
     wire div_adv_s3  = div_s2_rdy  & ~div_s3_busy;
     wire div_adv_s2  = div_s1_rdy  & ~div_s2_busy;
     wire div_adv_s1  = exec_op_div_i & ~div_s1_busy;
-  
+
     //  # integer divider is taking operands
     assign idiv_taking_op_o = div_adv_s1;
-  
+
     /**** DIV Stage 1 ****/
     // Absolute values computation
     // Convert negative operands in the case of signed division.
@@ -616,7 +601,7 @@ module mor1kx_divider_marocchino
     reg [DIVDW-1:0] s1o_div_b;
     reg       [4:0] s1o_div_b_nlz;
     // ---
-    always @(posedge clk) begin
+    always @(posedge cpu_clk) begin
       if (div_adv_s1) begin
         s1o_div_a        <= s1t_div_a;
         s1o_div_b        <= s1t_div_b;
@@ -627,18 +612,16 @@ module mor1kx_divider_marocchino
       end
     end // @clock
     //  ready flag
-    always @(posedge clk `OR_ASYNC_RST) begin
-      if (rst)
-        div_s1_rdy <= 1'b0;
-      else if (pipeline_flush_i)
+    always @(posedge cpu_clk) begin
+      if (cpu_rst | pipeline_flush_i)
         div_s1_rdy <= 1'b0;
       else if (div_adv_s1)
         div_s1_rdy <= 1'b1;
       else if (div_adv_s2)
         div_s1_rdy <= 1'b0;
     end // @clock
-  
-  
+
+
     /**** DIV Stage 2 ****/
     // Normalization
     wire [2*DIVDW-1:0] s2t_div_a = s1o_div_a << s1o_div_b_nlz;
@@ -649,7 +632,7 @@ module mor1kx_divider_marocchino
     reg [2*DIVDW-1:0] s2o_div_a;
     reg   [DIVDW-1:0] s2o_div_b;
     // ---
-    always @(posedge clk) begin
+    always @(posedge cpu_clk) begin
       if (div_adv_s2) begin
         s2o_div_a        <= s2t_div_a;
         s2o_div_b        <= s2t_div_b;
@@ -659,22 +642,20 @@ module mor1kx_divider_marocchino
       end
     end // @clock
     //  ready flag
-    always @(posedge clk `OR_ASYNC_RST) begin
-      if (rst)
-        div_s2_rdy <= 1'b0;
-      else if (pipeline_flush_i)
+    always @(posedge cpu_clk) begin
+      if (cpu_rst | pipeline_flush_i)
         div_s2_rdy <= 1'b0;
       else if (div_adv_s2)
         div_s2_rdy <= 1'b1;
       else if (div_adv_s3)
         div_s2_rdy <= 1'b0;
     end // @clock
-  
-  
+
+
     /**** DIV Stage 3 ****/
     // Compute denominator multiplies and run iterations
     // ---
-    always @(posedge clk) begin
+    always @(posedge cpu_clk) begin
       if (div_adv_s3) begin
         s3o_div_signed   <= s2o_div_signed;
         s3o_div_unsigned <= s2o_div_unsigned;
@@ -689,8 +670,8 @@ module mor1kx_divider_marocchino
     u_srt4_kernel
     (
       // clock and reset
-      .clk                (clk), // SRT_4_KERNEL
-      .rst                (rst), // SRT_4_KERNEL
+      .cpu_clk            (cpu_clk), // SRT_4_KERNEL
+      .cpu_rst            (cpu_rst), // SRT_4_KERNEL
       // pipeline controls
       .pipeline_flush_i   (pipeline_flush_i), // SRT_4_KERNEL
       .div_start_i        (div_adv_s3), // SRT_4_KERNEL
@@ -713,7 +694,7 @@ module mor1kx_divider_marocchino
 
   /**** DIV Write Back result ****/
 
-  always @(posedge clk) begin
+  always @(posedge cpu_clk) begin
     if (padv_wb_i)
       wb_div_result_o <= {DIVDW{grant_wb_to_div_i}} & s3t_div_result;
   end //  @clock
@@ -732,18 +713,8 @@ module mor1kx_divider_marocchino
   assign exec_except_overflow_div_o = except_overflow_enable_i & exec_div_overflow_set;
 
   // WB-latchers
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst) begin
-      //  # update carry flag by division
-      wb_div_carry_set_o        <= 1'b0;
-      wb_div_carry_clear_o      <= 1'b0;
-      //  # update overflow flag by division
-      wb_div_overflow_set_o     <= 1'b0;
-      wb_div_overflow_clear_o   <= 1'b0;
-      //  # generate overflow exception by division
-      wb_except_overflow_div_o  <= 1'b0;
-    end
-    else if (pipeline_flush_i) begin
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | pipeline_flush_i) begin
       //  # update carry flag by division
       wb_div_carry_set_o        <= 1'b0;
       wb_div_carry_clear_o      <= 1'b0;
@@ -779,8 +750,8 @@ module mor1kx_exec_1clk_marocchino
 )
 (
   // clocks and resets
-  input                                 clk,
-  input                                 rst,
+  input                                 cpu_clk,
+  input                                 cpu_rst,
 
   // pipeline control signal in
   input                                 pipeline_flush_i,
@@ -979,7 +950,7 @@ module mor1kx_exec_1clk_marocchino
                                          ({EXEDW{exec_op_movhi_i}} & exec_1clk_b1_i );
 
   //  registering output for 1-clock operations
-  always @(posedge clk) begin
+  always @(posedge cpu_clk) begin
     if (padv_wb_i)
       wb_alu_1clk_result_o <= {EXEDW{grant_wb_to_1clk_i}} & alu_1clk_result_mux;
   end //  @clock
@@ -998,18 +969,8 @@ module mor1kx_exec_1clk_marocchino
   assign exec_except_overflow_1clk_o = except_overflow_enable_i & exec_1clk_overflow_set;
 
   // WB-latchers
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst) begin
-      //  # update carry flag by 1clk-operation
-      wb_1clk_carry_set_o        <= 1'b0;
-      wb_1clk_carry_clear_o      <= 1'b0;
-      //  # update overflow flag by 1clk-operation
-      wb_1clk_overflow_set_o     <= 1'b0;
-      wb_1clk_overflow_clear_o   <= 1'b0;
-      //  # generate overflow exception by 1clk-operation
-      wb_except_overflow_1clk_o  <= 1'b0;
-    end
-    else if (pipeline_flush_i) begin
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | pipeline_flush_i) begin
       //  # update carry flag by 1clk-operation
       wb_1clk_carry_set_o        <= 1'b0;
       wb_1clk_carry_clear_o      <= 1'b0;
@@ -1057,12 +1018,8 @@ module mor1kx_exec_1clk_marocchino
     endcase
   end
   // latched integer comparison result for WB
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst) begin
-      wb_int_flag_set_o   <= 1'b0;
-      wb_int_flag_clear_o <= 1'b0;
-    end
-    else if (pipeline_flush_i) begin
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | pipeline_flush_i) begin
       wb_int_flag_set_o   <= 1'b0;
       wb_int_flag_clear_o <= 1'b0;
     end
@@ -1081,8 +1038,8 @@ module mor1kx_exec_1clk_marocchino
   pfpu32_fcmp_marocchino u_f32_cmp
   (
     // clock and reset
-    .clk                    (clk), // fp32-cmp
-    .rst                    (rst),
+    .cpu_clk                (cpu_clk), // fp32-cmp
+    .cpu_rst                (cpu_rst),
     // pipeline controls
     .pipeline_flush_i       (pipeline_flush_i),   // fp32-cmp.flush pipe
     .padv_wb_i              (padv_wb_i),          // fp32-cmp. advance output latches

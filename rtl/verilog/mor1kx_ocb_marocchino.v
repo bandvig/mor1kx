@@ -34,9 +34,9 @@ module ocb_tap
 )
 (
   // clocks, resets and other controls
-  input                      clk,
-  input                      rst,
-  input                      flush_i,  // flush pipe
+  input                      clk, // either cpu- or wb-
+  input                      rst, // either cpu- or wb-
+  input                      flush_i,
   input                      push_i,
   // value at reset/flush
   input      [DATA_SIZE-1:0] default_value_i,
@@ -48,12 +48,10 @@ module ocb_tap
   output reg [DATA_SIZE-1:0] out_o
 );
 
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
+  always @(posedge clk) begin
+    if (rst | flush_i)
       out_o <= default_value_i;
-    else if(flush_i)
-      out_o <= default_value_i;
-    else if(push_i)
+    else if (push_i)
       out_o <= use_forwarded_value_i ? forwarded_value_i :
                                        prev_tap_out_i;
   end // @clock
@@ -76,8 +74,8 @@ module mor1kx_ocb_marocchino
 )
 (
   // clocks, resets
-  input                  clk,
-  input                  rst,
+  input                  clk, // either cpu- or wb-
+  input                  rst, // either cpu- or wb-
   // pipe controls
   input                  pipeline_flush_i, // flush pipe
   input                  write_i,
@@ -134,12 +132,8 @@ module mor1kx_ocb_marocchino
   wire ptrs_dec = rd_only; // try to decrement pointers
 
   // update pointer on current tap
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst) begin
-      ptr_prev <= {{(NUM_TAPS-1){1'b0}},1'b1};
-      ptr_curr <= {{NUM_TAPS{1'b0}},1'b1};
-    end
-    else if (pipeline_flush_i) begin
+  always @(posedge clk) begin
+    if (rst | pipeline_flush_i) begin
       ptr_prev <= {{(NUM_TAPS-1){1'b0}},1'b1};
       ptr_curr <= {{NUM_TAPS{1'b0}},1'b1};
     end
@@ -179,8 +173,8 @@ module mor1kx_ocb_marocchino
     )
     u_tap_k
     (
-      .clk                    (clk),
-      .rst                    (rst),
+      .clk                    (clk), // either cpu- or wb-
+      .rst                    (rst), // either cpu- or wb-
       .flush_i                (pipeline_flush_i),
       .push_i                 (push_taps[k]),
       .default_value_i        (default_value_i),
@@ -232,8 +226,8 @@ module mor1kx_ocb_miss_marocchino
 )
 (
   // clocks, resets and other input controls
-  input                  clk,
-  input                  rst,
+  input                  clk, // either cpu- or wb-
+  input                  rst, // either cpu- or wb-
   // pipe controls
   input                  pipeline_flush_i, // flush pipe
   input                  write_i,
@@ -281,12 +275,8 @@ module mor1kx_ocb_miss_marocchino
   wire ptrs_dec = rd_only | (wr_rd & is_miss); // try to decrement pointers
 
   // update pointer on current tap
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst) begin
-      ptr_prev <= {{(NUM_TAPS-1){1'b0}},1'b1};
-      ptr_curr <= {{NUM_TAPS{1'b0}},1'b1};
-    end
-    else if (pipeline_flush_i) begin
+  always @(posedge clk) begin
+    if (rst | pipeline_flush_i) begin
       ptr_prev <= {{(NUM_TAPS-1){1'b0}},1'b1};
       ptr_curr <= {{NUM_TAPS{1'b0}},1'b1};
     end
@@ -331,8 +321,8 @@ module mor1kx_ocb_miss_marocchino
     )
     u_tap_k
     (
-      .clk                    (clk),
-      .rst                    (rst),
+      .clk                    (clk), // either cpu- or wb-
+      .rst                    (rst), // either cpu- or wb-
       .flush_i                (pipeline_flush_i),
       .push_i                 (push_taps[k]),
       .default_value_i        (default_value_i),
@@ -404,8 +394,8 @@ module mor1kx_rsrvs_marocchino
 )
 (
   // clocks and resets
-  input                                     clk,
-  input                                     rst,
+  input                                     cpu_clk,
+  input                                     cpu_rst,
 
   // pipeline control signals
   input                                     pipeline_flush_i,
@@ -573,12 +563,8 @@ module mor1kx_rsrvs_marocchino
   reg [OPC_WIDTH-1:0] busy_opc_r;
 
   // latch command and its attributes
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst) begin
-      busy_op_r  <= 1'b0;
-      busy_opc_r <= {OPC_WIDTH{1'b0}};
-    end
-    else if (pipeline_flush_i) begin
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | pipeline_flush_i) begin
       busy_op_r  <= 1'b0;
       busy_opc_r <= {OPC_WIDTH{1'b0}};
     end
@@ -651,22 +637,8 @@ module mor1kx_rsrvs_marocchino
   wire     [OPTION_OPERAND_WIDTH-1:0] busy_rfb2_w; // makes sense in MCLK only
 
   // latches for common part
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst) begin
-      // d1a1 related
-      busy_hazard_d1a1_r     <= 1'b0;
-      busy_hazard_d1a1_adr_r <= {DEST_EXT_ADDR_WIDTH{1'b0}};
-      // d1b1 related
-      busy_hazard_d1b1_r     <= 1'b0;
-      busy_hazard_d1b1_adr_r <= {DEST_EXT_ADDR_WIDTH{1'b0}};
-      // d2a1 related
-      busy_hazard_d2a1_r     <= 1'b0;
-      busy_hazard_d2a1_adr_r <= {DEST_EXT_ADDR_WIDTH{1'b0}};
-      // d2b1 related
-      busy_hazard_d2b1_r     <= 1'b0;
-      busy_hazard_d2b1_adr_r <= {DEST_EXT_ADDR_WIDTH{1'b0}};
-    end
-    else if (pipeline_flush_i) begin
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | pipeline_flush_i) begin
       // d1a1 related
       busy_hazard_d1a1_r     <= 1'b0;
       busy_hazard_d1a1_adr_r <= {DEST_EXT_ADDR_WIDTH{1'b0}};
@@ -732,7 +704,7 @@ module mor1kx_rsrvs_marocchino
   assign busy_d2b1_muxing_wb = busy_hazard_d2b1_r & wb_rfd2_wb   & (busy_hazard_d2b1_adr_r == wb_ext_adr);
 
   // forwarding operands A1 & B1
-  always @(posedge clk) begin
+  always @(posedge cpu_clk) begin
     if (dcod_pushing_busy) begin
       busy_rfa1_r <= dcod_rfxx_i[RFA1_MSB:RFA1_LSB];
       busy_rfb1_r <= dcod_rfxx_i[RFB1_MSB:RFB1_LSB];
@@ -773,22 +745,8 @@ module mor1kx_rsrvs_marocchino
     reg                                 busy_hazard_d2b2_r;
     reg       [DEST_EXT_ADDR_WIDTH-1:0] busy_hazard_d2b2_adr_r;
     // ---
-    always @(posedge clk `OR_ASYNC_RST) begin
-      if (rst) begin
-        // d1a2 related
-        busy_hazard_d1a2_r     <= 1'b0;
-        busy_hazard_d1a2_adr_r <= {DEST_EXT_ADDR_WIDTH{1'b0}};
-        // d1b2 related
-        busy_hazard_d1b2_r     <= 1'b0;
-        busy_hazard_d1b2_adr_r <= {DEST_EXT_ADDR_WIDTH{1'b0}};
-        // d2a2 related
-        busy_hazard_d2a2_r     <= 1'b0;
-        busy_hazard_d2a2_adr_r <= {DEST_EXT_ADDR_WIDTH{1'b0}};
-        // d2b2 related
-        busy_hazard_d2b2_r     <= 1'b0;
-        busy_hazard_d2b2_adr_r <= {DEST_EXT_ADDR_WIDTH{1'b0}};
-      end
-      else if (pipeline_flush_i) begin
+    always @(posedge cpu_clk) begin
+      if (cpu_rst | pipeline_flush_i) begin
         // d1a2 related
         busy_hazard_d1a2_r     <= 1'b0;
         busy_hazard_d1a2_adr_r <= {DEST_EXT_ADDR_WIDTH{1'b0}};
@@ -861,7 +819,7 @@ module mor1kx_rsrvs_marocchino
     reg [OPTION_OPERAND_WIDTH-1:0] busy_rfa2_r;
     reg [OPTION_OPERAND_WIDTH-1:0] busy_rfb2_r;
     // ---
-    always @(posedge clk) begin
+    always @(posedge cpu_clk) begin
       if (dcod_pushing_busy) begin
         busy_rfa2_r <= dcod_rfxx_i[RFA2_MSB:RFA2_LSB];
         busy_rfb2_r <= dcod_rfxx_i[RFB2_MSB:RFB2_LSB];
@@ -934,12 +892,8 @@ module mor1kx_rsrvs_marocchino
 
 
   // --- execute: command and attributes latches ---
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst) begin
-      exec_op_r  <= 1'b0;
-      exec_opc_r <= {OPC_WIDTH{1'b0}};
-    end
-    else if (pipeline_flush_i) begin
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | pipeline_flush_i) begin
       exec_op_r  <= 1'b0;
       exec_opc_r <= {OPC_WIDTH{1'b0}};
     end
@@ -970,10 +924,8 @@ module mor1kx_rsrvs_marocchino
   reg    exec_hazard_d1xx_r;
   assign exec_wb2exe_hazard_d1xx_o = exec_hazard_d1xx_r;
   // ---
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst)
-      exec_hazard_d1xx_r <= 1'b0;
-    else if (pipeline_flush_i)
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | pipeline_flush_i)
       exec_hazard_d1xx_r <= 1'b0;
     else if (dcod_pushing_exec)
       exec_hazard_d1xx_r <= exe2dec_hazard_d1xx;
@@ -1014,14 +966,8 @@ module mor1kx_rsrvs_marocchino
   wire [OPTION_OPERAND_WIDTH-1:0] exec_rfb2_w;
 
   // ---
-  always @(posedge clk `OR_ASYNC_RST) begin
-    if (rst) begin
-      exec_hazard_d1a1_r <= 1'b0;
-      exec_hazard_d1b1_r <= 1'b0;
-      exec_hazard_d2a1_r <= 1'b0;
-      exec_hazard_d2b1_r <= 1'b0;
-    end
-    else if (pipeline_flush_i) begin
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | pipeline_flush_i) begin
       exec_hazard_d1a1_r <= 1'b0;
       exec_hazard_d1b1_r <= 1'b0;
       exec_hazard_d2a1_r <= 1'b0;
@@ -1049,7 +995,7 @@ module mor1kx_rsrvs_marocchino
     end
   end // @clock
   // ---
-  always @(posedge clk) begin
+  always @(posedge cpu_clk) begin
     if (dcod_pushing_exec) begin
       exec_rfa1_r <= dcod_rfxx_i[RFA1_MSB:RFA1_LSB];
       exec_rfb1_r <= dcod_rfxx_i[RFB1_MSB:RFB1_LSB];
@@ -1089,14 +1035,8 @@ module mor1kx_rsrvs_marocchino
     reg [OPTION_OPERAND_WIDTH-1:0] exec_rfa2_r;
     reg [OPTION_OPERAND_WIDTH-1:0] exec_rfb2_r;
     // ---
-    always @(posedge clk `OR_ASYNC_RST) begin
-      if (rst) begin
-        exec_hazard_d1a2_r <= 1'b0;
-        exec_hazard_d1b2_r <= 1'b0;
-        exec_hazard_d2a2_r <= 1'b0;
-        exec_hazard_d2b2_r <= 1'b0;
-      end
-      else if (pipeline_flush_i) begin
+    always @(posedge cpu_clk) begin
+      if (cpu_rst | pipeline_flush_i) begin
         exec_hazard_d1a2_r <= 1'b0;
         exec_hazard_d1b2_r <= 1'b0;
         exec_hazard_d2a2_r <= 1'b0;
@@ -1124,7 +1064,7 @@ module mor1kx_rsrvs_marocchino
       end
     end // @clock
     // ---
-    always @(posedge clk) begin
+    always @(posedge cpu_clk) begin
       if (dcod_pushing_exec) begin
         exec_rfa2_r <= dcod_rfxx_i[RFA2_MSB:RFA2_LSB];
         exec_rfb2_r <= dcod_rfxx_i[RFB2_MSB:RFB2_LSB];
