@@ -91,12 +91,17 @@ module mor1kx_marocchino_alone
   parameter FEATURE_TRACEPORT_EXEC     = "NONE",
 
 
-  parameter IBUS_WB_TYPE              = "B3_READ_BURSTING",
-  parameter DBUS_WB_TYPE              = "CLASSIC"
+  parameter IBUS_WB_TYPE               = "B3_REGISTERED_FEEDBACK",
+  parameter DBUS_WB_TYPE               = "B3_REGISTERED_FEEDBACK"
 )
 (
-  input                             clk,
-  input                             rst,
+  // Wishbone clock and reset
+  input                             wb_clk,
+  input                             wb_rst,
+
+  // CPU clock and reset
+  input                             cpu_clk,
+  input                             cpu_rst,
 
   // Wishbone interface (istruction)
   output [31:0]                     iwbm_adr_o,
@@ -189,18 +194,19 @@ module mor1kx_marocchino_alone
   // BUS-Bridge for CPU instruction port
   mor1kx_bus_if_wb32_marocchino
   #(
-    .BUS_IF_TYPE(IBUS_WB_TYPE),
-    .BURST_LENGTH((OPTION_ICACHE_BLOCK_WIDTH == 4) ? 4 :
-                  (OPTION_ICACHE_BLOCK_WIDTH == 5) ? 8 : 1)
+    .DRIVER_TYPE  ("I_CACHE"),
+    .BUS_IF_TYPE  (IBUS_WB_TYPE),
+    .BURST_LENGTH ((OPTION_ICACHE_BLOCK_WIDTH == 4) ? 4 :
+                   (OPTION_ICACHE_BLOCK_WIDTH == 5) ? 8 : 1)
   )
   ibus_bridge
   (
     // WB-domain: clock and reset
-    .wb_clk           (clk), // IBUS_BRIDGE : MAROCCHINO_TODO: should be wb-clock
-    .wb_rst           (rst), // IBUS_BRIDGE : MAROCCHINO_TODO: should be wb-rst
+    .wb_clk           (wb_clk),
+    .wb_rst           (wb_rst),
     // CPU-domain: clock and reset
-    .cpu_clk          (clk), // IBUS_BRIDGE : MAROCCHINO_TODO: should be cpu-clock
-    .cpu_rst          (rst), // IBUS_BRIDGE : MAROCCHINO_TODO: should be cpu-rst
+    .cpu_clk          (cpu_clk),
+    .cpu_rst          (cpu_rst),
     // CPU side
     .cpu_err_o        (ibus_err_i), // IBUS_BRIDGE
     .cpu_ack_o        (ibus_ack_i), // IBUS_BRIDGE
@@ -231,18 +237,19 @@ module mor1kx_marocchino_alone
   // BUS-Bridge for CPU data port
   mor1kx_bus_if_wb32_marocchino
   #(
-    .BUS_IF_TYPE(DBUS_WB_TYPE),
-    .BURST_LENGTH((OPTION_DCACHE_BLOCK_WIDTH == 4) ? 4 :
-                  (OPTION_DCACHE_BLOCK_WIDTH == 5) ? 8 : 1)
+    .DRIVER_TYPE  ("D_CACHE"),
+    .BUS_IF_TYPE  (DBUS_WB_TYPE),
+    .BURST_LENGTH ((OPTION_DCACHE_BLOCK_WIDTH == 4) ? 4 :
+                   (OPTION_DCACHE_BLOCK_WIDTH == 5) ? 8 : 1)
   )
   dbus_bridge
   (
     // WB-domain: clock and reset
-    .wb_clk           (clk), // DBUS_BRIDGE : MAROCCHINO_TODO: should be wb-clock
-    .wb_rst           (rst), // DBUS_BRIDGE : MAROCCHINO_TODO: should be wb-rst
+    .wb_clk           (wb_clk),
+    .wb_rst           (wb_rst),
     // CPU-domain: clock and reset
-    .cpu_clk          (clk), // DBUS_BRIDGE : MAROCCHINO_TODO: should be cpu-clock
-    .cpu_rst          (rst), // DBUS_BRIDGE : MAROCCHINO_TODO: should be cpu-rst
+    .cpu_clk          (cpu_clk),
+    .cpu_rst          (cpu_rst),
     // CPU side
     .cpu_err_o        (dbus_err_i), // DBUS_BRIDGE
     .cpu_ack_o        (dbus_ack_i), // DBUS_BRIDGE
@@ -324,11 +331,11 @@ module mor1kx_marocchino_alone
   u_cpu_marocchino
   (
     // Wishbone clock and reset
-    .wb_clk                   (clk), // CPU : MAROCCHINO_TODO: should be wb-clock
-    .wb_rst                   (rst), // CPU : MAROCCHINO_TODO: should be wb-rst
+    .wb_clk                   (wb_clk),
+    .wb_rst                   (wb_rst),
     // CPU clock and reset
-    .cpu_clk                  (clk), // CPU : MAROCCHINO_TODO: should be cpu-clock
-    .cpu_rst                  (rst), // CPU : MAROCCHINO_TODO: should be cpu-rst
+    .cpu_clk                  (cpu_clk),
+    .cpu_rst                  (cpu_rst),
     // Outputs
     .ibus_adr_o               (ibus_adr_o),
     .ibus_req_o               (ibus_req_o),

@@ -227,7 +227,7 @@ module mor1kx_pic_marocchino
       spr_picmr <= {{(32-OPTION_PIC_NMI_WIDTH){1'b0}},
                     {OPTION_PIC_NMI_WIDTH{1'b1}}};
     else if (cpu2pic_cs_pulse_r & cpu2pic_picmr_cs & cpu2pic_we)
-      spr_picmr <= {spr_bus_dat_i[31:OPTION_PIC_NMI_WIDTH],
+      spr_picmr <= {cpu2pic_dat[31:OPTION_PIC_NMI_WIDTH],
                     {OPTION_PIC_NMI_WIDTH{1'b1}}};
   end
 
@@ -286,7 +286,7 @@ module mor1kx_pic_marocchino
         if (wb_rst)
           spr_picsr[irqline] <= 1'b0;
         else if (cpu2pic_cs_pulse_r & cpu2pic_picsr_cs & cpu2pic_we)
-          spr_picsr[irqline] <= irq_unmasked[irqline] | spr_bus_dat_i[irqline];
+          spr_picsr[irqline] <= irq_unmasked[irqline] | cpu2pic_dat[irqline];
         else
           spr_picsr[irqline] <= spr_picsr[irqline] | irq_unmasked[irqline];
       end

@@ -35,7 +35,8 @@
 
 module mor1kx_bus_if_wb32_marocchino
 #(
-  parameter BUS_IF_TYPE  = "CLASSIC", // CLASSIC | B3_REGISTERED_FEEDBACK
+  parameter DRIVER_TYPE  = "I_CACHE", // I_CACHE / D_CACHE
+  parameter BUS_IF_TYPE  = "B3_REGISTERED_FEEDBACK", // CLASSIC / B3_REGISTERED_FEEDBACK
   parameter BURST_LENGTH = 8
 )
 (
@@ -76,10 +77,7 @@ module mor1kx_bus_if_wb32_marocchino
 );
 
   generate
-  if ((BUS_IF_TYPE == "CLASSIC") || (BUS_IF_TYPE == "B3_REGISTERED_FEEDBACK")) begin
-    initial $display("%m: Wishbone bus IF is %s", BUS_IF_TYPE);
-  end
-  else begin
+  if ((BUS_IF_TYPE != "CLASSIC") && (BUS_IF_TYPE != "B3_REGISTERED_FEEDBACK")) begin
     initial begin
       $display("ERROR: Wishbone bus IF is incorrect");
       $finish;
@@ -128,26 +126,33 @@ module mor1kx_bus_if_wb32_marocchino
   // for burst control
   reg   [(BURST_LENGTH-1):0] burst_done_r;
   wire                [31:0] burst_next_adr;
-  // WB-clock domain registered signals (to interconnect)
-  reg [31:0] to_wbm_adr_r;
-  reg [31:0] to_wbm_dat_r;
+
+  // WB-clock domain registered control signals (to interconnect)
   reg        to_wbm_stb_r;
   reg        to_wbm_cyc_r;
   reg  [3:0] to_wbm_sel_r;
   reg        to_wbm_we_r;
   reg  [2:0] to_wbm_cti_r;
   reg  [1:0] to_wbm_bte_r;
-  // ---
+
+  // WB-clock domain register address (to interconnect)
+  reg [31:0] to_wbm_adr_r;
+  // initial value for simulation
+ `ifndef SYNTHESIS
+  // synthesis translate_off
+  initial to_wbm_adr_r = 32'd0;
+  // synthesis translate_on
+ `endif // !synth
+
   // burst length is 8: 32 byte = (8 words x 32 bits/word) -> cache block length is 5
   // burst length is 4: 16 byte = (4 words x 32 bits/word) -> cache block length is 4
   assign burst_next_adr = (BURST_LENGTH == 8) ?
     {to_wbm_adr_r[31:5], to_wbm_adr_r[4:0] + 5'd4} : // 32 byte = (8 words x 32 bits/word)
     {to_wbm_adr_r[31:4], to_wbm_adr_r[3:0] + 4'd4};  // 16 byte = (4 words x 32 bits/word)
+
   // ---
   always @(posedge wb_clk) begin
     if (wb_rst) begin
-      to_wbm_adr_r <= 32'd0;
-      to_wbm_dat_r <= 32'd0;
       to_wbm_stb_r <=  1'b0;
       to_wbm_cyc_r <=  1'b0;
       to_wbm_sel_r <=  4'd0;
@@ -159,8 +164,6 @@ module mor1kx_bus_if_wb32_marocchino
     end
     else if (to_wbm_cyc_r) begin // wait complete transaction
       if (wbm_err_i) begin // pipe flushed or transaction done or error
-        to_wbm_adr_r <= 32'd0;
-        to_wbm_dat_r <= 32'd0;
         to_wbm_stb_r <=  1'b0;
         to_wbm_cyc_r <=  1'b0;
         to_wbm_sel_r <=  4'd0;
@@ -173,8 +176,7 @@ module mor1kx_bus_if_wb32_marocchino
       else if (wbm_ack_i) begin
         // pay attention:
         // as DCACHE is write through, "data" and "we" are irrelevant for read burst
-        to_wbm_adr_r <= (to_wbm_cti_r[1] & (~burst_done_r[0])) ? burst_next_adr : 32'd0;
-        to_wbm_dat_r <= 32'd0;
+        to_wbm_adr_r <= burst_next_adr;
         to_wbm_stb_r <= (to_wbm_cti_r[1] & (~burst_done_r[0]));
         to_wbm_cyc_r <= (to_wbm_cti_r[1] & (~burst_done_r[0]));
         to_wbm_sel_r <= (to_wbm_cti_r[1] & (~burst_done_r[0])) ? to_wbm_sel_r : 4'd0;
@@ -185,9 +187,8 @@ module mor1kx_bus_if_wb32_marocchino
         burst_done_r <= {1'b0, burst_done_r[(BURST_LENGTH-1):1]};
       end
     end
-    else if (cpu_req_pulse) begin // start transaction
+    else if (cpu_req_pulse) begin // start transaction : address and controls
       to_wbm_adr_r <= cpu_adr_i;
-      to_wbm_dat_r <= cpu_dat_i;
       to_wbm_stb_r <= 1'b1;
       to_wbm_cyc_r <= 1'b1;
       to_wbm_sel_r <= cpu_bsel_i;
@@ -198,9 +199,42 @@ module mor1kx_bus_if_wb32_marocchino
       burst_done_r <= {cpu_burst_i, {(BURST_LENGTH-1){1'b0}}};
     end
   end // @wb-clock
+
+  // WB-clock domain register data (to interconnect)
+  generate
+  /* verilator lint_off WIDTH */
+  if (DRIVER_TYPE == "I_CACHE") begin : drv_i_cache
+  /* verilator lint_on WIDTH */
+    assign wbm_dat_o = 32'd0;
+  end
+  /* verilator lint_off WIDTH */
+  else if (DRIVER_TYPE == "D_CACHE") begin: drv_d_cache
+  /* verilator lint_on WIDTH */
+    reg [31:0] to_wbm_dat_r;
+    // initial value for simulation
+   `ifndef SYNTHESIS
+    // synthesis translate_off
+    initial to_wbm_dat_r = 32'd0;
+    // synthesis translate_on
+   `endif // !synth
+    // ---
+    always @(posedge wb_clk) begin
+      if (cpu_req_pulse) // start transaction : data for d-cache driver
+        to_wbm_dat_r <= cpu_dat_i;
+    end
+    // ---
+    assign wbm_dat_o = to_wbm_dat_r;
+  end
+  else begin : drv_undef
+    initial begin
+      $display("ERROR: Bridge driver is undefined");
+      $finish;
+    end
+  end
+  endgenerate
+
   // --- to interconnect output assignenment ---
   assign wbm_adr_o = to_wbm_adr_r;
-  assign wbm_dat_o = to_wbm_dat_r;
   assign wbm_stb_o = to_wbm_stb_r;
   assign wbm_cyc_o = to_wbm_cyc_r;
   assign wbm_sel_o = to_wbm_sel_r;
@@ -228,10 +262,22 @@ module mor1kx_bus_if_wb32_marocchino
   // ---
   localparam  WBM2CPU_MSB     = WBM2CPU_ERR;
   localparam  WBM2CPU_WIDTH   = WBM2CPU_MSB     + 1;
+
   // --- input data ---
-  wire [WBM2CPU_MSB:0] queue_in = { wbm_err_i, wbm_ack_i,                // WBM-TO-CPU data layout
-                                    (to_wbm_cti_r[1] & burst_done_r[0]), // WBM-TO-CPU data layout
-                                    to_wbm_adr_r, wbm_dat_i };           // WBM-TO-CPU data layout
+  //  # registered (keep value one wb-clock)
+  reg  [WBM2CPU_MSB:0] queue_in_r;
+  // ---
+  always @(posedge wb_clk) begin
+    if (wb_rst)
+      queue_in_r <= {WBM2CPU_WIDTH{1'b0}};
+    else if (to_wbm_cyc_r & (wbm_ack_i | wbm_err_i))
+      queue_in_r <= { wbm_err_i, wbm_ack_i,                // WBM-TO-CPU data layout
+                      (to_wbm_cti_r[1] & burst_done_r[0]), // WBM-TO-CPU data layout
+                      to_wbm_adr_r, wbm_dat_i };           // WBM-TO-CPU data layout
+    else
+      queue_in_r <= {WBM2CPU_WIDTH{1'b0}};
+  end // @wb-clock
+
   // --- output data ---
   //  # from "EXIT" latches
   wire [WBM2CPU_MSB:0] queue_o0;
@@ -240,8 +286,9 @@ module mor1kx_bus_if_wb32_marocchino
   wire [WBM2CPU_MSB:0] queue_o1;
   wire                 queue_o1_ack = queue_o1[WBM2CPU_ACK];
   wire                 queue_o1_err = queue_o1[WBM2CPU_ERR];
+
   // --- write control ---
-  wire queue_write = to_wbm_cyc_r & (wbm_ack_i | wbm_err_i);
+  wire queue_write = queue_in_r[WBM2CPU_ACK] | queue_in_r[WBM2CPU_ERR];
   // --- read control ---
   wire queue_read  = cpu2queue_ack_pulse;
   // --- flushing ---
@@ -268,7 +315,7 @@ module mor1kx_bus_if_wb32_marocchino
     // value at reset/flush
     .default_value_i  ({WBM2CPU_WIDTH{1'b0}}), // WBM_TO_CPU_QUEUE
     // data input
-    .ocbi_i           (queue_in), // WBM_TO_CPU_QUEUE
+    .ocbi_i           (queue_in_r), // WBM_TO_CPU_QUEUE
     // "OCB is empty" flag
     .empty_o          (queue_empty), // WBM_TO_CPU_QUEUE
     // "OCB is full" flag
