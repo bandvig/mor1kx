@@ -15,8 +15,8 @@
 //                           Stefan Wallentowitz                      //
 //                           stefan.wallentowitz@tum.de               //
 //                                                                    //
-//   Copyright (C) 2015 Andrey Bacherov                               //
-//                      avbacherov@opencores.org                      //
+//   Copyright (C) 2015-2017 Andrey Bacherov                          //
+//                           avbacherov@opencores.org                 //
 //                                                                    //
 //      This Source Code Form is subject to the terms of the          //
 //      Open Hardware Description License, v. 1.0. If a copy          //
@@ -379,16 +379,16 @@ module mor1kx_dcache_marocchino
         DC_IDLE: begin
           spr_bus_ack_o <= 1'b0; // idling
           // next states
-          if (dc_force_idle | snoop_hit_o) // keep idle (overcome advance commands)
-            dc_state <= DC_IDLE;
-          else if (spr_bus_dc_invalidate) begin
-            dc_state   <= DC_INVALIDATE;
-            tag_invdex <= spr_bus_dat_i[WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH]; // idling -> invalidate
+          if (snoop_hit_o) // keep idle by snoop-hit (overcome r/w commands) MAROCCHINO_TODO: is it correct ?
+            dc_state <= DC_IDLE; // keep idle by snoop-hit (overcome r/w commands)
+          else if (spr_bus_dc_invalidate) begin // idle -> invalidate
+            dc_state   <= DC_INVALIDATE; // idle -> invalidate
+            tag_invdex <= spr_bus_dat_i[WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH]; // idle -> invalidate
           end
-          else if (dc_takes_load)
-            dc_state <= DC_READ;
-          else if (dc_takes_store)
-            dc_state <= DC_WRITE;
+          else if (dc_takes_load)   // idle -> dc-read
+            dc_state <= DC_READ;    // idle -> dc-read
+          else if (dc_takes_store)  // idle -> dc-write
+            dc_state <= DC_WRITE;   // idle -> dc-write
         end
 
         DC_READ: begin

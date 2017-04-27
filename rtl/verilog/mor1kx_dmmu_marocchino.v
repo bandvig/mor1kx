@@ -12,8 +12,8 @@
 //   Copyright (C) 2013 Stefan Kristiansson                        //
 //                      stefan.kristiansson@saunalahti.fi          //
 //                                                                 //
-//   Copyright (C) 2015 Andrey Bacherov                            //
-//                      avbacherov@opencores.org                   //
+//   Copyright (C) 2015-2017 Andrey Bacherov                       //
+//                           avbacherov@opencores.org              //
 //                                                                 //
 //      This Source Code Form is subject to the terms of the       //
 //      Open Hardware Description License, v. 1.0. If a copy       //
@@ -40,9 +40,6 @@ module mor1kx_dmmu_marocchino
   // pipe controls
   input                                 lsu_takes_ls_i,
   input                                 pipeline_flush_i,
-
-  // exceptions
-  input                                 lsu_excepts_any_i,
 
   // configuration
   input                                 enable_i,
@@ -151,7 +148,7 @@ module mor1kx_dmmu_marocchino
       cmd_store_r       <= 1'b0;
       cmd_load_r        <= 1'b0;
     end
-    else if (lsu_excepts_any_i | spr_dmmu_cs) begin
+    else if (spr_dmmu_cs) begin
       enable_r          <= 1'b0;
       supervisor_mode_r <= 1'b0;
       cmd_store_r       <= 1'b0;
