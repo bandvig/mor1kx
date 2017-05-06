@@ -54,8 +54,7 @@ module mor1kx_cpu_marocchino
   // interrupt controller
   parameter OPTION_PIC_TRIGGER          = "LEVEL",
   parameter OPTION_PIC_NMI_WIDTH        = 0,
-  // timer, debug unit, performance counters, m-core, trace
-  parameter TIMER_CLOCK_DOMAIN          = "CPU_CLOCK", // "WB_CLOCK" / "CPU_CLOCK" (default)
+  // debug unit, performance counters, m-core, trace
   parameter FEATURE_DEBUGUNIT           = "NONE",
   parameter FEATURE_PERFCOUNTERS        = "NONE",
   parameter FEATURE_MULTICORE           = "NONE",
@@ -1879,9 +1878,6 @@ module mor1kx_cpu_marocchino
   wire        spr_bus_ack_tt;
   //  # timer instance
   mor1kx_ticktimer_marocchino
-  #(
-    .TIMER_CLOCK_DOMAIN (TIMER_CLOCK_DOMAIN) // TIMER
-  )
   u_ticktimer
   (
     // Wishbone clock and reset

@@ -105,6 +105,8 @@ module mor1kx_dmmu_marocchino
   reg                              dtlb_trans_spr_cs_r;
 
   wire                             spr_dmmu_cs;
+  reg                              spr_dmmu_cs_r;
+
   reg                              spr_dmmu_we_r;  // write on next posedge clock
   reg                              spr_dmmu_re_r;  // read on next posedge clock
   reg                              spr_dmmu_mux_r; // mux read output and latch it
@@ -135,6 +137,17 @@ module mor1kx_dmmu_marocchino
   genvar                           i;
 
 
+  // initial value for simulation
+ `ifndef SYNTHESIS
+  // synthesis translate_off
+  initial begin
+    spr_dmmu_cs_r = 1'b0;
+    spr_bus_ack_o = 1'b0;
+  end
+  // synthesis translate_on
+ `endif // !synth
+
+
   // Stored "DMMU enable" and "Supevisor Mode" flags
   // (for masking DMMU output flags, but not for advancing)
   reg enable_r;
@@ -142,13 +155,7 @@ module mor1kx_dmmu_marocchino
   reg cmd_store_r, cmd_load_r;
   // ---
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i) begin
-      enable_r          <= 1'b0;
-      supervisor_mode_r <= 1'b0;
-      cmd_store_r       <= 1'b0;
-      cmd_load_r        <= 1'b0;
-    end
-    else if (spr_dmmu_cs) begin
+    if (cpu_rst | pipeline_flush_i | spr_dmmu_cs_r) begin
       enable_r          <= 1'b0;
       supervisor_mode_r <= 1'b0;
       cmd_store_r       <= 1'b0;
@@ -182,18 +189,8 @@ module mor1kx_dmmu_marocchino
 
   // SPR processing cycle
   always @(posedge cpu_clk) begin
-    if (cpu_rst) begin
-      dtlb_match_spr_cs_r <= 1'b0;
-      dtlb_trans_spr_cs_r <= 1'b0;
-      dmmucr_spr_cs_r     <= 1'b0;
-      spr_way_idx_r       <= 2'd0;
-      spr_bus_ack_o       <= 1'b0;
-      spr_dmmu_we_r       <= 1'b0;
-      spr_dmmu_re_r       <= 1'b0;
-      spr_dmmu_mux_r      <= 1'b0;
-      spr_bus_dat_o       <= {OPTION_OPERAND_WIDTH{1'b0}};
-    end
-    else if (spr_bus_ack_o) begin
+    if (cpu_rst | spr_bus_ack_o) begin
+      spr_dmmu_cs_r       <= 1'b0;
       dtlb_match_spr_cs_r <= 1'b0;
       dtlb_trans_spr_cs_r <= 1'b0;
       dmmucr_spr_cs_r     <= 1'b0;
@@ -205,12 +202,6 @@ module mor1kx_dmmu_marocchino
       spr_bus_dat_o       <= {OPTION_OPERAND_WIDTH{1'b0}};
     end
     else if (spr_dmmu_mux_r) begin
-      dtlb_match_spr_cs_r <= dtlb_match_spr_cs_r;
-      dtlb_trans_spr_cs_r <= dtlb_trans_spr_cs_r;
-      dmmucr_spr_cs_r     <= dmmucr_spr_cs_r;
-      spr_way_idx_r       <= spr_way_idx_r;
-      spr_dmmu_we_r       <= 1'b0;
-      spr_dmmu_re_r       <= 1'b0;
       spr_dmmu_mux_r      <= 1'b0;
       spr_bus_ack_o       <= 1'b1;
       spr_bus_dat_o       <= dtlb_match_spr_cs_r ? dtlb_match_dout[spr_way_idx_r] :
@@ -219,17 +210,11 @@ module mor1kx_dmmu_marocchino
                                                    {OPTION_OPERAND_WIDTH{1'b0}};
     end
     else if (spr_dmmu_re_r) begin
-      dtlb_match_spr_cs_r <= dtlb_match_spr_cs_r;
-      dtlb_trans_spr_cs_r <= dtlb_trans_spr_cs_r;
-      dmmucr_spr_cs_r     <= dmmucr_spr_cs_r;
-      spr_way_idx_r       <= spr_way_idx_r;
-      spr_dmmu_we_r       <= 1'b0;
       spr_dmmu_re_r       <= 1'b0;
       spr_dmmu_mux_r      <= 1'b1;
-      spr_bus_ack_o       <= 1'b0;
-      spr_bus_dat_o       <= {OPTION_OPERAND_WIDTH{1'b0}};
     end
     else if (spr_dmmu_cs) begin
+      spr_dmmu_cs_r       <= 1'b1;
       dtlb_match_spr_cs_r <= (|spr_bus_addr_i[10:9]) & ~spr_bus_addr_i[7];
       dtlb_trans_spr_cs_r <= (|spr_bus_addr_i[10:9]) &  spr_bus_addr_i[7];
       dmmucr_spr_cs_r     <= (`SPR_OFFSET(spr_bus_addr_i) == `SPR_OFFSET(`OR1K_SPR_DMMUCR_ADDR));
@@ -238,9 +223,7 @@ module mor1kx_dmmu_marocchino
       spr_dmmu_re_r       <= ~spr_bus_we_i;
       spr_bus_dat_r       <= spr_bus_dat_i;
       spr_bus_addr_r      <= spr_bus_addr_i[OPTION_DMMU_SET_WIDTH-1:0];
-      spr_dmmu_mux_r      <= 1'b0;
       spr_bus_ack_o       <= spr_bus_we_i; // write on next posedge of clock and finish
-      spr_bus_dat_o       <= {OPTION_OPERAND_WIDTH{1'b0}};
     end
   end // @ clock
 
@@ -330,9 +313,8 @@ module mor1kx_dmmu_marocchino
 
 
   // match 8KB input address
-  assign dtlb_match_addr =
-    (dtlb_match_spr_cs_r & (spr_dmmu_we_r | spr_dmmu_re_r)) ? spr_bus_addr_r :
-                                                              virt_addr_i[13+(OPTION_DMMU_SET_WIDTH-1):13];
+  assign dtlb_match_addr = dtlb_match_spr_cs_r ? spr_bus_addr_r :
+                                                 virt_addr_i[13+(OPTION_DMMU_SET_WIDTH-1):13];
   // match huge address and write command
   assign dtlb_match_huge_addr = virt_addr_i[24+(OPTION_DMMU_SET_WIDTH-1):24];
   assign dtlb_match_huge_we   = dtlb_match_reload_we & tlb_reload_huge;
@@ -341,9 +323,8 @@ module mor1kx_dmmu_marocchino
 
 
   // translation 8KB input address
-  assign dtlb_trans_addr =
-    (dtlb_trans_spr_cs_r & (spr_dmmu_we_r | spr_dmmu_re_r)) ? spr_bus_addr_r :
-                                                              virt_addr_i[13+(OPTION_DMMU_SET_WIDTH-1):13];
+  assign dtlb_trans_addr = dtlb_trans_spr_cs_r ? spr_bus_addr_r :
+                                                 virt_addr_i[13+(OPTION_DMMU_SET_WIDTH-1):13];
   // translation huge address and write command
   assign dtlb_trans_huge_addr = virt_addr_i[24+(OPTION_DMMU_SET_WIDTH-1):24];
   assign dtlb_trans_huge_we   = dtlb_trans_reload_we & tlb_reload_huge;

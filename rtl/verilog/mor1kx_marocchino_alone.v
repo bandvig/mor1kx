@@ -63,9 +63,6 @@ module mor1kx_marocchino_alone
   parameter OPTION_IMMU_WAYS           =  1,
   parameter OPTION_IMMU_CLEAR_ON_INIT  =  0, // !!! activate for simulation only !!!
 
-  // Timer
-  parameter TIMER_CLOCK_DOMAIN         = "CPU_CLOCK", // "WB_CLOCK" / "CPU_CLOCK" (default)
-
   // Debug unit
   parameter FEATURE_DEBUGUNIT          = "NONE",
   parameter FEATURE_PERFCOUNTERS       = "NONE",
@@ -311,7 +308,6 @@ module mor1kx_marocchino_alone
     .OPTION_PIC_TRIGGER               (OPTION_PIC_TRIGGER),
     .OPTION_PIC_NMI_WIDTH             (OPTION_PIC_NMI_WIDTH),
     // timer, debug unit, performance counters, m-core, trace
-    .TIMER_CLOCK_DOMAIN               (TIMER_CLOCK_DOMAIN),
     .FEATURE_DEBUGUNIT                (FEATURE_DEBUGUNIT),
     .FEATURE_PERFCOUNTERS             (FEATURE_PERFCOUNTERS),
     .FEATURE_MULTICORE                (FEATURE_MULTICORE),

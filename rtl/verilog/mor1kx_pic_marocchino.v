@@ -71,44 +71,40 @@ module mor1kx_pic_marocchino
   wire spr_picmr_cs = (`SPR_OFFSET(spr_bus_addr_i) == `SPR_OFFSET(`OR1K_SPR_PICMR_ADDR));
   wire spr_picsr_cs = (`SPR_OFFSET(spr_bus_addr_i) == `SPR_OFFSET(`OR1K_SPR_PICSR_ADDR));
 
+
+  // CPU clock domain:
+  // CPU-toggle -> PIC-pulse
+  //  to latch SPR bus signals in Wishbone clock domain
+  reg        spr_bus_toggle_r;
+  // Latch all necassary SPR access controls
+  reg        spr_pic_cs_r;
+  reg [34:0] spr_pic_cmd_r; // {"picmr-cs", "picsr-cs", "we", dat}
+
+  // initial value for simulation
+ `ifndef SYNTHESIS
+  // synthesis translate_off
+  initial begin
+    spr_bus_toggle_r  = 1'b0;
+    spr_bus_ack_pic_o = 1'b0;
+  end
+  // synthesis translate_on
+ `endif // !synth
+
   // pulse to initiate read/write transaction
-  reg  spr_pic_cs_r;
   // ---
   always @(posedge cpu_clk) begin
-    if (cpu_rst)
-      spr_pic_cs_r <= 1'b0;
-    else
-      spr_pic_cs_r <= spr_pic_cs;
+    if (cpu_rst | spr_bus_ack_pic_o) begin
+      spr_pic_cs_r     <= 1'b0;
+    end
+    else if (~spr_pic_cs_r) begin
+      spr_bus_toggle_r <= spr_pic_cs ? (~spr_bus_toggle_r) : spr_bus_toggle_r;
+      spr_pic_cs_r     <= spr_pic_cs;
+      spr_pic_cmd_r    <= spr_pic_cs ? {spr_picmr_cs,spr_picsr_cs,spr_bus_we_i,spr_bus_dat_i} : 35'd0;
+    end
   end
-  // ---
-  wire spr_pic_cs_pulse = spr_pic_cs & (~spr_pic_cs_r);
 
 
   // Wishbone clock domain:
-  //  # synched SPR access
-  reg         cpu2pic_cs_pulse_r;
-  wire        cpu2pic_picmr_cs, cpu2pic_picsr_cs, cpu2pic_we;
-  wire [31:0] cpu2pic_dat;
-  //  # read/write done
-  reg         pic_ack_r;
-  //  # data for output to SPR BUS
-  reg  [31:0] pic_dato_r;
-
-
-  // CPU clock domain:
-  wire        pic2cpu_ack;
-
-
-  // CPU-toggle -> PIC-pulse
-  //  to latch SPR bus signals in Wishbone clock domain
-  reg cpu2pic_toggle_r;
-  // ---
-  always @(posedge cpu_clk) begin
-    if (cpu_rst)
-      cpu2pic_toggle_r <= 1'b0;
-    else if (spr_pic_cs_pulse)
-      cpu2pic_toggle_r <= ~cpu2pic_toggle_r;
-  end
   // --- synch. ---
   // As CDC is not completely implemented, that's why each synchronizer
   // contains only one register. So register enumeration
@@ -121,46 +117,52 @@ module mor1kx_pic_marocchino
       cpu2pic_cs_r3 <= 1'b0;
     end
     else begin
-      cpu2pic_cs_r2 <= cpu2pic_toggle_r;
+      cpu2pic_cs_r2 <= spr_bus_toggle_r;
       cpu2pic_cs_r3 <= cpu2pic_cs_r2;
     end
   end
   // ---
-  wire cpu2pic_cs_take = cpu2pic_cs_r2 ^ cpu2pic_cs_r3;
-  // ---
+  wire       cpu2pic_cs_pulse = cpu2pic_cs_r2 ^ cpu2pic_cs_r3;
+  reg        cpu2pic_cs_pulse_r;
   reg [34:0] cpu2pic_cmd_r; // {"picmr-cs", "picsr-cs", "we", dat}
   // --- latch SPR access parameters in Wishbone clock domain ---
   always @(posedge wb_clk) begin
-    if (wb_rst)
-      cpu2pic_cmd_r <= 35'd0;
-    else if (cpu2pic_cs_take)
-      cpu2pic_cmd_r <= {spr_picmr_cs, spr_picsr_cs, spr_bus_we_i, spr_bus_dat_i};
-  end
-  // --- unpack SPR access parameters ---
-  assign cpu2pic_picmr_cs = cpu2pic_cmd_r[34];
-  assign cpu2pic_picsr_cs = cpu2pic_cmd_r[33];
-  assign cpu2pic_we       = cpu2pic_cmd_r[32];
-  assign cpu2pic_dat      = cpu2pic_cmd_r[31:0];
-  // --- generate "cs_pulse" to perform read/write and "ack" ---
-  always @(posedge wb_clk) begin
     if (wb_rst) begin
       cpu2pic_cs_pulse_r <= 1'b0;
-      pic_ack_r          <= 1'b0;
     end
     else begin
-      cpu2pic_cs_pulse_r <= cpu2pic_cs_take;
-      pic_ack_r          <= cpu2pic_cs_pulse_r;
+      // re-clocked SPR BUS request is ready
+      cpu2pic_cs_pulse_r <= cpu2pic_cs_pulse;
+      // re-clocked SPR BUS request data
+      if (cpu2pic_cs_pulse)
+        cpu2pic_cmd_r <= spr_pic_cmd_r;
     end
   end
+  // --- unpack SPR access parameters ---
+  wire        cpu2pic_picmr_cs = cpu2pic_cmd_r[34];
+  wire        cpu2pic_picsr_cs = cpu2pic_cmd_r[33];
+  wire        cpu2pic_we       = cpu2pic_cmd_r[32];
+  wire [31:0] cpu2pic_dat      = cpu2pic_cmd_r[31:0];
 
 
-  // snap data for output regardless of "we"
+  // read/write done and data for output to SPR BUS
+  reg         pic_ack_r;
+  reg  [31:0] pic_dato_r;
+  // ---
   always @(posedge wb_clk) begin
-    if (cpu2pic_cs_pulse_r) begin
-      pic_dato_r <= cpu2pic_picmr_cs ? spr_picmr :
-                    cpu2pic_picsr_cs ? spr_picsr :
-                                       32'd0;
+    if (wb_rst) begin
+      pic_ack_r <= 1'b0;
     end
+    else begin
+      // ack is single wb-clk
+      pic_ack_r <= cpu2pic_cs_pulse_r;
+      // data: latch regardless of "we"
+      if (cpu2pic_cs_pulse_r) begin
+        pic_dato_r <= cpu2pic_picmr_cs ? spr_picmr :
+                      cpu2pic_picsr_cs ? spr_picsr :
+                                         32'd0;
+      end
+    end 
   end
 
 
@@ -184,40 +186,38 @@ module mor1kx_pic_marocchino
     end
   end
   // ---
-  assign pic2cpu_ack = pic2cpu_ack_r2 & (~pic2cpu_ack_r3);
+  wire pic2cpu_ack = pic2cpu_ack_r2 & (~pic2cpu_ack_r3);
+
+
+  // SPR BUS: output data and ack (CPU clock domain)
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | spr_bus_ack_pic_o) begin
+      spr_bus_ack_pic_o <=  1'b0;
+      spr_bus_dat_pic_o <= 32'd0;
+    end
+    else if (pic2cpu_ack) begin
+      spr_bus_ack_pic_o <= 1'b1;
+      spr_bus_dat_pic_o <= pic_dato_r;
+    end
+  end
 
 
   // PIC-interrupt-level -> CPU-interrupt-level
   //   As CPU clock assumed to be faster or equal to PIC's one, we
-  // don't use toggle here.
+  // needn't toggle here.
   //   As CDC is not completely implemented, that's why each synchronizer
   // contains only one register. So register enumeration
   // starts from _r2 (*_r1 should be 1st in full sync. implementation).
   reg [31:0] spr_picsr_r2;
   // ---
   always @(posedge cpu_clk) begin
-    if (cpu_rst)
-      spr_picsr_r2 <= 32'd0;
-    else if (spr_pic_cs)
+    if (cpu_rst | spr_bus_ack_pic_o)
       spr_picsr_r2 <= 32'd0;
     else
       spr_picsr_r2 <= spr_picsr;
   end
   // ---
   assign spr_picsr_o = spr_picsr_r2;
-
-
-  // SPR BUS: output data and ack (CPU clock domain)
-  always @(posedge cpu_clk) begin
-    if (cpu_rst) begin
-      spr_bus_ack_pic_o <=  1'b0;
-      spr_bus_dat_pic_o <= 32'd0;
-    end
-    else begin
-      spr_bus_ack_pic_o <= pic2cpu_ack;
-      spr_bus_dat_pic_o <= pic_dato_r & {32{pic2cpu_ack}};
-    end
-  end
 
 
 
