@@ -77,6 +77,8 @@ module mor1kx_dmmu_marocchino
   output reg                            spr_bus_ack_o
 );
 
+  localparam  WAYS_WIDTH = (OPTION_DMMU_WAYS < 2) ? 1 : 2;
+
   wire  [OPTION_OPERAND_WIDTH-1:0] dtlb_match_dout[OPTION_DMMU_WAYS-1:0];
   wire [OPTION_DMMU_SET_WIDTH-1:0] dtlb_match_addr;
   reg       [OPTION_DMMU_WAYS-1:0] dtlb_match_we;
@@ -117,7 +119,8 @@ module mor1kx_dmmu_marocchino
   reg                              dmmucr_spr_cs_r;
   reg   [OPTION_OPERAND_WIDTH-1:0] dmmucr;
 
-  reg                        [1:0] spr_way_idx_r;
+  wire                       [1:0] spr_way_idx; // from SPR BUS
+  reg             [WAYS_WIDTH-1:0] spr_way_idx_r;
 
   wire      [OPTION_DMMU_WAYS-1:0] way_hit;
   wire      [OPTION_DMMU_WAYS-1:0] way_huge_hit;
@@ -187,6 +190,8 @@ module mor1kx_dmmu_marocchino
 
   assign spr_dmmu_cs = spr_bus_stb_i & (`SPR_BASE(spr_bus_addr_i) == `OR1K_SPR_DMMU_BASE);
 
+  assign spr_way_idx = {spr_bus_addr_i[10], spr_bus_addr_i[8]};
+
   // SPR processing cycle
   always @(posedge cpu_clk) begin
     if (cpu_rst | spr_bus_ack_o) begin
@@ -194,7 +199,7 @@ module mor1kx_dmmu_marocchino
       dtlb_match_spr_cs_r <= 1'b0;
       dtlb_trans_spr_cs_r <= 1'b0;
       dmmucr_spr_cs_r     <= 1'b0;
-      spr_way_idx_r       <= 2'd0;
+      spr_way_idx_r       <= {WAYS_WIDTH{1'b0}};
       spr_bus_ack_o       <= 1'b0;
       spr_dmmu_we_r       <= 1'b0;
       spr_dmmu_re_r       <= 1'b0;
@@ -218,7 +223,7 @@ module mor1kx_dmmu_marocchino
       dtlb_match_spr_cs_r <= (|spr_bus_addr_i[10:9]) & ~spr_bus_addr_i[7];
       dtlb_trans_spr_cs_r <= (|spr_bus_addr_i[10:9]) &  spr_bus_addr_i[7];
       dmmucr_spr_cs_r     <= (`SPR_OFFSET(spr_bus_addr_i) == `SPR_OFFSET(`OR1K_SPR_DMMUCR_ADDR));
-      spr_way_idx_r       <= {spr_bus_addr_i[10], spr_bus_addr_i[8]};
+      spr_way_idx_r       <= spr_way_idx[WAYS_WIDTH-1:0];
       spr_dmmu_we_r       <= spr_bus_we_i;
       spr_dmmu_re_r       <= ~spr_bus_we_i;
       spr_bus_dat_r       <= spr_bus_dat_i;
@@ -290,13 +295,13 @@ module mor1kx_dmmu_marocchino
       dtlb_match_we[j] = 1'b0;
       if (dtlb_match_reload_we)
         dtlb_match_we[j] = 1'b1;
-      if (j == spr_way_idx_r)
+      if (j[WAYS_WIDTH-1:0] == spr_way_idx_r)
         dtlb_match_we[j] = dtlb_match_spr_cs_r & spr_dmmu_we_r;
 
       dtlb_trans_we[j] = 1'b0;
       if (dtlb_trans_reload_we)
         dtlb_trans_we[j] = 1'b1;
-      if (j == spr_way_idx_r)
+      if (j[WAYS_WIDTH-1:0] == spr_way_idx_r)
         dtlb_trans_we[j] = dtlb_trans_spr_cs_r & spr_dmmu_we_r;
     end // loop by ways
   end // always

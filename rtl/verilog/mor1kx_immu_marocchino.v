@@ -76,6 +76,8 @@ module mor1kx_immu_marocchino
   output reg                            spr_bus_ack_o
 );
 
+  localparam  WAYS_WIDTH = (OPTION_IMMU_WAYS < 2) ? 1 : 2;
+
   wire  [OPTION_OPERAND_WIDTH-1:0] itlb_match_dout[OPTION_IMMU_WAYS-1:0];
   wire [OPTION_IMMU_SET_WIDTH-1:0] itlb_match_addr;
   reg       [OPTION_IMMU_WAYS-1:0] itlb_match_we;
@@ -113,7 +115,8 @@ module mor1kx_immu_marocchino
   reg                              itlb_match_spr_cs_r;
   reg                              itlb_trans_spr_cs_r;
 
-  reg                        [1:0] spr_way_idx_r;
+  wire                       [1:0] spr_way_idx; // from SPR BUS
+  reg             [WAYS_WIDTH-1:0] spr_way_idx_r;
 
   reg                              immucr_spr_cs_r;
   reg   [OPTION_OPERAND_WIDTH-1:0] immucr;
@@ -177,6 +180,8 @@ module mor1kx_immu_marocchino
   // overall IMMU "chip select"
   assign spr_immu_cs = spr_bus_stb_i & (`SPR_BASE(spr_bus_addr_i) == `OR1K_SPR_IMMU_BASE);
 
+  assign spr_way_idx = {spr_bus_addr_i[10], spr_bus_addr_i[8]};
+
   // SPR processing cycle
   always @(posedge cpu_clk) begin
     if (cpu_rst | spr_bus_ack_o) begin
@@ -184,7 +189,7 @@ module mor1kx_immu_marocchino
       itlb_match_spr_cs_r <= 1'b0;
       itlb_trans_spr_cs_r <= 1'b0;
       immucr_spr_cs_r     <= 1'b0;
-      spr_way_idx_r       <= 2'd0;
+      spr_way_idx_r       <= {WAYS_WIDTH{1'b0}};
       spr_bus_ack_o       <= 1'b0;
       spr_immu_we_r       <= 1'b0;
       spr_immu_re_r       <= 1'b0;
@@ -208,7 +213,7 @@ module mor1kx_immu_marocchino
       itlb_match_spr_cs_r <= (|spr_bus_addr_i[10:9]) & ~spr_bus_addr_i[7];
       itlb_trans_spr_cs_r <= (|spr_bus_addr_i[10:9]) &  spr_bus_addr_i[7];
       immucr_spr_cs_r     <= (`SPR_OFFSET(spr_bus_addr_i) == `SPR_OFFSET(`OR1K_SPR_IMMUCR_ADDR));
-      spr_way_idx_r       <= {spr_bus_addr_i[10], spr_bus_addr_i[8]};
+      spr_way_idx_r       <= spr_way_idx[WAYS_WIDTH-1:0];
       spr_immu_we_r       <= spr_bus_we_i;
       spr_immu_re_r       <= ~spr_bus_we_i;
       spr_bus_dat_r       <= spr_bus_dat_i;
@@ -271,13 +276,13 @@ module mor1kx_immu_marocchino
       itlb_match_we[j] = 1'b0;
       if (itlb_match_reload_we & ~tlb_reload_huge)
         itlb_match_we[j] = 1'b1;
-      if (j == spr_way_idx_r)
+      if (j[WAYS_WIDTH-1:0] == spr_way_idx_r)
         itlb_match_we[j] = itlb_match_spr_cs_r & spr_immu_we_r;
 
       itlb_trans_we[j] = 1'b0;
       if (itlb_trans_reload_we & ~tlb_reload_huge)
         itlb_trans_we[j] = 1'b1;
-      if (j == spr_way_idx_r)
+      if (j[WAYS_WIDTH-1:0] == spr_way_idx_r)
         itlb_trans_we[j] = itlb_trans_spr_cs_r & spr_immu_we_r;
     end
   end // loop by ways

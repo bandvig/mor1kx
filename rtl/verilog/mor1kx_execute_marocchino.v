@@ -893,17 +893,19 @@ module mor1kx_exec_1clk_marocchino
   wire op_sra = (exec_opc_alu_secondary_i == `OR1K_ALU_OPC_SECONDARY_SHRT_SRA);
   wire op_ror = (exec_opc_alu_secondary_i == `OR1K_ALU_OPC_SECONDARY_SHRT_ROR);
 
-  wire [EXEDW-1:0] shift_right;
-  wire [EXEDW-1:0] shift_lsw;
-  wire [EXEDW-1:0] shift_msw;
+  wire   [EXEDW-1:0] shift_right;
+  wire   [EXEDW-1:0] shift_lsw;
+  wire   [EXEDW-1:0] shift_msw;
+  wire [EXEDW*2-1:0] shift_wide;
 
-  wire [EXEDW-1:0] shift_result;
+  wire   [EXEDW-1:0] shift_result;
 
   assign shift_lsw = op_sll ? reverse(exec_1clk_a1_i) : exec_1clk_a1_i;
   assign shift_msw = op_sra ? {EXEDW{exec_1clk_a1_i[EXEDW-1]}} :
                      op_ror ? exec_1clk_a1_i : {EXEDW{1'b0}};
 
-  assign shift_right = {shift_msw, shift_lsw} >> exec_1clk_b1_i[4:0];
+  assign shift_wide   = {shift_msw, shift_lsw} >> exec_1clk_b1_i[4:0];
+  assign shift_right  = shift_wide[EXEDW-1:0];
   assign shift_result = op_sll ? reverse(shift_right) : shift_right;
 
 
