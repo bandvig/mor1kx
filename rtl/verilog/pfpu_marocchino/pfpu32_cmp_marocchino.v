@@ -63,8 +63,6 @@ module pfpu32_fcmp_marocchino
   input                               ctrl_fpu_mask_flags_inv_i,
   input                               ctrl_fpu_mask_flags_inf_i,
   // Outputs
-  //  # not WB-latched for flag forwarding
-  output                              fp32_flag_set_o,
   //  # not latched pre-WB
   output                              exec_except_fp32_cmp_o,
   //  # WB-latched
@@ -216,11 +214,6 @@ always @(altb or blta or aeqb or opc_fp32_cmp_i) begin
     default:     cmp_flag = 1'b0;
   endcase // case (fpu_op_r)
 end // always@ *
-
-
-////////////////////////////////////////////////////////////////////////
-// Not latched output for forwarding to take branch logic
-assign fp32_flag_set_o = cmp_flag;
 
 
 ////////////////////////////////////////////////////////////////////////

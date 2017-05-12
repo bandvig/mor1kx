@@ -42,7 +42,7 @@ module mor1kx_icache_marocchino
   input                                 cpu_rst,
 
   // pipe controls
-  input                                 padv_s1_i,
+  input                                 padv_ic_i,
   input                                 flush_by_ctrl_i,
   // fetch exceptions
   input                                 immu_an_except_i,
@@ -52,8 +52,8 @@ module mor1kx_icache_marocchino
   input                                 ic_enable_i,
 
   // regular requests in/out
-  input      [OPTION_OPERAND_WIDTH-1:0] virt_addr_mux_i,
-  input      [OPTION_OPERAND_WIDTH-1:0] phys_addr_fetch_i,
+  input      [OPTION_OPERAND_WIDTH-1:0] phys_addr_idx_i,
+  input      [OPTION_OPERAND_WIDTH-1:0] phys_addr_tag_i,
   input                                 fetch_req_hit_i,
   input                                 immu_cache_inhibit_i,
   output                                ic_ack_o,
@@ -182,10 +182,10 @@ module mor1kx_icache_marocchino
 
 
   // FETCH reads ICACHE (doesn't include exceptions or flushing control)
-  assign ic_fsm_adv = padv_s1_i & ic_enable_i;
+  assign ic_fsm_adv = padv_ic_i & ic_enable_i;
 
   // RAM block read access
-  assign ic_ram_re  = padv_s1_i & ic_enable_i;
+  assign ic_ram_re  = padv_ic_i & ic_enable_i;
 
   // Stored "ICACHE enable" flag for ibus_access_req_o
   reg ic_enable_r;
@@ -193,7 +193,7 @@ module mor1kx_icache_marocchino
   always @(posedge cpu_clk) begin
     if (cpu_rst | flush_by_ctrl_i)
       ic_enable_r <= 1'b0;
-    else if (padv_s1_i)
+    else if (padv_ic_i)
       ic_enable_r <= ic_enable_i;
   end // @ clock
 
@@ -206,7 +206,7 @@ module mor1kx_icache_marocchino
     assign ic_check_limit_width = 1'b1;
   else if (OPTION_ICACHE_LIMIT_WIDTH < OPTION_OPERAND_WIDTH)
     assign ic_check_limit_width =
-      (phys_addr_fetch_i[OPTION_OPERAND_WIDTH-1:OPTION_ICACHE_LIMIT_WIDTH] == 0);
+      (phys_addr_tag_i[OPTION_OPERAND_WIDTH-1:OPTION_ICACHE_LIMIT_WIDTH] == 0);
   else begin
     initial begin
       $display("ICACHE ERROR: OPTION_ICACHE_LIMIT_WIDTH > OPTION_OPERAND_WIDTH");
@@ -224,7 +224,7 @@ module mor1kx_icache_marocchino
     // hit: compare stored tag with incoming tag and check valid bit
     assign way_hit[i] = tag_way_out[i][TAGMEM_WAY_VALID] &
                         (tag_way_out[i][TAG_WIDTH-1:0] ==
-                         phys_addr_fetch_i[OPTION_ICACHE_LIMIT_WIDTH-1:WAY_WIDTH]);
+                         phys_addr_tag_i[OPTION_ICACHE_LIMIT_WIDTH-1:WAY_WIDTH]);
   end
   endgenerate
 
@@ -310,8 +310,8 @@ module mor1kx_icache_marocchino
             // to re-fill
             ic_state <= IC_REFILL;
           end
-          else if (ic_fsm_adv)                                                   // FSM: READ: ibus_access_req_o ? idle : read
-            ic_state <= ((~is_cacheble) & fetch_req_hit_i) ? IC_IDLE : IC_READ;  // FSM: READ:
+          else if (ic_fsm_adv)    // FSM: READ: ibus_access_req_o ? idle : read
+            ic_state <= IC_READ;  // FSM: READ:
           else // no advancing
             ic_state <= IC_IDLE;
         end
@@ -361,7 +361,7 @@ module mor1kx_icache_marocchino
   wire [WAY_WIDTH-3:0] way_addr;
   // ---
   assign way_addr = ic_refill ? ibus_burst_adr_i[WAY_WIDTH-1:2] : // WAY_ADDR at re-fill
-                                virt_addr_mux_i[WAY_WIDTH-1:2];   // WAY_ADDR default
+                                phys_addr_idx_i[WAY_WIDTH-1:2];   // WAY_ADDR default
 
   // WAY-RAM instances
   generate
@@ -506,10 +506,10 @@ module mor1kx_icache_marocchino
    */
   assign tag_windex = ic_refill     ? ibus_burst_adr_i[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH]  : // TAG_WR_ADDR at re-fill
                       ic_invalidate ? tag_invdex                                               : // TAG_WR_ADDR at invalidate
-                                      phys_addr_fetch_i[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH];  // TAG_WR_ADDR at update LRU field
+                                      phys_addr_tag_i[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH];    // TAG_WR_ADDR at update LRU field
 
   // TAG read address
-  assign tag_rindex = virt_addr_mux_i[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH];
+  assign tag_rindex = phys_addr_idx_i[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH];
 
   // Read/Write into same address
   wire tag_rw_same_addr = (tag_rindex == tag_windex);

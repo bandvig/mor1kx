@@ -773,8 +773,8 @@ module mor1kx_decode_marocchino
 
   // Signals to stall FETCH if we are waiting flag
   //  # flag is going to be written by multi-cycle instruction
-  //  # like 64-bit FPU comparison or l.swa
-  assign dcod_flag_wb_mcycle_o = dcod_op_fp64_cmp_o | (opc_insn == `OR1K_OPCODE_SWA);
+  //  # like 32/64-bit FPU comparison or l.swa
+  assign dcod_flag_wb_mcycle_o = dcod_op_fp32_cmp_o | dcod_op_fp64_cmp_o | (opc_insn == `OR1K_OPCODE_SWA);
 
 
   // Which instruction writes carry flag?

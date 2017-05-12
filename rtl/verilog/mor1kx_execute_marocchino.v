@@ -1035,8 +1035,6 @@ module mor1kx_exec_1clk_marocchino
   //------------------------//
   // FP-32 comparison logic //
   //------------------------//
-  wire fp32_flag_set; // for forwarding to branch prediction
-  // ---
   pfpu32_fcmp_marocchino u_f32_cmp
   (
     // clock and reset
@@ -1057,8 +1055,6 @@ module mor1kx_exec_1clk_marocchino
     .ctrl_fpu_mask_flags_inv_i  (ctrl_fpu_mask_flags_inv_i), // fp32-cmp
     .ctrl_fpu_mask_flags_inf_i  (ctrl_fpu_mask_flags_inf_i), // fp32-cmp
     // Outputs
-    //  # not WB-latched for flag forwarding
-    .fp32_flag_set_o        (fp32_flag_set),
     //  # not latched pre-WB
     .exec_except_fp32_cmp_o (exec_except_fp32_cmp_o), // fp32-cmp
     //  # WB-latched
@@ -1074,6 +1070,6 @@ module mor1kx_exec_1clk_marocchino
   //--------------------------------------------------------------------//
   // Forwarding comparision flag result for conditional branch take/not //
   //--------------------------------------------------------------------//
-  assign exec_flag_set_o = (exec_op_setflag_i & flag_set) | (exec_op_fp32_cmp_i & fp32_flag_set);
+  assign exec_flag_set_o = (exec_op_setflag_i & flag_set);
 
 endmodule // mor1kx_exec_1clk_marocchino
