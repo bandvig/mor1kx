@@ -538,7 +538,6 @@ module mor1kx_fetch_marocchino
   always @(posedge cpu_clk) begin
     if (cpu_rst) begin
       ibus_req_o <= 1'b0;           // by reset
-      ibus_adr_o <= {IFOOW{1'b0}};  // by reset
       ibus_state <= IBUS_IDLE;      // by reset
     end
     else begin
@@ -573,15 +572,12 @@ module mor1kx_fetch_marocchino
         end
 
         IBUS_IC_REFILL: begin
-          if ((ibus_ack_i & ibus_burst_last_i) | ibus_err_i) begin // ICACHE refill
-            ibus_adr_o <= {IFOOW{1'b0}};                      // ICACHE refill -> idling
+          if ((ibus_ack_i & ibus_burst_last_i) | ibus_err_i) // ICACHE refill
             ibus_state <= ibus_err_i ? IBUS_ERR : IBUS_IDLE;  // ICACHE refill -> error / idling
-          end
         end // ic-refill
 
         IBUS_READ: begin
           if (ibus_ack_i | ibus_err_i) begin    // IBUS read
-            ibus_adr_o <= {IFOOW{1'b0}};        // IBUS read: complete or error
             if (flush_by_ctrl)                  // IBUS READ -> IDLE: also priority in IMMU and ICACHE
               ibus_state <= IBUS_IDLE;          // IBUS READ -> IDLE by flushing
             else if (ibus_err_i)                // IBUS READ -> IBUS ERROR
@@ -600,7 +596,6 @@ module mor1kx_fetch_marocchino
 
         default: begin
           ibus_req_o <= ibus_req_o;     // default: no toggle
-          ibus_adr_o <= {IFOOW{1'b0}};  // default
           ibus_state <= IBUS_IDLE;      // default
         end
       endcase // case (state)

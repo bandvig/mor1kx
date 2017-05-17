@@ -1562,11 +1562,13 @@ module mor1kx_cpu_marocchino
   // LSU instance //
   //--------------//
 
-  //  # various LSU <-> RSRVS connections
+  // LSU -> RSRVS feedback
   wire lsu_taking_op;
 
   // RSRVS -> LSU connections
-  //  # commands
+  //  # load/store/sync combined
+  wire                            exec_op_lsu_any;
+  //  # particular commands and their attributes
   wire                            exec_op_lsu_load;
   wire                            exec_op_lsu_store;
   wire                            exec_op_lsu_atomic;
@@ -1586,7 +1588,7 @@ module mor1kx_cpu_marocchino
   //  ## delay-slot ? (pc-4) : pc
   wire [(OPTION_OPERAND_WIDTH-1):0] dcod_sbuf_epcr = pc_decode - {{(OPTION_OPERAND_WIDTH-3){1'b0}},dcod_delay_slot,2'b00};
 
-  // attributes include:
+  // particular commands and their attributes include:
   //  ## separate load, store and atomic flags: averall 3
   //  ## length:            2
   //  ## zero extension:    1
@@ -1682,7 +1684,7 @@ module mor1kx_cpu_marocchino
     //   combined D1XX hazards
     .exec_wb2exe_hazard_d1xx_o  (), // LSU_RSVRS
     //   command and its additional attributes
-    .exec_op_o                  (), // LSU_RSVRS
+    .exec_op_o                  (exec_op_lsu_any), // LSU_RSVRS
     .exec_opc_o                 ({exec_op_lsu_load,exec_op_lsu_store,exec_op_lsu_atomic, // LSU_RSVRS
                                   exec_lsu_length,exec_lsu_zext, // LSU_RSVRS
                                   exec_op_msync, // LSU_RSVRS
@@ -1728,7 +1730,8 @@ module mor1kx_cpu_marocchino
     .dc_enable_i                      (dc_enable), // LSU
     .dmmu_enable_i                    (dmmu_enable), // LSU
     .supervisor_mode_i                (supervisor_mode), // LSU
-    // Input from DECODE (not latched)
+    // Input from RSRVR
+    .exec_op_lsu_any_i                (exec_op_lsu_any), // LSU
     .exec_sbuf_epcr_i                 (exec_sbuf_epcr), // LSU (for store buffer EPCR computation)
     .exec_lsu_imm16_i                 (exec_lsu_imm16), // LSU
     .exec_lsu_a1_i                    (exec_lsu_a1), // LSU

@@ -38,7 +38,7 @@ module mor1kx_dmmu_marocchino
   input                                 cpu_rst,
 
   // pipe controls
-  input                                 lsu_takes_ls_i,
+  input                                 padv_dmmu_i,
   input                                 pipeline_flush_i,
 
   // configuration
@@ -46,13 +46,13 @@ module mor1kx_dmmu_marocchino
   input                                 supervisor_mode_i,
 
   // commnads
-  input                                 lsu_store_i,
-  input                                 lsu_load_i,
+  input                                 op_lsu_store_i,
+  input                                 op_lsu_load_i,
 
   // address translation
-  input      [OPTION_OPERAND_WIDTH-1:0] virt_addr_i,
-  input      [OPTION_OPERAND_WIDTH-1:0] virt_addr_cmd_i,
-  output     [OPTION_OPERAND_WIDTH-1:0] phys_addr_cmd_o,
+  input      [OPTION_OPERAND_WIDTH-1:0] virt_addr_idx_i,
+  input      [OPTION_OPERAND_WIDTH-1:0] virt_addr_tag_i,
+  output     [OPTION_OPERAND_WIDTH-1:0] phys_addr_o,
 
   // flags
   output reg                            cache_inhibit_o,
@@ -155,27 +155,20 @@ module mor1kx_dmmu_marocchino
   // (for masking DMMU output flags, but not for advancing)
   reg enable_r;
   reg supervisor_mode_r;
-  reg cmd_store_r, cmd_load_r;
   // ---
   always @(posedge cpu_clk) begin
     if (cpu_rst | pipeline_flush_i | spr_dmmu_cs_r) begin
       enable_r          <= 1'b0;
       supervisor_mode_r <= 1'b0;
-      cmd_store_r       <= 1'b0;
-      cmd_load_r        <= 1'b0;
     end
-    else if (lsu_takes_ls_i) begin
+    else if (padv_dmmu_i) begin
       if (enable_i) begin
         enable_r          <= 1'b1;
         supervisor_mode_r <= supervisor_mode_i;
-        cmd_store_r       <= lsu_store_i;
-        cmd_load_r        <= lsu_load_i;
       end
       else begin
         enable_r          <= 1'b0;
         supervisor_mode_r <= 1'b0;
-        cmd_store_r       <= 1'b0;
-        cmd_load_r        <= 1'b0;
       end
     end
   end // @ clock
@@ -246,12 +239,12 @@ module mor1kx_dmmu_marocchino
   generate
   for (i = 0; i < OPTION_DMMU_WAYS; i=i+1) begin : ways
     // 8KB page hit
-    assign way_hit[i] = (dtlb_match_dout[i][31:13] == virt_addr_cmd_i[31:13]) & // address match
+    assign way_hit[i] = (dtlb_match_dout[i][31:13] == virt_addr_tag_i[31:13]) & // address match
                         ~(&dtlb_match_huge_dout[i][1:0]) &                      // ~ huge valid
                          dtlb_match_dout[i][0] &                                // valid bit
                          enable_r;                                              // mmu enabled
     // Huge page hit
-    assign way_huge_hit[i] = (dtlb_match_huge_dout[i][31:24] == virt_addr_cmd_i[31:24]) & // address match
+    assign way_huge_hit[i] = (dtlb_match_huge_dout[i][31:24] == virt_addr_tag_i[31:24]) & // address match
                              (&dtlb_match_huge_dout[i][1:0]) &                            // ~ huge valid
                              enable_r;                                                    // mmu enabled
   end
@@ -264,7 +257,7 @@ module mor1kx_dmmu_marocchino
 
   always @(*) begin
     tlb_miss_o      = ~tlb_reload_pagefault & enable_r;
-    phys_addr       = virt_addr_cmd_i;
+    phys_addr       = virt_addr_tag_i;
     ure             = 1'b0;
     uwe             = 1'b0;
     sre             = 1'b0;
@@ -276,7 +269,7 @@ module mor1kx_dmmu_marocchino
         tlb_miss_o = 1'b0;
 
       if (way_huge_hit[j]) begin
-        phys_addr       = {dtlb_trans_huge_dout[j][31:24], virt_addr_cmd_i[23:0]};
+        phys_addr       = {dtlb_trans_huge_dout[j][31:24], virt_addr_tag_i[23:0]};
         ure             = dtlb_trans_huge_dout[j][6];
         uwe             = dtlb_trans_huge_dout[j][7];
         sre             = dtlb_trans_huge_dout[j][8];
@@ -284,7 +277,7 @@ module mor1kx_dmmu_marocchino
         cache_inhibit_o = dtlb_trans_huge_dout[j][1];
       end
       else if (way_hit[j])begin
-        phys_addr       = {dtlb_trans_dout[j][31:13], virt_addr_cmd_i[12:0]};
+        phys_addr       = {dtlb_trans_dout[j][31:13], virt_addr_tag_i[12:0]};
         ure             = dtlb_trans_dout[j][6];
         uwe             = dtlb_trans_dout[j][7];
         sre             = dtlb_trans_dout[j][8];
@@ -306,22 +299,22 @@ module mor1kx_dmmu_marocchino
     end // loop by ways
   end // always
 
-  assign pagefault_o = (supervisor_mode_r ? ((~swe & cmd_store_r) | (~sre & cmd_load_r)) :
-                                            ((~uwe & cmd_store_r) | (~ure & cmd_load_r))) &
+  assign pagefault_o = (supervisor_mode_r ? ((~swe & op_lsu_store_i) | (~sre & op_lsu_load_i)) :
+                                            ((~uwe & op_lsu_store_i) | (~ure & op_lsu_load_i))) &
                        ~tlb_reload_busy_o & enable_r;
 
  `ifdef SIM_SMPL_SOC // MAROCCHINO_TODO
-  assign phys_addr_cmd_o = phys_addr;
+  assign phys_addr_o = phys_addr;
  `else
-  assign phys_addr_cmd_o = {phys_addr[OPTION_OPERAND_WIDTH-1:2],2'd0};
+  assign phys_addr_o = {phys_addr[OPTION_OPERAND_WIDTH-1:2],2'd0};
  `endif
 
 
   // match 8KB input address
   assign dtlb_match_addr = dtlb_match_spr_cs_r ? spr_bus_addr_r :
-                                                 virt_addr_i[13+(OPTION_DMMU_SET_WIDTH-1):13];
+                                                 virt_addr_idx_i[13+(OPTION_DMMU_SET_WIDTH-1):13];
   // match huge address and write command
-  assign dtlb_match_huge_addr = virt_addr_i[24+(OPTION_DMMU_SET_WIDTH-1):24];
+  assign dtlb_match_huge_addr = virt_addr_idx_i[24+(OPTION_DMMU_SET_WIDTH-1):24];
   assign dtlb_match_huge_we   = dtlb_match_reload_we & tlb_reload_huge;
   // match data in
   assign dtlb_match_din = dtlb_match_reload_we ? dtlb_match_reload_din : spr_bus_dat_r;
@@ -329,9 +322,9 @@ module mor1kx_dmmu_marocchino
 
   // translation 8KB input address
   assign dtlb_trans_addr = dtlb_trans_spr_cs_r ? spr_bus_addr_r :
-                                                 virt_addr_i[13+(OPTION_DMMU_SET_WIDTH-1):13];
+                                                 virt_addr_idx_i[13+(OPTION_DMMU_SET_WIDTH-1):13];
   // translation huge address and write command
-  assign dtlb_trans_huge_addr = virt_addr_i[24+(OPTION_DMMU_SET_WIDTH-1):24];
+  assign dtlb_trans_huge_addr = virt_addr_idx_i[24+(OPTION_DMMU_SET_WIDTH-1):24];
   assign dtlb_trans_huge_we   = dtlb_trans_reload_we & tlb_reload_huge;
   // translation data in
   assign dtlb_trans_din = dtlb_trans_reload_we ? dtlb_trans_reload_din : spr_bus_dat_r;
@@ -371,7 +364,7 @@ module mor1kx_dmmu_marocchino
     reg [3:0] tlb_reload_state = TLB_IDLE;
     wire      do_reload;
 
-    assign do_reload = enable_r & tlb_miss_o & (dmmucr[31:10] != 0) & (cmd_load_r | cmd_store_r);
+    assign do_reload = enable_r & tlb_miss_o & (dmmucr[31:10] != 0) & (op_lsu_load_i | op_lsu_store_i);
 
     assign tlb_reload_busy_o = enable_r & (tlb_reload_state != TLB_IDLE) | do_reload;
 
@@ -393,7 +386,7 @@ module mor1kx_dmmu_marocchino
           tlb_reload_req_o  <= 1'b0;
           if (do_reload) begin
             tlb_reload_req_o  <= 1'b1;
-            tlb_reload_addr_o <= {dmmucr[31:10], virt_addr_cmd_i[31:24], 2'b00};
+            tlb_reload_addr_o <= {dmmucr[31:10], virt_addr_tag_i[31:24], 2'b00};
             tlb_reload_state  <= TLB_GET_PTE_POINTER;
           end
         end
@@ -420,7 +413,7 @@ module mor1kx_dmmu_marocchino
               tlb_reload_state  <= TLB_GET_PTE;
             end
             else begin
-              tlb_reload_addr_o <= {tlb_reload_data_i[31:13], virt_addr_cmd_i[23:13], 2'b00};
+              tlb_reload_addr_o <= {tlb_reload_data_i[31:13], virt_addr_tag_i[23:13], 2'b00};
               tlb_reload_state  <= TLB_GET_PTE;
             end
           end
@@ -456,7 +449,7 @@ module mor1kx_dmmu_marocchino
               dtlb_trans_reload_we <= 1'b1;
               // Match register generation.
               // VPN
-              dtlb_match_reload_din[31:13] <= virt_addr_cmd_i[31:13];
+              dtlb_match_reload_din[31:13] <= virt_addr_tag_i[31:13];
               // Valid
               dtlb_match_reload_din[0]  <= 1'b1;
               dtlb_match_reload_we      <= 1'b1;
@@ -503,7 +496,7 @@ module mor1kx_dmmu_marocchino
   //     (we don't care about exceptions here, because
   //      we force local enable-r OFF if an exception is asserted)
   //  2) SPR access
-  wire ram_re = (lsu_takes_ls_i & enable_i) | spr_dmmu_re_r;
+  wire ram_re = padv_dmmu_i | spr_dmmu_re_r;
 
 
   generate
