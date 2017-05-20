@@ -154,6 +154,7 @@ module mor1kx_cpu_marocchino
   wire                            wb_int_flag_clear;
 
   wire                            ctrl_flag;
+  wire                            ctrl_flag_sr;
   wire                            ctrl_carry;
 
   wire                            dcod_flag_wb; // instruction writes comparison flag
@@ -185,8 +186,6 @@ module mor1kx_cpu_marocchino
   wire                            dcod_wb2dec_eq_adr_d1b1;
   wire                            dcod_wb2dec_eq_adr_d1a2;
   wire                            dcod_wb2dec_eq_adr_d1b2;
-  // D1 related EXECUTE-to-DECODE hazards for LSU WB miss processing
-  wire                            exec_wb2exe_hazard_d1xx_1clk; // specially for l.bf/l.bnf
 
 
   wire [OPTION_OPERAND_WIDTH-1:0] dcod_rfa1;
@@ -395,17 +394,6 @@ module mor1kx_cpu_marocchino
   wire                            wb_fp64_cmp_inf;
   wire                            wb_fp64_cmp_wb_fpcsr;
   wire                            wb_except_fp64_cmp;
-
-  // Forwarding comparision flag
-  wire  [DEST_EXT_ADDR_WIDTH-1:0] dcod_ext_bits;
-  // on BUSY stage of 1CLK_RSRVS
-  wire                            busy_op_1clk_cmp; // integer or fp32
-  wire  [DEST_EXT_ADDR_WIDTH-1:0] busy_ext_bits_1clk;
-  // on EXECUTE stage of 1CLK_RSRVS
-  wire                            exec_op_1clk_cmp;
-  wire  [DEST_EXT_ADDR_WIDTH-1:0] exec_ext_bits_1clk;
-  // integer or fp32 comparison result
-  wire                            exec_flag_set;
 
 
   wire [OPTION_OPERAND_WIDTH-1:0] sbuf_eear;
@@ -984,15 +972,8 @@ module mor1kx_cpu_marocchino
     // register target
     .dcod_rfb1_jr_i             (dcod_rfb1_jr), // OMAN
     .wb_result1_i               (wb_result1), // OMAN
-    // Forwarding comparision flag
-    .dcod_ext_bits_o            (dcod_ext_bits), // OMAN
-    .busy_op_1clk_cmp_i         (busy_op_1clk_cmp), // OMAN
-    .busy_ext_bits_1clk_i       (busy_ext_bits_1clk), // OMAN
-    .exec_wb2exe_hazard_d1xx_i  (exec_wb2exe_hazard_d1xx_1clk), // OMAN
-    .exec_op_1clk_cmp_i         (exec_op_1clk_cmp), // OMAN
-    .exec_ext_bits_1clk_i       (exec_ext_bits_1clk), // OMAN
-    .exec_flag_set_i            (exec_flag_set), // OMAN
-    .ctrl_flag_i                (ctrl_flag), // OMAN
+    // comparision flag for l.bf / l.bnf
+    .ctrl_flag_sr_i             (ctrl_flag_sr), // OMAN
     // jump/branch signals to IFETCH
     .do_branch_o                (do_branch), // OMAN
     .do_branch_target_o         (do_branch_target), // OMAN
@@ -1057,12 +1038,7 @@ module mor1kx_cpu_marocchino
   wire                     [2:0] exec_opc_fp32_cmp;
 
   // attributes include all of earlier components:
-  //    (+ DEST_EXT_ADDR_WIDTH): dcod_ext_bits
-  //    (13 + exec_op_1clk_cmp) = 14;  <-- must be in [0]
-  localparam ONE_CLK_ATTR_WIDTH = 14 + (2 * `OR1K_ALU_OPC_WIDTH) + DEST_EXT_ADDR_WIDTH;
-
-  // from BUSY stage of 1-clk reservation station
-  wire [ONE_CLK_ATTR_WIDTH-1:0] busy_opc_1clk;
+  localparam ONE_CLK_ATTR_WIDTH = 13 + (2 * `OR1K_ALU_OPC_WIDTH);
 
   // input operands A and B with forwarding from WB
   wire [OPTION_OPERAND_WIDTH-1:0] exec_1clk_a1;
@@ -1157,12 +1133,9 @@ module mor1kx_cpu_marocchino
                                   dcod_op_add, dcod_adder_do_sub, dcod_adder_do_carry, // 1CLK_RSVRS
                                   dcod_op_shift, dcod_op_ffl1, dcod_op_movhi, dcod_op_cmov, // 1CLK_RSVRS
                                   (|dcod_opc_logic), dcod_opc_logic, // 1CLK_RSVRS
-                                  dcod_op_setflag, dcod_op_fp32_cmp, dcod_opc_fp32_cmp, // 1CLK_RSVRS
-                                  dcod_ext_bits, (dcod_op_setflag | dcod_op_fp32_cmp)}), // 1CLK_RSVRS
+                                  dcod_op_setflag, dcod_op_fp32_cmp, dcod_opc_fp32_cmp}), // 1CLK_RSVRS
     //   command attributes from busy stage
-    .busy_opc_o                 (busy_opc_1clk), // 1CLK_RSVRS
-    //   combined D1XX hazards
-    .exec_wb2exe_hazard_d1xx_o  (exec_wb2exe_hazard_d1xx_1clk), // 1CLK_RSVRS
+    .busy_opc_o                 (), // 1CLK_RSVRS
     // outputs
     //   command and its additional attributes
     .exec_op_o                  (exec_op_1clk), // 1CLK_RSVRS
@@ -1170,8 +1143,7 @@ module mor1kx_cpu_marocchino
                                   exec_op_add, exec_adder_do_sub, exec_adder_do_carry, // 1CLK_RSVRS
                                   exec_op_shift, exec_op_ffl1, exec_op_movhi, exec_op_cmov, // 1CLK_RSVRS
                                   exec_op_logic, exec_opc_logic, // 1CLK_RSVRS
-                                  exec_op_setflag, exec_op_fp32_cmp, exec_opc_fp32_cmp, // 1CLK_RSVRS
-                                  exec_ext_bits_1clk, exec_op_1clk_cmp}), // 1CLK_RSVRS
+                                  exec_op_setflag, exec_op_fp32_cmp, exec_opc_fp32_cmp}), // 1CLK_RSVRS
     //   operands
     .exec_rfa1_o                (exec_1clk_a1), // 1CLK_RSVRS
     .exec_rfb1_o                (exec_1clk_b1), // 1CLK_RSVRS
@@ -1182,9 +1154,6 @@ module mor1kx_cpu_marocchino
     .unit_busy_o                (op_1clk_busy) // 1CLK_RSVRS
   );
 
-  // to OMAN for hazards detection
-  assign busy_ext_bits_1clk = busy_opc_1clk[DEST_EXT_ADDR_WIDTH:1];
-  assign busy_op_1clk_cmp   = busy_opc_1clk[0];
 
   // **** 1clk ****
   mor1kx_exec_1clk_marocchino
@@ -1256,10 +1225,7 @@ module mor1kx_cpu_marocchino
     .wb_fp32_cmp_inv_o                (wb_fp32_cmp_inv), // 1CLK
     .wb_fp32_cmp_inf_o                (wb_fp32_cmp_inf), // 1CLK
     .wb_fp32_cmp_wb_fpcsr_o           (wb_fp32_cmp_wb_fpcsr), // 1CLK
-    .wb_except_fp32_cmp_o             (wb_except_fp32_cmp), // 1CLK
-
-    // Forwarding comparision flag result for conditional branch take/not
-    .exec_flag_set_o                  (exec_flag_set) // 1CLK
+    .wb_except_fp32_cmp_o             (wb_except_fp32_cmp) // 1CLK
   );
 
 
@@ -1394,8 +1360,6 @@ module mor1kx_cpu_marocchino
     // outputs
     //   command attributes from busy stage
     .busy_opc_o                 (), // MCLK_RSVRS
-    //   combined D1XX hazards
-    .exec_wb2exe_hazard_d1xx_o  (), // MCLK_RSVRS
     //   command and its additional attributes
     .exec_op_o                  (), // MCLK_RSVRS
     .exec_opc_o                 ({exec_op_mul, // MCLK_RSVRS
@@ -1681,8 +1645,6 @@ module mor1kx_cpu_marocchino
     // outputs
     //   command attributes from busy stage
     .busy_opc_o                 (), // LSU_RSVRS
-    //   combined D1XX hazards
-    .exec_wb2exe_hazard_d1xx_o  (), // LSU_RSVRS
     //   command and its additional attributes
     .exec_op_o                  (exec_op_lsu_any), // LSU_RSVRS
     .exec_opc_o                 ({exec_op_lsu_load,exec_op_lsu_store,exec_op_lsu_atomic, // LSU_RSVRS
@@ -2132,6 +2094,7 @@ module mor1kx_cpu_marocchino
 
     // Flag & Carry
     .ctrl_flag_o                      (ctrl_flag), // CTRL
+    .ctrl_flag_sr_o                   (ctrl_flag_sr), // CTRL
     .ctrl_carry_o                     (ctrl_carry), // CTRL
 
     // Enable modules

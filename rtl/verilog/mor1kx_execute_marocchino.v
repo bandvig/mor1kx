@@ -812,10 +812,7 @@ module mor1kx_exec_1clk_marocchino
   output                                wb_fp32_cmp_inv_o,
   output                                wb_fp32_cmp_inf_o,
   output                                wb_fp32_cmp_wb_fpcsr_o,
-  output                                wb_except_fp32_cmp_o,
-
-  // Forwarding comparision flag result for conditional branch take/not
-  output                                exec_flag_set_o    // integer or fp32 comparison result
+  output                                wb_except_fp32_cmp_o
 );
 
   localparam  EXEDW = OPTION_OPERAND_WIDTH; // short name
@@ -1065,11 +1062,5 @@ module mor1kx_exec_1clk_marocchino
     .wb_fp32_cmp_wb_fpcsr_o (wb_fp32_cmp_wb_fpcsr_o), // fp32-cmp update FPCSR
     .wb_except_fp32_cmp_o   (wb_except_fp32_cmp_o) // fp32-cmp exception
   );
-
-
-  //--------------------------------------------------------------------//
-  // Forwarding comparision flag result for conditional branch take/not //
-  //--------------------------------------------------------------------//
-  assign exec_flag_set_o = (exec_op_setflag_i & flag_set);
 
 endmodule // mor1kx_exec_1clk_marocchino

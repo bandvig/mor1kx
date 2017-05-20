@@ -234,7 +234,8 @@ module mor1kx_ctrl_marocchino
   input      [OPTION_OPERAND_WIDTH-1:0] multicore_numcores_i,
 
   // Flag & Carry
-  output                                ctrl_flag_o,
+  output                                ctrl_flag_o,    // with forwarding
+  output                                ctrl_flag_sr_o, // without forwarding
   output                                ctrl_carry_o,
 
   // Enable modules
@@ -331,6 +332,8 @@ module mor1kx_ctrl_marocchino
   wire   ctrl_flag_set   = wb_int_flag_set_i   | wb_fp32_flag_set_i   | wb_fp64_flag_set_i   | wb_atomic_flag_set_i;
   // ---
   assign ctrl_flag_o     = (~ctrl_flag_clear) & (ctrl_flag_set | spr_sr[`OR1K_SPR_SR_F]);
+  // ---
+  assign ctrl_flag_sr_o  = spr_sr[`OR1K_SPR_SR_F];
 
 
   // Carry output

@@ -443,8 +443,6 @@ module mor1kx_rsrvs_marocchino
   // outputs
   //   command attributes from busy stage
   output                  [(OPC_WIDTH-1):0] busy_opc_o,
-  //   combined D1XX hazards
-  output                                    exec_wb2exe_hazard_d1xx_o,
   //   command and its additional attributes
   output                                    exec_op_o,    // request the unit command
   output                  [(OPC_WIDTH-1):0] exec_opc_o,   // additional attributes for command
@@ -922,7 +920,6 @@ module mor1kx_rsrvs_marocchino
                              busy_d1a2_pass2exec | busy_d1b2_pass2exec;
   // ---
   reg    exec_hazard_d1xx_r;
-  assign exec_wb2exe_hazard_d1xx_o = exec_hazard_d1xx_r;
   // ---
   always @(posedge cpu_clk) begin
     if (cpu_rst | pipeline_flush_i)

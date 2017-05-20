@@ -486,10 +486,6 @@ module mor1kx_rf_marocchino
   //       simlified multiplexor here.
   //   (b) the output is used next time in DECODE to form final branch target
   //   (c) in OMAN pipeline is stalled till B1 completion
-  wire   dcod_wb2dec_hazard_d1b1_jr = dcod_wb2dec_eq_adr_d1b1_o & wb_rfd1_wb_i;
-  // ---
-  assign dcod_rfb1_jr_o = dcod_wb2dec_hazard_d1b1_jr ? wb_result1_i :
-                          dcod_rfb1_adr_i[0]         ? rfb_odd_dout :
-                                                       rfb_even_dout;
+  assign dcod_rfb1_jr_o = dcod_rfb1_adr_i[0] ? rfb_odd_dout : rfb_even_dout;
 
 endmodule // mor1kx_rf_marocchino
