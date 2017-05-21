@@ -60,7 +60,6 @@ module mor1kx_oman_marocchino
   input      [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfd1_adr_i,        // WB address
   input                                 dcod_rfd1_wb_i,         // instruction generates WB
   input                                 dcod_carry_wb_i,        // instruction affects carry flag
-  input                                 dcod_flag_wb_mcycle_i,  // the multy-cycle instruction affects comparison flag
   input                                 dcod_flag_wb_i,         // any instruction which affects comparison flag
   input                                 dcod_delay_slot_i,      // instruction is in delay slot
   //            for FPU64
@@ -247,9 +246,8 @@ module mor1kx_oman_marocchino
   localparam  OCBT_DELAY_SLOT_POS     = OCBT_OP_RFE_POS         + 1;
   //  Instruction writting comparison flag
   localparam  OCBT_FLAG_WB_POS        = OCBT_DELAY_SLOT_POS     + 1; // any such instruction
-  localparam  OCBT_FLAG_WB_MCYCLE_POS = OCBT_FLAG_WB_POS        + 1; // such istruction is multi-cycle (l.swa, lf.sf*.d)
   //  Instruction writting carry flag
-  localparam  OCBT_CARRY_WB_POS       = OCBT_FLAG_WB_MCYCLE_POS + 1;
+  localparam  OCBT_CARRY_WB_POS       = OCBT_FLAG_WB_POS        + 1;
   //  Instruction generates WB to D1
   localparam  OCBT_RFD1_WB_POS        = OCBT_CARRY_WB_POS       + 1;
   localparam  OCBT_RFD1_ADR_LSB       = OCBT_RFD1_WB_POS        + 1;
@@ -330,7 +328,6 @@ module mor1kx_oman_marocchino
                   dcod_rfd1_adr_i,        // WB address D1
                   dcod_rfd1_wb_i,         // instruction generates WB
                   dcod_carry_wb_i,        // istruction affects carry flag
-                  dcod_flag_wb_mcycle_i,  // the multy-cycle instruction affects comparison flag
                   dcod_flag_wb_i,         // any instruction which affects comparison flag
                   dcod_delay_slot_i,      // istruction is in delay slot
                   // unit that must be granted for WB

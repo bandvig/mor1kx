@@ -287,16 +287,11 @@ module mor1kx_cpu_marocchino
   //  ## support NPC handling in CTRL
   wire                            wb_do_branch;
   wire [OPTION_OPERAND_WIDTH-1:0] wb_do_branch_target;
-  // Signals to stall FETCH if we are waiting flag
-  //  # flag is going to be written by multi-cycle instruction
-  //  # like 64-bit FPU comparison or l.swa
-  wire                            dcod_flag_wb_mcycle;
 
 
   // Delay slot
   wire                            dcod_delay_slot;
   wire                            wb_delay_slot;
-
 
 
   wire      [`OR1K_IMM_WIDTH-1:0] dcod_imm16;
@@ -738,10 +733,6 @@ module mor1kx_cpu_marocchino
     .dcod_to_imm_target_o             (dcod_to_imm_target), // DECODE
     // flag & branches
     .dcod_jump_or_branch_o            (dcod_jump_or_branch), // DECODE & DECODE->EXE
-    // Signals to stall FETCH if we are waiting flag
-    //  # flag is going to be written by multi-cycle instruction
-    //  # like 64-bit FPU comparison or l.swa
-    .dcod_flag_wb_mcycle_o            (dcod_flag_wb_mcycle), // DECODE & DECODE->EXE
     // LSU related
     .dcod_imm16_o                     (dcod_imm16), // DECODE & DECODE->EXE
     .dcod_op_lsu_load_o               (dcod_op_lsu_load), // DECODE & DECODE->EXE
@@ -848,7 +839,6 @@ module mor1kx_cpu_marocchino
     .dcod_rfd1_adr_i            (dcod_rfd1_adr), // OMAN
     .dcod_rfd1_wb_i             (dcod_rfd1_wb), // OMAN
     .dcod_carry_wb_i            (dcod_carry_wb), // OMAN
-    .dcod_flag_wb_mcycle_i      (dcod_flag_wb_mcycle), // OMAN
     .dcod_flag_wb_i             (dcod_flag_wb), // OMAN
     .dcod_delay_slot_i          (dcod_delay_slot), // OMAN
     //            for FPU64
