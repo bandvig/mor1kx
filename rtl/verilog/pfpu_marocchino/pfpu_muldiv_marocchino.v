@@ -92,30 +92,80 @@ module pfpu_muldiv_marocchino
 
   // MUL/DIV pipe controls
   //  ## ready flags
-  reg s0o_mul_ready, s0o_div_ready;
-  reg s1o_mul_ready, s1o_div_ready;
+  reg  sIo_ready;
+  reg  s0o_mul_ready, s0o_div_ready;
+  reg  s1o_mul_ready, s1o_div_ready;
   //  ## Multiplier / Divider is taking operands
   wire mul_taking_op, mul_busy;
   wire div_taking_op, div_busy;
   //  ## per stage busy flags
   wire s1_busy = mul_busy | div_busy;
   wire s0_busy = (s0o_mul_ready | s0o_div_ready) & s1_busy;
+  wire sI_busy = sIo_ready & s0_busy;
   //  ## per stage advance flags
-  wire s0_adv = (mul_start_i | div_start_i) & ~s0_busy;
+  wire sI_adv = (mul_start_i | div_start_i)     & ~sI_busy;
+  wire s0_adv = sIo_ready                       & ~s0_busy;
   wire s1_adv = (s0o_mul_ready | s0o_div_ready) & ~s1_busy;
   wire s2_adv = mul_taking_op | div_taking_op;
   //  ## MUL/DIV taking operands
-  assign muldiv_taking_op_o = s0_adv;
+  assign muldiv_taking_op_o = sI_adv;
 
 
-  /**** Stage #0: pre-normalization stage ****/
+  /**** Stage I: [I]nput latches ****/
+
+
+  // reg 'a' related values
+  reg  [12:0] sIo_exp13a;
+  reg  [52:0] sIo_fract53a;
+  // reg 'b' related values
+  reg  [12:0] sIo_exp13b;
+  reg  [52:0] sIo_fract53b;
+  // 'a'/'b' related
+  reg         sIo_signc;
+  reg         sIo_op_fp64_arith;
+  reg         sIo_op_mul;
+  reg         sIo_op_div;
+  reg         sIo_dbz;
+  reg         sIo_opc_0;
+
+  // ---
+  always @(posedge cpu_clk) begin
+    if (sI_adv) begin
+      // reg 'a' related values
+      sIo_exp13a    <= exp13a_i;
+      sIo_fract53a  <= fract53a_i;
+      // reg 'b' related values
+      sIo_exp13b    <= exp13b_i;
+      sIo_fract53b  <= fract53b_i;
+      // 'a'/'b' related
+      sIo_signc   <= signa_i ^ signb_i;
+      sIo_op_fp64_arith <= exec_op_fp64_arith_i;
+      sIo_op_mul  <= mul_start_i;
+      sIo_op_div  <= div_start_i;
+      sIo_dbz     <= dbz_i;
+      sIo_opc_0   <= opc_0_i;
+    end
+  end
+
+  // ready is special case
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | pipeline_flush_i)
+      sIo_ready <= 1'b0;
+    else if (sI_adv)
+      sIo_ready <= 1'b1;
+    else if (s0_adv)
+      sIo_ready <= 1'b0;
+  end // @cpu-clock
+
+
+  /**** Stage #0: NLZ computation ****/
 
 
   // count leading zeros
   reg [5:0] s0t_nlza;
-  always @(fract53a_i) begin
+  always @(sIo_fract53a) begin
     // synthesis parallel_case full_case
-    casez (fract53a_i)
+    casez (sIo_fract53a)
       53'b1????????????????????????????????????????????????????: s0t_nlza =  6'd0;
       53'b01???????????????????????????????????????????????????: s0t_nlza =  6'd1;
       53'b001??????????????????????????????????????????????????: s0t_nlza =  6'd2;
@@ -175,9 +225,9 @@ module pfpu_muldiv_marocchino
 
   // count leading zeros
   reg [5:0] s0t_nlzb;
-  always @(fract53b_i) begin
+  always @(sIo_fract53b) begin
     // synthesis parallel_case full_case
-    casez (fract53b_i)
+    casez (sIo_fract53b)
       53'b1????????????????????????????????????????????????????: s0t_nlzb =  6'd0;
       53'b01???????????????????????????????????????????????????: s0t_nlzb =  6'd1;
       53'b001??????????????????????????????????????????????????: s0t_nlzb =  6'd2;
@@ -249,16 +299,16 @@ module pfpu_muldiv_marocchino
   // registering
   always @(posedge cpu_clk) begin
     if (s0_adv) begin
-      s0o_opc_0         <= opc_0_i;
-      s0o_signc         <= signa_i ^ signb_i;
-      s0o_exp13a        <= exp13a_i;
-      s0o_fract53a      <= fract53a_i;
+      s0o_opc_0         <= sIo_opc_0;
+      s0o_signc         <= sIo_signc;
+      s0o_exp13a        <= sIo_exp13a;
+      s0o_fract53a      <= sIo_fract53a;
       s0o_shla          <= s0t_nlza;
-      s0o_exp13b        <= exp13b_i;
-      s0o_fract53b      <= fract53b_i;
+      s0o_exp13b        <= sIo_exp13b;
+      s0o_fract53b      <= sIo_fract53b;
       s0o_shlb          <= s0t_nlzb;
-      s0o_dbz           <= dbz_i;
-      s0o_op_fp64_arith <= exec_op_fp64_arith_i;
+      s0o_dbz           <= sIo_dbz;
+      s0o_op_fp64_arith <= sIo_op_fp64_arith;
     end // push pipe
   end
 
@@ -269,8 +319,8 @@ module pfpu_muldiv_marocchino
       s0o_mul_ready <= 1'b0;
     end
     else if (s0_adv) begin
-      s0o_div_ready <= div_start_i;
-      s0o_mul_ready <= mul_start_i;
+      s0o_div_ready <= sIo_op_div;
+      s0o_mul_ready <= sIo_op_mul;
     end
     else if (s1_adv) begin
       s0o_div_ready <= 1'b0;

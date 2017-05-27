@@ -796,23 +796,7 @@ module mor1kx_exec_1clk_marocchino
   input                                 exec_op_setflag_i,
   // WB: integer comparison result
   output reg                            wb_int_flag_set_o,
-  output reg                            wb_int_flag_clear_o,
-
-  // FP32 comparison flag
-  input                                 exec_op_fp32_cmp_i,
-  input                           [2:0] exec_opc_fp32_cmp_i,
-  input                                 except_fpu_enable_i,
-  input                                 ctrl_fpu_mask_flags_inv_i,
-  input                                 ctrl_fpu_mask_flags_inf_i,
-  // EXEC: not latched pre-WB
-  output                                exec_except_fp32_cmp_o,
-  // WB: FP32 comparison results
-  output                                wb_fp32_flag_set_o,
-  output                                wb_fp32_flag_clear_o,
-  output                                wb_fp32_cmp_inv_o,
-  output                                wb_fp32_cmp_inf_o,
-  output                                wb_fp32_cmp_wb_fpcsr_o,
-  output                                wb_except_fp32_cmp_o
+  output reg                            wb_int_flag_clear_o
 );
 
   localparam  EXEDW = OPTION_OPERAND_WIDTH; // short name
@@ -1027,40 +1011,5 @@ module mor1kx_exec_1clk_marocchino
       wb_int_flag_clear_o <= exec_op_setflag_i & grant_wb_to_1clk_i & (~flag_set);
     end // wb advance
   end // @clock
-
-
-  //------------------------//
-  // FP-32 comparison logic //
-  //------------------------//
-  pfpu32_fcmp_marocchino u_f32_cmp
-  (
-    // clock and reset
-    .cpu_clk                (cpu_clk), // fp32-cmp
-    .cpu_rst                (cpu_rst),
-    // pipeline controls
-    .pipeline_flush_i       (pipeline_flush_i),   // fp32-cmp.flush pipe
-    .padv_wb_i              (padv_wb_i),          // fp32-cmp. advance output latches
-    .grant_wb_to_1clk_i     (grant_wb_to_1clk_i), // fp32-cmp
-    // command
-    .op_fp32_cmp_i          (exec_op_fp32_cmp_i), // fp32-cmp
-    .opc_fp32_cmp_i         (exec_opc_fp32_cmp_i), // fp32-cmp
-    // Operands
-    .rfa_i                  (exec_1clk_a1_i), // fp32-cmp
-    .rfb_i                  (exec_1clk_b1_i), // fp32-cmp
-    // Modes
-    .except_fpu_enable_i        (except_fpu_enable_i), // fp32-cmp
-    .ctrl_fpu_mask_flags_inv_i  (ctrl_fpu_mask_flags_inv_i), // fp32-cmp
-    .ctrl_fpu_mask_flags_inf_i  (ctrl_fpu_mask_flags_inf_i), // fp32-cmp
-    // Outputs
-    //  # not latched pre-WB
-    .exec_except_fp32_cmp_o (exec_except_fp32_cmp_o), // fp32-cmp
-    //  # WB-latched
-    .wb_fp32_flag_set_o     (wb_fp32_flag_set_o),   // fp32-cmp  result
-    .wb_fp32_flag_clear_o   (wb_fp32_flag_clear_o), // fp32-cmp  result
-    .wb_fp32_cmp_inv_o      (wb_fp32_cmp_inv_o), // fp32-cmp flag 'invalid'
-    .wb_fp32_cmp_inf_o      (wb_fp32_cmp_inf_o), // fp32-cmp flag 'infinity'
-    .wb_fp32_cmp_wb_fpcsr_o (wb_fp32_cmp_wb_fpcsr_o), // fp32-cmp update FPCSR
-    .wb_except_fp32_cmp_o   (wb_except_fp32_cmp_o) // fp32-cmp exception
-  );
 
 endmodule // mor1kx_exec_1clk_marocchino

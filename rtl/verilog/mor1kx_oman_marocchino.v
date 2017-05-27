@@ -95,7 +95,7 @@ module mor1kx_oman_marocchino
   input                                 div_valid_i,
   input                                 mul_valid_i,
   input                                 fpxx_arith_valid_i,
-  input                                 exec_op_fp64_cmp_i,
+  input                                 fp64_cmp_valid_i,
   input                                 lsu_valid_i,
 
   // D1 related WB-to-DECODE hazards for LSU WB miss processing
@@ -151,8 +151,6 @@ module mor1kx_oman_marocchino
   output                                exe2dec_hazard_d2a2_o,
   output                                exe2dec_hazard_d2b2_o,
   // Data for resolving hazards by passing from DECODE to EXECUTE
-  output                                exec_rfd1_wb_o,
-  output                                exec_rfd2_wb_o,
   output      [DEST_EXT_ADDR_WIDTH-1:0] exec_ext_adr_o,
 
   // Stall fetch by specific type of hazards
@@ -413,8 +411,8 @@ module mor1kx_oman_marocchino
 
   // We needn't WB-to-DECODE hazards for FLAG and CARRY:
   //  (a) we process FLAG for l.bf/.bnf in separate way
-  //  (b) only 1-clock instructions reqests FLAG/CARRY, so any case they granted with WB accees
-  //      after completion FLAG/CARRY update
+  //  (b) only 1-clock instructions request FLAG/CARRY,
+  //      however any case they granted with WB accees after completion FLAG/CARRY update
 
 
   // EXEC-to-DECODE hazards by operands
@@ -664,8 +662,6 @@ module mor1kx_oman_marocchino
 
 
   // Data for resolving hazards by passing from DECODE to EXECUTE
-  assign exec_rfd1_wb_o  = ocbo00[OCBT_RFD1_WB_POS];
-  assign exec_rfd2_wb_o  = ocbo00[OCBT_RFD2_WB_POS];
   assign exec_ext_adr_o  = ocbo00[OCBT_EXT_ADR_MSB:OCBT_EXT_ADR_LSB];
 
 
@@ -688,7 +684,7 @@ module mor1kx_oman_marocchino
     (div_valid_i        & ocbo00[OCBT_OP_DIV_POS])         | // EXEC VALID
     (mul_valid_i        & ocbo00[OCBT_OP_MUL_POS])         | // EXEC VALID
     (fpxx_arith_valid_i & ocbo00[OCBT_OP_FPXX_ARITH_POS])  | // EXEC VALID
-    (exec_op_fp64_cmp_i & ocbo00[OCBT_OP_FP64_CMP_POS])    | // EXEC VALID
+    (fp64_cmp_valid_i   & ocbo00[OCBT_OP_FP64_CMP_POS])    | // EXEC VALID
     (lsu_valid_i        & ocbo00[OCBT_OP_LS_POS])          | // EXEC VALID
     (exec_jb_attr_valid & ocbo00[OCBT_JUMP_OR_BRANCH_POS]) | // EXEC VALID
                           ocbo00[OCBT_OP_PASS_EXEC_POS];     // EXEC VALID: l.rfe and FETCH/DECODE exceptions, etc
@@ -755,7 +751,7 @@ module mor1kx_oman_marocchino
 
   // --- l.bf OR l.bnf ---
   wire dcod_op_bc = dcod_op_bf_i | dcod_op_bnf_i;
- 
+
   // --- various pendings till rB/flag computationcompletion ---
   reg [DEST_EXT_ADDR_WIDTH-1:0]  jb_hazard_ext_p;
   reg [OPTION_OPERAND_WIDTH-1:0] jb_target_p;
@@ -813,7 +809,7 @@ module mor1kx_oman_marocchino
                 end
                 jb_bf_p  <= dcod_op_bf_i;
                 jb_bnf_p <= dcod_op_bnf_i;
-              end // OCB <-> DECODE vs WB <-> DECODE flag hazard 
+              end // OCB <-> DECODE vs WB <-> DECODE flag hazard
             end // l.bf/l.bnf
           end // advance DECODE
         end

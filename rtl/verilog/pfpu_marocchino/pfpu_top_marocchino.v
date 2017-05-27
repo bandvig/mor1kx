@@ -63,6 +63,7 @@ module pfpu_top_marocchino
   // pipeline control outputs
   output                              fpxx_taking_op_o,
   output                              fpxx_arith_valid_o,  // WB-latching ahead arithmetic ready flag
+  output                              fp64_cmp_valid_o,    // WB-latching ahead comparison ready flag
 
   // Configuration
   input     [`OR1K_FPCSR_RM_SIZE-1:0] round_mode_i,
@@ -79,6 +80,7 @@ module pfpu_top_marocchino
   input                               exec_op_fpxx_f2i_i,
 
   // Commands for comparison part
+  input                               exec_op_fp64_cmp_i,
   input                         [2:0] exec_opc_fp64_cmp_i,
 
   // Operands from reservation station
@@ -109,7 +111,7 @@ module pfpu_top_marocchino
 
 // fp64 pipes controls
 wire   taking_op_fpxx_arith;
-wire   taking_op_fp64_cmp = padv_wb_i & grant_wb_to_fp64_cmp_i;
+wire   taking_op_fp64_cmp;
 assign fpxx_taking_op_o   = taking_op_fpxx_arith | taking_op_fp64_cmp;
 
 // Double precision operands A and B
@@ -174,9 +176,6 @@ wire exp_eq = (exp13a == exp13b);
 //  # fractionals
 wire fract_gt = (fract53a  > fract53b);
 wire fract_eq = (fract53a == fract53b);
-//  # comparisons for ADD/SUB
-wire addsub_agtb = exp_gt | (exp_eq & fract_gt);
-wire addsub_aeqb = exp_eq & fract_eq;
 
 
 // Calculate INV,INF,SNaN,QNaN and signum(NaN)
@@ -337,8 +336,10 @@ pfpu_addsub_marocchino u_pfpu_addsub
   // 'a'/'b' related
   .exec_op_fp64_arith_i   (exec_op_fp64_arith_i), // PFPU_ADDSUB
   .opc_0_i                (infa | infb), // PFPU_ADDSUB
-  .addsub_agtb_i          (addsub_agtb), // PFPU_ADDSUB
-  .addsub_aeqb_i          (addsub_aeqb), // PFPU_ADDSUB
+  .exp_eq_i               (exp_eq), // PFPU_ADDSUB
+  .exp_gt_i               (exp_gt), // PFPU_ADDSUB
+  .fract_eq_i             (fract_eq), // PFPU_ADDSUB
+  .fract_gt_i             (fract_gt), // PFPU_ADDSUB
   // outputs
   .add_sign_o             (add_sign), // PFPU_ADDSUB
   .add_sub_0_o            (add_sub_0), // PFPU_ADDSUB
@@ -566,9 +567,11 @@ pfpu64_fcmp_marocchino u_fp64_cmp
   .cpu_rst                    (cpu_rst), // FP64_CMP
   // pipeline controls
   .pipeline_flush_i           (pipeline_flush_i), // FP64_CMP
+  .taking_op_fp64_cmp_o       (taking_op_fp64_cmp), // FP64_CMP
   .padv_wb_i                  (padv_wb_i), // FP64_CMP
   .grant_wb_to_fp64_cmp_i     (grant_wb_to_fp64_cmp_i), // FP64_CMP
   // command
+  .op_fp64_cmp_i              (exec_op_fp64_cmp_i), // FP64_CMP
   .opc_fp64_cmp_i             (exec_opc_fp64_cmp_i), // FP64_CMP
   // data related to operand A
   .signa_i                    (signa), // FP64_CMP
@@ -591,6 +594,7 @@ pfpu64_fcmp_marocchino u_fp64_cmp
   .ctrl_fpu_mask_flags_inf_i  (ctrl_fpu_mask_flags_i[`OR1K_FPCSR_INF - `OR1K_FPCSR_OVF]), // FP64_CMP
   // Outputs
   //  # pre WB
+  .fp64_cmp_valid_o           (fp64_cmp_valid_o), // FP64_CMP
   .exec_except_fp64_cmp_o     (exec_except_fp64_cmp_o), // FP64_CMP
   //  # WB-latched
   .wb_fp64_flag_set_o         (wb_fp64_flag_set_o), // FP64_CMP

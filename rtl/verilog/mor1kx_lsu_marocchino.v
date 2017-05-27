@@ -296,7 +296,8 @@ module mor1kx_lsu_marocchino
   assign s2t_ack_load   = (s2r_load & dc_ack) | dbus_ack_load;
   // ---
   assign s2t_free_load  = ((~s2r_load) & (~s2p_ack_load)) | // LSU free of l.load
-                          ((s2t_ack_load | s2p_ack_load) & padv_wb_i & grant_wb_to_lsu_i) | // LSU free of l.load (completes, speculative WB hit)
+                          ((dbus_ack_load | s2p_ack_load) & padv_wb_i & grant_wb_to_lsu_i) | // LSU free of l.load: MAROCCHINO_TODO: try higer cpu_clk
+                          // MAROCCHINO_TODO: ((s2t_ack_load | s2p_ack_load) & padv_wb_i & grant_wb_to_lsu_i) | // LSU free of l.load (completes, speculative WB hit)
                           (dbus_ack_load & wb_rfd1_wb_lsu_miss_o); // LSU free of l.load (completes, speculative WB miss)
   // --- we check *miss* flags at (padv-wb-i & grant-wb-to-lsu-i) ---
   assign s2t_miss_load  = s2r_load & (~dbus_ack_load) & (~dc_ack); // for lsu-rfd1-miss

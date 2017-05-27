@@ -107,8 +107,6 @@ module mor1kx_decode_marocchino
   output                                dcod_op_jal_o,
   // Set flag related
   output                                dcod_op_setflag_o,
-  output                                dcod_op_fp32_cmp_o,
-  output                          [2:0] dcod_opc_fp32_cmp_o,
 
   // Multiplier related
   output                                dcod_op_mul_o,
@@ -218,7 +216,7 @@ module mor1kx_decode_marocchino
                            (opc_alu == `OR1K_ALU_OPC_SUB))) |
                          (opc_insn == `OR1K_OPCODE_ADDIC)   |
                          (opc_insn == `OR1K_OPCODE_ADDI)    |
-                         dcod_op_jal_o; // we use adder for l.jl/l.jalr to compute return address: (pc+8) 
+                         dcod_op_jal_o; // we use adder for l.jl/l.jalr to compute return address: (pc+8)
   // Adder control logic
   // Subtract when comparing to check if equal
   assign dcod_adder_do_sub_o = (dcod_op_alu & (opc_alu == `OR1K_ALU_OPC_SUB)) |
@@ -264,24 +262,6 @@ module mor1kx_decode_marocchino
                                                                                                    {`OR1K_ALU_OPC_WIDTH{1'b0}};
 
 
-  // --- FPU-32 comparison part ---
-  //  # for further legality detection
-  wire op_fp32_cmp_l = (~dcod_insn_i[`OR1K_FPUOP_DOUBLE_BIT]) & dcod_insn_i[3] &
-                       (~(|dcod_insn_i[10:8])) & // all reserved bits are zeros
-                       (dcod_insn_i[2:0] < 3'd6);
-  //  # directly for FPU32 execution unit
-  assign dcod_op_fp32_cmp_o = op_fp32_cmp_l & (opc_insn == `OR1K_OPCODE_FPU);
-  // fpu comparison opc:
-  // ===================
-  // 000 = EQ
-  // 001 = NE
-  // 010 = GT
-  // 011 = GE
-  // 100 = LT
-  // 101 = LE
-  assign dcod_opc_fp32_cmp_o = dcod_insn_i[2:0];
-
-
   // --- FPU3264 arithmetic part ---
   //  # tmp skeleton
   wire op_fpxx_arith_t = (~dcod_insn_i[3]) &        // arithmetic operation
@@ -308,9 +288,9 @@ module mor1kx_decode_marocchino
   assign dcod_op_fpxx_f2i_o = op_fpxx_arith_t & (dcod_insn_i[2:0] == 3'd5) & (opc_insn == `OR1K_OPCODE_FPU);
 
 
-  // --- FPU-64 comparison part ---
+  // --- FPU3264 comparison part ---
   //  # for further legality detection
-  wire op_fp64_cmp_l = dcod_insn_i[`OR1K_FPUOP_DOUBLE_BIT] & dcod_insn_i[3] &
+  wire op_fp64_cmp_l = dcod_insn_i[3] &          // comparison operation
                        (~(|dcod_insn_i[10:8])) & // all reserved bits are zeros
                        (dcod_insn_i[2:0] < 3'd6);
   //  # directly for FPU32 execution unit
@@ -504,10 +484,10 @@ module mor1kx_decode_marocchino
 
       `OR1K_OPCODE_FPU:
         begin
-          dcod_except_illegal_o = ~(op_fpxx_arith_l | op_fp32_cmp_l | op_fp64_cmp_l);
+          dcod_except_illegal_o = ~(op_fpxx_arith_l | op_fp64_cmp_l);
           dcod_op_pass_exec_o   = 1'b0;
+          dcod_op_1clk_o        = 1'b0;
           if (op_fpxx_arith_l) begin
-            dcod_op_1clk_o  = 1'b0;
             dcod_rfa1_req_o = 1'b1;
             dcod_rfa2_req_o = op_fpxx_arith_l & dcod_insn_i[`OR1K_FPUOP_DOUBLE_BIT];
             if ((dcod_insn_i[2:0] == 3'd4) | (dcod_insn_i[2:0] == 3'd5)) begin // rD <- conv(rA)
@@ -520,19 +500,17 @@ module mor1kx_decode_marocchino
             end
             dcod_rfd1_wb_o = 1'b1;
           end
-          else if (op_fp32_cmp_l | op_fp64_cmp_l) begin
+          else if (op_fp64_cmp_l) begin
             // SR[F] <- rA op rB
-            dcod_op_1clk_o  = op_fp32_cmp_l;
             dcod_rfa1_req_o = 1'b1;
             dcod_rfb1_req_o = 1'b1;
             dcod_rfd1_wb_o  = 1'b0;
             // for FPU64
-            dcod_rfa2_req_o = op_fp64_cmp_l;
-            dcod_rfb2_req_o = op_fp64_cmp_l;
+            dcod_rfa2_req_o = dcod_insn_i[`OR1K_FPUOP_DOUBLE_BIT]; // SR[F] <- (rA compare rB)
+            dcod_rfb2_req_o = dcod_insn_i[`OR1K_FPUOP_DOUBLE_BIT]; // SR[F] <- (rA compare rB)
           end
           else begin
             // no legal FPU instruction
-            dcod_op_1clk_o  = 1'b0;
             dcod_rfa1_req_o = 1'b0;
             dcod_rfb1_req_o = 1'b0;
             dcod_rfd1_wb_o  = 1'b0;
@@ -762,7 +740,6 @@ module mor1kx_decode_marocchino
 
   // Which instructions writes comparison flag?
   assign dcod_flag_wb_o = dcod_op_setflag_o  |
-                          dcod_op_fp32_cmp_o |
                           dcod_op_fp64_cmp_o |
                           (opc_insn == `OR1K_OPCODE_SWA);
 

@@ -68,19 +68,51 @@ module pfpu_i2f_marocchino
 
 
   // I2F pipe controls
+  //  ## per stage ready flags
+  reg  s0o_ready;
   //  ## per stage busy flags
   wire s1_busy = i2f_rdy_o & ~rnd_taking_i2f_i;
+  wire s0_busy = s0o_ready & s1_busy;
   //  ## per stage advance
-  wire s1_adv  = start_i   & ~s1_busy;
+  wire s0_adv  = start_i   & ~s0_busy;
+  wire s1_adv  = s0o_ready & ~s1_busy;
 
   // I2F pipe takes operands for computation
-  assign i2f_taking_op_o = s1_adv;
+  assign i2f_taking_op_o = s0_adv;
 
+
+  /**** Stage #0: just latches for input data ****/
+
+
+  // operand for conversion
+  reg  [63:0] s0o_opa;
+  reg         s0o_op_fp64_arith;
+
+  // ---
+  always @(posedge cpu_clk) begin
+    if (s0_adv) begin
+      s0o_opa <= opa_i;
+      s0o_op_fp64_arith <= exec_op_fp64_arith_i;
+    end
+  end // @cpu-clock
+
+  // ready is special case
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | pipeline_flush_i)
+      s0o_ready <= 1'b0;
+    else if (s0_adv)
+      s0o_ready <= 1'b1;
+    else if (s1_adv)
+      s0o_ready <= 1'b0;
+  end // @cpu-clock
+
+
+  /**** Stage #1: computation and output latches ****/
 
   // signum of input
-  wire s1t_signa = opa_i[63];
+  wire s1t_signa = s0o_opa[63];
   // magnitude (tow's complement for negative input)
-  wire [63:0] s1t_fract64 = (opa_i ^ {64{s1t_signa}}) + {63'd0,s1t_signa};
+  wire [63:0] s1t_fract64 = (s0o_opa ^ {64{s1t_signa}}) + {63'd0,s1t_signa};
 
 
   // normalization shifts for double precision
@@ -95,7 +127,7 @@ module pfpu_i2f_marocchino
   //                                |  |                     |
   //                                h  fffffffffffffffffffffff
   // select bits for right shift computation
-  wire [10:0] s1t_fract11 = exec_op_fp64_arith_i ? (s1t_fract64[63:53]) : ({3'd0,s1t_fract64[63:56]});
+  wire [10:0] s1t_fract11 = s0o_op_fp64_arith ? (s1t_fract64[63:53]) : ({3'd0,s1t_fract64[63:56]});
   // right shift amount computation
   always @(s1t_fract11) begin
     // synthesis parallel_case full_case
@@ -115,7 +147,7 @@ module pfpu_i2f_marocchino
     endcase
   end
   // select bits for left shift computation
-  wire [52:0] s1t_fract53 = exec_op_fp64_arith_i ? (s1t_fract64[52:0]) : ({s1t_fract64[55:32],29'd0});
+  wire [52:0] s1t_fract53 = s0o_op_fp64_arith ? (s1t_fract64[52:0]) : ({s1t_fract64[55:32],29'd0});
   // left shift
   always @(s1t_fract53) begin
     // synthesis parallel_case full_case
@@ -184,13 +216,13 @@ module pfpu_i2f_marocchino
         // computation related
       i2f_sign_o     <= s1t_signa;
       i2f_shr_o      <= s1t_shrx;
-      i2f_exp11shr_o <= (exec_op_fp64_arith_i ? 11'd1075 : 11'd150) + {7'd0,s1t_shrx}; // 1075=1023+52, 150=127+23
+      i2f_exp11shr_o <= (s0o_op_fp64_arith ? 11'd1075 : 11'd150) + {7'd0,s1t_shrx}; // 1075=1023+52, 150=127+23
       i2f_shl_o      <= s1t_shlx;
-      i2f_exp11shl_o <= (exec_op_fp64_arith_i ? 11'd1075 : 11'd150) - {5'd0,s1t_shlx};
-      i2f_exp11sh0_o <= exec_op_fp64_arith_i ? ({11{s1t_fract64[52]}} & 11'd1075) : // "1" is in [52] / zero
-                                               ({11{s1t_fract64[55]}} & 11'd150);
+      i2f_exp11shl_o <= (s0o_op_fp64_arith ? 11'd1075 : 11'd150) - {5'd0,s1t_shlx};
+      i2f_exp11sh0_o <= s0o_op_fp64_arith ? ({11{s1t_fract64[52]}} & 11'd1075) : // "1" is in [52] / zero
+                                            ({11{s1t_fract64[55]}} & 11'd150);
       // for rounding engine we re-pack 32-bits integer to LSBs
-      i2f_fract64_o  <= exec_op_fp64_arith_i ? (s1t_fract64) : ({32'd0,s1t_fract64[63:32]});
+      i2f_fract64_o  <= s0o_op_fp64_arith ? (s1t_fract64) : ({32'd0,s1t_fract64[63:32]});
     end // advance
   end // @clock
 

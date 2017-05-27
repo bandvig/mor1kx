@@ -381,11 +381,11 @@ module mor1kx_rsrvs_marocchino
   parameter BUSY_HAZARDS_FLAGS_WIDTH =  4, //: for LSU and 1CLK;  8: for MCLK
   parameter BUSY_HAZARDS_ADDRS_WIDTH = 12, // (4 * DEST_EXT_ADDR_WIDTH) for LSU; etc...
   // BUSY-to-EXECUTE pass hazards data layout for various reservation stations:
-  // (it is also layout for WB-resolving hazards)
-  //  # LSU : { d2_wr, d1_wr, ext_bits }
-  //  # 1CLK: { d2_wr, d1_wr, ext_bits }
-  //  # MCLK: { d2_wr, d1_wr, ext_bits }
-  parameter BUSY2EXEC_PASS_DATA_WIDTH = 5,
+  //  # ALL : {ext_bits}
+  parameter BUSY2EXEC_PASS_DATA_WIDTH = 3,
+  // WB-to-BUSY hazards resolving data
+  //  # ALL : { d2_wr, d1_wr, ext_bits }
+  parameter WB2BUSY_HAZARDS_DATA_WIDTH = 5,
   // EXEC-to-DECODE hazards layout for various reservation stations:
   //  # LSU : {   x,    x,    x,    x, d2b1, d2a1, d1b1, d1a1 }
   //  # 1CLK: {   x,    x,    x,    x, d2b1, d2a1, d1b1, d1a1 }
@@ -427,7 +427,7 @@ module mor1kx_rsrvs_marocchino
 
   // Hazard could be resolving
   //  ## packed input
-  input   [(BUSY2EXEC_PASS_DATA_WIDTH-1):0] wb2exe_hazards_data_i,
+  input  [(WB2BUSY_HAZARDS_DATA_WIDTH-1):0] wb2busy_hazards_data_i,
   //  ## forwarding results
   input        [(OPTION_OPERAND_WIDTH-1):0] wb_result1_i,
   input        [(OPTION_OPERAND_WIDTH-1):0] wb_result2_i,
@@ -515,28 +515,29 @@ module mor1kx_rsrvs_marocchino
 
 
   // BUSY-to-EXECUTE pass hazards data layout for various reservation stations:
-  //  # LSU : { d2_wr, d1_wr, ext_bits }
-  //  # 1CLK: { d2_wr, d1_wr, ext_bits }
-  //  # MCLK: { d2_wr, d1_wr, ext_bits }
+  //  # ALL : {ext_bits}
   //    ## extention bits
   localparam  BUSY2EXEC_PASS_EXT_LSB      = 0;
   localparam  BUSY2EXEC_PASS_EXT_MSB      = DEST_EXT_ADDR_WIDTH - 1;
-  //    ## write to D1 request
-  localparam  BUSY2EXEC_PASS_RFD1_WB_POS  = BUSY2EXEC_PASS_EXT_MSB     + 1;
-  //    ## write to D2 request
-  localparam  BUSY2EXEC_PASS_RFD2_WB_POS  = BUSY2EXEC_PASS_RFD1_WB_POS + 1;
-
-
   // unpack data common for all resevation stations
   wire [(DEST_EXT_ADDR_WIDTH-1):0] exec_ext_adr;
   assign exec_ext_adr = busy2exec_pass_data_i[BUSY2EXEC_PASS_EXT_MSB:BUSY2EXEC_PASS_EXT_LSB];
-  wire   exec_rfd1_wb = busy2exec_pass_data_i[BUSY2EXEC_PASS_RFD1_WB_POS];
-  wire   exec_rfd2_wb = busy2exec_pass_data_i[BUSY2EXEC_PASS_RFD2_WB_POS];
-  // ---
+
+
+  // WB-to-BUSY hazards resolving data
+  //  # ALL : { d2_wr, d1_wr, ext_bits }
+  //    ## extention bits
+  localparam  WB2BUSY_EXT_LSB     = 0;
+  localparam  WB2BUSY_EXT_MSB     = DEST_EXT_ADDR_WIDTH - 1;
+  //    ## write to D1 request
+  localparam  WB2BUSY_RFD1_WB_POS = WB2BUSY_EXT_MSB     + 1;
+  //    ## write to D2 request
+  localparam  WB2BUSY_RFD2_WB_POS = WB2BUSY_RFD1_WB_POS + 1;
+  // unpack data common for all resevation stations
   wire [(DEST_EXT_ADDR_WIDTH-1):0] wb_ext_adr;
-  assign wb_ext_adr = wb2exe_hazards_data_i[BUSY2EXEC_PASS_EXT_MSB:BUSY2EXEC_PASS_EXT_LSB];
-  wire   wb_rfd1_wb = wb2exe_hazards_data_i[BUSY2EXEC_PASS_RFD1_WB_POS];
-  wire   wb_rfd2_wb = wb2exe_hazards_data_i[BUSY2EXEC_PASS_RFD2_WB_POS];
+  assign wb_ext_adr = wb2busy_hazards_data_i[WB2BUSY_EXT_MSB:WB2BUSY_EXT_LSB];
+  wire   wb_rfd1_wb = wb2busy_hazards_data_i[WB2BUSY_RFD1_WB_POS];
+  wire   wb_rfd2_wb = wb2busy_hazards_data_i[WB2BUSY_RFD2_WB_POS];
 
 
   // execute: command and attributes latches
@@ -635,71 +636,62 @@ module mor1kx_rsrvs_marocchino
   wire     [OPTION_OPERAND_WIDTH-1:0] busy_rfb2_w; // makes sense in MCLK only
 
   // latches for common part
+  //  # hazard flags
   always @(posedge cpu_clk) begin
     if (cpu_rst | pipeline_flush_i) begin
-      // d1a1 related
-      busy_hazard_d1a1_r     <= 1'b0;
-      busy_hazard_d1a1_adr_r <= {DEST_EXT_ADDR_WIDTH{1'b0}};
-      // d1b1 related
-      busy_hazard_d1b1_r     <= 1'b0;
-      busy_hazard_d1b1_adr_r <= {DEST_EXT_ADDR_WIDTH{1'b0}};
-      // d2a1 related
-      busy_hazard_d2a1_r     <= 1'b0;
-      busy_hazard_d2a1_adr_r <= {DEST_EXT_ADDR_WIDTH{1'b0}};
-      // d2b1 related
-      busy_hazard_d2b1_r     <= 1'b0;
-      busy_hazard_d2b1_adr_r <= {DEST_EXT_ADDR_WIDTH{1'b0}};
+      busy_hazard_d1a1_r <= 1'b0;
+      busy_hazard_d1b1_r <= 1'b0;
+      busy_hazard_d2a1_r <= 1'b0;
+      busy_hazard_d2b1_r <= 1'b0;
     end
     else if (dcod_pushing_busy) begin
-      // d1a1 related
-      busy_hazard_d1a1_r     <= busy_hazards_flags_i[HAZARD_D1A1_FLG_POS];
-      busy_hazard_d1a1_adr_r <= busy_hazards_addrs_i[HAZARD_D1A1_ADR_MSB:HAZARD_D1A1_ADR_LSB];
-      // d1b1 related
-      busy_hazard_d1b1_r     <= busy_hazards_flags_i[HAZARD_D1B1_FLG_POS];
-      busy_hazard_d1b1_adr_r <= busy_hazards_addrs_i[HAZARD_D1B1_ADR_MSB:HAZARD_D1B1_ADR_LSB];
-      // d2a1 related
-      busy_hazard_d2a1_r     <= busy_hazards_flags_i[HAZARD_D2A1_FLG_POS];
-      busy_hazard_d2a1_adr_r <= busy_hazards_addrs_i[HAZARD_D2A1_ADR_MSB:HAZARD_D2A1_ADR_LSB];
-      // d2b1 related
-      busy_hazard_d2b1_r     <= busy_hazards_flags_i[HAZARD_D2B1_FLG_POS];
-      busy_hazard_d2b1_adr_r <= busy_hazards_addrs_i[HAZARD_D2B1_ADR_MSB:HAZARD_D2B1_ADR_LSB];
+      busy_hazard_d1a1_r <= busy_hazards_flags_i[HAZARD_D1A1_FLG_POS];
+      busy_hazard_d1b1_r <= busy_hazards_flags_i[HAZARD_D1B1_FLG_POS];
+      busy_hazard_d2a1_r <= busy_hazards_flags_i[HAZARD_D2A1_FLG_POS];
+      busy_hazard_d2b1_r <= busy_hazards_flags_i[HAZARD_D2B1_FLG_POS];
     end
     else begin
       // d1a1 related
       if (busy_d1a1_muxing_wb | busy_pushing_exec) begin
-        busy_hazard_d1a1_r     <= 1'b0;
-        busy_hazard_d1a1_adr_r <= {DEST_EXT_ADDR_WIDTH{1'b0}};
+        busy_hazard_d1a1_r <= 1'b0;
       end
       // d1b1 related
       if (busy_d1b1_muxing_wb | busy_pushing_exec) begin
-        busy_hazard_d1b1_r     <= 1'b0;
-        busy_hazard_d1b1_adr_r <= {DEST_EXT_ADDR_WIDTH{1'b0}};
+        busy_hazard_d1b1_r <= 1'b0;
       end
       // d2a1 related
       if (busy_d2a1_muxing_wb | busy_pushing_exec) begin
-        busy_hazard_d2a1_r     <= 1'b0;
-        busy_hazard_d2a1_adr_r <= {DEST_EXT_ADDR_WIDTH{1'b0}};
+        busy_hazard_d2a1_r <= 1'b0;
       end
       // d2b1 related
       if (busy_d2b1_muxing_wb | busy_pushing_exec) begin
-        busy_hazard_d2b1_r     <= 1'b0;
-        busy_hazard_d2b1_adr_r <= {DEST_EXT_ADDR_WIDTH{1'b0}};
+        busy_hazard_d2b1_r <= 1'b0;
       end
     end
   end // @clock
+  //  # hazard resolution extention bits
+  //  # they make sence only with rized hazard flags
+  always @(posedge cpu_clk) begin
+    if (dcod_pushing_busy) begin
+      busy_hazard_d1a1_adr_r <= busy_hazards_addrs_i[HAZARD_D1A1_ADR_MSB:HAZARD_D1A1_ADR_LSB];
+      busy_hazard_d1b1_adr_r <= busy_hazards_addrs_i[HAZARD_D1B1_ADR_MSB:HAZARD_D1B1_ADR_LSB];
+      busy_hazard_d2a1_adr_r <= busy_hazards_addrs_i[HAZARD_D2A1_ADR_MSB:HAZARD_D2A1_ADR_LSB];
+      busy_hazard_d2b1_adr_r <= busy_hazards_addrs_i[HAZARD_D2B1_ADR_MSB:HAZARD_D2B1_ADR_LSB];
+    end
+  end // @cpu-clock
 
   // d1a1 related
-  assign busy_d1a1_pass2exec = busy_hazard_d1a1_r & exec_rfd1_wb & (busy_hazard_d1a1_adr_r == exec_ext_adr) & padv_wb_i;
-  assign busy_d1a1_muxing_wb = busy_hazard_d1a1_r & wb_rfd1_wb   & (busy_hazard_d1a1_adr_r == wb_ext_adr);
+  assign busy_d1a1_pass2exec = busy_hazard_d1a1_r & (busy_hazard_d1a1_adr_r == exec_ext_adr) & padv_wb_i;
+  assign busy_d1a1_muxing_wb = busy_hazard_d1a1_r & (busy_hazard_d1a1_adr_r == wb_ext_adr)   & wb_rfd1_wb;
   // d1b1 related
-  assign busy_d1b1_pass2exec = busy_hazard_d1b1_r & exec_rfd1_wb & (busy_hazard_d1b1_adr_r == exec_ext_adr) & padv_wb_i;
-  assign busy_d1b1_muxing_wb = busy_hazard_d1b1_r & wb_rfd1_wb   & (busy_hazard_d1b1_adr_r == wb_ext_adr);
+  assign busy_d1b1_pass2exec = busy_hazard_d1b1_r & (busy_hazard_d1b1_adr_r == exec_ext_adr) & padv_wb_i;
+  assign busy_d1b1_muxing_wb = busy_hazard_d1b1_r & (busy_hazard_d1b1_adr_r == wb_ext_adr)   & wb_rfd1_wb;
   // d2a1 related
-  assign busy_d2a1_pass2exec = busy_hazard_d2a1_r & exec_rfd2_wb & (busy_hazard_d2a1_adr_r == exec_ext_adr) & padv_wb_i;
-  assign busy_d2a1_muxing_wb = busy_hazard_d2a1_r & wb_rfd2_wb   & (busy_hazard_d2a1_adr_r == wb_ext_adr);
+  assign busy_d2a1_pass2exec = busy_hazard_d2a1_r & (busy_hazard_d2a1_adr_r == exec_ext_adr) & padv_wb_i;
+  assign busy_d2a1_muxing_wb = busy_hazard_d2a1_r & (busy_hazard_d2a1_adr_r == wb_ext_adr)   & wb_rfd2_wb;
   // d2b1 related
-  assign busy_d2b1_pass2exec = busy_hazard_d2b1_r & exec_rfd2_wb & (busy_hazard_d2b1_adr_r == exec_ext_adr) & padv_wb_i;
-  assign busy_d2b1_muxing_wb = busy_hazard_d2b1_r & wb_rfd2_wb   & (busy_hazard_d2b1_adr_r == wb_ext_adr);
+  assign busy_d2b1_pass2exec = busy_hazard_d2b1_r & (busy_hazard_d2b1_adr_r == exec_ext_adr) & padv_wb_i;
+  assign busy_d2b1_muxing_wb = busy_hazard_d2b1_r & (busy_hazard_d2b1_adr_r == wb_ext_adr)   & wb_rfd2_wb;
 
   // forwarding operands A1 & B1
   always @(posedge cpu_clk) begin
@@ -745,73 +737,62 @@ module mor1kx_rsrvs_marocchino
     // ---
     always @(posedge cpu_clk) begin
       if (cpu_rst | pipeline_flush_i) begin
-        // d1a2 related
-        busy_hazard_d1a2_r     <= 1'b0;
-        busy_hazard_d1a2_adr_r <= {DEST_EXT_ADDR_WIDTH{1'b0}};
-        // d1b2 related
-        busy_hazard_d1b2_r     <= 1'b0;
-        busy_hazard_d1b2_adr_r <= {DEST_EXT_ADDR_WIDTH{1'b0}};
-        // d2a2 related
-        busy_hazard_d2a2_r     <= 1'b0;
-        busy_hazard_d2a2_adr_r <= {DEST_EXT_ADDR_WIDTH{1'b0}};
-        // d2b2 related
-        busy_hazard_d2b2_r     <= 1'b0;
-        busy_hazard_d2b2_adr_r <= {DEST_EXT_ADDR_WIDTH{1'b0}};
+        busy_hazard_d1a2_r <= 1'b0;
+        busy_hazard_d1b2_r <= 1'b0;
+        busy_hazard_d2a2_r <= 1'b0;
+        busy_hazard_d2b2_r <= 1'b0;
       end
       else if (dcod_pushing_busy) begin
-        // d1a2 related
-        busy_hazard_d1a2_r     <= busy_hazards_flags_i[HAZARD_D1A2_FLG_POS];
-        busy_hazard_d1a2_adr_r <= busy_hazards_addrs_i[HAZARD_D1A2_ADR_MSB:HAZARD_D1A2_ADR_LSB];
-        // d1b2 related
-        busy_hazard_d1b2_r     <= busy_hazards_flags_i[HAZARD_D1B2_FLG_POS];
-        busy_hazard_d1b2_adr_r <= busy_hazards_addrs_i[HAZARD_D1B2_ADR_MSB:HAZARD_D1B2_ADR_LSB];
-        // d2a2 related
-        busy_hazard_d2a2_r     <= busy_hazards_flags_i[HAZARD_D2A2_FLG_POS];
-        busy_hazard_d2a2_adr_r <= busy_hazards_addrs_i[HAZARD_D2A2_ADR_MSB:HAZARD_D2A2_ADR_LSB];
-        // d2b2 related
-        busy_hazard_d2b2_r     <= busy_hazards_flags_i[HAZARD_D2B2_FLG_POS];
-        busy_hazard_d2b2_adr_r <= busy_hazards_addrs_i[HAZARD_D2B2_ADR_MSB:HAZARD_D2B2_ADR_LSB];
+        busy_hazard_d1a2_r <= busy_hazards_flags_i[HAZARD_D1A2_FLG_POS];
+        busy_hazard_d1b2_r <= busy_hazards_flags_i[HAZARD_D1B2_FLG_POS];
+        busy_hazard_d2a2_r <= busy_hazards_flags_i[HAZARD_D2A2_FLG_POS];
+        busy_hazard_d2b2_r <= busy_hazards_flags_i[HAZARD_D2B2_FLG_POS];
       end
       else begin
         // d1a2 related
         if (busy_d1a2_muxing_wb | busy_pushing_exec) begin
-          busy_hazard_d1a2_r     <= 1'b0;
-          busy_hazard_d1a2_adr_r <= {DEST_EXT_ADDR_WIDTH{1'b0}};
+          busy_hazard_d1a2_r <= 1'b0;
         end
         // d1b2 related
         if (busy_d1b2_muxing_wb | busy_pushing_exec) begin
-          busy_hazard_d1b2_r     <= 1'b0;
-          busy_hazard_d1b2_adr_r <= {DEST_EXT_ADDR_WIDTH{1'b0}};
+          busy_hazard_d1b2_r <= 1'b0;
         end
         // d2a2 related
         if (busy_d2a2_muxing_wb | busy_pushing_exec) begin
-          busy_hazard_d2a2_r     <= 1'b0;
-          busy_hazard_d2a2_adr_r <= {DEST_EXT_ADDR_WIDTH{1'b0}};
+          busy_hazard_d2a2_r <= 1'b0;
         end
         // d2b2 related
         if (busy_d2b2_muxing_wb | busy_pushing_exec) begin
-          busy_hazard_d2b2_r     <= 1'b0;
-          busy_hazard_d2b2_adr_r <= {DEST_EXT_ADDR_WIDTH{1'b0}};
+          busy_hazard_d2b2_r <= 1'b0;
         end
       end
     end // @clock
     // ---
+    always @(posedge cpu_clk) begin
+      if (dcod_pushing_busy) begin
+        busy_hazard_d1a2_adr_r <= busy_hazards_addrs_i[HAZARD_D1A2_ADR_MSB:HAZARD_D1A2_ADR_LSB];
+        busy_hazard_d1b2_adr_r <= busy_hazards_addrs_i[HAZARD_D1B2_ADR_MSB:HAZARD_D1B2_ADR_LSB];
+        busy_hazard_d2a2_adr_r <= busy_hazards_addrs_i[HAZARD_D2A2_ADR_MSB:HAZARD_D2A2_ADR_LSB];
+        busy_hazard_d2b2_adr_r <= busy_hazards_addrs_i[HAZARD_D2B2_ADR_MSB:HAZARD_D2B2_ADR_LSB];
+      end
+    end
+    // ---
     // d1a2 related
     assign busy_hazard_d1a2_w  = busy_hazard_d1a2_r; // MCLK
-    assign busy_d1a2_pass2exec = busy_hazard_d1a2_r & exec_rfd1_wb & (busy_hazard_d1a2_adr_r == exec_ext_adr) & padv_wb_i;
-    assign busy_d1a2_muxing_wb = busy_hazard_d1a2_r & wb_rfd1_wb   & (busy_hazard_d1a2_adr_r == wb_ext_adr);
+    assign busy_d1a2_pass2exec = busy_hazard_d1a2_r & (busy_hazard_d1a2_adr_r == exec_ext_adr) & padv_wb_i;
+    assign busy_d1a2_muxing_wb = busy_hazard_d1a2_r & (busy_hazard_d1a2_adr_r == wb_ext_adr)   & wb_rfd1_wb;
     // d1b2 related
     assign busy_hazard_d1b2_w  = busy_hazard_d1b2_r; // MCLK
-    assign busy_d1b2_pass2exec = busy_hazard_d1b2_r & exec_rfd1_wb & (busy_hazard_d1b2_adr_r == exec_ext_adr) & padv_wb_i;
-    assign busy_d1b2_muxing_wb = busy_hazard_d1b2_r & wb_rfd1_wb   & (busy_hazard_d1b2_adr_r == wb_ext_adr);
+    assign busy_d1b2_pass2exec = busy_hazard_d1b2_r & (busy_hazard_d1b2_adr_r == exec_ext_adr) & padv_wb_i;
+    assign busy_d1b2_muxing_wb = busy_hazard_d1b2_r & (busy_hazard_d1b2_adr_r == wb_ext_adr)   & wb_rfd1_wb;
     // d2a2 related
     assign busy_hazard_d2a2_w  = busy_hazard_d2a2_r; // MCLK
-    assign busy_d2a2_pass2exec = busy_hazard_d2a2_r & exec_rfd2_wb & (busy_hazard_d2a2_adr_r == exec_ext_adr) & padv_wb_i;
-    assign busy_d2a2_muxing_wb = busy_hazard_d2a2_r & wb_rfd2_wb   & (busy_hazard_d2a2_adr_r == wb_ext_adr);
+    assign busy_d2a2_pass2exec = busy_hazard_d2a2_r & (busy_hazard_d2a2_adr_r == exec_ext_adr) & padv_wb_i;
+    assign busy_d2a2_muxing_wb = busy_hazard_d2a2_r & (busy_hazard_d2a2_adr_r == wb_ext_adr)   & wb_rfd2_wb;
     // d2b2 related
     assign busy_hazard_d2b2_w  = busy_hazard_d2b2_r; // MCLK
-    assign busy_d2b2_pass2exec = busy_hazard_d2b2_r & exec_rfd2_wb & (busy_hazard_d2b2_adr_r == exec_ext_adr) & padv_wb_i;
-    assign busy_d2b2_muxing_wb = busy_hazard_d2b2_r & wb_rfd2_wb   & (busy_hazard_d2b2_adr_r == wb_ext_adr);
+    assign busy_d2b2_pass2exec = busy_hazard_d2b2_r & (busy_hazard_d2b2_adr_r == exec_ext_adr) & padv_wb_i;
+    assign busy_d2b2_muxing_wb = busy_hazard_d2b2_r & (busy_hazard_d2b2_adr_r == wb_ext_adr)   & wb_rfd2_wb;
 
     // A2 & B2 operands
     reg [OPTION_OPERAND_WIDTH-1:0] busy_rfa2_r;
