@@ -56,7 +56,8 @@ module mor1kx_dcache_marocchino
 
   // Regular operation
   //  # addresses and "DCHACHE inhibit" flag
-  input      [OPTION_OPERAND_WIDTH-1:0] phys_addr_idx_i,
+  input      [OPTION_OPERAND_WIDTH-1:0] virt_addr_idx_i,
+  input      [OPTION_OPERAND_WIDTH-1:0] virt_addr_cmd_i,
   input      [OPTION_OPERAND_WIDTH-1:0] phys_addr_tag_i,
   input                                 dmmu_cache_inhibit_i,
   //  # DCACHE regular answer
@@ -515,7 +516,10 @@ module mor1kx_dcache_marocchino
 
     access_lru_history = {OPTION_DCACHE_WAYS{1'b0}};
 
-    tag_windex = phys_addr_tag_i[WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH]; // by default
+    //   As way size is equal to page one we able to use either
+    // physical or virtual indexing. We use virual indexing because
+    // it isn't changed by DMMU on/off.
+    tag_windex = virt_addr_cmd_i[WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH]; // by default
     way_wr_dat = dbus_sdat_i; // by default
 
     if (snoop_hit_o) begin
@@ -624,11 +628,14 @@ module mor1kx_dcache_marocchino
   wire [OPTION_DCACHE_WAYS-1:0] way_wp_en;
 
   // WAY-RAM read address
-  wire [WAY_WIDTH-3:0] way_raddr = phys_addr_idx_i[WAY_WIDTH-1:2];
+  wire [WAY_WIDTH-3:0] way_raddr = virt_addr_idx_i[WAY_WIDTH-1:2];
 
   // WAY-RAM write address
+  //   As way size is equal to page one we able to use either
+  // physical or virtual indexing. We use virual indexing because
+  // it isn't changed by DMMU on/off.
   wire [WAY_WIDTH-3:0] way_waddr = dc_refill ? dbus_burst_adr_i[WAY_WIDTH-1:2] : // WAY_ADDR at refill
-                                               phys_addr_tag_i[WAY_WIDTH-1:2];   // WAY_ADDR default
+                                               virt_addr_cmd_i[WAY_WIDTH-1:2];   // WAY_ADDR default
   // support RW-conflict detection
   wire way_rw_same_addr = (way_raddr == way_waddr);
 
@@ -690,7 +697,7 @@ module mor1kx_dcache_marocchino
 
 
   // TAG-RAM read address
-  assign tag_rindex = phys_addr_idx_i[WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH];
+  assign tag_rindex = virt_addr_idx_i[WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH];
 
   // TAG-RAM same address for read and write
   wire tr_rw_same_addr = (tag_rindex == tag_windex);

@@ -84,9 +84,16 @@ module mor1kx_fetch_marocchino
   output reg [OPTION_OPERAND_WIDTH-1:0] ibus_adr_o,
   output                                ibus_burst_o,
 
-  // branch/jump control transfer
-  //  ## detect jump/branch to indicate "delay slot" for next fetched instruction
-  input                                 dcod_jump_or_branch_i,
+  // Jump/Branch processing
+  //  # jump/branch variants
+  output                                fetch_op_jimm_o,
+  output                                fetch_op_jr_o,
+  output                                fetch_op_bf_o,
+  output                                fetch_op_bnf_o,
+  //  # combined jump/branch flag
+  output                                fetch_op_jb_o,
+  //  # "to immediate driven target"
+  output     [OPTION_OPERAND_WIDTH-1:0] fetch_to_imm_target_o,
   //  ## do branch (pedicted or unconditional)
   input                                 do_branch_i,
   input      [OPTION_OPERAND_WIDTH-1:0] do_branch_target_i,
@@ -96,31 +103,30 @@ module mor1kx_fetch_marocchino
   input                                 ctrl_branch_exception_i,
   input      [OPTION_OPERAND_WIDTH-1:0] ctrl_branch_except_pc_i,
 
-  // to RF
+  // to RF read and DECODE
+  //  # instruction word valid flag
+  output reg                            fetch_insn_valid_o,
+  //  # instruction is in delay slot
+  output reg                            fetch_delay_slot_o,
+  //  # instruction word itsef
+  output reg     [`OR1K_INSN_WIDTH-1:0] fetch_insn_o,
+  //  # operand addresses
   output     [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfa1_adr_o,
   output     [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfb1_adr_o,
-  // for FPU64
   output     [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfa2_adr_o,
   output     [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfb2_adr_o,
+  //  # D2 address
+  output     [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfd2_adr_o,
 
-  // to DECODE
-  output reg                            dcod_insn_valid_o,
-  output reg [OPTION_OPERAND_WIDTH-1:0] pc_decode_o,
-  output reg     [`OR1K_INSN_WIDTH-1:0] dcod_insn_o,
-  output reg                            dcod_delay_slot_o,
-  output     [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfa1_adr_o,
-  output     [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfb1_adr_o,
-  // for FPU64
-  output     [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfa2_adr_o,
-  output     [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfb2_adr_o,
-  output     [OPTION_RF_ADDR_WIDTH-1:0] insn_rfd2_adr_o,
-
-  // exceptions
+  // Exceptions
   output reg                            fetch_except_ibus_err_o,
   output reg                            fetch_except_itlb_miss_o,
   output reg                            fetch_except_ipagefault_o,
   output reg                            fetch_an_except_o,
-  output reg                            fetch_exception_taken_o
+  output reg                            fetch_exception_taken_o,
+
+  //  Instruction PC
+  output reg [OPTION_OPERAND_WIDTH-1:0] pc_fetch_o
 );
 
   /*
@@ -246,7 +252,7 @@ module mor1kx_fetch_marocchino
 
   // detector that stage #2 is fetching next instruction:
   //   PC in DECODE and IFETCH differs by 4
-  wire s2_fetching_next_insn = s2r_virt_addr[2] ^ pc_decode_o[2];
+  wire s2_fetching_next_insn = s2r_virt_addr[2] ^ pc_fetch_o[2];
 
 
   /************************************************/
@@ -308,26 +314,28 @@ module mor1kx_fetch_marocchino
     else begin
       // synthesis parallel_case full_case
       case (s1_out_status_r)
-        // mapping delay slot
+        // mark stage #1 as delay slot
         S1_OUT_DS : begin
-          if (padv_s1s2)
+          if (padv_s1s2) // stage #1 output status is "delay slot"
             s1_out_status_r <= S1_OUT_REGULAR;
         end
         // bubbling till j/b hazards resolving
         S1_OUT_BUBBLE : begin
-          if (padv_s1s2) // stage #1 output status: S1-OUT-DS or S1-OUT-BUBBLE
+          if (padv_s1s2) // stage #1 output status is "bubble"
             s1_out_status_r <= fetch_jr_bc_hazard_i ? S1_OUT_BUBBLE : S1_OUT_REGULAR;
         end
         // waiting j/b in DECODE stage
         S1_OUT_REGULAR : begin
-          if (padv_s1s2) // stage #1 output status: S1-OUT-REGULAR
-            s1_out_status_r <= (dcod_jump_or_branch_i &  s2_fetching_next_insn) ?
-                                          (fetch_jr_bc_hazard_i ? S1_OUT_BUBBLE : S1_OUT_REGULAR) :
-                                                                                  S1_OUT_REGULAR;
-          else
-            s1_out_status_r <= (dcod_jump_or_branch_i &  s2_fetching_next_insn) ? S1_OUT_BUBBLE :
-                               (dcod_jump_or_branch_i & ~s2_fetching_next_insn) ? S1_OUT_DS     :
-                                                                                  S1_OUT_REGULAR;
+          if (padv_fetch_i) begin
+            if (ibus_fsm_free) // e.q. to padv_s1s2;  stage #1 output status: S1-OUT-REGULAR
+              s1_out_status_r <= (fetch_op_jb_o &  s2_fetching_next_insn) ?
+                                        (fetch_op_jimm_o ? S1_OUT_REGULAR : S1_OUT_BUBBLE) :
+                                                                            S1_OUT_REGULAR;
+            else
+              s1_out_status_r <= (fetch_op_jb_o &  s2_fetching_next_insn) ? S1_OUT_BUBBLE :
+                                 (fetch_op_jb_o & ~s2_fetching_next_insn) ? S1_OUT_DS     :
+                                                                            S1_OUT_REGULAR;
+          end
         end
         // by default
         default :
@@ -336,9 +344,9 @@ module mor1kx_fetch_marocchino
     end
   end // @cpu-clk
   // --- output is "bubble" ---
-  wire s1t_out_bubble = (dcod_jump_or_branch_i &   s2_fetching_next_insn) | s1_out_status_r[1];
+  wire s1t_out_bubble = (fetch_op_jb_o &  s2_fetching_next_insn) | s1_out_status_r[1];
   // --- mapping delay slot ---
-  wire s1t_out_ds     = (dcod_jump_or_branch_i &  ~s2_fetching_next_insn) | s1_out_status_r[2];
+  wire s1t_out_ds     = (fetch_op_jb_o & ~s2_fetching_next_insn) | s1_out_status_r[2];
 
 
   // Select the PC for next fetch:
@@ -491,7 +499,8 @@ module mor1kx_fetch_marocchino
     // configuration
     .ic_enable_i          (ic_enable_i), // ICACHE
     // regular requests in/out
-    .phys_addr_idx_i      (s1t_phys_addr), // ICACHE
+    .virt_addr_idx_i      (s1r_virt_addr), // ICACHE
+    .virt_addr_cmd_i      (s2r_virt_addr), // ICACHE
     .phys_addr_tag_i      (s2r_phys_addr), // ICACHE
     .fetch_req_hit_i      (s2r_fetch_req_hit), // ICACHE: anables ICACHE's ACK
     .immu_cache_inhibit_i (s2r_cache_inhibit), // ICACHE
@@ -647,17 +656,18 @@ module mor1kx_fetch_marocchino
   reg s2p_out_ds;
   // ---
   always @(posedge cpu_clk) begin
-    if (cpu_rst | flush_by_ctrl)
+    if (cpu_rst | flush_by_ctrl) begin
       s2p_out_ds <= 1'b0;
+    end
     else if (padv_fetch_i) begin // stage #2 tracking delay slot
       if (s2p_out_ds)
         s2p_out_ds <= ~s2t_insn_or_excepts;
       else
-        s2p_out_ds <= (dcod_jump_or_branch_i & s2_fetching_next_insn) & ~s2t_insn_or_excepts;
+        s2p_out_ds <= (fetch_op_jb_o & s2_fetching_next_insn) & ~s2t_insn_or_excepts;
     end
   end // @ clock
   // --- stage #2 is fetching delay slot ---
-  wire s2t_out_ds = (dcod_jump_or_branch_i & s2_fetching_next_insn) | s2p_out_ds;
+  wire s2t_out_ds = (fetch_op_jb_o & s2_fetching_next_insn) | s2p_out_ds;
 
 
   //-------------------------------------------//
@@ -685,60 +695,49 @@ module mor1kx_fetch_marocchino
   // to DECODE: delay slot flag
   always @(posedge cpu_clk) begin
     if (cpu_rst | flush_by_ctrl) begin
-      dcod_delay_slot_o         <= 1'b0;
-      dcod_insn_o               <= {`OR1K_OPCODE_NOP,26'd0};
-      dcod_insn_valid_o         <= 1'b0;
+      fetch_delay_slot_o        <= 1'b0;
+      fetch_insn_o              <= {`OR1K_OPCODE_NOP,26'd0};
+      fetch_insn_valid_o        <= 1'b0;
       // exceptions
       fetch_except_ibus_err_o   <= 1'b0;
       fetch_except_itlb_miss_o  <= 1'b0;
       fetch_except_ipagefault_o <= 1'b0;
       fetch_an_except_o         <= 1'b0;
       // actual programm counter
-      pc_decode_o               <= {IFOOW{1'b0}}; // reset / flush
+      pc_fetch_o                <= {IFOOW{1'b0}}; // reset / flush
     end
     else if (padv_fetch_i) begin
-      dcod_delay_slot_o         <= (s2r_ds | s2t_out_ds) & s2t_insn_or_excepts;
-      dcod_insn_o               <= s2t_insn_mux;
-      dcod_insn_valid_o         <= s2t_insn_or_excepts; // valid instruction or exception
+      fetch_delay_slot_o        <= (s2r_ds | s2t_out_ds) & s2t_insn_or_excepts;
+      fetch_insn_o              <= s2t_insn_mux;
+      fetch_insn_valid_o        <= s2t_insn_or_excepts; // valid instruction or exception
       // exceptions
       fetch_except_ibus_err_o   <= ibus_err_state;
       fetch_except_itlb_miss_o  <= s2r_fetch_req_hit & s2r_tlb_miss;
       fetch_except_ipagefault_o <= s2r_fetch_req_hit & s2r_pagefault;
       fetch_an_except_o         <= s2t_an_except;
       // actual programm counter
-      pc_decode_o               <= s2t_insn_or_excepts ? s2r_virt_addr : pc_decode_o;
+      pc_fetch_o                <= s2t_insn_or_excepts ? s2r_virt_addr : pc_fetch_o;
     end
   end // @ clock
 
-  // to RF
-  assign fetch_rfa1_adr_o = s2t_insn_mux[`OR1K_RA_SELECT];
-  assign fetch_rfb1_adr_o = s2t_insn_mux[`OR1K_RB_SELECT];
-
+  // to RF read
+  assign fetch_rfa1_adr_o = fetch_insn_o[`OR1K_RA_SELECT];
+  assign fetch_rfb1_adr_o = fetch_insn_o[`OR1K_RB_SELECT];
+  assign fetch_rfa2_adr_o = fetch_insn_o[`OR1K_RA_SELECT] + 1'b1;
+  assign fetch_rfb2_adr_o = fetch_insn_o[`OR1K_RB_SELECT] + 1'b1;
   // to DECODE
-  assign dcod_rfa1_adr_o = dcod_insn_o[`OR1K_RA_SELECT];
-  assign dcod_rfb1_adr_o = dcod_insn_o[`OR1K_RB_SELECT];
+  assign fetch_rfd2_adr_o = fetch_insn_o[`OR1K_RD_SELECT] + 1'b1;
 
-  // to FPU64
-  assign fetch_rfa2_adr_o = s2t_insn_mux[`OR1K_RA_SELECT] + 1'b1;
-  assign fetch_rfb2_adr_o = s2t_insn_mux[`OR1K_RB_SELECT] + 1'b1;
-  // ---
-  reg [(OPTION_RF_ADDR_WIDTH-1):0] dcod_rfa2_adr_r, dcod_rfb2_adr_r, insn_rfd2_adr_r;
-  // ---
-  always @(posedge cpu_clk) begin
-    if (cpu_rst | flush_by_ctrl) begin
-      dcod_rfa2_adr_r <= {{(OPTION_RF_ADDR_WIDTH-1){1'b0}},1'b1};
-      dcod_rfb2_adr_r <= {{(OPTION_RF_ADDR_WIDTH-1){1'b0}},1'b1};
-      insn_rfd2_adr_r <= {{(OPTION_RF_ADDR_WIDTH-1){1'b0}},1'b1};
-    end
-    else if (padv_fetch_i) begin
-      dcod_rfa2_adr_r <= fetch_rfa2_adr_o;
-      dcod_rfb2_adr_r <= fetch_rfb2_adr_o;
-      insn_rfd2_adr_r <= s2t_insn_mux[`OR1K_RD_SELECT] + 1'b1;
-    end
-  end // @ clock
-  // ---
-  assign dcod_rfa2_adr_o = dcod_rfa2_adr_r;
-  assign dcod_rfb2_adr_o = dcod_rfb2_adr_r;
-  assign insn_rfd2_adr_o = insn_rfd2_adr_r;
+  // Jump/Branch processing
+  wire [`OR1K_OPCODE_WIDTH-1:0] opc_insn = fetch_insn_o[`OR1K_OPCODE_SELECT];
+  //  # jump/branch variants
+  assign fetch_op_jimm_o  = (opc_insn == `OR1K_OPCODE_J)  | (opc_insn == `OR1K_OPCODE_JAL);
+  assign fetch_op_jr_o    = (opc_insn == `OR1K_OPCODE_JR) | (opc_insn == `OR1K_OPCODE_JALR);
+  assign fetch_op_bf_o    = (opc_insn == `OR1K_OPCODE_BF);
+  assign fetch_op_bnf_o   = (opc_insn == `OR1K_OPCODE_BNF);
+  //  # combined jump/branch flag
+  assign fetch_op_jb_o    = fetch_op_jimm_o | fetch_op_jr_o | fetch_op_bf_o | fetch_op_bnf_o;
+  //  # "to immediate driven target"
+  assign fetch_to_imm_target_o = pc_fetch_o + {{4{fetch_insn_o[25]}},fetch_insn_o[25:0],2'b00};
 
 endmodule // mor1kx_fetch_marocchino

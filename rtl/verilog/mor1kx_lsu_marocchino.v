@@ -1189,7 +1189,8 @@ module mor1kx_lsu_marocchino
     .dbus_err_i                 (dbus_err_i), // DCACHE
     // Regular operation
     //  # addresses and "DCHACHE inhibit" flag
-    .phys_addr_idx_i            (s1t_phys_addr), // DCACHE
+    .virt_addr_idx_i            (s1r_virt_addr), // DCACHE
+    .virt_addr_cmd_i            (s2r_virt_addr), // DCACHE
     .phys_addr_tag_i            (s2r_phys_addr), // DCACHE
     .dmmu_cache_inhibit_i       (s2r_cache_inhibit), // DCACHE
     //  # DCACHE regular answer

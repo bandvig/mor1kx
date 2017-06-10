@@ -69,8 +69,7 @@ module mor1kx_ctrl_marocchino
 
   // Inputs / Outputs for pipeline control signals
   input                                 dcod_insn_valid_i,
-  input                                 fetch_an_except_i,
-  input                                 oman_fd_an_except_i,
+  input                                 fd_an_except_i,
   input                                 dcod_valid_i,
   input                                 exec_valid_i,
   output reg                            pipeline_flush_o,
@@ -539,14 +538,14 @@ module mor1kx_ctrl_marocchino
 
 
   // Advance IFETCH
-  assign padv_fetch_o = (dcod_valid_i | (~dcod_insn_valid_i)) & (~spr_bus_wait_r) & (~fetch_an_except_i) & (~oman_fd_an_except_i) &
+  assign padv_fetch_o = (dcod_valid_i | (~dcod_insn_valid_i)) & (~spr_bus_wait_r) & (~fd_an_except_i) &
                         (~du_cpu_stall) & ((~stepping) | pstep[0]); // DU enabling/disabling IFETCH
   // Pass step from IFETCH to DECODE
   wire   pass_step_to_decode = dcod_insn_valid_i & pstep[0]; // for DU
 
 
   // Advance DECODE->EXECUTE latches
-  assign padv_decode_o = dcod_valid_i & dcod_insn_valid_i & (~spr_bus_wait_r) & (~oman_fd_an_except_i) &
+  assign padv_decode_o = dcod_valid_i & dcod_insn_valid_i & (~spr_bus_wait_r) & (~fd_an_except_i) &
                          (~du_cpu_stall) & ((~stepping) | pstep[1]); // DU enabling/disabling DECODE
   // Pass step from DECODE to WB
   wire   pass_step_to_wb = pstep[1]; // for DU

@@ -141,7 +141,25 @@ module mor1kx_cpu_marocchino
   localparam DEST_REG_ADDR_WIDTH  = OPTION_RF_ADDR_WIDTH + DEST_EXT_ADDR_WIDTH;
 
 
-  wire     [`OR1K_INSN_WIDTH-1:0] dcod_insn;
+  // IFETCH outputs for RF reading and DECODE
+  //  # instruction word valid flag
+  wire                            fetch_insn_valid; 
+  //  # instruction is in delay slot
+  wire                            fetch_delay_slot;
+  //  # instruction word itsef
+  wire     [`OR1K_INSN_WIDTH-1:0] fetch_insn;
+  //  # operand addresses
+  wire [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfa1_adr;
+  wire [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfb1_adr;
+  wire [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfa2_adr;
+  wire [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfb2_adr;
+  //  # D2 address
+  wire [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfd2_adr;
+  //  # instruction PC
+  wire [OPTION_OPERAND_WIDTH-1:0] pc_fetch;
+
+
+
   wire                            dcod_insn_valid;
 
   wire [OPTION_OPERAND_WIDTH-1:0] pc_decode;
@@ -210,7 +228,6 @@ module mor1kx_cpu_marocchino
   wire [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfd1_adr;
   wire                            dcod_rfd1_wb;
   // for FPU64:
-  wire [OPTION_RF_ADDR_WIDTH-1:0] insn_rfd2_adr;
   wire [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfd2_adr;
 
 
@@ -268,15 +285,18 @@ module mor1kx_cpu_marocchino
 
 
   // Logic to support Jump / Branch taking
-  wire                            dcod_op_jr;
-  wire                            dcod_op_jimm;
-  wire                            dcod_op_bf;
-  wire                            dcod_op_bnf;
-  // pc-relative target
-  wire [OPTION_OPERAND_WIDTH-1:0] dcod_to_imm_target;
-  wire                            fetch_jr_bc_hazard;
+  //  # from FETCH
+  //    ## jump/branch variants
+  wire                            fetch_op_jimm;
+  wire                            fetch_op_jr;
+  wire                            fetch_op_bf;
+  wire                            fetch_op_bnf;
+  //    ## combined jump/branch flag
+  wire                            fetch_op_jb;
+  //    ## pc-relative target
+  wire [OPTION_OPERAND_WIDTH-1:0] fetch_to_imm_target;
   //  ## detect jump/branch to indicate "delay slot" for next fetched instruction
-  wire                            dcod_jump_or_branch;
+  wire                            fetch_jr_bc_hazard;
   //  ## support IBUS error handling in CTRL
   wire                            wb_jump_or_branch;
   //  ## do branch (pedicted or unconditional)
@@ -426,6 +446,7 @@ module mor1kx_cpu_marocchino
   wire fetch_except_ibus_err;
   wire fetch_except_ipagefault;
   wire fetch_except_itlb_miss;
+  wire fetch_an_except;
   //  # pre-WB IFETCH exceptions (OMAN output)
   wire exec_except_ibus_err;
   wire exec_except_ipagefault;
@@ -452,10 +473,9 @@ module mor1kx_cpu_marocchino
   reg  wb_except_syscall_r;
   reg  wb_except_trap_r;
 
-  // IFETCH/EXECETE exceptions flags are used to slall fetching and
-  // decoding new insructions till l.rfe / exception reach WRITE-BACK
-  wire fetch_an_except;   // latched IFETCH exceptions to stall IFETCH
-  wire oman_fd_an_except; // latched IFETCH/DECODE to stall IFETCH and DECODE
+  // IFETCH/DECODE exceptions flag used to slall fetching, decoding and
+  // execution new insructions till l.rfe / exception reach WRITE-BACK
+  wire fd_an_except;
 
   //  # overflow exception
   wire except_overflow_enable;
@@ -507,13 +527,9 @@ module mor1kx_cpu_marocchino
   reg  wb_an_except_r;
 
 
-  // FETCH none latched outputs
-  wire [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfa1_adr;     // fetch->rf
-  wire [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfb1_adr;     // fetch->rf
-  // for FPU64
-  wire [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfa2_adr;     // fetch->rf
-  wire [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfb2_adr;     // fetch->rf
-
+  //----------------------------//
+  // Instruction FETCH instance //
+  //----------------------------//
 
   mor1kx_fetch_marocchino
   #(
@@ -569,10 +585,17 @@ module mor1kx_cpu_marocchino
     .ibus_adr_o                       (ibus_adr_o), // FETCH
     .ibus_burst_o                     (ibus_burst_o), // FETCH
 
-    // branch/jump control transfer
-    //  ## detect jump/branch to indicate "delay slot" for next fetched instruction
-    .dcod_jump_or_branch_i            (dcod_jump_or_branch), // FETCH
-    //  ## do branch (pedicted or unconditional)
+    // Jump/Branch processing 
+    //  # jump/branch variants
+    .fetch_op_jimm_o                  (fetch_op_jimm), // FETCH
+    .fetch_op_jr_o                    (fetch_op_jr), // FETCH
+    .fetch_op_bf_o                    (fetch_op_bf), // FETCH
+    .fetch_op_bnf_o                   (fetch_op_bnf), // FETCH
+    //  # combined jump/branch flag
+    .fetch_op_jb_o                    (fetch_op_jb), // FETCH
+    //  # "to immediate driven target"
+    .fetch_to_imm_target_o            (fetch_to_imm_target), // FETCH
+    //  # do branch (pedicted or unconditional)
     .do_branch_i                      (do_branch), // FETCH
     .do_branch_target_i               (do_branch_target), // FETCH
     .fetch_jr_bc_hazard_i             (fetch_jr_bc_hazard), // FETCH
@@ -581,31 +604,30 @@ module mor1kx_cpu_marocchino
     .ctrl_branch_exception_i          (ctrl_branch_exception), // FETCH
     .ctrl_branch_except_pc_i          (ctrl_branch_except_pc), // FETCH
 
-    //   To RF
-    .fetch_rfa1_adr_o                 (fetch_rfa1_adr), // FETCH (not latched, to RF)
-    .fetch_rfb1_adr_o                 (fetch_rfb1_adr), // FETCH (not latched, to RF)
-    // for FPU64
-    .fetch_rfa2_adr_o                 (fetch_rfa2_adr), // FETCH (not latched, to RF)
-    .fetch_rfb2_adr_o                 (fetch_rfb2_adr), // FETCH (not latched, to RF)
+    // to RF read
+    //  # instruction word valid flag
+    .fetch_insn_valid_o               (fetch_insn_valid), // FETCH
+    //  # instruction is in delay slot
+    .fetch_delay_slot_o               (fetch_delay_slot), // FETCH
+    //  # instruction word itsef
+    .fetch_insn_o                     (fetch_insn), // FETCH
+    //  # operand addresses
+    .fetch_rfa1_adr_o                 (fetch_rfa1_adr), // FETCH
+    .fetch_rfb1_adr_o                 (fetch_rfb1_adr), // FETCH
+    .fetch_rfa2_adr_o                 (fetch_rfa2_adr), // FETCH
+    .fetch_rfb2_adr_o                 (fetch_rfb2_adr), // FETCH
+    //  # D2 address
+    .fetch_rfd2_adr_o                 (fetch_rfd2_adr), // FETCH
 
-    //   To DECODE
-    .dcod_insn_valid_o                (dcod_insn_valid), // FETCH
-    .pc_decode_o                      (pc_decode), // FETCH
-    .dcod_insn_o                      (dcod_insn), // FETCH
-    .dcod_delay_slot_o                (dcod_delay_slot), // FETCH
-    .dcod_rfa1_adr_o                  (dcod_rfa1_adr), // FETCH
-    .dcod_rfb1_adr_o                  (dcod_rfb1_adr), // FETCH
-    // for FPU64
-    .dcod_rfa2_adr_o                  (dcod_rfa2_adr), // FETCH
-    .dcod_rfb2_adr_o                  (dcod_rfb2_adr), // FETCH
-    .insn_rfd2_adr_o                  (insn_rfd2_adr), // FETCH
-
-    //   Exceptions
+    //  Exceptions
     .fetch_except_ibus_err_o          (fetch_except_ibus_err), // FETCH
     .fetch_except_itlb_miss_o         (fetch_except_itlb_miss), // FETCH
     .fetch_except_ipagefault_o        (fetch_except_ipagefault), // FETCH
     .fetch_an_except_o                (fetch_an_except), // FETCH
-    .fetch_exception_taken_o          (fetch_ecxeption_taken) // FETCH
+    .fetch_exception_taken_o          (fetch_ecxeption_taken), // FETCH
+
+    // Instruction PC
+    .pc_fetch_o                       (pc_fetch) // FETCH
   );
 
 
@@ -685,101 +707,118 @@ module mor1kx_cpu_marocchino
 
   mor1kx_decode_marocchino
   #(
-    .OPTION_OPERAND_WIDTH             (OPTION_OPERAND_WIDTH), // DECODE & DECODE->EXE
-    .OPTION_RESET_PC                  (OPTION_RESET_PC), // DECODE & DECODE->EXE
-    .OPTION_RF_ADDR_WIDTH             (OPTION_RF_ADDR_WIDTH), // DECODE & DECODE->EXE
-    .FEATURE_PSYNC                    (FEATURE_PSYNC), // DECODE & DECODE->EXE
-    .FEATURE_CSYNC                    (FEATURE_CSYNC) // DECODE & DECODE->EXE
+    .OPTION_OPERAND_WIDTH             (OPTION_OPERAND_WIDTH), // DECODE
+    .OPTION_RESET_PC                  (OPTION_RESET_PC), // DECODE
+    .OPTION_RF_ADDR_WIDTH             (OPTION_RF_ADDR_WIDTH), // DECODE
+    .FEATURE_PSYNC                    (FEATURE_PSYNC), // DECODE
+    .FEATURE_CSYNC                    (FEATURE_CSYNC) // DECODE
   )
   u_decode
   (
-    // INSN
-    .dcod_insn_i                      (dcod_insn), // DECODE & DECODE->EXE
+    // clocks ans reset
+    .cpu_clk                          (cpu_clk),
+    .cpu_rst                          (cpu_rst),
+    // pipeline controls
+    .padv_fetch_i                     (padv_fetch),
+    .pipeline_flush_i                 (pipeline_flush),
+    // from IFETCH
+    //  # instruction word valid flag
+    .fetch_insn_valid_i               (fetch_insn_valid), // DECODE
+    //  # instruction is in delay slot
+    .fetch_delay_slot_i               (fetch_delay_slot), // DECODE
+    //  # instruction word itsef
+    .fetch_insn_i                     (fetch_insn), // DECODE
+    //  # operand addresses
+    .fetch_rfa1_adr_i                 (fetch_rfa1_adr), // DECODE
+    .fetch_rfb1_adr_i                 (fetch_rfb1_adr), // DECODE
+    .fetch_rfa2_adr_i                 (fetch_rfa2_adr), // DECODE
+    .fetch_rfb2_adr_i                 (fetch_rfb2_adr), // DECODE
+    //  # D2 address
+    .fetch_rfd2_adr_i                 (fetch_rfd2_adr), // DECODE
+    // latched instruction word and it's attributes
+    .dcod_insn_valid_o                (dcod_insn_valid), // DECODE
+    .dcod_delay_slot_o                (dcod_delay_slot), // DECODE
+    .dcod_rfa1_adr_o                  (dcod_rfa1_adr), // DECODE
+    .dcod_rfb1_adr_o                  (dcod_rfb1_adr), //
+    .dcod_rfa2_adr_o                  (dcod_rfa2_adr), // DECODE
+    .dcod_rfb2_adr_o                  (dcod_rfb2_adr), // DECODE
+    //  # instruction PC
+    .pc_fetch_i                       (pc_fetch), // DECODE
     // PC
-    .pc_decode_i                      (pc_decode), // DECODE & DECODE->EXE
+    .pc_decode_o                      (pc_decode), // DECODE
     // IMM
-    .dcod_immediate_o                 (dcod_immediate), // DECODE & DECODE->EXE
-    .dcod_immediate_sel_o             (dcod_immediate_sel), // DECODE & DECODE->EXE
+    .dcod_immediate_o                 (dcod_immediate), // DECODE
+    .dcod_immediate_sel_o             (dcod_immediate_sel), // DECODE
     // various instruction attributes
-    .dcod_rfa1_req_o                  (dcod_rfa1_req), // DECODE & DECODE->EXE
-    .dcod_rfb1_req_o                  (dcod_rfb1_req), // DECODE & DECODE->EXE
-    .dcod_rfd1_wb_o                   (dcod_rfd1_wb), // DECODE & DECODE->EXE
-    .dcod_rfd1_adr_o                  (dcod_rfd1_adr), // DECODE & DECODE->EXE
-    .dcod_flag_wb_o                   (dcod_flag_wb), // DECODE & DECODE->EXE
-    .dcod_carry_wb_o                  (dcod_carry_wb), // DECODE & DECODE->EXE
+    .dcod_rfa1_req_o                  (dcod_rfa1_req), // DECODE
+    .dcod_rfb1_req_o                  (dcod_rfb1_req), // DECODE
+    .dcod_rfd1_wb_o                   (dcod_rfd1_wb), // DECODE
+    .dcod_rfd1_adr_o                  (dcod_rfd1_adr), // DECODE
+    .dcod_flag_wb_o                   (dcod_flag_wb), // DECODE
+    .dcod_carry_wb_o                  (dcod_carry_wb), // DECODE
     // for FPU64
-    .dcod_rfa2_req_o                  (dcod_rfa2_req), // DECODE & DECODE->EXE
-    .dcod_rfb2_req_o                  (dcod_rfb2_req), // DECODE & DECODE->EXE
-    .insn_rfd2_adr_i                  (insn_rfd2_adr), // DECODE & DECODE->EXE
-    .dcod_rfd2_adr_o                  (dcod_rfd2_adr), // DECODE & DECODE->EXE
-    // Logic to support Jump / Branch taking
-    .dcod_op_jr_o                     (dcod_op_jr), // DECODE & DECODE->EXE
-    .dcod_op_jimm_o                   (dcod_op_jimm), // DECODE
-    .dcod_op_bf_o                     (dcod_op_bf), // DECODE
-    .dcod_op_bnf_o                    (dcod_op_bnf), // DECODE
-    // pc-relative target
-    .dcod_to_imm_target_o             (dcod_to_imm_target), // DECODE
-    // flag & branches
-    .dcod_jump_or_branch_o            (dcod_jump_or_branch), // DECODE & DECODE->EXE
+    .dcod_rfa2_req_o                  (dcod_rfa2_req), // DECODE
+    .dcod_rfb2_req_o                  (dcod_rfb2_req), // DECODE
+    .dcod_rfd2_adr_o                  (dcod_rfd2_adr), // DECODE
     // LSU related
-    .dcod_imm16_o                     (dcod_imm16), // DECODE & DECODE->EXE
-    .dcod_op_lsu_load_o               (dcod_op_lsu_load), // DECODE & DECODE->EXE
-    .dcod_op_lsu_store_o              (dcod_op_lsu_store), // DECODE & DECODE->EXE
-    .dcod_op_lsu_atomic_o             (dcod_op_lsu_atomic), // DECODE & DECODE->EXE
-    .dcod_lsu_length_o                (dcod_lsu_length), // DECODE & DECODE->EXE
-    .dcod_lsu_zext_o                  (dcod_lsu_zext), // DECODE & DECODE->EXE
-    .dcod_op_msync_o                  (dcod_op_msync), // DECODE & DECODE->EXE
+    .dcod_imm16_o                     (dcod_imm16), // DECODE
+    .dcod_op_lsu_load_o               (dcod_op_lsu_load), // DECODE
+    .dcod_op_lsu_store_o              (dcod_op_lsu_store), // DECODE
+    .dcod_op_lsu_atomic_o             (dcod_op_lsu_atomic), // DECODE
+    .dcod_lsu_length_o                (dcod_lsu_length), // DECODE
+    .dcod_lsu_zext_o                  (dcod_lsu_zext), // DECODE
+    .dcod_op_msync_o                  (dcod_op_msync), // DECODE
     // Instruction which passes EXECUTION through
-    .dcod_op_pass_exec_o              (dcod_op_pass_exec), // DECODE & DECODE->EXE
+    .dcod_op_pass_exec_o              (dcod_op_pass_exec), // DECODE
     // 1-clock instruction
-    .dcod_op_1clk_o                   (dcod_op_1clk), // DECODE & DECODE->EXE
+    .dcod_op_1clk_o                   (dcod_op_1clk), // DECODE
     // ALU related opc
-    .dcod_opc_alu_secondary_o         (dcod_opc_alu_secondary), // DECODE & DECODE->EXE
+    .dcod_opc_alu_secondary_o         (dcod_opc_alu_secondary), // DECODE
     // Adder related
-    .dcod_op_add_o                    (dcod_op_add), // DECODE & DECODE->EXE
-    .dcod_adder_do_sub_o              (dcod_adder_do_sub), // DECODE & DECODE->EXE
-    .dcod_adder_do_carry_o            (dcod_adder_do_carry), // DECODE & DECODE->EXE
+    .dcod_op_add_o                    (dcod_op_add), // DECODE
+    .dcod_adder_do_sub_o              (dcod_adder_do_sub), // DECODE
+    .dcod_adder_do_carry_o            (dcod_adder_do_carry), // DECODE
     // Various 1-clock related
-    .dcod_op_shift_o                  (dcod_op_shift), // DECODE & DECODE->EXE
-    .dcod_op_ffl1_o                   (dcod_op_ffl1), // DECODE & DECODE->EXE
-    .dcod_op_movhi_o                  (dcod_op_movhi), // DECODE & DECODE->EXE
-    .dcod_op_cmov_o                   (dcod_op_cmov), // DECODE & DECODE->EXE
+    .dcod_op_shift_o                  (dcod_op_shift), // DECODE
+    .dcod_op_ffl1_o                   (dcod_op_ffl1), // DECODE
+    .dcod_op_movhi_o                  (dcod_op_movhi), // DECODE
+    .dcod_op_cmov_o                   (dcod_op_cmov), // DECODE
     // Logic
-    .dcod_opc_logic_o                 (dcod_opc_logic), // DECODE & DECODE->EXE
+    .dcod_opc_logic_o                 (dcod_opc_logic), // DECODE
     // Jump & Link
-    .dcod_op_jal_o                    (dcod_op_jal), // DECODE & DECODE->EXE
+    .dcod_op_jal_o                    (dcod_op_jal), // DECODE
     // Set flag related
-    .dcod_op_setflag_o                (dcod_op_setflag), // DECODE & DECODE->EXE
+    .dcod_op_setflag_o                (dcod_op_setflag), // DECODE
     // Multiplier related
-    .dcod_op_mul_o                    (dcod_op_mul), // DECODE & DECODE->EXE
+    .dcod_op_mul_o                    (dcod_op_mul), // DECODE
     // Divider related
-    .dcod_op_div_o                    (dcod_op_div), // DECODE & DECODE->EXE
-    .dcod_op_div_signed_o             (dcod_op_div_signed), // DECODE & DECODE->EXE
-    .dcod_op_div_unsigned_o           (dcod_op_div_unsigned), // DECODE & DECODE->EXE
+    .dcod_op_div_o                    (dcod_op_div), // DECODE
+    .dcod_op_div_signed_o             (dcod_op_div_signed), // DECODE
+    .dcod_op_div_unsigned_o           (dcod_op_div_unsigned), // DECODE
     // FPU-64 arithmetic part
-    .dcod_op_fpxx_arith_o             (dcod_op_fpxx_arith), // DECODE & DECODE->EXE
-    .dcod_op_fp64_arith_o             (dcod_op_fp64_arith), // DECODE & DECODE->EXE
-    .dcod_op_fpxx_add_o               (dcod_op_fpxx_add), // DECODE & DECODE->EXE
-    .dcod_op_fpxx_sub_o               (dcod_op_fpxx_sub), // DECODE & DECODE->EXE
-    .dcod_op_fpxx_mul_o               (dcod_op_fpxx_mul), // DECODE & DECODE->EXE
-    .dcod_op_fpxx_div_o               (dcod_op_fpxx_div), // DECODE & DECODE->EXE
-    .dcod_op_fpxx_i2f_o               (dcod_op_fpxx_i2f), // DECODE & DECODE->EXE
-    .dcod_op_fpxx_f2i_o               (dcod_op_fpxx_f2i), // DECODE & DECODE->EXE
+    .dcod_op_fpxx_arith_o             (dcod_op_fpxx_arith), // DECODE
+    .dcod_op_fp64_arith_o             (dcod_op_fp64_arith), // DECODE
+    .dcod_op_fpxx_add_o               (dcod_op_fpxx_add), // DECODE
+    .dcod_op_fpxx_sub_o               (dcod_op_fpxx_sub), // DECODE
+    .dcod_op_fpxx_mul_o               (dcod_op_fpxx_mul), // DECODE
+    .dcod_op_fpxx_div_o               (dcod_op_fpxx_div), // DECODE
+    .dcod_op_fpxx_i2f_o               (dcod_op_fpxx_i2f), // DECODE
+    .dcod_op_fpxx_f2i_o               (dcod_op_fpxx_f2i), // DECODE
     // FPU-64 comparison part
-    .dcod_op_fp64_cmp_o               (dcod_op_fp64_cmp), // DECODE & DECODE->EXE
-    .dcod_opc_fp64_cmp_o              (dcod_opc_fp64_cmp), // DECODE & DECODE->EXE
+    .dcod_op_fp64_cmp_o               (dcod_op_fp64_cmp), // DECODE
+    .dcod_opc_fp64_cmp_o              (dcod_opc_fp64_cmp), // DECODE
     // MTSPR / MFSPR
-    .dcod_op_mfspr_o                  (dcod_op_mfspr), // DECODE & DECODE->EXE
-    .dcod_op_mtspr_o                  (dcod_op_mtspr), // DECODE & DECODE->EXE
+    .dcod_op_mfspr_o                  (dcod_op_mfspr), // DECODE
+    .dcod_op_mtspr_o                  (dcod_op_mtspr), // DECODE
     // Exception flags
     //  ## enable l.trap exception
-    .du_trap_enable_i                 (du_trap_enable), // DECODE & DECODE->EXE
+    .du_trap_enable_i                 (du_trap_enable), // DECODE
     //  ## outcome exception flags
-    .dcod_except_illegal_o            (dcod_except_illegal), // DECODE & DECODE->EXE
-    .dcod_except_syscall_o            (dcod_except_syscall), // DECODE & DECODE->EXE
-    .dcod_except_trap_o               (dcod_except_trap), // DECODE & DECODE->EXE
+    .dcod_except_illegal_o            (dcod_except_illegal), // DECODE
+    .dcod_except_syscall_o            (dcod_except_syscall), // DECODE
+    .dcod_except_trap_o               (dcod_except_trap), // DECODE
     // RFE proc
-    .dcod_op_rfe_o                    (dcod_op_rfe) // DECODE & DECODE->EXE
+    .dcod_op_rfe_o                    (dcod_op_rfe) // DECODE
   );
 
 
@@ -801,6 +840,7 @@ module mor1kx_cpu_marocchino
     .cpu_rst                    (cpu_rst), // OMAN
 
     // pipeline control
+    .padv_fetch_i               (padv_fetch), // OMAN
     .padv_decode_i              (padv_decode), // OMAN
     .padv_wb_i                  (padv_wb), // OMAN
     .pipeline_flush_i           (pipeline_flush), // OMAN
@@ -808,7 +848,7 @@ module mor1kx_cpu_marocchino
     // DECODE non-latched flags to indicate next required unit
     // (The information is stored in order control buffer)
     .dcod_op_pass_exec_i        (dcod_op_pass_exec), // OMAN
-    .dcod_jump_or_branch_i      (dcod_jump_or_branch), // OMAN
+    .fetch_op_jb_i              (fetch_op_jb), // OMAN
     .dcod_op_1clk_i             (dcod_op_1clk), // OMAN
     .dcod_op_div_i              (dcod_op_div), // OMAN
     .dcod_op_mul_i              (dcod_op_mul), // OMAN
@@ -919,7 +959,7 @@ module mor1kx_cpu_marocchino
     .exec_ext_adr_o             (exec_ext_adr), // OMAN
 
     // Stall fetch by specific type of hazards
-    .oman_fd_an_except_o        (oman_fd_an_except), // OMAN
+    .fd_an_except_o             (fd_an_except), // OMAN
 
     // DECODE result could be processed by EXECUTE
     .dcod_valid_o               (dcod_valid), // OMAN
@@ -937,12 +977,13 @@ module mor1kx_cpu_marocchino
     .grant_wb_to_fp64_cmp_o     (grant_wb_to_fp64_cmp), // OMAN
 
     // Logic to support Jump / Branch taking
-    .dcod_op_jr_i               (dcod_op_jr), // OMAN
-    .dcod_op_jimm_i             (dcod_op_jimm), // OMAN
-    .dcod_op_bf_i               (dcod_op_bf), // OMAN
-    .dcod_op_bnf_i              (dcod_op_bnf), // OMAN
-    // pc-relative target
-    .dcod_to_imm_target_i       (dcod_to_imm_target), // OMAN
+    //    ## jump/branch variants
+    .fetch_op_jimm_i            (fetch_op_jimm), // OMAN
+    .fetch_op_jr_i              (fetch_op_jr), // OMAN
+    .fetch_op_bf_i              (fetch_op_bf), // OMAN
+    .fetch_op_bnf_i             (fetch_op_bnf), // OMAN
+    //    ## "to immediate driven target"
+    .fetch_to_imm_target_i      (fetch_to_imm_target), // OMAN
     // register target
     .dcod_rfb1_jr_i             (dcod_rfb1_jr), // OMAN
     .wb_result1_i               (wb_result1), // OMAN
@@ -1887,8 +1928,7 @@ module mor1kx_cpu_marocchino
 
     // Inputs / Outputs for pipeline control signals
     .dcod_insn_valid_i                (dcod_insn_valid), // CTRL
-    .fetch_an_except_i                (fetch_an_except), // CTRL
-    .oman_fd_an_except_i              (oman_fd_an_except), // CTRL
+    .fd_an_except_i                   (fd_an_except), // CTRL
     .dcod_valid_i                     (dcod_valid), // CTRL
     .exec_valid_i                     (exec_valid), // CTRL
     .pipeline_flush_o                 (pipeline_flush), // CTRL

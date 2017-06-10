@@ -52,7 +52,8 @@ module mor1kx_icache_marocchino
   input                                 ic_enable_i,
 
   // regular requests in/out
-  input      [OPTION_OPERAND_WIDTH-1:0] phys_addr_idx_i,
+  input      [OPTION_OPERAND_WIDTH-1:0] virt_addr_idx_i,
+  input      [OPTION_OPERAND_WIDTH-1:0] virt_addr_cmd_i,
   input      [OPTION_OPERAND_WIDTH-1:0] phys_addr_tag_i,
   input                                 fetch_req_hit_i,
   input                                 immu_cache_inhibit_i,
@@ -355,13 +356,16 @@ module mor1kx_icache_marocchino
   // WAY-RAM enable
   assign way_en = {OPTION_ICACHE_WAYS{ic_ram_re}} | way_we;
 
-  // In fact we don't need different addresses per way
+  //   In fact we don't need different addresses per way
   // because we access WAY-RAM either for read or for re-fill, but
   // we don't do these simultaneously
+  //   As way size is equal to page one we able to use either
+  // physical or virtual indexing. We use virual indexing because
+  // it isn't changed by DMMU on/off.
   wire [WAY_WIDTH-3:0] way_addr;
   // ---
   assign way_addr = ic_refill ? ibus_burst_adr_i[WAY_WIDTH-1:2] : // WAY_ADDR at re-fill
-                                phys_addr_idx_i[WAY_WIDTH-1:2];   // WAY_ADDR default
+                                virt_addr_idx_i[WAY_WIDTH-1:2];   // WAY_ADDR default
 
   // WAY-RAM instances
   generate
@@ -501,15 +505,21 @@ module mor1kx_icache_marocchino
   endgenerate
 
   /*
-   * The tag mem is written during reads to write the LRU info
-   * and during refill and invalidate
+   * The tag mem is written during:
+   *  - last refill
+   *  - invalidate
+   *  - update LRU info
+   *
+   *   As way size is equal to page one we able to use either
+   * physical or virtual indexing. We use virual indexing because
+   * it isn't changed by DMMU on/off.
    */
   assign tag_windex = ic_refill     ? ibus_burst_adr_i[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH]  : // TAG_WR_ADDR at re-fill
                       ic_invalidate ? tag_invdex                                               : // TAG_WR_ADDR at invalidate
-                                      phys_addr_tag_i[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH];    // TAG_WR_ADDR at update LRU field
+                                      virt_addr_cmd_i[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH];    // TAG_WR_ADDR at update LRU info
 
   // TAG read address
-  assign tag_rindex = phys_addr_idx_i[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH];
+  assign tag_rindex = virt_addr_idx_i[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH];
 
   // Read/Write into same address
   wire tag_rw_same_addr = (tag_rindex == tag_windex);

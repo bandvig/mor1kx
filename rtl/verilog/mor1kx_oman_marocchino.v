@@ -36,6 +36,7 @@ module mor1kx_oman_marocchino
   input                                 cpu_rst,
 
   // pipeline control
+  input                                 padv_fetch_i,
   input                                 padv_decode_i,
   input                                 padv_wb_i,
   input                                 pipeline_flush_i,
@@ -43,7 +44,7 @@ module mor1kx_oman_marocchino
   // DECODE non-latched flags to indicate next required unit
   // (The information is stored in order control buffer)
   input                                 dcod_op_pass_exec_i,
-  input                                 dcod_jump_or_branch_i, // just to support IBUS error handling in CTRL
+  input                                 fetch_op_jb_i,
   input                                 dcod_op_1clk_i,
   input                                 dcod_op_div_i,
   input                                 dcod_op_mul_i,
@@ -154,7 +155,7 @@ module mor1kx_oman_marocchino
   output      [DEST_EXT_ADDR_WIDTH-1:0] exec_ext_adr_o,
 
   // Stall fetch by specific type of hazards
-  output reg                            oman_fd_an_except_o,
+  output reg                            fd_an_except_o,
 
   // DECODE result could be processed by EXECUTE
   output                                dcod_valid_o,
@@ -172,13 +173,15 @@ module mor1kx_oman_marocchino
   output                                grant_wb_to_fp64_cmp_o,
 
   // Logic to support Jump / Branch taking
-  input                                 dcod_op_jr_i,   // l.jr/l.jalr require operand B (potentially hazard)
-  input                                 dcod_op_jimm_i, // l.j/l.jal target selector
-  input                                 dcod_op_bf_i,   // l.bf  require awaited flag
-  input                                 dcod_op_bnf_i,  // l.bnf require awaited flag
-  // pc-relative target
-  input      [OPTION_OPERAND_WIDTH-1:0] dcod_to_imm_target_i,
-  // register target
+  //  # from IFETCH
+  //    ## jump/branch variants
+  input                                 fetch_op_jimm_i,
+  input                                 fetch_op_jr_i,
+  input                                 fetch_op_bf_i,
+  input                                 fetch_op_bnf_i,
+  //    ## "to immediate driven target"
+  input      [OPTION_OPERAND_WIDTH-1:0] fetch_to_imm_target_i,
+  //  # target for l.jr / l.jalr
   input      [OPTION_OPERAND_WIDTH-1:0] dcod_rfb1_jr_i,
   input      [OPTION_OPERAND_WIDTH-1:0] wb_result1_i,
   // comparision flag for l.bf/l.bnf
@@ -268,6 +271,31 @@ module mor1kx_oman_marocchino
   localparam  OCBT_RFD2_WB_POS        = OCBT_OP_FP64_ARITH_POS;
 
 
+  // a jump/branch instruction in DECODE
+  reg dcod_op_jb_r;
+  reg dcod_fetch_except_ibus_err_r;
+  reg dcod_fetch_except_ipagefault_r;
+  reg dcod_fetch_except_itlb_miss_r;
+  reg dcod_fetch_an_except_r;
+  // ---
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | pipeline_flush_i) begin
+      dcod_op_jb_r                    <= 1'b0;
+      dcod_fetch_except_ibus_err_r    <= 1'b0;
+      dcod_fetch_except_ipagefault_r  <= 1'b0;
+      dcod_fetch_except_itlb_miss_r   <= 1'b0;
+      dcod_fetch_an_except_r          <= 1'b0;
+    end
+    else if (padv_fetch_i) begin
+      dcod_op_jb_r                    <= fetch_op_jb_i;
+      dcod_fetch_except_ibus_err_r    <= fetch_except_ibus_err_i;
+      dcod_fetch_except_ipagefault_r  <= fetch_except_ipagefault_i;
+      dcod_fetch_except_itlb_miss_r   <= fetch_except_itlb_miss_i;
+      dcod_fetch_an_except_r          <= fetch_an_except_i;
+    end
+  end
+
+
   // OMAN WB-request generated with taking into accaunt
   // speculative WB for LSU load command
   //  # WB to RF
@@ -313,9 +341,10 @@ module mor1kx_oman_marocchino
   wire dcod_except_ibus_align;
 
   // Combine DECODE related exceptions
-  wire dcod_an_except = dcod_except_ibus_align  |                     // DECODE an exception
-                        dcod_except_illegal_i   |                     // DECODE an exception
-                        dcod_except_syscall_i   | dcod_except_trap_i; // DECODE an exception
+  wire fd_an_except = dcod_fetch_an_except_r  |                     // IFETCH an exception
+                      dcod_except_ibus_align  |                     // DECODE an exception
+                      dcod_except_illegal_i   |                     // DECODE an exception
+                      dcod_except_syscall_i   | dcod_except_trap_i; // DECODE an exception
 
   // input pack
   wire  [OCBT_MSB:0] ocbi;
@@ -337,14 +366,14 @@ module mor1kx_oman_marocchino
                   dcod_op_mul_i,
                   dcod_op_div_i,
                   dcod_op_1clk_i,
-                  dcod_jump_or_branch_i,
-                  (fetch_an_except_i | dcod_an_except | dcod_op_pass_exec_i), // OMAN entrance: !!! l.rfe is in "pass exec" !!!
+                  dcod_op_jb_r,
+                  (fd_an_except | dcod_op_pass_exec_i), // OMAN entrance: !!! l.rfe is in "pass exec" !!!
                   // Flag that istruction is restartable
                   interrupts_en,
                   // FETCH & DECODE exceptions
-                  fetch_except_ibus_err_i,
-                  fetch_except_ipagefault_i,
-                  fetch_except_itlb_miss_i,
+                  dcod_fetch_except_ibus_err_r,
+                  dcod_fetch_except_ipagefault_r,
+                  dcod_fetch_except_itlb_miss_r,
                   dcod_except_illegal_i,
                   dcod_except_syscall_i,
                   dcod_except_trap_i };
@@ -681,12 +710,12 @@ module mor1kx_oman_marocchino
   // so for the cases we additionally wait "jump/branch attributes".
   assign exec_valid_o =
     (exec_op_1clk_i     & ocbo00[OCBT_OP_1CLK_POS] & ~ocbo00[OCBT_JUMP_OR_BRANCH_POS]) | // EXEC VALID: but wait attributes for l.jal/ljalr
+    (exec_jb_attr_valid & ocbo00[OCBT_JUMP_OR_BRANCH_POS]) | // EXEC VALID
     (div_valid_i        & ocbo00[OCBT_OP_DIV_POS])         | // EXEC VALID
     (mul_valid_i        & ocbo00[OCBT_OP_MUL_POS])         | // EXEC VALID
     (fpxx_arith_valid_i & ocbo00[OCBT_OP_FPXX_ARITH_POS])  | // EXEC VALID
     (fp64_cmp_valid_i   & ocbo00[OCBT_OP_FP64_CMP_POS])    | // EXEC VALID
     (lsu_valid_i        & ocbo00[OCBT_OP_LS_POS])          | // EXEC VALID
-    (exec_jb_attr_valid & ocbo00[OCBT_JUMP_OR_BRANCH_POS]) | // EXEC VALID
                           ocbo00[OCBT_OP_PASS_EXEC_POS];     // EXEC VALID: l.rfe and FETCH/DECODE exceptions, etc
 
   // DECODE stall components
@@ -714,16 +743,19 @@ module mor1kx_oman_marocchino
   //---------------------------------------//
 
   // state machine for tracking Jump / Branch related hazards
-  localparam [3:0] JB_FSM_CATCHING_JB  = 4'b0001,
-                   JB_FSM_WAITING_B1   = 4'b0010, // waiting rB for l.jr/ljalr
-                   JB_FSM_WAITING_FLAG = 4'b0100,
-                   JB_FSM_DOING_JB     = 4'b1000;
+  localparam [5:0] JB_FSM_CATCHING_JB  = 6'b000001, // on IFETCH output
+                   JB_FSM_CHK_HAZARDS  = 6'b000010, // on DECODE
+                   JB_FSM_WAITING_B1   = 6'b000100, // waiting rB for l.jr/ljalr
+                   JB_FSM_WAITING_FLAG = 6'b001000, // waiting SR[F] for l.bf/l.bnf
+                   JB_FSM_DOING_JR     = 6'b010000, // execute l.jr/ljalr
+                   JB_FSM_DOING_BC     = 6'b100000; // execute l.bf/l.bnf
   // ---
-  reg [3:0] jb_fsm_state_r;
+  reg [5:0] jb_fsm_state_r;
   // --- particular states ---
-  wire jb_fsm_waiting_b1_state   = jb_fsm_state_r[1];
-  wire jb_fsm_waiting_flag_state = jb_fsm_state_r[2];
-  wire jb_fsm_doing_jb_state     = jb_fsm_state_r[3];
+  wire jb_fsm_waiting_b1_state   = jb_fsm_state_r[2];
+  wire jb_fsm_waiting_flag_state = jb_fsm_state_r[3];
+  wire jb_fsm_doing_jr_state     = jb_fsm_state_r[4];
+  wire jb_fsm_doing_bc_state     = jb_fsm_state_r[5];
 
 
   // --- detect rB hazard for l.jr/l.jalr ---
@@ -749,30 +781,54 @@ module mor1kx_oman_marocchino
                            ocbo01[OCBT_FLAG_WB_POS] ? ocbo01[OCBT_EXT_ADR_MSB:OCBT_EXT_ADR_LSB] :
                                                       ocbo00[OCBT_EXT_ADR_MSB:OCBT_EXT_ADR_LSB];
 
-  // --- l.bf OR l.bnf ---
-  wire dcod_op_bc = dcod_op_bf_i | dcod_op_bnf_i;
-
+  // --- DECODE stage J/B instruction flags ---
+  reg dcod_op_jr_r, dcod_op_bf_r, dcod_op_bnf_r, dcod_op_bc_r;
+  
   // --- various pendings till rB/flag computationcompletion ---
-  reg [DEST_EXT_ADDR_WIDTH-1:0]  jb_hazard_ext_p;
+  reg  [DEST_EXT_ADDR_WIDTH-1:0] jb_hazard_ext_p;
   reg [OPTION_OPERAND_WIDTH-1:0] jb_target_p;
   reg                            jb_bf_p, jb_bnf_p;
+
 
   // Jump / Branch state machine
   always @(posedge cpu_clk) begin
     if (cpu_rst | pipeline_flush_i) begin
       jb_fsm_state_r  <= JB_FSM_CATCHING_JB;
-      jb_hazard_ext_p <= {DEST_EXT_ADDR_WIDTH{1'b0}};
-      jb_target_p     <= {OPTION_OPERAND_WIDTH{1'b0}};
+      // on DECODE stage
+      dcod_op_jr_r    <= 1'b0;
+      dcod_op_bf_r    <= 1'b0;
+      dcod_op_bnf_r   <= 1'b0;
+      dcod_op_bc_r    <= 1'b0;
+      // for l.bf/l.bnf execution
       jb_bf_p         <= 1'b0;
       jb_bnf_p        <= 1'b0;
+      // other attributes
+      jb_hazard_ext_p <= {DEST_EXT_ADDR_WIDTH{1'b0}};
+      jb_target_p     <= {OPTION_OPERAND_WIDTH{1'b0}};
     end
     else begin
       // synthesis parallel_case full_case
       case (jb_fsm_state_r)
-        // catching j/b in DECODE and related hazard
+        // catching j/b on IFETCH output
         JB_FSM_CATCHING_JB : begin
-          if (padv_decode_i) begin
-            if (dcod_op_jr_i) begin
+          if (padv_fetch_i) begin
+            // store "to immediate" target permanently to simplify logic
+            jb_target_p <= fetch_to_imm_target_i;
+            // next state ?
+            if (fetch_op_jr_i | fetch_op_bf_i | fetch_op_bnf_i) begin
+              jb_fsm_state_r  <= JB_FSM_CHK_HAZARDS;
+              // on DECODE stage
+              dcod_op_jr_r    <= fetch_op_jr_i;
+              dcod_op_bf_r    <= fetch_op_bf_i;
+              dcod_op_bnf_r   <= fetch_op_bnf_i;
+              dcod_op_bc_r    <= fetch_op_bf_i | fetch_op_bnf_i;
+            end
+          end
+        end
+        // checking j/b related hazards in DECODE 
+        JB_FSM_CHK_HAZARDS : begin
+          if (padv_fetch_i) begin
+            if (dcod_op_jr_r) begin
               // store target permanently to simplify logic
               jb_target_p <= wb_result1_i;
               // select next state
@@ -786,18 +842,18 @@ module mor1kx_oman_marocchino
                   jb_hazard_ext_p <= wb_rfd1_ext;
                 end
                 else
-                  jb_fsm_state_r <= JB_FSM_DOING_JB;
-              end // OCB <-> DECODE vs WB <-> DECODE rB hazard
+                  jb_fsm_state_r <= JB_FSM_DOING_JR;
+              end  // (OCB <-> DECODE) or (WB <-> DECODE) rB hazard
+              else // no rB related hazards
+                jb_fsm_state_r <= JB_FSM_CATCHING_JB;
             end // l.jr/l.jalr
-            else if (dcod_op_bc) begin
-              // store target permanently to simplify logic
-              jb_target_p <= dcod_to_imm_target_i;
+            else if (dcod_op_bc_r) begin
               // select next state
               if (ocb_wb_flag) begin
                 jb_fsm_state_r  <= JB_FSM_WAITING_FLAG;
                 jb_hazard_ext_p <= ocb_wb_flag_ext;
-                jb_bf_p         <= dcod_op_bf_i;
-                jb_bnf_p        <= dcod_op_bnf_i;
+                jb_bf_p         <= dcod_op_bf_r;
+                jb_bnf_p        <= dcod_op_bnf_r;
               end
               else if (wb_flag_wb_r) begin
                 if (wb_flag_wb_lsu_miss_i) begin
@@ -805,59 +861,63 @@ module mor1kx_oman_marocchino
                   jb_hazard_ext_p <= wb_rfd1_ext;
                 end
                 else begin
-                  jb_fsm_state_r <= JB_FSM_DOING_JB;
+                  jb_fsm_state_r <= JB_FSM_DOING_BC;
                 end
-                jb_bf_p  <= dcod_op_bf_i;
-                jb_bnf_p <= dcod_op_bnf_i;
-              end // OCB <-> DECODE vs WB <-> DECODE flag hazard
+                jb_bf_p  <= dcod_op_bf_r;
+                jb_bnf_p <= dcod_op_bnf_r;
+              end  // (OCB <-> DECODE) vs (WB <-> DECODE) SR[F] hazard
+              else // no SR[F] related hazards
+                jb_fsm_state_r <= JB_FSM_CATCHING_JB;
             end // l.bf/l.bnf
-          end // advance DECODE
+            // drop DECODE "ops"
+            dcod_op_jr_r    <= 1'b0;
+            dcod_op_bf_r    <= 1'b0;
+            dcod_op_bnf_r   <= 1'b0;
+            dcod_op_bc_r    <= 1'b0;
+          end // advance IFETCH
         end
         // waiting address for jump
         JB_FSM_WAITING_B1 : begin
           if ((jb_hazard_ext_p == wb_rfd1_ext) & wb_rfd1_wb_o) begin
-            jb_fsm_state_r <= JB_FSM_DOING_JB;
+            jb_fsm_state_r <= JB_FSM_DOING_JR;
             jb_target_p    <= wb_result1_i;
           end
         end
         // waiting flag computation
         JB_FSM_WAITING_FLAG : begin
           if ((jb_hazard_ext_p == wb_rfd1_ext) & wb_flag_wb_o)
-            jb_fsm_state_r <= JB_FSM_DOING_JB;
+            jb_fsm_state_r <= JB_FSM_DOING_BC;
         end
-        // jum / branch execution
-        JB_FSM_DOING_JB : begin
+        // by default including JB_FSM_DOING_JR and JB_FSM_DOING_BC
+        default : begin
           jb_fsm_state_r <= JB_FSM_CATCHING_JB;
           jb_bf_p        <= 1'b0;
           jb_bnf_p       <= 1'b0;
         end
-        // by default
-        default :
-          jb_fsm_state_r <= JB_FSM_CATCHING_JB;
       endcase
     end
   end // @cpu-clock
 
 
   // do_branch_o is meaningless if fetch_jr_bc_hazard_o is rised
-  assign do_branch_o = dcod_op_jimm_i  |                                                            // do jump to immediate
-                       dcod_op_jr_i    | (jb_fsm_doing_jb_state & (~jb_bf_p) & (~jb_bnf_p))       | // do jump to register (B1)
-                       ((dcod_op_bf_i  | (jb_fsm_doing_jb_state & jb_bf_p))  &   ctrl_flag_sr_i)  | // do conditional branch
-                       ((dcod_op_bnf_i | (jb_fsm_doing_jb_state & jb_bnf_p)) & (~ctrl_flag_sr_i));  // do conditional branch
+  assign do_branch_o = fetch_op_jimm_i |                                                            // do jump to immediate
+                       dcod_op_jr_r    | jb_fsm_doing_jr_state                                    | // do jump to register (B1)
+                       ((dcod_op_bf_r  | (jb_fsm_doing_bc_state & jb_bf_p))  &   ctrl_flag_sr_i)  | // do conditional branch
+                       ((dcod_op_bnf_r | (jb_fsm_doing_bc_state & jb_bnf_p)) & (~ctrl_flag_sr_i));  // do conditional branch
   // branch target
-  assign do_branch_target_o = jb_fsm_doing_jb_state ? jb_target_p          : // branch target selection
-                              dcod_op_jr_i          ? dcod_rfb1_jr_i       : // branch target selection
-                                                      dcod_to_imm_target_i;  // branch target selection
+  assign do_branch_target_o = fetch_op_jimm_i ? fetch_to_imm_target_i : // branch target selection
+                              dcod_op_jr_r    ? dcod_rfb1_jr_i        : // branch target selection
+                                                jb_target_p ;           // branch target selection
 
 
   // Detect IBUS align violation on DECODE stage.
-  // To compute "oman_fd_an_except_o" and for JB_ATTR_OCB
+  // To compute "fd_an_except_o" and for JB_ATTR_OCB
   //   l.jr/l.jalr hazard in DECODE
   wire dcod_jr_hazard = ocb_hazard_d1b1 | (dcod_wb2dec_eq_adr_d1b1_i & wb_rfd1_wb_r); // l.jr/l.jalr hazard in DECODE
   //   It could happen only for l.jr/l.jalr
-  assign dcod_except_ibus_align = dcod_op_jr_i & (~dcod_jr_hazard) & (|dcod_rfb1_jr_i[1:0]);
+  assign dcod_except_ibus_align = dcod_op_jr_r & (~dcod_jr_hazard) & (|dcod_rfb1_jr_i[1:0]);
   //   Detect IBUS align violation on OMAN. For JB_ATTR_OCB only.
-  wire   oman_except_ibus_align = jb_fsm_doing_jb_state & (~jb_bf_p) & (~jb_bnf_p) & (|jb_target_p[1:0]);
+  wire   oman_except_ibus_align = jb_fsm_doing_jr_state & (|jb_target_p[1:0]);
 
 
   // l.bf/l.bnf flag hazard in DECODE
@@ -865,14 +925,16 @@ module mor1kx_oman_marocchino
 
 
   // Combine IFETCH hazards
-  assign fetch_jr_bc_hazard_o = (dcod_op_jr_i & dcod_jr_hazard) | jb_fsm_waiting_b1_state |  // IFETCH waiting rB for l.jr/l.jalr
-                                (dcod_op_bc   & dcod_bc_hazard) | jb_fsm_waiting_flag_state; // IFETCH waiting flag for l.bf/l.bnf
+  assign fetch_jr_bc_hazard_o = (fetch_op_jr_i | fetch_op_bf_i | fetch_op_bnf_i) |           // detect l.jr/l.jalr/l.bf/l.bnf
+                                (dcod_op_jr_r & dcod_jr_hazard) | jb_fsm_waiting_b1_state |  // waiting rB for l.jr/l.jalr
+                                (dcod_op_bc_r & dcod_bc_hazard) | jb_fsm_waiting_flag_state; // waiting flag for l.bf/l.bnf
 
   // jump / branch has no any hazarad (valid command)
-  wire jr_bc_valid = dcod_op_jimm_i |                   // jump to immediate is valid permanently
-                     (dcod_op_jr_i & ~dcod_jr_hazard) | // valid rB for l.jr/l.jalr in DECODE
-                     (dcod_op_bc   & ~dcod_bc_hazard) | // valid flag for l.bf/l.bnf in DECODE
-                     jb_fsm_doing_jb_state;             // l.jr/l.jalr/l.bf/l.bnf hazards are resolved
+  wire jr_bc_valid = fetch_op_jimm_i |                  // jump to immediate is valid permanently
+                     (dcod_op_jr_r & ~dcod_jr_hazard) | // valid rB for l.jr/l.jalr in DECODE
+                     (dcod_op_bc_r & ~dcod_bc_hazard) | // valid flag for l.bf/l.bnf in DECODE
+                     jb_fsm_doing_jr_state |            // l.jr/l.jalr hazards are resolved
+                     jb_fsm_doing_bc_state;             // l.bf/l.bnf hazards are resolved
 
 
   // JUMP/BRANCH attributes [O]rder [C]ontrol [B]uffer (JB_ATTR_OCB)
@@ -897,8 +959,9 @@ module mor1kx_oman_marocchino
   // --- output data fields for JB_ATTR_OCB ---
   wire [JB_ATTR_MSB:0] jb_attr_ocbo;
   // --- JB_ATTR_OCB controls ---
-  wire jb_attr_ocb_write = padv_decode_i & dcod_jump_or_branch_i;
-  wire jb_attr_ocb_read  = padv_wb_i & ocbo00[OCBT_JUMP_OR_BRANCH_POS];
+  // MAROCCHINO_TODO : register all "jimm" atributes till DECODE ????
+  wire jb_attr_ocb_write = padv_fetch_i & fetch_op_jb_i;
+  wire jb_attr_ocb_read  = padv_wb_i & exec_jb_attr_valid & ocbo00[OCBT_JUMP_OR_BRANCH_POS];
   // --- JB_ATTR_OCB instance ---
   mor1kx_ocb_miss_marocchino
   #(
@@ -949,9 +1012,9 @@ module mor1kx_oman_marocchino
   // ---
   always @(posedge cpu_clk) begin
     if (cpu_rst | pipeline_flush_i)
-      oman_fd_an_except_o <= 1'b0;
+      fd_an_except_o <= 1'b0;
     else if (padv_decode_i)
-      oman_fd_an_except_o <= (fetch_an_except_i | dcod_an_except  | dcod_op_rfe_i);
+      fd_an_except_o <= (fd_an_except  | dcod_op_rfe_i);
   end
 
   //   Flag to enabel/disable exterlal interrupts processing

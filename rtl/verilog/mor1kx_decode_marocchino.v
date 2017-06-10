@@ -43,12 +43,42 @@ module mor1kx_decode_marocchino
   parameter FEATURE_CSYNC        = "NONE"
 )
 (
-  // INSN
-  input          [`OR1K_INSN_WIDTH-1:0] dcod_insn_i,
+  // clocks ans reset
+  input                                 cpu_clk,
+  input                                 cpu_rst,
 
+  // pipeline controls
+  input                                 padv_fetch_i,
+  input                                 pipeline_flush_i,
+
+  // from IFETCH
+  //  # instruction word valid flag
+  input                                 fetch_insn_valid_i,
+  //  # instruction is in delay slot
+  input                                 fetch_delay_slot_i,
+  //  # instruction word itsef
+  input          [`OR1K_INSN_WIDTH-1:0] fetch_insn_i,
+  //  # operand addresses
+  input      [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfa1_adr_i,
+  input      [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfb1_adr_i,
+  input      [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfa2_adr_i,
+  input      [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfb2_adr_i,
+  //  # D2 address
+  input      [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfd2_adr_i,
+  //  # instruction PC
+  input      [OPTION_OPERAND_WIDTH-1:0] pc_fetch_i,
+
+  // latched instruction word and it's attributes
+  output reg                            dcod_insn_valid_o,
+  output reg                            dcod_delay_slot_o,
+  output reg [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfa1_adr_o,
+  output reg [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfb1_adr_o,
+  output reg [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfa2_adr_o,
+  output reg [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfb2_adr_o,
 
   // PC
-  input      [OPTION_OPERAND_WIDTH-1:0] pc_decode_i,
+  output reg [OPTION_OPERAND_WIDTH-1:0] pc_decode_o,
+
   // IMM
   output     [OPTION_OPERAND_WIDTH-1:0] dcod_immediate_o,
   output                                dcod_immediate_sel_o,
@@ -63,18 +93,7 @@ module mor1kx_decode_marocchino
   // for FPU64
   output reg                            dcod_rfa2_req_o, // instruction requires operand A2
   output reg                            dcod_rfb2_req_o, // instruction requires operand B2
-  input      [OPTION_RF_ADDR_WIDTH-1:0] insn_rfd2_adr_i, // D2 address from IFETCH
   output     [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfd2_adr_o, // D2 address corrected
-
-  // Logic to support Jump / Branch taking
-  output                                dcod_op_jr_o,
-  output                                dcod_op_jimm_o,
-  output                                dcod_op_bf_o,
-  output                                dcod_op_bnf_o,
-  // pc-relative target
-  output     [OPTION_OPERAND_WIDTH-1:0] dcod_to_imm_target_o,
-  // flag & branches
-  output                                dcod_jump_or_branch_o, // detect jump/branch to indicate "delay slot" for next fetched instruction
 
   // LSU related
   output          [`OR1K_IMM_WIDTH-1:0] dcod_imm16_o,
@@ -146,6 +165,45 @@ module mor1kx_decode_marocchino
   output                                dcod_op_rfe_o
 );
 
+  // read RF and latch fetched instruction
+
+  //--------------------------//
+  // IFETCH -> DECODE latches //
+  //--------------------------//
+
+  reg      [`OR1K_INSN_WIDTH-1:0] dcod_insn_r;
+  reg  [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfd2_adr_r;
+  // ---
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | pipeline_flush_i) begin
+      dcod_insn_valid_o <= 1'b0;
+      dcod_insn_r       <= {`OR1K_OPCODE_NOP,26'd0};
+      dcod_delay_slot_o <= 1'b0;
+      dcod_rfa1_adr_o   <= {OPTION_RF_ADDR_WIDTH{1'b0}};
+      dcod_rfb1_adr_o   <= {OPTION_RF_ADDR_WIDTH{1'b0}};
+      dcod_rfa2_adr_o   <= {OPTION_RF_ADDR_WIDTH{1'b0}};
+      dcod_rfb2_adr_o   <= {OPTION_RF_ADDR_WIDTH{1'b0}};
+      dcod_rfd2_adr_r   <= {OPTION_RF_ADDR_WIDTH{1'b0}};
+      pc_decode_o       <= {OPTION_OPERAND_WIDTH{1'b0}};
+    end
+    else if (padv_fetch_i) begin
+      dcod_insn_valid_o <= fetch_insn_valid_i;
+      dcod_insn_r       <= fetch_insn_i;
+      dcod_delay_slot_o <= fetch_delay_slot_i;
+      dcod_rfa1_adr_o   <= fetch_rfa1_adr_i;
+      dcod_rfb1_adr_o   <= fetch_rfb1_adr_i;
+      dcod_rfa2_adr_o   <= fetch_rfa2_adr_i;
+      dcod_rfb2_adr_o   <= fetch_rfb2_adr_i;
+      dcod_rfd2_adr_r   <= fetch_rfd2_adr_i; // MAROCCHINO_TODO : mux here
+      pc_decode_o       <= pc_fetch_i;
+    end
+  end // @cpu-clk
+
+
+  //--------------------//
+  // DECODE instruction //
+  //--------------------//
+
   wire [OPTION_OPERAND_WIDTH-1:0] imm_sext;
   wire                            imm_sext_sel;
   wire [OPTION_OPERAND_WIDTH-1:0] imm_zext;
@@ -154,21 +212,23 @@ module mor1kx_decode_marocchino
   wire                            imm_high_sel;
 
   // Insn opcode
-  wire [`OR1K_OPCODE_WIDTH-1:0]  opc_insn = dcod_insn_i[`OR1K_OPCODE_SELECT];
-  wire [`OR1K_ALU_OPC_WIDTH-1:0] opc_alu  = dcod_insn_i[`OR1K_ALU_OPC_SELECT];
+  wire [`OR1K_OPCODE_WIDTH-1:0]  opc_insn = dcod_insn_r[`OR1K_OPCODE_SELECT];
+  wire [`OR1K_ALU_OPC_WIDTH-1:0] opc_alu  = dcod_insn_r[`OR1K_ALU_OPC_SELECT];
 
   wire dcod_op_alu = (opc_insn == `OR1K_OPCODE_ALU);
 
 
   // load opcodes are 6'b10_0000 to 6'b10_0110, 0 to 6, so check for 7 and up
-  assign dcod_op_lsu_load_o = (opc_insn == `OR1K_OPCODE_LWA) |
-                              ((opc_insn == `OR1K_OPCODE_LD) & (OPTION_OPERAND_WIDTH == 64)) |
-                              ((opc_insn >= `OR1K_OPCODE_LWZ) & (opc_insn <= `OR1K_OPCODE_LHS));
+  assign dcod_op_lsu_load_o = (opc_insn == `OR1K_OPCODE_LWA) |                                  // DECODE: l.lxx
+                              (opc_insn == `OR1K_OPCODE_LWZ) | (opc_insn == `OR1K_OPCODE_LWS) | // DECODE: l.lxx
+                              (opc_insn == `OR1K_OPCODE_LHZ) | (opc_insn == `OR1K_OPCODE_LHS) | // DECODE: l.lxx
+                              (opc_insn == `OR1K_OPCODE_LBZ) | (opc_insn == `OR1K_OPCODE_LBS) | // DECODE: l.lxx
+                              ((opc_insn == `OR1K_OPCODE_LD) & (OPTION_OPERAND_WIDTH == 64));   // DECODE: l.lxx
 
   // Detect when instruction is store
-  assign dcod_op_lsu_store_o = (opc_insn == `OR1K_OPCODE_SW) | (opc_insn == `OR1K_OPCODE_SB)  |
-                               (opc_insn == `OR1K_OPCODE_SH) | (opc_insn == `OR1K_OPCODE_SWA) |
-                               ((opc_insn == `OR1K_OPCODE_SD) & (OPTION_OPERAND_WIDTH == 64));
+  assign dcod_op_lsu_store_o = (opc_insn == `OR1K_OPCODE_SWA) | (opc_insn == `OR1K_OPCODE_SW)  | // DECODE: l.sxx
+                               (opc_insn == `OR1K_OPCODE_SH)  | (opc_insn == `OR1K_OPCODE_SB)  | // DECODE: l.sxx
+                               ((opc_insn == `OR1K_OPCODE_SD) & (OPTION_OPERAND_WIDTH == 64));   // DECODE: l.sxx
 
   assign dcod_op_lsu_atomic_o = (opc_insn == `OR1K_OPCODE_LWA) | (opc_insn == `OR1K_OPCODE_SWA);
 
@@ -198,7 +258,7 @@ module mor1kx_decode_marocchino
   assign dcod_lsu_zext_o = opc_insn[0];
 
   assign dcod_op_msync_o = (opc_insn == `OR1K_OPCODE_SYSTRAPSYNC) &
-                           (dcod_insn_i[`OR1K_SYSTRAPSYNC_OPC_SELECT] ==
+                           (dcod_insn_r[`OR1K_SYSTRAPSYNC_OPC_SELECT] ==
                             `OR1K_SYSTRAPSYNC_OPC_MSYNC);
 
   assign dcod_op_mtspr_o = (opc_insn == `OR1K_OPCODE_MTSPR);
@@ -264,14 +324,14 @@ module mor1kx_decode_marocchino
 
   // --- FPU3264 arithmetic part ---
   //  # tmp skeleton
-  wire op_fpxx_arith_t = (~dcod_insn_i[3]) &        // arithmetic operation
-                         (~(|dcod_insn_i[10:8]));   // all reserved bits are zeros
+  wire op_fpxx_arith_t = (~dcod_insn_r[3]) &        // arithmetic operation
+                         (~(|dcod_insn_r[10:8]));   // all reserved bits are zeros
   //  # for further legality detection
-  wire op_fpxx_arith_l = op_fpxx_arith_t & (dcod_insn_i[2:0] < 3'd6);
+  wire op_fpxx_arith_l = op_fpxx_arith_t & (dcod_insn_r[2:0] < 3'd6);
   //  # a legal FPU
   assign dcod_op_fpxx_arith_o = op_fpxx_arith_l & (opc_insn == `OR1K_OPCODE_FPU);
   //  # directly for FPU3264 execution unit
-  assign dcod_op_fp64_arith_o = dcod_insn_i[`OR1K_FPUOP_DOUBLE_BIT];
+  assign dcod_op_fp64_arith_o = dcod_insn_r[`OR1K_FPUOP_DOUBLE_BIT];
   // fpu arithmetic opc:
   // ===================
   // 000 = add
@@ -280,19 +340,19 @@ module mor1kx_decode_marocchino
   // 011 = divide
   // 100 = i2f
   // 101 = f2i
-  assign dcod_op_fpxx_add_o = op_fpxx_arith_t & (dcod_insn_i[2:0] == 3'd0) & (opc_insn == `OR1K_OPCODE_FPU);
-  assign dcod_op_fpxx_sub_o = op_fpxx_arith_t & (dcod_insn_i[2:0] == 3'd1) & (opc_insn == `OR1K_OPCODE_FPU);
-  assign dcod_op_fpxx_mul_o = op_fpxx_arith_t & (dcod_insn_i[2:0] == 3'd2) & (opc_insn == `OR1K_OPCODE_FPU);
-  assign dcod_op_fpxx_div_o = op_fpxx_arith_t & (dcod_insn_i[2:0] == 3'd3) & (opc_insn == `OR1K_OPCODE_FPU);
-  assign dcod_op_fpxx_i2f_o = op_fpxx_arith_t & (dcod_insn_i[2:0] == 3'd4) & (opc_insn == `OR1K_OPCODE_FPU);
-  assign dcod_op_fpxx_f2i_o = op_fpxx_arith_t & (dcod_insn_i[2:0] == 3'd5) & (opc_insn == `OR1K_OPCODE_FPU);
+  assign dcod_op_fpxx_add_o = op_fpxx_arith_t & (dcod_insn_r[2:0] == 3'd0) & (opc_insn == `OR1K_OPCODE_FPU);
+  assign dcod_op_fpxx_sub_o = op_fpxx_arith_t & (dcod_insn_r[2:0] == 3'd1) & (opc_insn == `OR1K_OPCODE_FPU);
+  assign dcod_op_fpxx_mul_o = op_fpxx_arith_t & (dcod_insn_r[2:0] == 3'd2) & (opc_insn == `OR1K_OPCODE_FPU);
+  assign dcod_op_fpxx_div_o = op_fpxx_arith_t & (dcod_insn_r[2:0] == 3'd3) & (opc_insn == `OR1K_OPCODE_FPU);
+  assign dcod_op_fpxx_i2f_o = op_fpxx_arith_t & (dcod_insn_r[2:0] == 3'd4) & (opc_insn == `OR1K_OPCODE_FPU);
+  assign dcod_op_fpxx_f2i_o = op_fpxx_arith_t & (dcod_insn_r[2:0] == 3'd5) & (opc_insn == `OR1K_OPCODE_FPU);
 
 
   // --- FPU3264 comparison part ---
   //  # for further legality detection
-  wire op_fp64_cmp_l = dcod_insn_i[3] &          // comparison operation
-                       (~(|dcod_insn_i[10:8])) & // all reserved bits are zeros
-                       (dcod_insn_i[2:0] < 3'd6);
+  wire op_fp64_cmp_l = dcod_insn_r[3] &          // comparison operation
+                       (~(|dcod_insn_r[10:8])) & // all reserved bits are zeros
+                       (dcod_insn_r[2:0] < 3'd6);
   //  # directly for FPU32 execution unit
   assign dcod_op_fp64_cmp_o = op_fp64_cmp_l & (opc_insn == `OR1K_OPCODE_FPU);
   // fpu comparison opc:
@@ -303,16 +363,16 @@ module mor1kx_decode_marocchino
   // 011 = GE
   // 100 = LT
   // 101 = LE
-  assign dcod_opc_fp64_cmp_o = dcod_insn_i[2:0];
+  assign dcod_opc_fp64_cmp_o = dcod_insn_r[2:0];
 
 
   // Immediate for MF(T)SPR, LOADs and STOREs
   assign dcod_imm16_o = (dcod_op_mtspr_o | dcod_op_lsu_store_o) ?
-                        {dcod_insn_i[25:21],dcod_insn_i[10:0]} :  // immediate for l.mtspr and l.s* (store)
-                        dcod_insn_i[`OR1K_IMM_SELECT];            // immediate for l.mfspr and l.l* (load)
+                        {dcod_insn_r[25:21],dcod_insn_r[10:0]} :  // immediate for l.mtspr and l.s* (store)
+                        dcod_insn_r[`OR1K_IMM_SELECT];            // immediate for l.mfspr and l.l* (load)
 
   // Immediate for arithmetic
-  wire [`OR1K_IMM_WIDTH-1:0] opc_imm16 = dcod_insn_i[`OR1K_IMM_SELECT];
+  wire [`OR1K_IMM_WIDTH-1:0] opc_imm16 = dcod_insn_r[`OR1K_IMM_SELECT];
 
   //   Instructions with sign-extended immediate
   // excluding load/store, because LSU performs this extention by itself.
@@ -343,19 +403,19 @@ module mor1kx_decode_marocchino
 
   // ALU related secondary opcode
   assign dcod_opc_alu_secondary_o = dcod_op_setflag_o ?
-                                      dcod_insn_i[`OR1K_COMP_OPC_SELECT]:
-                                      {1'b0,dcod_insn_i[`OR1K_ALU_OPC_SECONDARY_SELECT]};
+                                      dcod_insn_r[`OR1K_COMP_OPC_SELECT]:
+                                      {1'b0,dcod_insn_r[`OR1K_ALU_OPC_SECONDARY_SELECT]};
 
 
   // Exceptions and l.rfe
   assign dcod_op_rfe_o = (opc_insn == `OR1K_OPCODE_RFE);
 
   assign dcod_except_syscall_o = (opc_insn == `OR1K_OPCODE_SYSTRAPSYNC) &
-                                 (dcod_insn_i[`OR1K_SYSTRAPSYNC_OPC_SELECT] ==
+                                 (dcod_insn_r[`OR1K_SYSTRAPSYNC_OPC_SELECT] ==
                                   `OR1K_SYSTRAPSYNC_OPC_SYSCALL);
 
   assign dcod_except_trap_o = (opc_insn == `OR1K_OPCODE_SYSTRAPSYNC) &
-                              (dcod_insn_i[`OR1K_SYSTRAPSYNC_OPC_SELECT] ==
+                              (dcod_insn_r[`OR1K_SYSTRAPSYNC_OPC_SELECT] ==
                                `OR1K_SYSTRAPSYNC_OPC_TRAP) &
                               du_trap_enable_i;
 
@@ -489,14 +549,14 @@ module mor1kx_decode_marocchino
           dcod_op_1clk_o        = 1'b0;
           if (op_fpxx_arith_l) begin
             dcod_rfa1_req_o = 1'b1;
-            dcod_rfa2_req_o = op_fpxx_arith_l & dcod_insn_i[`OR1K_FPUOP_DOUBLE_BIT];
-            if ((dcod_insn_i[2:0] == 3'd4) | (dcod_insn_i[2:0] == 3'd5)) begin // rD <- conv(rA)
+            dcod_rfa2_req_o = op_fpxx_arith_l & dcod_insn_r[`OR1K_FPUOP_DOUBLE_BIT];
+            if ((dcod_insn_r[2:0] == 3'd4) | (dcod_insn_r[2:0] == 3'd5)) begin // rD <- conv(rA)
               dcod_rfb1_req_o = 1'b0;
               dcod_rfb2_req_o = 1'b0;
             end
             else begin // rD <- rA op rB
               dcod_rfb1_req_o  = 1'b1;
-              dcod_rfb2_req_o = op_fpxx_arith_l & dcod_insn_i[`OR1K_FPUOP_DOUBLE_BIT];
+              dcod_rfb2_req_o = op_fpxx_arith_l & dcod_insn_r[`OR1K_FPUOP_DOUBLE_BIT];
             end
             dcod_rfd1_wb_o = 1'b1;
           end
@@ -506,8 +566,8 @@ module mor1kx_decode_marocchino
             dcod_rfb1_req_o = 1'b1;
             dcod_rfd1_wb_o  = 1'b0;
             // for FPU64
-            dcod_rfa2_req_o = dcod_insn_i[`OR1K_FPUOP_DOUBLE_BIT]; // SR[F] <- (rA compare rB)
-            dcod_rfb2_req_o = dcod_insn_i[`OR1K_FPUOP_DOUBLE_BIT]; // SR[F] <- (rA compare rB)
+            dcod_rfa2_req_o = dcod_insn_r[`OR1K_FPUOP_DOUBLE_BIT]; // SR[F] <- (rA compare rB)
+            dcod_rfb2_req_o = dcod_insn_r[`OR1K_FPUOP_DOUBLE_BIT]; // SR[F] <- (rA compare rB)
           end
           else begin
             // no legal FPU instruction
@@ -538,7 +598,7 @@ module mor1kx_decode_marocchino
       `OR1K_OPCODE_SHRTI:
         begin
           // synthesis parallel_case full_case
-          case (dcod_insn_i[`OR1K_ALU_OPC_SECONDARY_SELECT])
+          case (dcod_insn_r[`OR1K_ALU_OPC_SECONDARY_SELECT])
             `OR1K_ALU_OPC_SECONDARY_SHRT_SLL, // rD <- SLLI(rA,Imm6)
             `OR1K_ALU_OPC_SECONDARY_SHRT_SRL, // rD <- SRLI(rA,Imm6)
             `OR1K_ALU_OPC_SECONDARY_SHRT_SRA, // rD <- SRAI(rA,Imm6)
@@ -613,7 +673,7 @@ module mor1kx_decode_marocchino
             `OR1K_ALU_OPC_SHRT:
               begin
                 // synthesis parallel_case full_case
-                case (dcod_insn_i[`OR1K_ALU_OPC_SECONDARY_SELECT])
+                case (dcod_insn_r[`OR1K_ALU_OPC_SECONDARY_SELECT])
                   `OR1K_ALU_OPC_SECONDARY_SHRT_SLL, // rD <- SLL(rA,rB)
                   `OR1K_ALU_OPC_SECONDARY_SHRT_SRL, // rD <- SRL(rA,rB)
                   `OR1K_ALU_OPC_SECONDARY_SHRT_SRA, // rD <- SRA(rA,rB)
@@ -633,7 +693,7 @@ module mor1kx_decode_marocchino
                       dcod_rfb1_req_o       = 1'b0;
                       dcod_rfd1_wb_o        = 1'b0;
                     end
-                endcase // case (dcod_insn_i[`OR1K_ALU_OPC_SECONDARY_SELECT])
+                endcase // case (dcod_insn_r[`OR1K_ALU_OPC_SECONDARY_SELECT])
                 dcod_op_pass_exec_o = 1'b0;
               end
 
@@ -654,7 +714,7 @@ module mor1kx_decode_marocchino
 
       `OR1K_OPCODE_SYSTRAPSYNC: begin
         // synthesis parallel_case full_case
-        case (dcod_insn_i[`OR1K_SYSTRAPSYNC_OPC_SELECT])
+        case (dcod_insn_r[`OR1K_SYSTRAPSYNC_OPC_SELECT])
           `OR1K_SYSTRAPSYNC_OPC_TRAP,
           `OR1K_SYSTRAPSYNC_OPC_SYSCALL:
             begin
@@ -708,34 +768,15 @@ module mor1kx_decode_marocchino
 
 
 
-  // Branch detection
-
-  // jumps to register
-  assign dcod_op_jr_o = (opc_insn == `OR1K_OPCODE_JR) | (opc_insn == `OR1K_OPCODE_JALR);
-
-  // jump to immediate
-  assign dcod_op_jimm_o = (opc_insn == `OR1K_OPCODE_J) | (opc_insn == `OR1K_OPCODE_JAL);
-
-  // conditional branches
-  assign dcod_op_bf_o  = (opc_insn == `OR1K_OPCODE_BF);
-  assign dcod_op_bnf_o = (opc_insn == `OR1K_OPCODE_BNF);
-
-  // detect jump/branch to indicate "delay slot" for next fetched instruction
-  assign dcod_jump_or_branch_o = dcod_op_jr_o | dcod_op_jimm_o | dcod_op_bf_o | dcod_op_bnf_o;
-
-  // pc-relative target
-  assign dcod_to_imm_target_o = pc_decode_i + {{4{dcod_insn_i[25]}},dcod_insn_i[25:0],2'b00};
-
-
   // jumps with link to 1-CLCK reservaton station for save GR[9]
   assign dcod_op_jal_o = (opc_insn == `OR1K_OPCODE_JALR) | (opc_insn == `OR1K_OPCODE_JAL);
 
 
   // Destination addresses:
   //  # D1
-  assign dcod_rfd1_adr_o = dcod_op_jal_o ? 4'd9 : dcod_insn_i[`OR1K_RD_SELECT];
+  assign dcod_rfd1_adr_o = dcod_op_jal_o ? 4'd9 : dcod_insn_r[`OR1K_RD_SELECT];
   //  # D2 - to be consistent with RF logic
-  assign dcod_rfd2_adr_o = dcod_op_jal_o ? 4'd10 : insn_rfd2_adr_i;
+  assign dcod_rfd2_adr_o = dcod_op_jal_o ? 4'd10 : dcod_rfd2_adr_r;
 
 
   // Which instructions writes comparison flag?
