@@ -144,10 +144,13 @@ module pfpu_rnd_marocchino
   // rounding pipe controls
   //  ## resdy flags of stages
   reg s1o_ready;
+  reg s2o_ready;
   //  ## per stage busy flags
-  wire s1_busy = s1o_ready & ~(padv_wb_i & grant_wb_to_fpxx_arith_i);
+  wire s2_busy = s2o_ready & ~(padv_wb_i & grant_wb_to_fpxx_arith_i);
+  wire s1_busy = s1o_ready & s2_busy;
   //  ## per stage advance
   wire s1_adv  = (add_rdy_i | mul_rdy_i | div_rdy_i | i2f_rdy_i | f2i_rdy_i) & ~s1_busy;
+  wire s2_adv  = s1o_ready & ~s2_busy;
   // ## per execution unit reporting
   assign rnd_taking_add_o = add_rdy_i & ~s1_busy;
   assign rnd_taking_mul_o = mul_rdy_i & ~s1_busy;
@@ -156,7 +159,7 @@ module pfpu_rnd_marocchino
   assign rnd_taking_f2i_o = f2i_rdy_i & ~s1_busy;
 
   // output of rounding pipe state
-  assign fpxx_arith_valid_o = s1o_ready;
+  assign fpxx_arith_valid_o = s2o_ready;
 
 
   /* Stage #1: common align */
@@ -352,15 +355,13 @@ module pfpu_rnd_marocchino
       s1o_ready <= 1'b0;
     else if (s1_adv)
       s1o_ready <= 1'b1;
-    else if (padv_wb_i & grant_wb_to_fpxx_arith_i)
+    else if (s2_adv)
       s1o_ready <= 1'b0;
   end // @clock
 
 
   /* Stage #2: rounding */
 
-
-  wire s2t_dbz  = s1o_div_dbz; // MAROCCHINO_TODO: optimize ?
 
   wire s2t_g    = s1o_fract64[0];
   wire s2t_r    = s1o_rs[1];
@@ -387,88 +388,137 @@ module pfpu_rnd_marocchino
   wire [63:0] s2t_fract64_rnd = s1o_fract64 + {63'd0,s2t_set_rnd_up};
 
 
+  // output of rounding stage
+  reg        s2o_sign;
+  reg [12:0] s2o_exp13;
+  reg [63:0] s2o_fract64_rnd;
+  reg        s2o_lost;
+  reg        s2o_op_fp64_arith;
+  reg        s2o_inv;
+  reg        s2o_inf;
+  reg        s2o_snan;
+  reg        s2o_qnan;
+  reg        s2o_anan_sign;
+  reg        s2o_dbz;
+  reg        s2o_f2i_ovf, s2o_f2i;
+  // registering
+  always @(posedge cpu_clk) begin
+    if(s2_adv) begin
+      s2o_sign          <= s1o_sign;
+      s2o_exp13         <= s1o_exp13;
+      s2o_fract64_rnd   <= s2t_fract64_rnd;
+      s2o_lost          <= s2t_lost;
+      s2o_op_fp64_arith <= s1o_op_fp64_arith;
+      // various flags:
+      s2o_inv           <= s1o_inv;
+      s2o_inf           <= s1o_inf;
+      s2o_snan          <= s1o_snan;
+      s2o_qnan          <= s1o_qnan;
+      s2o_anan_sign     <= s1o_anan_sign;
+      // DIV specials
+      s2o_dbz           <= s1o_div_dbz;
+      // I2F specials
+      s2o_f2i_ovf       <= s1o_f2i_ovf;
+      s2o_f2i           <= s1o_f2i;
+    end // advance
+  end // @clock
+
+  // ready is special case
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | pipeline_flush_i)
+      s2o_ready <= 1'b0;
+    else if (s2_adv)
+      s2o_ready <= 1'b1;
+    else if (padv_wb_i & grant_wb_to_fpxx_arith_i)
+      s2o_ready <= 1'b0;
+  end // @clock
+
+
+  /* Stage #3: final align and formatting result */
+
+
   // floating point output
-  wire s2t_fxx_shr = s1o_op_fp64_arith ? s2t_fract64_rnd[53] : s2t_fract64_rnd[24];
+  wire s3t_fxx_shr = s2o_op_fp64_arith ? s2o_fract64_rnd[53] : s2o_fract64_rnd[24];
   // update exponent and fraction
-  wire [12:0] s2t_fxx_exp13   = s1o_exp13 + {12'd0,s2t_fxx_shr};
-  wire [52:0] s2t_fxx_fract53 = s2t_fxx_shr ? s2t_fract64_rnd[53:1] :
-                                              s2t_fract64_rnd[52:0];
+  wire [12:0] s3t_fxx_exp13   = s2o_exp13 + {12'd0,s3t_fxx_shr};
+  wire [52:0] s3t_fxx_fract53 = s3t_fxx_shr ? s2o_fract64_rnd[53:1] :
+                                              s2o_fract64_rnd[52:0];
   // denormalized or zero
-  wire s2t_fxx_fract53_dn = s1o_op_fp64_arith ? (~s2t_fxx_fract53[52]) : (~s2t_fxx_fract53[23]);
+  wire s3t_fxx_fract53_dn = s2o_op_fp64_arith ? (~s3t_fxx_fract53[52]) : (~s3t_fxx_fract53[23]);
   // floating point overflow and infinity
-  wire s2t_fxx_ovf = (s2t_fxx_exp13 > (s1o_op_fp64_arith ? 13'd2046 : 13'd254)) | s1o_inf | s2t_dbz;
+  wire s3t_fxx_ovf = (s3t_fxx_exp13 > (s2o_op_fp64_arith ? 13'd2046 : 13'd254)) | s2o_inf | s2o_dbz;
 
 
   // integer output (f2i)
-  wire s2t_ixx_carry_rnd = s1o_op_fp64_arith ? s2t_fract64_rnd[63] : s2t_fract64_rnd[31];
-  wire s2t_ixx_inv       = ((~s1o_sign) & s2t_ixx_carry_rnd) | s1o_f2i_ovf;
+  wire s3t_ixx_carry_rnd = s2o_op_fp64_arith ? s2o_fract64_rnd[63] : s2o_fract64_rnd[31];
+  wire s3t_ixx_inv       = ((~s2o_sign) & s3t_ixx_carry_rnd) | s2o_f2i_ovf;
   // two's complement for negative number
-  wire [63:0] s2t_ixx_value = (s2t_fract64_rnd ^ {64{s1o_sign}}) + {63'd0,s1o_sign};
+  wire [63:0] s3t_ixx_value = (s2o_fract64_rnd ^ {64{s2o_sign}}) + {63'd0,s2o_sign};
   // zero
-  wire s2t_ixx_value_00 = (~s2t_ixx_inv) & (~(|s2t_fract64_rnd));
+  wire s3t_ixx_value_00 = (~s3t_ixx_inv) & (~(|s2o_fract64_rnd));
   // maximum signed integer:
   //   i32/i64 are right aligned
-  wire [63:0] s2t_ixx_max = s1o_op_fp64_arith ? (64'h7fffffffffffffff ^ {64{s1o_sign}}) :
-                                                {32'd0,(32'h7fffffff ^ {32{s1o_sign}})};
+  wire [63:0] s3t_ixx_max = s2o_op_fp64_arith ? (64'h7fffffffffffffff ^ {64{s2o_sign}}) :
+                                                {32'd0,(32'h7fffffff ^ {32{s2o_sign}})};
   // int output
-  wire [63:0] s2t_ixx_opc = s2t_ixx_inv ? s2t_ixx_max : s2t_ixx_value;
+  wire [63:0] s3t_ixx_opc = s3t_ixx_inv ? s3t_ixx_max : s3t_ixx_value;
 
 
   // Multiplexing flags
-  wire s2t_ine, s2t_ovf, s2t_inf, s2t_unf, s2t_zer;
+  wire s3t_ine, s3t_ovf, s3t_inf, s3t_unf, s3t_zer;
   // ---
-  assign {s2t_ine,s2t_ovf,s2t_inf,s2t_unf,s2t_zer} =
+  assign {s3t_ine,s3t_ovf,s3t_inf,s3t_unf,s3t_zer} =
     // f2i          ine  ovf  inf  unf              zer
-    s1o_f2i ? {s2t_lost,1'b0,1'b0,1'b0,s2t_ixx_value_00} :
+    s2o_f2i ? {s2o_lost,1'b0,1'b0,1'b0,s3t_ixx_value_00} :
     // qnan output            ine  ovf  inf  unf  zer
-    (s1o_snan | s1o_qnan) ? {1'b0,1'b0,1'b0,1'b0,1'b0} :
+    (s2o_snan | s2o_qnan) ? {1'b0,1'b0,1'b0,1'b0,1'b0} :
     // snan output            ine  ovf  inf  unf  zer
-    s1o_inv ?               {1'b0,1'b0,1'b0,1'b0,1'b0} :
+    s2o_inv ?               {1'b0,1'b0,1'b0,1'b0,1'b0} :
     // overflow and infinity                          ine                       ovf  inf  unf  zer
-    s2t_fxx_ovf ? {((s2t_lost | (~s1o_inf)) & (~s2t_dbz)),((~s1o_inf) & (~s2t_dbz)),1'b1,1'b0,1'b0} :
+    s3t_fxx_ovf ? {((s2o_lost | (~s2o_inf)) & (~s2o_dbz)),((~s2o_inf) & (~s2o_dbz)),1'b1,1'b0,1'b0} :
     // denormalized or zero      ine  ovf  inf                             unf                 zer
-    (s2t_fxx_fract53_dn) ? {s2t_lost,1'b0,1'b0,(s2t_lost & s2t_fxx_fract53_dn),~(|s2t_fxx_fract53)} :
+    (s3t_fxx_fract53_dn) ? {s2o_lost,1'b0,1'b0,(s2o_lost & s3t_fxx_fract53_dn),~(|s3t_fxx_fract53)} :
     // normal result             ine  ovf  inf  unf  zer
-                           {s2t_lost,1'b0,1'b0,1'b0,1'b0};
+                           {s2o_lost,1'b0,1'b0,1'b0,1'b0};
 
   // Multiplexing double precision
-  wire [63:0] s2t_opc64;
-  assign s2t_opc64 =
+  wire [63:0] s3t_opc64;
+  assign s3t_opc64 =
     // f2i
-    s1o_f2i ? s2t_ixx_opc :
+    s2o_f2i ? s3t_ixx_opc :
     // qnan output
-    (s1o_snan | s1o_qnan) ? {s1o_anan_sign,QNAN_D} :
+    (s2o_snan | s2o_qnan) ? {s2o_anan_sign,QNAN_D} :
     // snan output
-    s1o_inv ? {s1o_sign,SNAN_D} :
+    s2o_inv ? {s2o_sign,SNAN_D} :
     // overflow and infinity
-    s2t_fxx_ovf ? {s1o_sign,INF_D} :
+    s3t_fxx_ovf ? {s2o_sign,INF_D} :
     // denormalized or zero
-    (s2t_fxx_fract53_dn) ? {s1o_sign,11'd0,s2t_fxx_fract53[51:0]} :
+    (s3t_fxx_fract53_dn) ? {s2o_sign,11'd0,s3t_fxx_fract53[51:0]} :
     // normal result
-                           {s1o_sign,s2t_fxx_exp13[10:0],s2t_fxx_fract53[51:0]};
+                           {s2o_sign,s3t_fxx_exp13[10:0],s3t_fxx_fract53[51:0]};
 
   // Multiplexing single precision
-  wire [31:0] s2t_opc32;
-  assign s2t_opc32 =
+  wire [31:0] s3t_opc32;
+  assign s3t_opc32 =
     // f2i
-    s1o_f2i ? s2t_ixx_opc[31:0] :
+    s2o_f2i ? s3t_ixx_opc[31:0] :
     // qnan output
-    (s1o_snan | s1o_qnan) ? {s1o_anan_sign,QNAN_S} :
+    (s2o_snan | s2o_qnan) ? {s2o_anan_sign,QNAN_S} :
     // snan output
-    s1o_inv ? {s1o_sign,SNAN_S} :
+    s2o_inv ? {s2o_sign,SNAN_S} :
     // overflow and infinity
-    s2t_fxx_ovf ? {s1o_sign,INF_S} :
+    s3t_fxx_ovf ? {s2o_sign,INF_S} :
     // denormalized or zero
-    (s2t_fxx_fract53_dn) ? {s1o_sign,8'd0,s2t_fxx_fract53[22:0]} :
+    (s3t_fxx_fract53_dn) ? {s2o_sign,8'd0,s3t_fxx_fract53[22:0]} :
     // normal result
-                           {s1o_sign,s2t_fxx_exp13[7:0],s2t_fxx_fract53[22:0]};
+                           {s2o_sign,s3t_fxx_exp13[7:0],s3t_fxx_fract53[22:0]};
 
 
   // EXECUTE level FP32 arithmetic flags
   wire [`OR1K_FPCSR_ALLF_SIZE-1:0] exec_fpxx_arith_fpcsr =
-    {s2t_dbz, s2t_inf, (s1o_inv | (s2t_ixx_inv & s1o_f2i) | s1o_snan),
-     s2t_ine, s2t_zer, s1o_qnan,
-     (s1o_inv | (s1o_snan & s1o_f2i)), s2t_unf, s2t_ovf} &
+    {s2o_dbz, s3t_inf, (s2o_inv | (s3t_ixx_inv & s2o_f2i) | s2o_snan),
+     s3t_ine, s3t_zer, s2o_qnan,
+     (s2o_inv | (s2o_snan & s2o_f2i)), s3t_unf, s3t_ovf} &
     ctrl_fpu_mask_flags_i & {`OR1K_FPCSR_ALLF_SIZE{grant_wb_to_fpxx_arith_i}};
 
   // EXECUTE level FP32 arithmetic exception
@@ -479,11 +529,11 @@ module pfpu_rnd_marocchino
   always @(posedge cpu_clk) begin
     if(padv_wb_i) begin
       // for WB-result #1
-      wb_fpxx_arith_res_hi_o <= (s1o_op_fp64_arith ? s2t_opc64[63:32] : s2t_opc32) &
+      wb_fpxx_arith_res_hi_o <= (s2o_op_fp64_arith ? s3t_opc64[63:32] : s3t_opc32) &
                                 {32{grant_wb_to_fpxx_arith_i}};
       // for WB-result #2
-      wb_fpxx_arith_res_lo_o <= s2t_opc64[31:0] &
-                                {32{grant_wb_to_fpxx_arith_i & s1o_op_fp64_arith}};
+      wb_fpxx_arith_res_lo_o <= s3t_opc64[31:0] &
+                                {32{grant_wb_to_fpxx_arith_i & s2o_op_fp64_arith}};
     end
   end // @clock
 
