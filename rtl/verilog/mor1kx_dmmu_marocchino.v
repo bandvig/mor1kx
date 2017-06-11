@@ -237,15 +237,12 @@ module mor1kx_dmmu_marocchino
           // state
           spr_dmmu_state_r    <= SPR_DMMU_ACK; // on read result latching
         end
-        // generate ACK 
-        SPR_DMMU_ACK : begin
+        // default including SPR_DMMU_ACK
+        default : begin
           spr_bus_dat_o       <= {OPTION_OPERAND_WIDTH{1'b0}};
           // state
-          spr_dmmu_state_r    <= SPR_DMMU_WAIT; // on ack
+          spr_dmmu_state_r    <= SPR_DMMU_WAIT; // on default/ack
         end
-        // default
-        default :
-          spr_dmmu_state_r    <= SPR_DMMU_WAIT; // by default
       endcase
     end
   end // @ clock

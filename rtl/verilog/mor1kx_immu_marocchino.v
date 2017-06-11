@@ -232,15 +232,12 @@ module mor1kx_immu_marocchino
           // state
           spr_immu_state_r    <= SPR_IMMU_ACK; // on read result latching
         end
-        // generate ACK 
-        SPR_IMMU_ACK : begin
+        // default including SPR_IMMU_ACK
+        default : begin
           spr_bus_dat_o       <= {OPTION_OPERAND_WIDTH{1'b0}};
           // state
-          spr_immu_state_r    <= SPR_IMMU_WAIT; // on ack
+          spr_immu_state_r    <= SPR_IMMU_WAIT; // on default/ack
         end
-        // default
-        default :
-          spr_immu_state_r    <= SPR_IMMU_WAIT; // by default
       endcase
     end
   end // @ clock
