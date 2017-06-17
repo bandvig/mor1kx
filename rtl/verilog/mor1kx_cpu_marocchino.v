@@ -143,7 +143,7 @@ module mor1kx_cpu_marocchino
 
   // IFETCH outputs for RF reading and DECODE
   //  # instruction word valid flag
-  wire                            fetch_insn_valid; 
+  wire                            fetch_insn_valid;
   //  # instruction is in delay slot
   wire                            fetch_delay_slot;
   //  # instruction word itsef
@@ -585,7 +585,7 @@ module mor1kx_cpu_marocchino
     .ibus_adr_o                       (ibus_adr_o), // FETCH
     .ibus_burst_o                     (ibus_burst_o), // FETCH
 
-    // Jump/Branch processing 
+    // Jump/Branch processing
     //  # jump/branch variants
     .fetch_op_jimm_o                  (fetch_op_jimm), // FETCH
     .fetch_op_jr_o                    (fetch_op_jr), // FETCH
@@ -1938,8 +1938,8 @@ module mor1kx_cpu_marocchino
 
     // MF(T)SPR coomand processing
     //  ## iput data & command from DECODE
-    .dcod_rfa1_i                      (dcod_rfa1), // CTRL: part of addr for MT(F)SPR
-    .dcod_imm16_i                     (dcod_imm16), // CTRL: part of addr for MT(F)SPR
+    .dcod_rfa1_i                      (dcod_rfa1[`OR1K_IMM_WIDTH-1:0]), // CTRL: base of addr for MT(F)SPR
+    .dcod_imm16_i                     (dcod_imm16), // CTRL: offset for addr for MT(F)SPR
     .dcod_rfb1_i                      (dcod_rfb1), // CTRL: data for MTSPR
     .dcod_op_mfspr_i                  (dcod_op_mfspr), // CTRL
     .dcod_op_mtspr_i                  (dcod_op_mtspr), // CTRL

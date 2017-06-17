@@ -64,20 +64,23 @@ module mor1kx_multiplier_marocchino
   //   AhBl[dw-1:0] = A[dw-1:hdw] * B[hdw-1:0];
   //   BhAl[dw-1:0] = B[dw-1:hdw] * A[hdw-1:0];
   //   Sum[dw-1:0]  = {BhAl[hdw-1:0],{hdw{0}}} +
-  //                  {AlBl[hdw-1:0],{hdw{0}}} +
+  //                  {AhBl[hdw-1:0],{hdw{0}}} +
   //                  AlBl;
 
   // multiplier controls
   //  ## multiplier stage ready flags
   reg    mul_s1_rdy;
   reg    mul_s2_rdy;
-  assign mul_valid_o = mul_s2_rdy; // valid flag is 1-clock ahead of latching for WB
+  reg    mul_s3_rdy;
+  assign mul_valid_o = mul_s3_rdy; // valid flag is 1-clock ahead of latching for WB
   //  ## stage busy signals
-  wire   mul_s2_busy = mul_s2_rdy  & ~(padv_wb_i & grant_wb_to_mul_i);
+  wire   mul_s3_busy = mul_s3_rdy  & ~(padv_wb_i & grant_wb_to_mul_i);
+  wire   mul_s2_busy = mul_s2_rdy  & mul_s3_busy;
   wire   mul_s1_busy = mul_s1_rdy  & mul_s2_busy;
   //  ## stage advance signals
-  wire   mul_adv_s2  = mul_s1_rdy  & ~mul_s2_busy;
   wire   mul_adv_s1  = exec_op_mul_i & ~mul_s1_busy;
+  wire   mul_adv_s2  = mul_s1_rdy    & ~mul_s2_busy;
+  wire   mul_adv_s3  = mul_s2_rdy    & ~mul_s3_busy;
 
   // integer multiplier is taking operands
   assign imul_taking_op_o = mul_adv_s1;
@@ -106,16 +109,22 @@ module mor1kx_multiplier_marocchino
       mul_s1_rdy <= 1'b0;
   end // @clock
 
-  // stage #2: partial products
-  reg [MULDW-1:0] mul_s2_albl;
+  // stage #2:
+  //  ## partial products AhBl and BhAl
   reg [MULDW-1:0] mul_s2_ahbl;
   reg [MULDW-1:0] mul_s2_bhal;
+  //  ## partial operands Al and Bl
+  reg [MULHDW-1:0] mul_s2_al;
+  reg [MULHDW-1:0] mul_s2_bl;
   //  registering
   always @(posedge cpu_clk) begin
     if (mul_adv_s2) begin
-      mul_s2_albl <= mul_s1_al * mul_s1_bl;
+      //  ## partial products AhBl and BhAl
       mul_s2_ahbl <= mul_s1_ah * mul_s1_bl;
       mul_s2_bhal <= mul_s1_bh * mul_s1_al;
+      //  ## partial operands Al and Bl
+      mul_s2_al <= mul_s1_al;
+      mul_s2_bl <= mul_s1_bl;
     end
   end // @clock
   //  ready flag
@@ -124,19 +133,42 @@ module mor1kx_multiplier_marocchino
       mul_s2_rdy <= 1'b0;
     else if (mul_adv_s2)
       mul_s2_rdy <= 1'b1;
-    else if (padv_wb_i & grant_wb_to_mul_i)
+    else if (mul_adv_s3)
       mul_s2_rdy <= 1'b0;
   end // @clock
 
-  // stage #3: result
-  wire [MULDW-1:0] mul_s3t_sum;
-  assign mul_s3t_sum = {mul_s2_bhal[MULHDW-1:0],{MULHDW{1'b0}}} +
-                       {mul_s2_ahbl[MULHDW-1:0],{MULHDW{1'b0}}} +
-                        mul_s2_albl;
+  // stage #3:
+  //  ## partial product AhBl and BhAl
+  //  ## partial sum: (BhAl[hdw-1:0] + AhBl[hdw-1:0])
+  reg  [MULDW-1:0] mul_s3_albl;
+  reg [MULHDW-1:0] mul_s3_sum;
+  //  registering
+  always @(posedge cpu_clk) begin
+    if (mul_adv_s3) begin
+      mul_s3_albl <= mul_s2_al * mul_s2_bl;
+      mul_s3_sum  <= mul_s2_bhal[MULHDW-1:0] + mul_s2_ahbl[MULHDW-1:0];
+    end
+  end // @clock
+  //  ready flag
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | pipeline_flush_i)
+      mul_s3_rdy <= 1'b0;
+    else if (mul_adv_s3)
+      mul_s3_rdy <= 1'b1;
+    else if (padv_wb_i & grant_wb_to_mul_i)
+      mul_s3_rdy <= 1'b0;
+  end // @clock
+
+  // stage #4: result
+  //   Sum[dw-1:0]  = {(BhAl[hdw-1:0] + AhBl[hdw-1:0] + AlBl[dw-1:hdw]),
+  //                   AlBl[hdw-1:0]};
+  wire [MULDW-1:0] mul_s4t_sum;
+  assign mul_s4t_sum = {(mul_s3_sum + mul_s3_albl[MULDW-1:MULHDW]),
+                        mul_s3_albl[MULHDW-1:0]};
   //  registering
   always @(posedge cpu_clk) begin
     if (padv_wb_i)
-      wb_mul_result_o <= {MULDW{grant_wb_to_mul_i}} & mul_s3t_sum;
+      wb_mul_result_o <= {MULDW{grant_wb_to_mul_i}} & mul_s4t_sum;
   end // @clock
 
 endmodule // mor1kx_multiplier_marocchino

@@ -79,9 +79,9 @@ module mor1kx_ctrl_marocchino
 
   // MF(T)SPR coomand processing
   //  ## iput data and command from DECODE
-  input      [OPTION_OPERAND_WIDTH-1:0] dcod_rfa1_i, // part of addr for MT(F)SPR
-  input           [`OR1K_IMM_WIDTH-1:0] dcod_imm16_i, // part of addr for MT(F)SPR
-  input      [OPTION_OPERAND_WIDTH-1:0] dcod_rfb1_i, // data for MTSPR
+  input           [`OR1K_IMM_WIDTH-1:0] dcod_rfa1_i,  // base of addr for MT(F)SPR
+  input           [`OR1K_IMM_WIDTH-1:0] dcod_imm16_i, // offset for addr for MT(F)SPR
+  input      [OPTION_OPERAND_WIDTH-1:0] dcod_rfb1_i,  // data for MTSPR
   input                                 dcod_op_mfspr_i,
   input                                 dcod_op_mtspr_i,
   //  ## result to WB_MUX
@@ -809,7 +809,7 @@ module mor1kx_ctrl_marocchino
   wire take_access_du = (~take_op_mXspr) & (~spr_bus_wait_r) & du_stb_i;
 
   // SPR address for latch
-  wire [15:0] spr_addr_mux = take_op_mXspr ? (dcod_rfa1_i[15:0] | dcod_imm16_i) :
+  wire [15:0] spr_addr_mux = take_op_mXspr ? (dcod_rfa1_i | dcod_imm16_i) :
                                               du_addr_i;
 
   // Is accessiblr SPR is present
