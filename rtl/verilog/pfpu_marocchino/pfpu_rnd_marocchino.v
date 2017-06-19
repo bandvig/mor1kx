@@ -51,7 +51,7 @@ module pfpu_rnd_marocchino
   output                            rnd_taking_div_o,
   output                            rnd_taking_i2f_o,
   output                            rnd_taking_f2i_o,
-  output                            fpxx_arith_valid_o,
+  output reg                        fpxx_arith_valid_o,
   input                             padv_wb_i,
   input                             grant_wb_to_fpxx_arith_i,
   // configuration
@@ -145,8 +145,9 @@ module pfpu_rnd_marocchino
   //  ## resdy flags of stages
   reg s1o_ready;
   reg s2o_ready;
+  reg fpxx_arith_wb_miss_r;
   //  ## per stage busy flags
-  wire s2_busy = s2o_ready & ~(padv_wb_i & grant_wb_to_fpxx_arith_i);
+  wire s2_busy = s2o_ready & fpxx_arith_wb_miss_r;
   wire s1_busy = s1o_ready & s2_busy;
   //  ## per stage advance
   wire s1_adv  = (add_rdy_i | mul_rdy_i | div_rdy_i | i2f_rdy_i | f2i_rdy_i) & ~s1_busy;
@@ -157,9 +158,6 @@ module pfpu_rnd_marocchino
   assign rnd_taking_div_o = div_rdy_i & ~s1_busy;
   assign rnd_taking_i2f_o = i2f_rdy_i & ~s1_busy;
   assign rnd_taking_f2i_o = f2i_rdy_i & ~s1_busy;
-
-  // output of rounding pipe state
-  assign fpxx_arith_valid_o = s2o_ready;
 
 
   /* Stage #1: common align */
@@ -429,8 +427,18 @@ module pfpu_rnd_marocchino
       s2o_ready <= 1'b0;
     else if (s2_adv)
       s2o_ready <= 1'b1;
-    else if (padv_wb_i & grant_wb_to_fpxx_arith_i)
+    else if (~fpxx_arith_wb_miss_r)
       s2o_ready <= 1'b0;
+  end // @clock
+
+  //  valid flag
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | pipeline_flush_i)
+      fpxx_arith_valid_o <= 1'b0;
+    else if (s2_adv)
+      fpxx_arith_valid_o <= 1'b1;
+    else if (padv_wb_i & grant_wb_to_fpxx_arith_i)
+      fpxx_arith_valid_o <= fpxx_arith_wb_miss_r ? s2o_ready : 1'b0;
   end // @clock
 
 
@@ -518,23 +526,52 @@ module pfpu_rnd_marocchino
   wire [`OR1K_FPCSR_ALLF_SIZE-1:0] exec_fpxx_arith_fpcsr =
     {s2o_dbz, s3t_inf, (s2o_inv | (s3t_ixx_inv & s2o_f2i) | s2o_snan),
      s3t_ine, s3t_zer, s2o_qnan,
-     (s2o_inv | (s2o_snan & s2o_f2i)), s3t_unf, s3t_ovf} &
-    ctrl_fpu_mask_flags_i & {`OR1K_FPCSR_ALLF_SIZE{grant_wb_to_fpxx_arith_i}};
+     (s2o_inv | (s2o_snan & s2o_f2i)), s3t_unf, s3t_ovf} & ctrl_fpu_mask_flags_i;
+
+  // EXEC-result #1
+  wire [31:0] exec_fpxx_arith_res_hi = s2o_op_fp64_arith ? s3t_opc64[63:32] : s3t_opc32;
+  // EXEC-result #2
+  wire [31:0] exec_fpxx_arith_res_lo = s3t_opc64[31:0];
+  
+
+  // WB-miss flag
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | pipeline_flush_i)
+      fpxx_arith_wb_miss_r <= 1'b0;
+    else if (padv_wb_i & grant_wb_to_fpxx_arith_i)
+      fpxx_arith_wb_miss_r <= 1'b0;
+    else if (~fpxx_arith_wb_miss_r)
+      fpxx_arith_wb_miss_r <= s2o_ready;
+  end // @clock
+
+  // WB-miss pending rezults
+  reg [31:0] fpxx_arith_wb_res_hi_p;
+  reg [31:0] fpxx_arith_wb_res_lo_p;
+  reg [`OR1K_FPCSR_ALLF_SIZE-1:0] fpxx_arith_wb_fpcsr_p;
+  // ---
+  always @(posedge cpu_clk) begin
+    if (~fpxx_arith_wb_miss_r) begin
+      fpxx_arith_wb_res_hi_p <= exec_fpxx_arith_res_hi;
+      fpxx_arith_wb_res_lo_p <= exec_fpxx_arith_res_lo;
+      fpxx_arith_wb_fpcsr_p  <= exec_fpxx_arith_fpcsr;
+    end
+  end // @clock
 
   // EXECUTE level FP32 arithmetic exception
-  assign exec_except_fpxx_arith_o = except_fpu_enable_i & (|exec_fpxx_arith_fpcsr);
-
-
+  wire   mux_except_fpxx_arith    = (fpxx_arith_wb_miss_r ? (|fpxx_arith_wb_fpcsr_p) : (|exec_fpxx_arith_fpcsr)) & except_fpu_enable_i;
+  assign exec_except_fpxx_arith_o = grant_wb_to_fpxx_arith_i & mux_except_fpxx_arith;
+  
   // WB: result
   always @(posedge cpu_clk) begin
     if(padv_wb_i) begin
-      // for WB-result #1
-      wb_fpxx_arith_res_hi_o <= (s2o_op_fp64_arith ? s3t_opc64[63:32] : s3t_opc32) &
-                                {32{grant_wb_to_fpxx_arith_i}};
-      // for WB-result #2
-      wb_fpxx_arith_res_lo_o <= s3t_opc64[31:0] &
-                                {32{grant_wb_to_fpxx_arith_i & s2o_op_fp64_arith}};
-    end
+      if (grant_wb_to_fpxx_arith_i) begin
+        wb_fpxx_arith_res_hi_o <= fpxx_arith_wb_miss_r ? fpxx_arith_wb_res_hi_p : exec_fpxx_arith_res_hi;
+        wb_fpxx_arith_res_lo_o <= fpxx_arith_wb_miss_r ? fpxx_arith_wb_res_lo_p : exec_fpxx_arith_res_lo;
+      end
+      else begin
+        wb_fpxx_arith_res_hi_o <= 32'd0;
+      end
+    end // WB-advance
   end // @clock
 
   // WB: exception
@@ -544,9 +581,15 @@ module pfpu_rnd_marocchino
       wb_except_fpxx_arith_o <= 1'b0;
     end
     else if(padv_wb_i) begin
-      wb_fpxx_arith_fpcsr_o  <= exec_fpxx_arith_fpcsr;
-      wb_except_fpxx_arith_o <= exec_except_fpxx_arith_o;
-    end
+      if (grant_wb_to_fpxx_arith_i) begin
+        wb_fpxx_arith_fpcsr_o  <= fpxx_arith_wb_miss_r ? fpxx_arith_wb_fpcsr_p : exec_fpxx_arith_fpcsr;
+        wb_except_fpxx_arith_o <= mux_except_fpxx_arith;
+      end
+      else begin
+        wb_fpxx_arith_fpcsr_o  <= {`OR1K_FPCSR_ALLF_SIZE{1'b0}};
+        wb_except_fpxx_arith_o <= 1'b0;
+      end
+    end // WB-advance
   end // @clock
 
   // WB: update FPCSR (1-clock to prevent extra writes into FPCSR)

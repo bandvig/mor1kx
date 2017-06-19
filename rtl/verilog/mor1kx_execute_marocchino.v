@@ -52,7 +52,7 @@ module mor1kx_multiplier_marocchino
   //  other inputs/outputs
   input                                 exec_op_mul_i,
   output                                imul_taking_op_o,
-  output                                mul_valid_o,
+  output reg                            mul_valid_o,
   output reg [OPTION_OPERAND_WIDTH-1:0] wb_mul_result_o
 );
 
@@ -72,9 +72,9 @@ module mor1kx_multiplier_marocchino
   reg    mul_s1_rdy;
   reg    mul_s2_rdy;
   reg    mul_s3_rdy;
-  assign mul_valid_o = mul_s3_rdy; // valid flag is 1-clock ahead of latching for WB
+  reg    mul_wb_miss_r;
   //  ## stage busy signals
-  wire   mul_s3_busy = mul_s3_rdy  & ~(padv_wb_i & grant_wb_to_mul_i);
+  wire   mul_s3_busy = mul_s3_rdy  & mul_wb_miss_r;
   wire   mul_s2_busy = mul_s2_rdy  & mul_s3_busy;
   wire   mul_s1_busy = mul_s1_rdy  & mul_s2_busy;
   //  ## stage advance signals
@@ -155,9 +155,19 @@ module mor1kx_multiplier_marocchino
       mul_s3_rdy <= 1'b0;
     else if (mul_adv_s3)
       mul_s3_rdy <= 1'b1;
-    else if (padv_wb_i & grant_wb_to_mul_i)
+    else if (~mul_wb_miss_r)
       mul_s3_rdy <= 1'b0;
   end // @clock
+  //  valid flag
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | pipeline_flush_i)
+      mul_valid_o <= 1'b0;
+    else if (mul_adv_s3)
+      mul_valid_o <= 1'b1;
+    else if (padv_wb_i & grant_wb_to_mul_i)
+      mul_valid_o <= mul_wb_miss_r ? mul_s3_rdy : 1'b0;
+  end // @clock
+  
 
   // stage #4: result
   //   Sum[dw-1:0]  = {(BhAl[hdw-1:0] + AhBl[hdw-1:0] + AlBl[dw-1:hdw]),
@@ -165,10 +175,31 @@ module mor1kx_multiplier_marocchino
   wire [MULDW-1:0] mul_s4t_sum;
   assign mul_s4t_sum = {(mul_s3_sum + mul_s3_albl[MULDW-1:MULHDW]),
                         mul_s3_albl[MULHDW-1:0]};
-  //  registering
+  // WB-miss registers
+  //  ## WB-miss flag
   always @(posedge cpu_clk) begin
-    if (padv_wb_i)
-      wb_mul_result_o <= {MULDW{grant_wb_to_mul_i}} & mul_s4t_sum;
+    if (cpu_rst | pipeline_flush_i)
+      mul_wb_miss_r <= 1'b0;
+    else if (padv_wb_i & grant_wb_to_mul_i)
+      mul_wb_miss_r <= 1'b0;
+    else if (~mul_wb_miss_r)
+      mul_wb_miss_r <= mul_s3_rdy;
+  end // @clock
+  //  ## WB-miss pending result
+  reg [MULDW-1:0] mul_wb_result_p;
+  // ---
+  always @(posedge cpu_clk) begin
+    if (~mul_wb_miss_r)
+      mul_wb_result_p <= mul_s4t_sum;
+  end // @clock
+  //  WB-registering
+  always @(posedge cpu_clk) begin
+    if (padv_wb_i) begin
+      if (grant_wb_to_mul_i)
+        wb_mul_result_o <= mul_wb_miss_r ? mul_wb_result_p : mul_s4t_sum;
+      else
+        wb_mul_result_o <= {MULDW{1'b0}};
+    end
   end // @clock
 
 endmodule // mor1kx_multiplier_marocchino
@@ -202,10 +233,13 @@ module srt4_kernel
   input              cpu_rst,
   // pipeline controls
   input              pipeline_flush_i,
-  input              div_start_i,      // take operands and start
-  output reg         div_proc_o,       // iterator busy
-  output reg         div_valid_o,      // result ready
-  input              wb_taking_div_i,  // Write Back is taking result
+  input              padv_wb_i,
+  input              grant_wb_to_div_i,
+  input              div_wb_miss_i,
+  input              div_start_i,
+  output reg         div_proc_o,
+  output reg         div_s3_rdy_o,
+  output reg         div_valid_o,
   // numerator and denominator
   input    [2*N-1:0] num_i,
   input      [N-1:0] den_i,
@@ -356,7 +390,7 @@ module srt4_kernel
 
 
   // iterations controller
-  wire dbz = ~(|den_i); // division by zero
+  wire dbz = (den_i == {N{1'b0}}); // division by zero
   // ---
   localparam [LOG2N2-1:0] DIV_COUNT_MAX = ((N / 2) - 1);
   // ---
@@ -364,39 +398,49 @@ module srt4_kernel
   // division controller
   always @(posedge cpu_clk) begin
     if (cpu_rst | pipeline_flush_i) begin
-      div_valid_o <= 1'b0;
-      dbz_o       <= 1'b0;
-      div_proc_o  <= 1'b0;
-      div_count_r <= {LOG2N2{1'b0}};
+      div_s3_rdy_o <= 1'b0;
+      dbz_o        <= 1'b0;
+      div_proc_o   <= 1'b0;
+      div_count_r  <= {LOG2N2{1'b0}};
     end
     else if (div_start_i) begin
       if (dbz) begin
-        div_valid_o <= 1'b1;
-        dbz_o       <= 1'b1;
-        div_proc_o  <= 1'b0;
-        div_count_r <= {LOG2N2{1'b0}};
+        div_s3_rdy_o <= 1'b1;
+        dbz_o        <= 1'b1;
+        div_proc_o   <= 1'b0;
+        div_count_r  <= {LOG2N2{1'b0}};
       end
       else begin
-        div_valid_o <= 1'b0;
-        dbz_o       <= 1'b0;
-        div_proc_o  <= 1'b1;
-        div_count_r <= DIV_COUNT_MAX;
+        div_s3_rdy_o <= 1'b0;
+        dbz_o        <= 1'b0;
+        div_proc_o   <= 1'b1;
+        div_count_r  <= DIV_COUNT_MAX;
       end
     end
-    else if (wb_taking_div_i) begin
-      div_valid_o <= 1'b0;
-      dbz_o       <= 1'b0;
-      div_proc_o  <= 1'b0;
-      div_count_r <= {LOG2N2{1'b0}};
+    else if (div_s3_rdy_o & (~div_wb_miss_i)) begin
+      div_s3_rdy_o <= 1'b0;
+      dbz_o        <= 1'b0;
+      div_proc_o   <= 1'b0;
+      div_count_r  <= {LOG2N2{1'b0}};
     end
     else if (div_proc_o) begin
-      if (~(|div_count_r)) begin // == 0
-        div_valid_o <= 1'b1;
-        div_proc_o  <= 1'b0;
+      if (div_count_r == {LOG2N2{1'b0}}) begin
+        div_s3_rdy_o <= 1'b1;
+        div_proc_o   <= 1'b0;
       end
       else
         div_count_r <= div_count_r + {LOG2N2{1'b1}}; // -= 1
     end
+  end // @clock
+
+  // valid flag to pipeline control
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | pipeline_flush_i)
+      div_valid_o <= 1'b0; // SRT_4_KERNEL
+    else if ((div_start_i & dbz) | (div_proc_o & (div_count_r == {LOG2N2{1'b0}}))) // SRT_4_KERNEL: sync to "div_s3_rdy_o"
+      div_valid_o <= 1'b1; // SRT_4_KERNEL
+    else if (padv_wb_i & grant_wb_to_div_i)
+      div_valid_o <= div_wb_miss_i ? div_s3_rdy_o : 1'b0; // SRT_4_KERNEL
   end // @clock
 
 endmodule // srt4_kernel
@@ -456,6 +500,8 @@ module mor1kx_divider_marocchino
   wire [DIVDW-1:0] s3t_div_result;
   wire             s3o_dbz;
   reg              s3o_div_signed, s3o_div_unsigned;
+  wire             div_s3_rdy;
+  reg              div_wb_miss_r;
 
   generate
   /* verilator lint_off WIDTH */
@@ -463,41 +509,60 @@ module mor1kx_divider_marocchino
   /* verilator lint_on WIDTH */
 
     // divider controls
-    //  ## iterations counter
+    //  ## iterations counter and processing flag
     reg [5:0] div_count;
     reg       div_proc_r;
-    reg       div_valid_r;
+    //  ## valid (registered, similar to multiplier)
+    reg       div_s3_rdy_r;
+    reg       div_valid_r; // DIV_SERIAL
+
+    //  ## dvisor is busy
+    wire   div_s3_busy = div_proc_r | (div_s3_rdy_r & div_wb_miss_r); // DIV_SERIAL
     //  ## start division
-    assign idiv_taking_op_o = exec_op_div_i & (div_valid_r ? (padv_wb_i & grant_wb_to_div_i) : (~div_proc_r));
-    //  ## result valid
-    assign div_valid_o = div_valid_r;
+    assign idiv_taking_op_o = exec_op_div_i & (~div_s3_busy); // DIV_SERIAL
 
 
     // division controller
     always @(posedge cpu_clk) begin
       if (cpu_rst | pipeline_flush_i) begin
-        div_valid_r <= 1'b0;
-        div_proc_r  <= 1'b0;
-        div_count   <= 6'd0;
+        div_s3_rdy_r <= 1'b0; // DIV_SERIAL
+        div_proc_r <= 1'b0;
+        div_count  <= 6'd0;
       end
       else if (idiv_taking_op_o) begin
-        div_valid_r <= 1'b0;
-        div_proc_r  <= 1'b1;
-        div_count   <= DIVDW;
+        div_s3_rdy_r <= 1'b0; // DIV_SERIAL
+        div_proc_r <= 1'b1;
+        div_count  <= DIVDW;
       end
-      else if (div_valid_r & padv_wb_i & grant_wb_to_div_i) begin
-        div_valid_r <= 1'b0;
-        div_proc_r  <= 1'b0;
-        div_count   <= 6'd0;
+      else if (div_s3_rdy_r & (~div_wb_miss_r)) begin // DIV_SERIAL
+        div_s3_rdy_r <= 1'b0; // DIV_SERIAL
+        div_proc_r <= 1'b0;
+        div_count  <= 6'd0;
       end
       else if (div_proc_r) begin
         if (div_count == 6'd1) begin
-          div_valid_r <= 1'b1;
-          div_proc_r  <= 1'b0;
+          div_s3_rdy_r <= 1'b1; // DIV_SERIAL
+          div_proc_r   <= 1'b0;
         end
         div_count <= div_count - 6'd1;
       end
     end // @clock
+
+
+    // valid flag to pipeline control
+    always @(posedge cpu_clk) begin
+      if (cpu_rst | pipeline_flush_i)
+        div_valid_r <= 1'b0; // DIV_SERIAL
+      else if (div_proc_r & (div_count == 6'd1)) // DIV_SERIAL: sync to "div_s3_rdy_r"
+        div_valid_r <= 1'b1; // DIV_SERIAL
+      else if (padv_wb_i & grant_wb_to_div_i)
+        div_valid_r <= div_wb_miss_r ? div_s3_rdy_r : 1'b0; // DIV_SERIAL
+    end // @clock
+
+    //  ## result valid
+    assign div_s3_rdy  = div_s3_rdy_r; // DIV_SERIAL
+    assign div_valid_o = div_valid_r; // DIV_SERIAL
+
 
     // regs of divider
     reg [DIVDW-1:0] div_n;
@@ -556,14 +621,12 @@ module mor1kx_divider_marocchino
    `endif // !synth
 
     // divider controls
-    //  ## Write Back taking DIV result
-    wire wb_taking_div = padv_wb_i & grant_wb_to_div_i;
     //  ## per stage ready flags
     reg  div_s1_rdy;
     reg  div_s2_rdy;
     //  ## stage busy signals
     wire div_proc; // SRT-4 kernel is busy
-    wire div_s3_busy = div_proc | (div_valid_o & ~wb_taking_div);
+    wire div_s3_busy = div_proc | (div_s3_rdy & div_wb_miss_r); // SRT-4
     wire div_s2_busy = div_s2_rdy  & div_s3_busy;
     wire div_s1_busy = div_s1_rdy  & div_s2_busy;
     //  ## stage advance signals
@@ -706,10 +769,13 @@ module mor1kx_divider_marocchino
       .cpu_rst            (cpu_rst), // SRT_4_KERNEL
       // pipeline controls
       .pipeline_flush_i   (pipeline_flush_i), // SRT_4_KERNEL
+      .padv_wb_i          (padv_wb_i), // SRT_4_KERNEL
+      .grant_wb_to_div_i  (grant_wb_to_div_i), // SRT_4_KERNEL
+      .div_wb_miss_i      (div_wb_miss_r), // SRT_4_KERNEL
       .div_start_i        (div_adv_s3), // SRT_4_KERNEL
       .div_proc_o         (div_proc), // SRT_4_KERNEL
+      .div_s3_rdy_o       (div_s3_rdy), // SRT_4_KERNEL
       .div_valid_o        (div_valid_o), // SRT_4_KERNEL
-      .wb_taking_div_i    (wb_taking_div), // SRT_4_KERNEL
       // numerator and denominator
       .num_i              (s2o_div_a), // SRT_4_KERNEL
       .den_i              (s2o_div_b), // SRT_4_KERNEL
@@ -724,25 +790,58 @@ module mor1kx_divider_marocchino
   end
   endgenerate
 
-  /**** DIV Write Back result ****/
 
+  /**** DIV Write Back ****/
+
+  // WB-miss registers
+  //  ## WB-miss flag
   always @(posedge cpu_clk) begin
-    if (padv_wb_i)
-      wb_div_result_o <= {DIVDW{grant_wb_to_div_i}} & s3t_div_result;
-  end //  @clock
-
-  /****  DIV Write Back flags ****/
+    if (cpu_rst | pipeline_flush_i)
+      div_wb_miss_r <= 1'b0;
+    else if (padv_wb_i & grant_wb_to_div_i)
+      div_wb_miss_r <= 1'b0;
+    else if (~div_wb_miss_r)
+      div_wb_miss_r <= div_s3_rdy;
+  end // @clock
 
   //  # update carry flag by division
-  wire exec_div_carry_set      = grant_wb_to_div_i & s3o_div_unsigned &   s3o_dbz;
-  wire exec_div_carry_clear    = grant_wb_to_div_i & s3o_div_unsigned & (~s3o_dbz);
+  wire exec_div_carry_set      = s3o_div_unsigned &   s3o_dbz;
+  wire exec_div_carry_clear    = s3o_div_unsigned & (~s3o_dbz);
 
   //  # update overflow flag by division
-  wire exec_div_overflow_set   = grant_wb_to_div_i & s3o_div_signed &   s3o_dbz;
-  wire exec_div_overflow_clear = grant_wb_to_div_i & s3o_div_signed & (~s3o_dbz);
+  wire exec_div_overflow_set   = s3o_div_signed &   s3o_dbz;
+  wire exec_div_overflow_clear = s3o_div_signed & (~s3o_dbz);
+
+  //  ## WB-miss pending result
+  reg [DIVDW-1:0] div_wb_result_p;
+  reg             div_wb_carry_set_p;
+  reg             div_wb_carry_clear_p;  
+  reg             div_wb_overflow_set_p;
+  reg             div_wb_overflow_clear_p;
+  // ---
+  always @(posedge cpu_clk) begin
+    if (~div_wb_miss_r) begin
+      div_wb_result_p         <= s3t_div_result;
+      div_wb_carry_set_p      <= exec_div_carry_set;
+      div_wb_carry_clear_p    <= exec_div_carry_clear;  
+      div_wb_overflow_set_p   <= exec_div_overflow_set;
+      div_wb_overflow_clear_p <= exec_div_overflow_clear;
+    end
+  end // @clock
 
   //  # generate overflow exception by division
-  assign exec_except_overflow_div_o = except_overflow_enable_i & exec_div_overflow_set;
+  wire   mux_except_overflow_div    = except_overflow_enable_i & (div_wb_miss_r ? div_wb_overflow_set_p : exec_div_overflow_set);
+  assign exec_except_overflow_div_o = grant_wb_to_div_i & mux_except_overflow_div;
+
+  //  WB-registering result
+  always @(posedge cpu_clk) begin
+    if (padv_wb_i) begin
+      if (grant_wb_to_div_i)
+        wb_div_result_o <= div_wb_miss_r ? div_wb_result_p : s3t_div_result;
+      else
+        wb_div_result_o <= {DIVDW{1'b0}};
+    end
+  end // @clock
 
   // WB-latchers
   always @(posedge cpu_clk) begin
@@ -757,14 +856,26 @@ module mor1kx_divider_marocchino
       wb_except_overflow_div_o  <= 1'b0;
     end
     else if (padv_wb_i) begin
-      //  # update carry flag by division
-      wb_div_carry_set_o        <= exec_div_carry_set;
-      wb_div_carry_clear_o      <= exec_div_carry_clear;
-      //  # update overflow flag by division
-      wb_div_overflow_set_o     <= exec_div_overflow_set;
-      wb_div_overflow_clear_o   <= exec_div_overflow_clear;
-      //  # generate overflow exception by division
-      wb_except_overflow_div_o  <= exec_except_overflow_div_o;
+      if (grant_wb_to_div_i) begin
+        //  # update carry flag by division
+        wb_div_carry_set_o        <= div_wb_miss_r ? div_wb_carry_set_p : exec_div_carry_set;
+        wb_div_carry_clear_o      <= div_wb_miss_r ? div_wb_carry_clear_p : exec_div_carry_clear;
+        //  # update overflow flag by division
+        wb_div_overflow_set_o     <= div_wb_miss_r ? div_wb_overflow_set_p : exec_div_overflow_set;
+        wb_div_overflow_clear_o   <= div_wb_miss_r ? div_wb_overflow_clear_p : exec_div_overflow_clear;
+        //  # generate overflow exception by division
+        wb_except_overflow_div_o  <= mux_except_overflow_div;
+      end
+      else begin
+        //  # update carry flag by division
+        wb_div_carry_set_o        <= 1'b0;
+        wb_div_carry_clear_o      <= 1'b0;
+        //  # update overflow flag by division
+        wb_div_overflow_set_o     <= 1'b0;
+        wb_div_overflow_clear_o   <= 1'b0;
+        //  # generate overflow exception by division
+        wb_except_overflow_div_o  <= 1'b0;
+      end
     end
   end // @clock
 
