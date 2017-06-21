@@ -76,8 +76,8 @@ module pfpu64_fcmp_marocchino
   input              fract_eq_i,
   // Modes
   input              except_fpu_enable_i,
-  input              ctrl_fpu_mask_flags_inv_i,
-  input              ctrl_fpu_mask_flags_inf_i,
+  input              fpu_mask_flags_inv_i,
+  input              fpu_mask_flags_inf_i,
   // Outputs
   //  # pre WB
   output reg         fp64_cmp_valid_o,
@@ -138,10 +138,6 @@ module pfpu64_fcmp_marocchino
   reg        s1o_exp_eq;
   reg        s1o_fract_gt;
   reg        s1o_fract_eq;
-  // Modes
-  reg        s1o_except_fpu_enable;
-  reg        s1o_ctrl_fpu_mask_flags_inv;
-  reg        s1o_ctrl_fpu_mask_flags_inf;
 
   // ---
   always @(posedge cpu_clk) begin
@@ -162,10 +158,6 @@ module pfpu64_fcmp_marocchino
       s1o_exp_eq   <= exp_eq_i;
       s1o_fract_gt <= fract_gt_i;
       s1o_fract_eq <= fract_eq_i;
-      // Modes
-      s1o_except_fpu_enable       <= except_fpu_enable_i;
-      s1o_ctrl_fpu_mask_flags_inv <= ctrl_fpu_mask_flags_inv_i;
-      s1o_ctrl_fpu_mask_flags_inf <= ctrl_fpu_mask_flags_inf_i;
     end
   end // @clock
 
@@ -295,8 +287,8 @@ module pfpu64_fcmp_marocchino
   wire exec_fpxx_flag_set   =  cmp_flag;
   wire exec_fpxx_flag_clear = ~cmp_flag;
   //  # FP32 comparison flags
-  wire exec_fpxx_cmp_inv    = s1o_ctrl_fpu_mask_flags_inv & inv_cmp;
-  wire exec_fpxx_cmp_inf    = s1o_ctrl_fpu_mask_flags_inf & (s1o_infa | s1o_infb);
+  wire exec_fpxx_cmp_inv    = fpu_mask_flags_inv_i & inv_cmp;
+  wire exec_fpxx_cmp_inf    = fpu_mask_flags_inf_i & (s1o_infa | s1o_infb);
 
   reg fpxx_wb_flag_set_p;
   reg fpxx_wb_flag_clear_p;
@@ -314,7 +306,7 @@ module pfpu64_fcmp_marocchino
 
   //  # FP32 comparison exception
   wire   mux_except_fpxx_cmp    = (fpxx_cmp_wb_miss_r ? (fpxx_wb_cmp_inv_p | fpxx_wb_cmp_inf_p) : (exec_fpxx_cmp_inv | exec_fpxx_cmp_inf)) &
-                                  s1o_except_fpu_enable;
+                                  except_fpu_enable_i;
   // ---
   assign exec_except_fp64_cmp_o = grant_wb_to_fp64_cmp_i & mux_except_fpxx_cmp;
 

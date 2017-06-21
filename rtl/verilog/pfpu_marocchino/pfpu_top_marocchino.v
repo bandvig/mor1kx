@@ -66,9 +66,9 @@ module pfpu_top_marocchino
   output                              fp64_cmp_valid_o,    // WB-latching ahead comparison ready flag
 
   // Configuration
-  input     [`OR1K_FPCSR_RM_SIZE-1:0] round_mode_i,
+  input     [`OR1K_FPCSR_RM_SIZE-1:0] fpu_round_mode_i,
   input                               except_fpu_enable_i,
-  input   [`OR1K_FPCSR_ALLF_SIZE-1:0] ctrl_fpu_mask_flags_i,
+  input   [`OR1K_FPCSR_ALLF_SIZE-1:0] fpu_mask_flags_i,
 
   // Commands for arithmetic part
   input                               exec_op_fp64_arith_i, // Clarification: FP64 instruction
@@ -480,6 +480,50 @@ pfpu_f2i_marocchino u_pfpu_f2i
 );
 
 
+//
+// Local copy of FPU-related control bits to simplify routing
+//
+// MT(F)SPR_RULE:
+//   Before issuing MT(F)SPR, OMAN waits till order control buffer has become
+// empty. Also we don't issue new instruction till l.mf(t)spr completion.
+//   So, it is safely to detect changing FPU-related control bits here
+// and update local copies.
+//
+
+localparam [`OR1K_FPCSR_RM_SIZE-1:0] RM_NEAREST = 0;
+//localparam [`OR1K_FPCSR_RM_SIZE-1:0] RM_TO_ZERO = 1; -- not used
+localparam [`OR1K_FPCSR_RM_SIZE-1:0] RM_TO_INFP = 2;
+localparam [`OR1K_FPCSR_RM_SIZE-1:0] RM_TO_INFM = 3;
+
+reg   [`OR1K_FPCSR_RM_SIZE-1:0] fpu_round_mode_r;
+reg                             rm_nearest_r;
+//reg                           rm_to_zero_r; -- not used, see PFPU_RND
+reg                             rm_to_infp_r;
+reg                             rm_to_infm_r;
+reg                             except_fpu_enable_r;
+reg [`OR1K_FPCSR_ALLF_SIZE-1:0] fpu_mask_flags_r;
+
+always @(posedge cpu_clk) begin
+  if (cpu_rst | pipeline_flush_i) begin
+    fpu_round_mode_r    <= {`OR1K_FPCSR_RM_SIZE{1'b0}};
+    rm_nearest_r        <= 1'b1;
+    rm_to_infp_r        <= 1'b0;
+    rm_to_infm_r        <= 1'b0;
+    except_fpu_enable_r <= 1'b0;
+    fpu_mask_flags_r    <= {`OR1K_FPCSR_ALLF_SIZE{1'b1}};
+  end
+  else if ({fpu_round_mode_r, except_fpu_enable_r, fpu_mask_flags_r} !=
+           {fpu_round_mode_i, except_fpu_enable_i, fpu_mask_flags_i}) begin
+    fpu_round_mode_r    <= fpu_round_mode_i;
+    rm_nearest_r        <= (fpu_round_mode_i == RM_NEAREST);
+    rm_to_infp_r        <= (fpu_round_mode_i == RM_TO_INFP);
+    rm_to_infm_r        <= (fpu_round_mode_i == RM_TO_INFM);
+    except_fpu_enable_r <= except_fpu_enable_i;
+    fpu_mask_flags_r    <= fpu_mask_flags_i;
+  end
+end
+
+
 // multiplexing and rounding
 pfpu_rnd_marocchino u_pfpu_rnd
 (
@@ -497,9 +541,11 @@ pfpu_rnd_marocchino u_pfpu_rnd
   .padv_wb_i                (padv_wb_i), // PFPU_RND
   .grant_wb_to_fpxx_arith_i (grant_wb_to_fpxx_arith_i), // PFPU_RND
   // configuration
-  .rmode_i                  (round_mode_i), // PFPU_RND
-  .except_fpu_enable_i      (except_fpu_enable_i), // PFPU_RND
-  .ctrl_fpu_mask_flags_i    (ctrl_fpu_mask_flags_i), // PFPU_RND
+  .rm_nearest_i             (rm_nearest_r), // PFPU_RND
+  .rm_to_infp_i             (rm_to_infp_r), // PFPU_RND
+  .rm_to_infm_i             (rm_to_infm_r), // PFPU_RND
+  .except_fpu_enable_i      (except_fpu_enable_r), // PFPU_RND
+  .fpu_mask_flags_i         (fpu_mask_flags_r), // PFPU_RND
   // from add/sub
   .add_rdy_i                (rnd_muxing_add), // PFPU_RND
   .add_sign_i               (add_sign), // PFPU_RND
@@ -589,9 +635,9 @@ pfpu64_fcmp_marocchino u_fp64_cmp
   .fract_gt_i                 (fract_gt), // FP64_CMP
   .fract_eq_i                 (fract_eq), // FP64_CMP
   // Modes
-  .except_fpu_enable_i        (except_fpu_enable_i), // FP64_CMP
-  .ctrl_fpu_mask_flags_inv_i  (ctrl_fpu_mask_flags_i[`OR1K_FPCSR_IVF - `OR1K_FPCSR_OVF]), // FP64_CMP
-  .ctrl_fpu_mask_flags_inf_i  (ctrl_fpu_mask_flags_i[`OR1K_FPCSR_INF - `OR1K_FPCSR_OVF]), // FP64_CMP
+  .except_fpu_enable_i        (except_fpu_enable_r), // FP64_CMP
+  .fpu_mask_flags_inv_i       (fpu_mask_flags_r[`OR1K_FPCSR_IVF - `OR1K_FPCSR_OVF]), // FP64_CMP
+  .fpu_mask_flags_inf_i       (fpu_mask_flags_r[`OR1K_FPCSR_INF - `OR1K_FPCSR_OVF]), // FP64_CMP
   // Outputs
   //  # pre WB
   .fp64_cmp_valid_o           (fp64_cmp_valid_o), // FP64_CMP

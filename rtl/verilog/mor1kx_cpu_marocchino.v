@@ -1477,9 +1477,9 @@ module mor1kx_cpu_marocchino
     .fp64_cmp_valid_o           (fp64_cmp_valid), // FPU3264
 
     // Configuration
-    .round_mode_i               (ctrl_fpu_round_mode), // FPU3264
+    .fpu_round_mode_i           (ctrl_fpu_round_mode), // FPU3264
     .except_fpu_enable_i        (except_fpu_enable), // FPU3264
-    .ctrl_fpu_mask_flags_i      (ctrl_fpu_mask_flags), // FPU3264
+    .fpu_mask_flags_i           (ctrl_fpu_mask_flags), // FPU3264
 
     // Commands for arithmetic part
     .exec_op_fp64_arith_i       (exec_op_fp64_arith), // FPU3264

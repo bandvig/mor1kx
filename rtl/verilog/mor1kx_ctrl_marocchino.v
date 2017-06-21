@@ -839,6 +839,7 @@ module mor1kx_ctrl_marocchino
   end // always
 
   //
+  // MT(F)SPR_RULE:
   //   Before issuing MT(F)SPR, OMAN waits till order control buffer has become
   // empty. Also we don't issue new instruction till l.mf(t)spr completion.
   //   So, we don't need neither forwarding nor 'grant' signals here.

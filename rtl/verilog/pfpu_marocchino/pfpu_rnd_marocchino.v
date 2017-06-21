@@ -55,9 +55,11 @@ module pfpu_rnd_marocchino
   input                             padv_wb_i,
   input                             grant_wb_to_fpxx_arith_i,
   // configuration
-  input                       [1:0] rmode_i,  // rounding mode
+  input                             rm_nearest_i,
+  input                             rm_to_infp_i,
+  input                             rm_to_infm_i,
   input                             except_fpu_enable_i,
-  input [`OR1K_FPCSR_ALLF_SIZE-1:0] ctrl_fpu_mask_flags_i,
+  input [`OR1K_FPCSR_ALLF_SIZE-1:0] fpu_mask_flags_i,
   // input from add/sub
   input        add_rdy_i,       // add/sub is ready
   input        add_sign_i,      // add/sub signum
@@ -127,12 +129,6 @@ module pfpu_rnd_marocchino
   localparam SNAN_S = 31'b1111111101111111111111111111111;
 
 
-  // rounding mode isn't require pipelinization
-  wire rm_nearest = (rmode_i==2'b00);
-  wire rm_to_zero = (rmode_i==2'b01);
-  wire rm_to_infp = (rmode_i==2'b10);
-  wire rm_to_infm = (rmode_i==2'b11);
-
   /*
      Any stage's output is registered.
      Definitions:
@@ -173,7 +169,7 @@ module pfpu_rnd_marocchino
   wire  [5:0] s1t_shl;
 
   // multiplexer for signums and flags
-  wire s1t_add_sign = add_sub_0_i ? rm_to_infm : add_sign_i;
+  wire s1t_add_sign = add_sub_0_i ? rm_to_infm_i : add_sign_i;
 
   assign s1t_sign = (add_rdy_i & s1t_add_sign) |
                     (mul_rdy_i & mul_sign_i)   |
@@ -366,15 +362,15 @@ module pfpu_rnd_marocchino
   wire s2t_s    = s1o_rs[0];
   wire s2t_lost = s2t_r | s2t_s;
 
-  wire s2t_rnd_up = (rm_nearest & s2t_r & s2t_s) |
-                    (rm_nearest & s2t_g & s2t_r & (~s2t_s)) |
-                    (rm_to_infp & (~s1o_sign) & s2t_lost) |
-                    (rm_to_infm &   s1o_sign  & s2t_lost);
+  wire s2t_rnd_up = (rm_nearest_i & s2t_r & s2t_s) |
+                    (rm_nearest_i & s2t_g & s2t_r & (~s2t_s)) |
+                    (rm_to_infp_i & (~s1o_sign) & s2t_lost) |
+                    (rm_to_infm_i &   s1o_sign  & s2t_lost);
 
   // IEEE compliance rounding for qutient
-  wire s2t_div_rnd_up = (rm_nearest & s2t_r & s2t_s) |
-                        (rm_to_infp & (~s1o_sign) & s2t_s) |
-                        (rm_to_infm &   s1o_sign  & s2t_s);
+  wire s2t_div_rnd_up = (rm_nearest_i & s2t_r & s2t_s) |
+                        (rm_to_infp_i & (~s1o_sign) & s2t_s) |
+                        (rm_to_infm_i &   s1o_sign  & s2t_s);
 
   // set resulting direction of rounding
   //  a) normalized quotient is rounded by quotient related rules
@@ -526,13 +522,13 @@ module pfpu_rnd_marocchino
   wire [`OR1K_FPCSR_ALLF_SIZE-1:0] exec_fpxx_arith_fpcsr =
     {s2o_dbz, s3t_inf, (s2o_inv | (s3t_ixx_inv & s2o_f2i) | s2o_snan),
      s3t_ine, s3t_zer, s2o_qnan,
-     (s2o_inv | (s2o_snan & s2o_f2i)), s3t_unf, s3t_ovf} & ctrl_fpu_mask_flags_i;
+     (s2o_inv | (s2o_snan & s2o_f2i)), s3t_unf, s3t_ovf} & fpu_mask_flags_i;
 
   // EXEC-result #1
   wire [31:0] exec_fpxx_arith_res_hi = s2o_op_fp64_arith ? s3t_opc64[63:32] : s3t_opc32;
   // EXEC-result #2
   wire [31:0] exec_fpxx_arith_res_lo = s3t_opc64[31:0];
-  
+
 
   // WB-miss flag
   always @(posedge cpu_clk) begin
@@ -560,7 +556,7 @@ module pfpu_rnd_marocchino
   // EXECUTE level FP32 arithmetic exception
   wire   mux_except_fpxx_arith    = (fpxx_arith_wb_miss_r ? (|fpxx_arith_wb_fpcsr_p) : (|exec_fpxx_arith_fpcsr)) & except_fpu_enable_i;
   assign exec_except_fpxx_arith_o = grant_wb_to_fpxx_arith_i & mux_except_fpxx_arith;
-  
+
   // WB: result
   always @(posedge cpu_clk) begin
     if(padv_wb_i) begin
