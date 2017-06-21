@@ -181,22 +181,30 @@ module mor1kx_icache_marocchino
 
   genvar i;
 
-
-  // FETCH reads ICACHE (doesn't include exceptions or flushing control)
-  assign ic_fsm_adv = padv_ic_i & ic_enable_i;
-
-  // RAM block read access
-  assign ic_ram_re  = padv_ic_i & ic_enable_i;
-
-  // Stored "ICACHE enable" flag for ibus_access_req_o
+  //
+  // Local copy of ICACHE-related control bit(s) to simplify routing
+  //
+  // MT(F)SPR_RULE:
+  //   Before issuing MT(F)SPR, OMAN waits till order control buffer has become
+  // empty. Also we don't issue new instruction till l.mf(t)spr completion.
+  //   So, it is safely to detect changing ICACHE-related control bit(s) here
+  // and update local copies.
+  //
   reg ic_enable_r;
   // ---
   always @(posedge cpu_clk) begin
-    if (cpu_rst | flush_by_ctrl_i)
+    if (cpu_rst)
       ic_enable_r <= 1'b0;
-    else if (padv_ic_i)
+    else if (ic_enable_r != ic_enable_i) // pipeline_flush doesn't switch caches on/off
       ic_enable_r <= ic_enable_i;
   end // @ clock
+
+
+  // FETCH reads ICACHE (doesn't include exceptions or flushing control)
+  assign ic_fsm_adv = padv_ic_i & ic_enable_r;
+
+  // RAM block read access
+  assign ic_ram_re  = padv_ic_i & ic_enable_r;
 
 
   generate

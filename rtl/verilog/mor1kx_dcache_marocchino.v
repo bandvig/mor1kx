@@ -48,7 +48,7 @@ module mor1kx_dcache_marocchino
   input                                 pipeline_flush_i,
 
   // configuration
-  input                                 enable_i,
+  input                                 dc_enable_i,
 
   // exceptions
   input                                 dmmu_excepts_addr_i,
@@ -324,14 +324,32 @@ module mor1kx_dcache_marocchino
 
 
   /*
-   * Cache FSM controls
+   * DCACHE FSM controls
    */
 
+  //
+  // Local copy of DCACHE-related control bit(s) to simplify routing
+  //
+  // MT(F)SPR_RULE:
+  //   Before issuing MT(F)SPR, OMAN waits till order control buffer has become
+  // empty. Also we don't issue new instruction till l.mf(t)spr completion.
+  //   So, it is safely to detect changing DCACHE-related control bit(s) here
+  // and update local copies.
+  //
+  reg dc_enable_r;
+  // ---
+  always @(posedge cpu_clk) begin
+    if (cpu_rst)
+      dc_enable_r <= 1'b0; // pipeline_flush doesn't switch caches on/off
+    else if (dc_enable_r != dc_enable_i)
+      dc_enable_r <= dc_enable_i;
+  end
+
   // try load
-  wire dc_taking_load  = dc_taking_load_i  & enable_i;
+  wire dc_taking_load  = dc_taking_load_i  & dc_enable_r;
 
   // try store
-  wire dc_taking_store = dc_taking_store_i & enable_i;
+  wire dc_taking_store = dc_taking_store_i & dc_enable_r;
 
   // go to idle and block update WAY/TAG RAM
   wire dc_force_idle = dmmu_excepts_addr_i | pipeline_flush_i;
@@ -619,7 +637,7 @@ module mor1kx_dcache_marocchino
 
 
   // RAM blocks read enable (WAYS & TAG common part)
-  wire ram_re = (dc_taking_load_i | dc_taking_store_i) & enable_i;
+  wire ram_re = (dc_taking_load_i | dc_taking_store_i) & dc_enable_r;
 
 
   // Read / Write port (*_rwp_*) controls

@@ -139,46 +139,49 @@ module pfpu_rnd_marocchino
 
   // rounding pipe controls
   //  ## resdy flags of stages
+  reg s0o_ready;
   reg s1o_ready;
   reg s2o_ready;
   reg fpxx_arith_wb_miss_r;
   //  ## per stage busy flags
   wire s2_busy = s2o_ready & fpxx_arith_wb_miss_r;
   wire s1_busy = s1o_ready & s2_busy;
+  wire s0_busy = s0o_ready & s1_busy;
   //  ## per stage advance
-  wire s1_adv  = (add_rdy_i | mul_rdy_i | div_rdy_i | i2f_rdy_i | f2i_rdy_i) & ~s1_busy;
+  wire s0_adv  = (add_rdy_i | mul_rdy_i | div_rdy_i | i2f_rdy_i | f2i_rdy_i) & ~s0_busy;
+  wire s1_adv  = s0o_ready & ~s1_busy;
   wire s2_adv  = s1o_ready & ~s2_busy;
   // ## per execution unit reporting
-  assign rnd_taking_add_o = add_rdy_i & ~s1_busy;
-  assign rnd_taking_mul_o = mul_rdy_i & ~s1_busy;
-  assign rnd_taking_div_o = div_rdy_i & ~s1_busy;
-  assign rnd_taking_i2f_o = i2f_rdy_i & ~s1_busy;
-  assign rnd_taking_f2i_o = f2i_rdy_i & ~s1_busy;
+  assign rnd_taking_add_o = add_rdy_i & ~s0_busy;
+  assign rnd_taking_mul_o = mul_rdy_i & ~s0_busy;
+  assign rnd_taking_div_o = div_rdy_i & ~s0_busy;
+  assign rnd_taking_i2f_o = i2f_rdy_i & ~s0_busy;
+  assign rnd_taking_f2i_o = f2i_rdy_i & ~s0_busy;
 
 
-  /* Stage #1: common align */
+  /* Stage #0: multiplexing */
 
-  wire        s1t_sign;
-  wire [66:0] s1t_fract67;
-  wire        s1t_inv;
-  wire        s1t_inf;
-  wire        s1t_snan;
-  wire        s1t_qnan;
-  wire        s1t_anan_sign;
-  wire  [5:0] s1t_shr;
-  wire  [5:0] s1t_shl;
+  wire        s0t_sign;
+  wire [66:0] s0t_fract67;
+  wire        s0t_inv;
+  wire        s0t_inf;
+  wire        s0t_snan;
+  wire        s0t_qnan;
+  wire        s0t_anan_sign;
+  wire  [5:0] s0t_shr;
+  wire  [5:0] s0t_shl;
 
   // multiplexer for signums and flags
-  wire s1t_add_sign = add_sub_0_i ? rm_to_infm_i : add_sign_i;
+  wire s0t_add_sign = add_sub_0_i ? rm_to_infm_i : add_sign_i;
 
-  assign s1t_sign = (add_rdy_i & s1t_add_sign) |
+  assign s0t_sign = (add_rdy_i & s0t_add_sign) |
                     (mul_rdy_i & mul_sign_i)   |
                     (div_rdy_i & div_sign_i)   |
                     (f2i_rdy_i & f2i_sign_i)   |
                     (i2f_rdy_i & i2f_sign_i);
 
   // multiplexer for fractionals
-  assign s1t_fract67 =
+  assign s0t_fract67 =
     ({67{add_rdy_i}} & {10'd0, add_fract57_i}) |
     ({67{mul_rdy_i}} & {10'd0, mul_fract57_i}) |
     ({67{div_rdy_i}} & {10'd0, div_fract57_i}) |
@@ -187,35 +190,109 @@ module pfpu_rnd_marocchino
 
   // overflow bit for add/mul
   // MAROCCHINO_TODO: optimize ?
-  wire s1t_addmul_carry = (add_rdy_i & (rnd_op_fp64_arith_i ? add_fract57_i[56] : add_fract57_i[27])) |
+  wire s0t_addmul_carry = (add_rdy_i & (rnd_op_fp64_arith_i ? add_fract57_i[56] : add_fract57_i[27])) |
                           (mul_rdy_i & (rnd_op_fp64_arith_i ? mul_fract57_i[56] : mul_fract57_i[27]));
 
   // multiplexer for shift values
-  wire [5:0] s1t_shr_t;
-  assign {s1t_shr_t, s1t_shl} =
+  wire [5:0] s0t_shr_t;
+  assign {s0t_shr_t, s0t_shl} =
     ({12{add_rdy_i}} & {            6'd0,        add_shl_i}) |  // MAROCCHINO_TODO: optimize right shift ?
     ({12{mul_rdy_i}} & {       mul_shr_i,             6'd0}) |  // MAROCCHINO_TODO: optimize right shift ?
     ({12{div_rdy_i}} & {       div_shr_i, {5'd0,div_shl_i}}) |
     ({12{f2i_rdy_i}} & {       f2i_shr_i, {2'b0,f2i_shl_i}}) |
     ({12{i2f_rdy_i}} & {{2'b0,i2f_shr_i},       i2f_shl_i});
 
-  assign s1t_shr = (|s1t_shr_t) ? s1t_shr_t : {5'd0,s1t_addmul_carry};  // MAROCCHINO_TODO: optimize ?
+  assign s0t_shr = (|s0t_shr_t) ? s0t_shr_t : {5'd0,s0t_addmul_carry};  // MAROCCHINO_TODO: optimize ?
+
+  // two stage multiplexer for exponents
+  wire [12:0] s0t_exp13shr;
+  wire [12:0] s0t_exp13shl;
+  wire [12:0] s0t_exp13sh0;
+  assign {s0t_exp13shr, s0t_exp13shl, s0t_exp13sh0} =
+    ({39{add_rdy_i}} & {add_exp13sh0_i, add_exp13shl_i, add_exp13sh0_i}) |
+    ({39{mul_rdy_i}} & {mul_exp13shr_i,          13'd0, mul_exp13sh0_i}) |
+    ({39{div_rdy_i}} & {div_exp13shr_i, div_exp13shl_i, div_exp13sh0_i}) |
+    ({39{f2i_rdy_i}} & {         13'd0,          13'd0,          13'd0}) |
+    ({39{i2f_rdy_i}} & {{2'd0,i2f_exp11shr_i},{2'd0,i2f_exp11shl_i},{2'd0,i2f_exp11sh0_i}});
+
+  wire [12:0] s0t_exp13 =
+    (|s0t_shr_t)  ? s0t_exp13shr :
+    (~(|s0t_shl)) ? (s0t_exp13sh0 + {12'd0,s0t_addmul_carry}) :
+                    s0t_exp13shl;
+
+  // stage #0 output registers
+  reg         s0o_sign;
+  reg         s0o_is_shr;
+  reg   [5:0] s0o_shr;
+  reg   [5:0] s0o_shl;
+  reg  [12:0] s0o_exp13;
+  reg  [66:0] s0o_fract67;
+  reg         s0o_op_fp64_arith;
+  // various flags:
+  reg         s0o_inv;
+  reg         s0o_inf;
+  reg         s0o_snan;
+  reg         s0o_qnan;
+  reg         s0o_anan_sign;
+  // DIV specials
+  reg         s0o_div_op;
+  reg         s0o_div_dbz;
+  // I2F specials
+  reg         s0o_f2i_ovf;
+  reg         s0o_f2i;
+  // ---
+  always @(posedge cpu_clk) begin
+    if (s0_adv) begin
+      s0o_sign          <= s0t_sign;
+      s0o_is_shr        <= (|s0t_shr);
+      s0o_shr           <= s0t_shr;
+      s0o_shl           <= s0t_shl;
+      s0o_exp13         <= s0t_exp13;
+      s0o_fract67       <= s0t_fract67;
+      s0o_op_fp64_arith <= rnd_op_fp64_arith_i;
+      // various flags:
+      s0o_inv           <= ocb_inv_i;
+      s0o_inf           <= ocb_inf_i;
+      s0o_snan          <= ocb_snan_i;
+      s0o_qnan          <= ocb_qnan_i;
+      s0o_anan_sign     <= ocb_anan_sign_i;
+      // DIV specials
+      s0o_div_op        <= div_rdy_i;
+      s0o_div_dbz       <= div_dbz_i;
+      // I2F specials
+      s0o_f2i_ovf       <= f2i_ovf_i;
+      s0o_f2i           <= f2i_rdy_i;
+    end
+  end // @cpu-clock
+
+  // ready is special case
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | pipeline_flush_i)
+      s0o_ready <= 1'b0;
+    else if (s0_adv)
+      s0o_ready <= 1'b1;
+    else if (s1_adv)
+      s0o_ready <= 1'b0;
+  end // @clock
+
+
+  /* Stage #1: common align */
 
   // align
-  wire [66:0] s1t_fract67sh = (|s1t_shr) ? (s1t_fract67 >> s1t_shr) :
-                                           (s1t_fract67 << s1t_shl);
+  wire [66:0] s1t_fract67sh = s0o_is_shr ? (s0o_fract67 >> s0o_shr) :
+                                           (s0o_fract67 << s0o_shl);
 
   // update sticky bit for right shift case.
   //  # select bits for sticky computation
   //    double/single fractionals are right (by LSB) aligned
-  wire [56:0] s1t_fract57 = s1t_fract67[56:0];
+  wire [56:0] s1t_fract57 = s0o_fract67[56:0];
   //  # maximum right shift value for  I2F is:
   //      11 in double precision case
   //       8 in single precision case
   reg s1r_sticky;
-  always @(s1t_fract57 or s1t_shr) begin
+  always @(s1t_fract57 or s0o_shr) begin
     // synthesis parallel_case full_case
-    case (s1t_shr)
+    case (s0o_shr)
       6'd0   : s1r_sticky = |s1t_fract57[ 1:0];
       6'd1   : s1r_sticky = |s1t_fract57[ 2:0];
       6'd2   : s1r_sticky = |s1t_fract57[ 3:0];
@@ -277,35 +354,19 @@ module pfpu_rnd_marocchino
 
   // update sticky bit for left shift case
   //    double/single fractionals are right (by LSB) aligned
-  wire [1:0] s1t_fract2 = s1t_fract67[1:0];
+  wire [1:0] s1t_fract2 = s0o_fract67[1:0];
   // ---
   reg s1l_sticky;
-  always @(s1t_fract2 or s1t_shl) begin
+  always @(s1t_fract2 or s0o_shl) begin
     // synthesis parallel_case full_case
-    case (s1t_shl)
+    case (s0o_shl)
       5'd0   : s1l_sticky = |s1t_fract2;
       5'd1   : s1l_sticky =  s1t_fract2[0];
       default: s1l_sticky = 1'b0;
     endcase
   end // always
 
-  wire s1t_sticky = (|s1t_shr) ? s1r_sticky : s1l_sticky;
-
-  // two stage multiplexer for exponents
-  wire [12:0] s1t_exp13shr;
-  wire [12:0] s1t_exp13shl;
-  wire [12:0] s1t_exp13sh0;
-  assign {s1t_exp13shr, s1t_exp13shl, s1t_exp13sh0} =
-    ({39{add_rdy_i}} & {add_exp13sh0_i, add_exp13shl_i, add_exp13sh0_i}) |
-    ({39{mul_rdy_i}} & {mul_exp13shr_i,          13'd0, mul_exp13sh0_i}) |
-    ({39{div_rdy_i}} & {div_exp13shr_i, div_exp13shl_i, div_exp13sh0_i}) |
-    ({39{f2i_rdy_i}} & {         13'd0,          13'd0,          13'd0}) |
-    ({39{i2f_rdy_i}} & {{2'd0,i2f_exp11shr_i},{2'd0,i2f_exp11shl_i},{2'd0,i2f_exp11sh0_i}});
-
-  wire [12:0] s1t_exp13 =
-    (|s1t_shr_t)  ? s1t_exp13shr :
-    (~(|s1t_shl)) ? (s1t_exp13sh0 + {12'd0,s1t_addmul_carry}) :
-                    s1t_exp13shl;
+  wire s1t_sticky = s0o_is_shr ? s1r_sticky : s1l_sticky;
 
   // output of align stage
   reg        s1o_sign;
@@ -323,23 +384,23 @@ module pfpu_rnd_marocchino
   // registering
   always @(posedge cpu_clk) begin
     if(s1_adv) begin
-      s1o_sign          <= s1t_sign;
-      s1o_exp13         <= s1t_exp13;
+      s1o_sign          <= s0o_sign;
+      s1o_exp13         <= s0o_exp13;
       s1o_fract64       <= s1t_fract67sh[66:3];
       s1o_rs            <= {s1t_fract67sh[2],s1t_sticky};
-      s1o_op_fp64_arith <= rnd_op_fp64_arith_i;
+      s1o_op_fp64_arith <= s0o_op_fp64_arith;
       // various flags:
-      s1o_inv       <= ocb_inv_i;
-      s1o_inf       <= ocb_inf_i;
-      s1o_snan      <= ocb_snan_i;
-      s1o_qnan      <= ocb_qnan_i;
-      s1o_anan_sign <= ocb_anan_sign_i;
+      s1o_inv           <= s0o_inv;
+      s1o_inf           <= s0o_inf;
+      s1o_snan          <= s0o_snan;
+      s1o_qnan          <= s0o_qnan;
+      s1o_anan_sign     <= s0o_anan_sign;
       // DIV specials
-      s1o_div_op  <= div_rdy_i;
-      s1o_div_dbz <= div_dbz_i;
+      s1o_div_op        <= s0o_div_op;
+      s1o_div_dbz       <= s0o_div_dbz;
       // I2F specials
-      s1o_f2i_ovf <= f2i_ovf_i;
-      s1o_f2i     <= f2i_rdy_i;
+      s1o_f2i_ovf       <= s0o_f2i_ovf;
+      s1o_f2i           <= s0o_f2i;
     end // advance
   end // @clock
 

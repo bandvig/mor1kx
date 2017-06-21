@@ -1171,58 +1171,58 @@ module mor1kx_cpu_marocchino
   // **** 1clk ****
   mor1kx_exec_1clk_marocchino
   #(
-    .OPTION_OPERAND_WIDTH             (OPTION_OPERAND_WIDTH) // 1CLK
+    .OPTION_OPERAND_WIDTH             (OPTION_OPERAND_WIDTH) // 1CLK_EXEC
   )
   u_exec_1clk
   (
     // clocks & resets
-    .cpu_clk                          (cpu_clk), // 1CLK
-    .cpu_rst                          (cpu_rst), // 1CLK
+    .cpu_clk                          (cpu_clk), // 1CLK_EXEC
+    .cpu_rst                          (cpu_rst), // 1CLK_EXEC
 
     // pipeline controls
-    .pipeline_flush_i                 (pipeline_flush), // 1CLK
-    .padv_wb_i                        (padv_wb), // 1CLK
-    .grant_wb_to_1clk_i               (grant_wb_to_1clk), // 1CLK
+    .pipeline_flush_i                 (pipeline_flush), // 1CLK_EXEC
+    .padv_wb_i                        (padv_wb), // 1CLK_EXEC
+    .grant_wb_to_1clk_i               (grant_wb_to_1clk), // 1CLK_EXEC
 
     // input operands A and B with forwarding from WB
-    .exec_1clk_a1_i                   (exec_1clk_a1), // 1CLK
-    .exec_1clk_b1_i                   (exec_1clk_b1), // 1CLK
+    .exec_1clk_a1_i                   (exec_1clk_a1), // 1CLK_EXEC
+    .exec_1clk_b1_i                   (exec_1clk_b1), // 1CLK_EXEC
 
     // 1-clock instruction auxiliaries
-    .exec_opc_alu_secondary_i         (exec_opc_alu_secondary), // 1CLK
-    .carry_i                          (ctrl_carry), // 1CLK
-    .flag_i                           (ctrl_flag), // 1CLK
+    .exec_opc_alu_secondary_i         (exec_opc_alu_secondary), // 1CLK_EXEC
+    .carry_i                          (ctrl_carry), // 1CLK_EXEC
+    .flag_i                           (ctrl_flag), // 1CLK_EXEC
 
     // adder
-    .exec_op_add_i                    (exec_op_add), // 1CLK
-    .exec_adder_do_sub_i              (exec_adder_do_sub), // 1CLK
-    .exec_adder_do_carry_i            (exec_adder_do_carry), // 1CLK
+    .exec_op_add_i                    (exec_op_add), // 1CLK_EXEC
+    .exec_adder_do_sub_i              (exec_adder_do_sub), // 1CLK_EXEC
+    .exec_adder_do_carry_i            (exec_adder_do_carry), // 1CLK_EXEC
     // shift, ffl1, movhi, cmov
-    .exec_op_shift_i                  (exec_op_shift), // 1CLK
-    .exec_op_ffl1_i                   (exec_op_ffl1), // 1CLK
-    .exec_op_movhi_i                  (exec_op_movhi), // 1CLK
-    .exec_op_cmov_i                   (exec_op_cmov), // 1CLK
+    .exec_op_shift_i                  (exec_op_shift), // 1CLK_EXEC
+    .exec_op_ffl1_i                   (exec_op_ffl1), // 1CLK_EXEC
+    .exec_op_movhi_i                  (exec_op_movhi), // 1CLK_EXEC
+    .exec_op_cmov_i                   (exec_op_cmov), // 1CLK_EXEC
     // logic
-    .exec_op_logic_i                  (exec_op_logic), // 1CLK
-    .exec_opc_logic_i                 (exec_opc_logic), // 1CLK
+    .exec_op_logic_i                  (exec_op_logic), // 1CLK_EXEC
+    .exec_opc_logic_i                 (exec_opc_logic), // 1CLK_EXEC
     // WB-latched 1-clock arithmetic result
-    .wb_alu_1clk_result_o             (wb_alu_1clk_result), // 1CLK
+    .wb_alu_1clk_result_o             (wb_alu_1clk_result), // 1CLK_EXEC
     //  # update carry flag by 1clk-operation
-    .wb_1clk_carry_set_o              (wb_1clk_carry_set), // 1CLK
-    .wb_1clk_carry_clear_o            (wb_1clk_carry_clear), // 1CLK
+    .wb_1clk_carry_set_o              (wb_1clk_carry_set), // 1CLK_EXEC
+    .wb_1clk_carry_clear_o            (wb_1clk_carry_clear), // 1CLK_EXEC
     //  # update overflow flag by 1clk-operation
-    .wb_1clk_overflow_set_o           (wb_1clk_overflow_set), // 1CLK
-    .wb_1clk_overflow_clear_o         (wb_1clk_overflow_clear), // 1CLK
+    .wb_1clk_overflow_set_o           (wb_1clk_overflow_set), // 1CLK_EXEC
+    .wb_1clk_overflow_clear_o         (wb_1clk_overflow_clear), // 1CLK_EXEC
     //  # generate overflow exception by 1clk-operation
-    .except_overflow_enable_i         (except_overflow_enable), // 1CLK
-    .exec_except_overflow_1clk_o      (exec_except_overflow_1clk), // 1CLK
-    .wb_except_overflow_1clk_o        (wb_except_overflow_1clk), // 1CLK
+    .except_overflow_enable_i         (except_overflow_enable), // 1CLK_EXEC
+    .exec_except_overflow_1clk_o      (exec_except_overflow_1clk), // 1CLK_EXEC
+    .wb_except_overflow_1clk_o        (wb_except_overflow_1clk), // 1CLK_EXEC
 
     // integer comparison flag
-    .exec_op_setflag_i                (exec_op_setflag), // 1CLK
+    .exec_op_setflag_i                (exec_op_setflag), // 1CLK_EXEC
     // WB: integer comparison result
-    .wb_int_flag_set_o                (wb_int_flag_set), // 1CLK
-    .wb_int_flag_clear_o              (wb_int_flag_clear) // 1CLK
+    .wb_int_flag_set_o                (wb_int_flag_set), // 1CLK_EXEC
+    .wb_int_flag_clear_o              (wb_int_flag_clear) // 1CLK_EXEC
   );
 
 

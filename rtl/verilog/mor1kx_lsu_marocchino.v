@@ -1183,7 +1183,7 @@ module mor1kx_lsu_marocchino
     .dc_taking_store_i          (s2_taking_store), // DCACHE
     .pipeline_flush_i           (pipeline_flush_i), // DCACHE
     // configuration
-    .enable_i                   (dc_enable_i), // DCACHE
+    .dc_enable_i                (dc_enable_i), // DCACHE
     // exceptions
     .dmmu_excepts_addr_i        (s2t_excepts_addr), // DCACHE
     .dbus_err_i                 (dbus_err_i), // DCACHE
