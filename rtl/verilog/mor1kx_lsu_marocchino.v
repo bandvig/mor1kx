@@ -97,11 +97,11 @@ module mor1kx_lsu_marocchino
   input                                 snoop_en_i,
   // Output flags and load result
   output                                lsu_taking_op_o,
-  output                                lsu_valid_o, // result ready or exceptions
-  output reg [OPTION_OPERAND_WIDTH-1:0] wb_lsu_result_o,
+  output reg                            lsu_valid_o, // result ready or exceptions
+  output     [OPTION_OPERAND_WIDTH-1:0] wb_lsu_result_o,
   output reg                            wb_lsu_valid_miss_o,
-  output reg                            wb_rfd1_wb_lsu_miss_o,
-  output reg                            wb_flag_wb_lsu_miss_o,
+  output                                wb_rfd1_wb_lsu_miss_o, // alias for wb_lsu_valid_miss_o
+  output                                wb_flag_wb_lsu_miss_o, // alias for wb_lsu_valid_miss_o
   // Exceprions & errors
   //  # pre-WB
   output                                exec_an_except_lsu_o,
@@ -112,14 +112,14 @@ module mor1kx_lsu_marocchino
   output reg                            sbuf_err_o,
   // exception output
   //  # particular LSU exception flags
-  output reg                            wb_except_dbus_err_o,
-  output reg                            wb_except_dpagefault_o,
-  output reg                            wb_except_dtlb_miss_o,
-  output reg                            wb_except_dbus_align_o,
-  output reg [OPTION_OPERAND_WIDTH-1:0] wb_lsu_except_addr_o,
+  output     [OPTION_OPERAND_WIDTH-1:0] wb_lsu_except_addr_o,
+  output                                wb_except_dbus_err_o,
+  output                                wb_except_dpagefault_o,
+  output                                wb_except_dtlb_miss_o,
+  output                                wb_except_dbus_align_o,
   // Atomic operation flag set/clear logic
-  output reg                            wb_atomic_flag_set_o,
-  output reg                            wb_atomic_flag_clear_o
+  output                                wb_atomic_flag_set_o,
+  output                                wb_atomic_flag_clear_o
 );
 
 
@@ -236,10 +236,7 @@ module mor1kx_lsu_marocchino
   wire              s2t_excepts_addr;
   // # combined of address + DBUS instant error
   wire              s2t_excepts_any; // non-registered
-
-  // Exceptions pending for WB
-  // # pending for DBUS error
-  reg               s2p_dbus_err;
+  wire              s2t_ack_excepts_any; // to put in output buffer: MAROCCHINO_TODO: reg_it ??
   // # pending for either address or DBUS errors
   reg               s2p_excepts_any; // registered
 
@@ -247,19 +244,14 @@ module mor1kx_lsu_marocchino
   // LSU pipe controls
   //  # report on command execution
   wire              s2t_ack_load;
-  reg               s2p_ack_load;  // pending for both atomic and none-atomic
   wire              s2t_ack_store;
   wire              s2t_ack_swa;
-  reg               s2p_ack_store; // pending both atomic and none-atomic
   //  # LSU's pipe free signals (LSU is able to take next command)
   wire              s2t_free_load;  // complete load
   wire              s2t_free_store; // complete store
   wire              s2t_free_all;   // also includes l.msync, exceptions and flushing
-  //  # WB miss processing
-  wire              s2t_miss_load;  // to generate load-miss and all-reasons-miss
-  wire              s2t_miss_store; // to generate all-reasons-miss
-  wire              s2t_miss_on;    // assert overall lsu-valid-miss
-  wire              s2t_miss_off;   // de-assert overall lsu-valid-miss
+  //  # All output buffer rooms are reserved
+  reg               obuff_closed_r;
 
   // Flushing logic provides continuous clean up output
   // from pipeline-flush till transaction (read/re-fill) completion
@@ -277,9 +269,18 @@ module mor1kx_lsu_marocchino
 
   // Exceptions detected on DCACHE/DBUS access stage
   //  # exceptions related to address computation and conversion
-  assign s2t_excepts_addr = s2r_align | s2r_tlb_miss | s2r_pagefault;
+  assign s2t_excepts_addr = s2r_align | s2r_tlb_miss | s2r_pagefault; // MAROCCHINO_TODO: reg_it ??
   //  # all exceptions
   assign s2t_excepts_any  = s2t_excepts_addr | dbus_err_i;
+  //  # pending latch for any LSU exception
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | flush_by_ctrl)  // drop any LSU exception pending latch
+      s2p_excepts_any <= 1'b0;
+    else if (~s2p_excepts_any)  // test any LSU exception pending latch
+      s2p_excepts_any <= s2t_excepts_any;
+  end // @clock
+  //  # push output buffer
+  assign s2t_ack_excepts_any = s2t_excepts_any & (~s2p_excepts_any);
 
 
   // Stage #2 is taking new load/store command (less priority than flushing or exceptions)
@@ -287,20 +288,12 @@ module mor1kx_lsu_marocchino
   wire s2_taking_store = s1r_op_lsu_store & s2t_free_all; // for DCACHE mostly
   wire s2_taking_ls    = s1r_op_lsu_ls    & s2t_free_all;
 
-  // local variant of grant-wb-to-lsu taking into accaunt speculative miss
-  wire grant_wb_to_lsu = (padv_wb_i & grant_wb_to_lsu_i) | wb_lsu_valid_miss_o;
-
   // l.load completion / waiting / WB-miss
   wire   dbus_ack_load  = (dbus_read_state | dc_refill_first) & dbus_ack_i;
   // ---
   assign s2t_ack_load   = (s2r_load & dc_ack) | dbus_ack_load;
   // ---
-  assign s2t_free_load  = ((~s2r_load) & (~s2p_ack_load)) | // LSU free of l.load
-                          ((dbus_ack_load | s2p_ack_load) & padv_wb_i & grant_wb_to_lsu_i) | // LSU free of l.load: MAROCCHINO_TODO: try higer cpu_clk
-                          // MAROCCHINO_TODO: ((s2t_ack_load | s2p_ack_load) & padv_wb_i & grant_wb_to_lsu_i) | // LSU free of l.load (completes, speculative WB hit)
-                          (dbus_ack_load & wb_rfd1_wb_lsu_miss_o); // LSU free of l.load (completes, speculative WB miss)
-  // --- we check *miss* flags at (padv-wb-i & grant-wb-to-lsu-i) ---
-  assign s2t_miss_load  = s2r_load & (~dbus_ack_load) & (~dc_ack); // for lsu-rfd1-miss
+  assign s2t_free_load  = (~s2r_load) | /*MAROCCHINO_TODO: dc_ack |*/ dbus_ack_load;// LSU free of l.load
 
 
   // l.store completion / waiting / WB-miss
@@ -308,12 +301,7 @@ module mor1kx_lsu_marocchino
   // ---
   assign s2t_ack_swa    = s2r_swa & dbus_swa_ack; // MAROCCHINO_TODO: just dbus-swa-ack ?
   // ---
-  assign s2t_free_store = ((~s2r_store) & (~s2r_swa) & (~s2p_ack_store)) | // LSU free of l.store
-                          ((s2t_ack_store | s2t_ack_swa | s2p_ack_store) & padv_wb_i & grant_wb_to_lsu_i) | // LSU free of l.store (completes, speculative WB hit)
-                          ((s2t_ack_store | s2t_ack_swa) & wb_lsu_valid_miss_o); // LSU free of l.store (completes, speculative WB miss)
-  // --- we check *miss* flags at (padv-wb-i & grant-wb-to-lsu-i) ---
-  wire   s2t_miss_swa   =  s2r_swa   & (~dbus_swa_ack);                // for overall lsu-valid-miss and flag
-  assign s2t_miss_store = (s2r_store & (~sbuf_write)) | s2t_miss_swa;  // for overall lsu-valid-miss
+  assign s2t_free_store = ((~s2r_store) & (~s2r_swa)) | s2t_ack_store | s2t_ack_swa; // LSU free of l.store
 
 
   // LSU is able to take next command
@@ -321,17 +309,8 @@ module mor1kx_lsu_marocchino
                         (~dc_refill_state)             &   // LSU is free
                         (~s2r_op_msync)                &   // LSU is free
                         (~snoop_hit)                   &   // LSU is free : MAROCCHINO_TODO: already taken into accaunt by others ?
+                        (~obuff_closed_r)              &   // LSU is free
                         (~s2p_excepts_any) & (~flush_r);   // LSU is free
-
-
-  // Assert overall lsu-valid-miss at (padv-wb-i & grant-wb-to-lsu-i)
-  assign s2t_miss_on  = s2t_miss_load   | // assert overall lsu-valid-miss
-                        s2t_miss_store  | // assert overall lsu-valid-miss
-                        snoop_hit;        // assert overall lsu-valid-miss: MAROCCHINO_TODO: already taken into accaunt by others ?
-
-  // De-assert overall lsu-valid-miss
-  assign s2t_miss_off = ((dbus_read_state | dbus_burst_last_i) & dbus_ack_i) | // de-assert overall lsu-valid-miss
-                        s2t_ack_store  | s2t_ack_swa;                          // de-assert overall lsu-valid-miss
 
 
   //-----------------------------------------------------------------//
@@ -355,63 +334,6 @@ module mor1kx_lsu_marocchino
   end // @clock
   // ---
   assign flush_by_ctrl = pipeline_flush_i | flush_r;
-
-
-  //----------------------------------------------------//
-  // Speculative valid flag to push WB (see OMAN, CTRL) //
-  //----------------------------------------------------//
-
-  reg lsu_speculative_valid_r;
-  // ---
-  always @(posedge cpu_clk) begin
-    if (cpu_rst | flush_by_ctrl)            // reset speculative valid flag
-      lsu_speculative_valid_r <= 1'b0;
-    else if (s2_taking_ls)                 // set speculative valid flag
-      lsu_speculative_valid_r <= 1'b1;
-    else if (padv_wb_i & grant_wb_to_lsu_i) // drop speculative valid flag
-      lsu_speculative_valid_r <= 1'b0;
-  end // @clock
-  // ---
-  assign lsu_valid_o = lsu_speculative_valid_r; // either "ready" or exceptions
-
-
-  //-------------------------------------------------//
-  // flags for speculative LSU completion processing //
-  //-------------------------------------------------//
-
-  // Any kind of LSU's ACK miss
-  //   - prevents padv-wb in CTRL
-  always @(posedge cpu_clk) begin
-    if (cpu_rst | flush_by_ctrl) // drop any-miss
-      wb_lsu_valid_miss_o <= 1'b0;
-    else if (padv_wb_i & grant_wb_to_lsu_i) // set any-miss
-      wb_lsu_valid_miss_o <= s2t_miss_on;
-    else if (wb_lsu_valid_miss_o & s2t_miss_off)
-      wb_lsu_valid_miss_o <= 1'b0;
-  end // @clock
-
-  // LSU's load ACK miss
-  //   - prevents resolving D1 related hazards
-  //   - prevents write back to RF
-  always @(posedge cpu_clk) begin
-    if (cpu_rst | flush_by_ctrl) // drop load-miss
-      wb_rfd1_wb_lsu_miss_o <= 1'b0;
-    else if (padv_wb_i & grant_wb_to_lsu_i) // try load-ack at 1st time
-      wb_rfd1_wb_lsu_miss_o <= s2t_miss_load;
-    else if (wb_rfd1_wb_lsu_miss_o & dbus_ack_load) // padv-wb is blocked, try load-ack continously
-      wb_rfd1_wb_lsu_miss_o <= 1'b0;
-  end // @clock
-
-  // LSU's l.swa ACK miss
-  //   - prevents write back flag nad taking conditional branches
-  always @(posedge cpu_clk) begin
-    if (cpu_rst | flush_by_ctrl) // drop swa-miss
-      wb_flag_wb_lsu_miss_o <= 1'b0;
-    else if (padv_wb_i & grant_wb_to_lsu_i) // try swa-ack at 1st time
-      wb_flag_wb_lsu_miss_o <= s2t_miss_swa;
-    else if (wb_flag_wb_lsu_miss_o & dbus_swa_ack) // padv-wb is blocked, try swa-ack continously
-      wb_flag_wb_lsu_miss_o <= 1'b0;
-  end // @clock
 
 
   //--------------------//
@@ -694,9 +616,9 @@ module mor1kx_lsu_marocchino
   end // @clock
 
 
-  //----------------//
-  // LSU exceptions //
-  //----------------//
+  //----------------------//
+  // DBUS error exception //
+  //----------------------//
 
   // --- bus error during bus access from store buffer ---
   //  ## pay attention that l.swa is executed around of
@@ -710,50 +632,6 @@ module mor1kx_lsu_marocchino
     else if (sbuf_err)          // rise store buffer DBUS error
       sbuf_err_o  <= 1'b1;
   end // @ clock
-
-  // --- pending latch for DBUS error ---
-  always @(posedge cpu_clk) begin
-    if (cpu_rst | flush_by_ctrl)  // drop DBUS error pending latch
-      s2p_dbus_err <= 1'b0;
-    else if (~s2p_dbus_err)  // test DBUS error pending latch
-      s2p_dbus_err <= dbus_err_i;
-  end // @clock
-
-  // --- pending latch for any LSU exception ---
-  always @(posedge cpu_clk) begin
-    if (cpu_rst | flush_by_ctrl)  // drop any LSU exception pending latch
-      s2p_excepts_any <= 1'b0;
-    else if (~s2p_excepts_any)  // test any LSU exception pending latch
-      s2p_excepts_any <= s2t_excepts_any;
-  end // @clock
-
-  // pre-WB to generate pipeline-flush
-  // MAROCCHINO_TODO: need more accurate processing for store buffer bus error
-  assign exec_an_except_lsu_o = (s2t_excepts_addr | s2p_dbus_err | dbus_err_i) & (grant_wb_to_lsu_i | wb_lsu_valid_miss_o);
-
-  // WB latches for LSU exceptions
-  //  just particular LSU exception flags make sense here
-  always @(posedge cpu_clk) begin
-    if (cpu_rst | flush_by_ctrl) begin  // drop WB-reported exceptions
-      wb_except_dbus_err_o   <= 1'b0;
-      wb_except_dpagefault_o <= 1'b0;
-      wb_except_dtlb_miss_o  <= 1'b0;
-      wb_except_dbus_align_o <= 1'b0;
-    end
-    else if (grant_wb_to_lsu) begin // rise WB-reported exceptions
-      wb_except_dbus_err_o   <= s2p_dbus_err | dbus_err_i;
-      wb_except_dpagefault_o <= s2r_pagefault;
-      wb_except_dtlb_miss_o  <= s2r_tlb_miss;
-      wb_except_dbus_align_o <= s2r_align;
-    end
-  end // @clock
-
-  // WB latches RAM address related to an LSU exception
-  always @(posedge cpu_clk) begin
-    if (padv_wb_i & grant_wb_to_lsu_i) // latch WB-reported RAM address related to an LSU exception
-      wb_lsu_except_addr_o <= s2r_virt_addr;
-  end // @clock
-
 
 
   //-----------------//
@@ -791,56 +669,6 @@ module mor1kx_lsu_marocchino
     endcase
   end
 
-  //------------------------------//
-  // LSU temporary output storage //
-  //------------------------------//
-
-  // pending 'store ready' flag for WB_MUX
-  always @(posedge cpu_clk) begin
-    if (cpu_rst | flush_by_ctrl) // prevent 'store ready' pending
-      s2p_ack_store <= 1'b0;
-    else if (grant_wb_to_lsu) // prevent 'store ready' pending
-      s2p_ack_store <= 1'b0;
-    else if (s2t_ack_store | s2t_ack_swa)
-      s2p_ack_store <= 1'b1;
-  end // @clock
-
-  // pending 'load ready' flag for WB_MUX
-  always @(posedge cpu_clk) begin
-    if (cpu_rst | flush_by_ctrl) // prevent 'load ready' pending
-      s2p_ack_load <= 1'b0;
-    else if (grant_wb_to_lsu) // prevent 'load ready' pending
-      s2p_ack_load <= 1'b0;
-    else if (s2t_ack_load)
-      s2p_ack_load <= 1'b1;
-  end // @clock
-
-  // pending loaded word
-  reg [LSUOOW-1:0] s2p_ldat;
-  // ---
-  always @(posedge cpu_clk) begin
-    if (s2t_ack_load)
-      s2p_ldat <= s2t_ldat_extended;
-  end // @clock
-
-
-  //------------------------------------//
-  // LSU load result write-back latches //
-  //------------------------------------//
-
-  always @(posedge cpu_clk) begin
-    if (flush_by_ctrl) begin // clean up LSU result (if missed)
-      wb_lsu_result_o <= {LSUOOW{1'b0}};
-    end
-    else if (padv_wb_i) begin
-      if (grant_wb_to_lsu_i)
-        wb_lsu_result_o <= s2p_ack_load ? s2p_ldat : s2t_ldat_extended;
-      else
-        wb_lsu_result_o <= {LSUOOW{1'b0}};
-    end
-    else if (wb_rfd1_wb_lsu_miss_o & dbus_ack_load) // padv-wb is blocked (see CTRL), latch load-result continously
-      wb_lsu_result_o <= s2t_ldat_extended;
-  end // @clock
 
 
   //----------//
@@ -1080,6 +908,7 @@ module mor1kx_lsu_marocchino
   //-------------------------//
   // Atomic operations logic //
   //-------------------------//
+  // // MAROCCHINO_TODO: not correct for CDC
   assign dbus_swa_discard = dbus_atomic & ~atomic_reserve;
   // ---
   assign dbus_swa_ack     = dbus_atomic & dbus_ack_i;
@@ -1108,51 +937,6 @@ module mor1kx_lsu_marocchino
         atomic_reserve <= 1'b1;
         atomic_addr    <= s2r_phys_addr;
       end
-    end
-  end // @clock
-
-  // pending atomic flag/set clear responce
-  reg atomic_flag_set_p;
-  reg atomic_flag_clear_p;
-  // ---
-  always @(posedge cpu_clk) begin
-    if (cpu_rst | flush_by_ctrl) begin // prevent set/clear atomic flag pending
-      atomic_flag_set_p   <= 1'b0;
-      atomic_flag_clear_p <= 1'b0;
-    end
-    else if (grant_wb_to_lsu | s2t_excepts_any) begin // prevent set/clear atomic flag pending
-      atomic_flag_set_p   <= 1'b0;
-      atomic_flag_clear_p <= 1'b0;
-    end
-    else if (dbus_swa_ack) begin
-      atomic_flag_set_p   <=  atomic_reserve;
-      atomic_flag_clear_p <= ~atomic_reserve;
-    end
-  end // @clock
-
-  // atomic flags for WB_MUX
-  always @(posedge cpu_clk) begin
-    if (cpu_rst | flush_by_ctrl) begin // drop WB atomic flags
-      wb_atomic_flag_set_o   <= 1'b0;
-      wb_atomic_flag_clear_o <= 1'b0;
-    end
-    else if (s2t_excepts_any) begin // drop WB atomic flags
-      wb_atomic_flag_set_o   <= 1'b0;
-      wb_atomic_flag_clear_o <= 1'b0;
-    end
-    else if (padv_wb_i) begin
-      if (grant_wb_to_lsu_i) begin // conditions for WB atomic flags
-        wb_atomic_flag_set_o   <= dbus_swa_success | atomic_flag_set_p;
-        wb_atomic_flag_clear_o <= dbus_swa_fail    | atomic_flag_clear_p;
-      end
-      else begin
-        wb_atomic_flag_set_o   <= 1'b0;
-        wb_atomic_flag_clear_o <= 1'b0;
-      end
-    end
-    else if (wb_flag_wb_lsu_miss_o) begin
-      wb_atomic_flag_set_o   <= dbus_swa_success;
-      wb_atomic_flag_clear_o <= dbus_swa_fail;
     end
   end // @clock
 
@@ -1222,5 +1006,237 @@ module mor1kx_lsu_marocchino
     .spr_bus_dat_o              (spr_bus_dat_dc_o), // DCACHE
     .spr_bus_ack_o              (spr_bus_ack_dc_o) // DCACHE
   );
+
+
+  //----------------------------------------------------------------------------//
+  // Oputput triple buffer to prevent padv_wb backward propagation to LSU_RSRVS //
+  //----------------------------------------------------------------------------//
+
+  localparam  OBUFF_LDAT_LSB          = 0;
+  localparam  OBUFF_LDAT_MSB          = LSUOOW - 1;
+  localparam  OBUFF_EXCEPT_ADDR_LSB   = OBUFF_LDAT_MSB          + 1;
+  localparam  OBUFF_EXCEPT_ADDR_MSB   = OBUFF_EXCEPT_ADDR_LSB   + LSUOOW - 1;
+  localparam  OBUFF_ATOMIC_FLAG_SET   = OBUFF_EXCEPT_ADDR_MSB   + 1;
+  localparam  OBUFF_ATOMIC_FLAG_CLR   = OBUFF_ATOMIC_FLAG_SET   + 1;
+  localparam  OBUFF_EXCEPT_DBUS_ERR   = OBUFF_ATOMIC_FLAG_CLR   + 1;
+  localparam  OBUFF_EXCEPT_DPAGEFAULT = OBUFF_EXCEPT_DBUS_ERR   + 1;
+  localparam  OBUFF_EXCEPT_DTLB_MISS  = OBUFF_EXCEPT_DPAGEFAULT + 1;
+  localparam  OBUFF_EXCEPT_DBUS_ALIGN = OBUFF_EXCEPT_DTLB_MISS  + 1;
+  localparam  OBUFF_EXCEPTS_ANY       = OBUFF_EXCEPT_DBUS_ALIGN + 1;
+  localparam  OBUFF_RESULT_OR_EXCEPT  = OBUFF_EXCEPTS_ANY       + 1;
+
+  // MSB and data width for 1st and Write-Back taps
+  //  -- without "result or except" bit
+  localparam  OBUFF_WB_MSB = OBUFF_EXCEPT_DBUS_ALIGN;
+  localparam  OBUFF_WB_DW  = OBUFF_WB_MSB + 1;
+
+  // MSB and data width for 2nd pending tap
+  //  -- with "result or except" bit
+  localparam  OBUFF_PX_MSB = OBUFF_RESULT_OR_EXCEPT;
+  localparam  OBUFF_PX_DW  = OBUFF_PX_MSB + 1;
+
+  // Data to store in Write-Back tap of output buffer
+  //  -- without "result or except" bit
+  wire [OBUFF_WB_MSB:0] obuff_wb_din =
+    {
+      // Particular LSU exception flags
+      s2r_align,            // Write-Back tap of output buffer
+      s2r_tlb_miss,         // Write-Back tap of output buffer
+      s2r_pagefault,        // Write-Back tap of output buffer
+      dbus_err_i,           // Write-Back tap of output buffer : MAROCCHINO_TODO : complete it
+      // Atomic operation flag set/clear logic
+      dbus_swa_fail,        // Write-Back tap of output buffer
+      dbus_swa_success,     // Write-Back tap of output buffer
+      // WB-output assignement
+      s2r_virt_addr,        // Write-Back tap of output buffer (exception virtual address)
+      s2t_ldat_extended     // Write-Back tap of output buffer
+    };
+
+  // Data to store in Write-Back tap of output buffer
+  //  -- with "result or except" bit
+  wire [OBUFF_PX_MSB:0] obuff_px_din = {1'b1,s2t_excepts_any,obuff_wb_din};
+
+  // output buffer taps
+  reg [OBUFF_WB_MSB:0] obuff_wb; // Write-Back tap
+  reg [OBUFF_PX_MSB:0] obuff_p1; // Pre-WB tap
+  reg [OBUFF_PX_MSB:0] obuff_p2; // Pre-Pre-WB tap
+
+  // pointers
+  reg  [1:0] obuff_curr_ptr; // on p1 or p2
+  reg  [1:0] obuff_prev_ptr; // on wb or p1
+
+  // LSU is writing result or an exception into output buffer
+  wire obuff_we = s2t_ack_load | s2t_ack_store | s2t_ack_swa | s2t_ack_excepts_any;
+
+  // Write-Back is reading LSU's output with taking into accaunt "missed" result
+  wire obuff_re = (padv_wb_i & grant_wb_to_lsu_i) | wb_lsu_valid_miss_o;
+
+  // Concatinated control for output buffer (for debug mostly)
+  // {(new commnad), (write result to buff), (read by access to WB)}
+  wire [2:0] obuff_nc_we_re = {s2_taking_ls, obuff_we, obuff_re};
+
+  // Output buffer state machine
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | flush_by_ctrl) begin
+      // buffer taps
+      obuff_wb <= {OBUFF_WB_DW{1'b0}};
+      obuff_p1 <= {OBUFF_PX_DW{1'b0}};
+      obuff_p2 <= {OBUFF_PX_DW{1'b0}};
+      // pointers
+      obuff_curr_ptr <= 2'b01;
+      obuff_prev_ptr <= 2'b01;
+      // all taps are reserved flag
+      obuff_closed_r <= 1'b0;
+      // speculative valid flag
+      lsu_valid_o <= 1'b0; // reset / pipeline flush
+      // miss flag(s)
+      wb_lsu_valid_miss_o <= 1'b0; // reset / pipeline flush
+    end
+    else begin
+      // synthesis parallel_case full_case
+      case (obuff_nc_we_re)
+        // read only:
+        3'b001: begin
+          // push buffer
+          obuff_wb <= obuff_p1[OBUFF_WB_MSB:0];
+          obuff_p1 <= obuff_p2;
+          obuff_p2 <= {OBUFF_PX_DW{1'b0}};
+          // "decrement" pointers
+          obuff_curr_ptr <= obuff_p2[OBUFF_RESULT_OR_EXCEPT] ? obuff_curr_ptr : 2'b01;
+          obuff_prev_ptr <= obuff_p2[OBUFF_RESULT_OR_EXCEPT] ? obuff_prev_ptr : 2'b01;
+          // "open" buffer
+          obuff_closed_r <= 1'b0;
+          // real valid flag
+          lsu_valid_o <= obuff_p2[OBUFF_RESULT_OR_EXCEPT]; // outbuff controls: nc = 0, we = 0, re = 1
+          // miss flag(s)
+          wb_lsu_valid_miss_o <= ~obuff_p1[OBUFF_RESULT_OR_EXCEPT]; // outbuff controls: nc = 0, we = 0, re = 1
+        end
+
+        // write only:
+        3'b010: begin
+          // wb-tap should be meaningful for 1-clock only
+          obuff_wb <= {OBUFF_WB_DW{1'b0}};
+          // put LSU's result into current tap
+          obuff_p1 <= obuff_curr_ptr[0] ? obuff_px_din : obuff_p1;
+          obuff_p2 <= obuff_curr_ptr[1] ? obuff_px_din : obuff_p2;
+          // "increment" pointers
+          obuff_curr_ptr <= 2'b10; // set to p2 by nc = 0, we = 1, re = 0
+          obuff_prev_ptr <= 2'b10; // set to p1 by nc = 0, we = 1, re = 0
+          // "open"/"close" buffer
+          obuff_closed_r <= obuff_curr_ptr[1]; // write to p2 by nc = 0, we = 1, re = 0
+          // real valid flag
+          lsu_valid_o <= 1'b1;
+        end
+
+        // read overlapping write:
+        3'b011: begin
+          // put LSU's result into previous tap
+          obuff_wb <= obuff_prev_ptr[0] ? obuff_wb_din : obuff_p1[OBUFF_WB_MSB:0];
+          obuff_p1 <= obuff_prev_ptr[1] ? obuff_px_din : obuff_p2;
+          obuff_p2 <= {OBUFF_PX_DW{1'b0}};
+          // "open" buffer (without conditions)
+          obuff_closed_r <= 1'b0;
+          // real valid flag
+          lsu_valid_o <= obuff_prev_ptr[1]; // outbuff controls: nc = 0, we = 1, re = 1
+          // miss flag(s)
+          wb_lsu_valid_miss_o <= 1'b0; // outbuff controls: nc = 0, we = 1, re = 1
+        end
+
+        // LSU is taking new command:
+        3'b100: begin
+          // wb-tap should be meaningful for 1-clock only
+          obuff_wb <= {OBUFF_WB_DW{1'b0}};
+          // "close" buffer if last tap (p2) has become "reserved"
+          obuff_closed_r <= obuff_curr_ptr[1];
+          // speculative valid flag
+          lsu_valid_o <= 1'b1; // outbuff controls: nc = 1, we = 0, re = 0
+        end
+
+        // New command ovelapping read:
+        3'b101: begin
+          obuff_wb <= obuff_p1[OBUFF_WB_MSB:0];
+          obuff_p1 <= obuff_p2;
+          obuff_p2 <= {OBUFF_PX_DW{1'b0}};
+          // "decrement" pointers
+          obuff_curr_ptr <= obuff_p2[OBUFF_RESULT_OR_EXCEPT] ? obuff_curr_ptr : 2'b01;
+          obuff_prev_ptr <= obuff_p2[OBUFF_RESULT_OR_EXCEPT] ? obuff_prev_ptr : 2'b01;
+          // "close" buffer if last tap (p2) keep "reserved"
+          obuff_closed_r <= obuff_p2[OBUFF_RESULT_OR_EXCEPT];
+          // speculative valid flag
+          lsu_valid_o <= 1'b1; // outbuff controls: nc = 1, we = 0, re = 1
+          // miss flag(s)
+          wb_lsu_valid_miss_o <= ~obuff_p1[OBUFF_RESULT_OR_EXCEPT]; // outbuff controls: nc = 1, we = 0, re = 1
+        end
+
+        // New command overlapping write:
+        3'b110: begin
+          // wb-tap should be meaningful for 1-clock only
+          obuff_wb <= {OBUFF_WB_DW{1'b0}};
+          // put LSU's result into current tap
+          obuff_p1 <= obuff_curr_ptr[0] ? obuff_px_din : obuff_p1;
+          obuff_p2 <= obuff_curr_ptr[1] ? obuff_px_din : obuff_p2;
+          // "increment" pointers
+          obuff_curr_ptr <= 2'b10; // set to p2 by nc = 1, we = 1, re = 0
+          obuff_prev_ptr <= 2'b10; // set to p1 by nc = 1, we = 1, re = 0
+          // "open"/"close" buffer
+          obuff_closed_r <= obuff_curr_ptr[0]; // write to p2 by nc = 1, we = 1, re = 0
+          // speculative valid flag
+          lsu_valid_o <= 1'b1; // outbuff controls: nc = 1, we = 1, re = 0
+        end
+
+        // All events at the same time
+        3'b111: begin
+          // put LSU's result into previous tap
+          obuff_wb <= obuff_prev_ptr[0] ? obuff_wb_din : obuff_p1[OBUFF_WB_MSB:0];
+          obuff_p1 <= obuff_prev_ptr[1] ? obuff_px_din : obuff_p2;
+          obuff_p2 <= {OBUFF_PX_DW{1'b0}};
+          // "close" buffer if last tap has become "reserved"
+          obuff_closed_r <= obuff_curr_ptr[1];
+          // speculative valid flag
+          lsu_valid_o <= 1'b1; // outbuff controls: nc = 1, we = 1, re = 1
+          // miss flag(s)
+          wb_lsu_valid_miss_o <= 1'b0; // outbuff controls: nc = 0, we = 1, re = 1
+        end
+
+        // no actions
+        default: begin
+          // wb-tap should be meaningful for 1-clock only
+          obuff_wb <= {OBUFF_WB_DW{1'b0}};
+        end
+      endcase
+    end
+  end // @cpu-clk
+
+
+  // pre-WB exceprions & errors
+  // MAROCCHINO_TODO: need more accurate processing for store buffer bus error
+  assign exec_an_except_lsu_o = (obuff_p1[OBUFF_RESULT_OR_EXCEPT] ? obuff_p1[OBUFF_EXCEPTS_ANY] : s2t_excepts_any) & (grant_wb_to_lsu_i | wb_lsu_valid_miss_o);
+
+  // WB-output assignement
+  assign wb_lsu_result_o        = obuff_wb[OBUFF_LDAT_MSB:OBUFF_LDAT_LSB];
+  assign wb_lsu_except_addr_o   = obuff_wb[OBUFF_EXCEPT_ADDR_MSB:OBUFF_EXCEPT_ADDR_LSB];
+  // Atomic operation flag set/clear logic
+  assign wb_atomic_flag_set_o   = obuff_wb[OBUFF_ATOMIC_FLAG_SET];
+  assign wb_atomic_flag_clear_o = obuff_wb[OBUFF_ATOMIC_FLAG_CLR];
+  // Particular LSU exception flags
+  assign wb_except_dbus_err_o   = obuff_wb[OBUFF_EXCEPT_DBUS_ERR];
+  assign wb_except_dpagefault_o = obuff_wb[OBUFF_EXCEPT_DPAGEFAULT];
+  assign wb_except_dtlb_miss_o  = obuff_wb[OBUFF_EXCEPT_DTLB_MISS];
+  assign wb_except_dbus_align_o = obuff_wb[OBUFF_EXCEPT_DBUS_ALIGN];
+
+
+  //--------------------//
+  // Other "miss" flags //
+  //--------------------//
+  // MAROCCHINO_TODO: snoop_hit and miss relations ??
+
+  // LSU's load ACK miss
+  //   - prevents resolving D1 related hazards
+  //   - prevents write back to RF
+  assign wb_rfd1_wb_lsu_miss_o = wb_lsu_valid_miss_o;
+
+  // LSU's l.swa ACK miss
+  //   - prevents write back flag and taking conditional branches
+  assign wb_flag_wb_lsu_miss_o = wb_lsu_valid_miss_o;
 
 endmodule // mor1kx_lsu_marocchino
