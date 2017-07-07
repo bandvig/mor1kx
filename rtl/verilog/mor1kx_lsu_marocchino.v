@@ -293,7 +293,7 @@ module mor1kx_lsu_marocchino
   // ---
   assign s2t_ack_load   = (s2r_load & dc_ack) | dbus_ack_load;
   // ---
-  assign s2t_free_load  = (~s2r_load) | /*MAROCCHINO_TODO: dc_ack |*/ dbus_ack_load;// LSU free of l.load
+  assign s2t_free_load  = (~s2r_load) | dc_ack | dbus_ack_load; // LSU free of l.load
 
 
   // l.store completion / waiting / WB-miss

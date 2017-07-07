@@ -415,8 +415,8 @@ module mor1kx_decode_marocchino
     // synthesis parallel_case full_case
     case (opc_insn)
       `OR1K_OPCODE_J,     // pc <- pc + exts(Imm26 << 2)
-      `OR1K_OPCODE_JR,    // pc <- rB
       `OR1K_OPCODE_JAL,   // pc <- pc + exts(Imm26 << 2)
+      `OR1K_OPCODE_JR,    // pc <- rB
       `OR1K_OPCODE_JALR,  // pc <- rB
       `OR1K_OPCODE_BNF,   // pc <- pc + exts(Imm26 << 2) if ~flag
       `OR1K_OPCODE_BF:    // pc <- pc + exts(Imm26 << 2) if flag

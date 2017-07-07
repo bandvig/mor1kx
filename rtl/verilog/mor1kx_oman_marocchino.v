@@ -827,54 +827,52 @@ module mor1kx_oman_marocchino
         end
         // checking j/b related hazards in DECODE 
         JB_FSM_CHK_HAZARDS : begin
-          if (padv_fetch_i) begin
-            if (dcod_op_jr_r) begin
-              // store target permanently to simplify logic
-              jb_target_p <= wb_result1_i;
-              // select next state
-              if (ocb_hazard_d1b1) begin
+          if (dcod_op_jr_r) begin
+            // store target permanently to simplify logic
+            jb_target_p <= wb_result1_i;
+            // select next state
+            if (ocb_hazard_d1b1) begin
+              jb_fsm_state_r  <= JB_FSM_WAITING_B1;
+              jb_hazard_ext_p <= busy_hazard_d1b1_adr_o;
+            end
+            else if (dcod_wb2dec_eq_adr_d1b1_i & wb_rfd1_wb_r) begin
+              if (wb_rfd1_wb_lsu_miss_i) begin
                 jb_fsm_state_r  <= JB_FSM_WAITING_B1;
-                jb_hazard_ext_p <= busy_hazard_d1b1_adr_o;
+                jb_hazard_ext_p <= wb_rfd1_ext;
               end
-              else if (dcod_wb2dec_eq_adr_d1b1_i & wb_rfd1_wb_r) begin
-                if (wb_rfd1_wb_lsu_miss_i) begin
-                  jb_fsm_state_r  <= JB_FSM_WAITING_B1;
-                  jb_hazard_ext_p <= wb_rfd1_ext;
-                end
-                else
-                  jb_fsm_state_r <= JB_FSM_DOING_JR;
-              end  // (OCB <-> DECODE) or (WB <-> DECODE) rB hazard
-              else // no rB related hazards
-                jb_fsm_state_r <= JB_FSM_CATCHING_JB;
-            end // l.jr/l.jalr
-            else if (dcod_op_bc_r) begin
-              // select next state
-              if (ocb_wb_flag) begin
+              else
+                jb_fsm_state_r <= JB_FSM_DOING_JR;
+            end  // (OCB <-> DECODE) or (WB <-> DECODE) rB hazard
+            else // no rB related hazards
+              jb_fsm_state_r <= JB_FSM_CATCHING_JB;
+          end // l.jr/l.jalr
+          else if (dcod_op_bc_r) begin
+            // select next state
+            if (ocb_wb_flag) begin
+              jb_fsm_state_r  <= JB_FSM_WAITING_FLAG;
+              jb_hazard_ext_p <= ocb_wb_flag_ext;
+              jb_bf_p         <= dcod_op_bf_r;
+              jb_bnf_p        <= dcod_op_bnf_r;
+            end
+            else if (wb_flag_wb_r) begin
+              if (wb_flag_wb_lsu_miss_i) begin
                 jb_fsm_state_r  <= JB_FSM_WAITING_FLAG;
-                jb_hazard_ext_p <= ocb_wb_flag_ext;
-                jb_bf_p         <= dcod_op_bf_r;
-                jb_bnf_p        <= dcod_op_bnf_r;
+                jb_hazard_ext_p <= wb_rfd1_ext;
               end
-              else if (wb_flag_wb_r) begin
-                if (wb_flag_wb_lsu_miss_i) begin
-                  jb_fsm_state_r  <= JB_FSM_WAITING_FLAG;
-                  jb_hazard_ext_p <= wb_rfd1_ext;
-                end
-                else begin
-                  jb_fsm_state_r <= JB_FSM_DOING_BC;
-                end
-                jb_bf_p  <= dcod_op_bf_r;
-                jb_bnf_p <= dcod_op_bnf_r;
-              end  // (OCB <-> DECODE) vs (WB <-> DECODE) SR[F] hazard
-              else // no SR[F] related hazards
-                jb_fsm_state_r <= JB_FSM_CATCHING_JB;
-            end // l.bf/l.bnf
-            // drop DECODE "ops"
-            dcod_op_jr_r    <= 1'b0;
-            dcod_op_bf_r    <= 1'b0;
-            dcod_op_bnf_r   <= 1'b0;
-            dcod_op_bc_r    <= 1'b0;
-          end // advance IFETCH
+              else begin
+                jb_fsm_state_r <= JB_FSM_DOING_BC;
+              end
+              jb_bf_p  <= dcod_op_bf_r;
+              jb_bnf_p <= dcod_op_bnf_r;
+            end  // (OCB <-> DECODE) vs (WB <-> DECODE) SR[F] hazard
+            else // no SR[F] related hazards
+              jb_fsm_state_r <= JB_FSM_CATCHING_JB;
+          end // l.bf/l.bnf
+          // drop DECODE "ops"
+          dcod_op_jr_r    <= 1'b0;
+          dcod_op_bf_r    <= 1'b0;
+          dcod_op_bnf_r   <= 1'b0;
+          dcod_op_bc_r    <= 1'b0;
         end
         // waiting address for jump
         JB_FSM_WAITING_B1 : begin
