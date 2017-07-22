@@ -80,10 +80,7 @@ module mor1kx_rf_marocchino
   input  [OPTION_OPERAND_WIDTH-1:0] wb_result2_i,
 
   // D1 related WB-to-DECODE hazards for LSU WB miss processing
-  output                            dcod_wb2dec_eq_adr_d1a1_o,
   output                            dcod_wb2dec_eq_adr_d1b1_o,
-  output                            dcod_wb2dec_eq_adr_d1a2_o,
-  output                            dcod_wb2dec_eq_adr_d1b2_o,
 
   // outputs
   output [OPTION_OPERAND_WIDTH-1:0] dcod_rfa1_o,
@@ -435,17 +432,17 @@ module mor1kx_rf_marocchino
 
   // Common WB-to-DECODE hazards detection (sorted by detsination)
   //  # D1 related
-  assign dcod_wb2dec_eq_adr_d1a1_o = (wb_rfd1_adr_i == dcod_rfa1_adr_i);
-  wire   dcod_wb2dec_hazard_d1a1   = dcod_wb2dec_eq_adr_d1a1_o & wb_rfd1_wb_i & dcod_rfa1_req_i;
+  wire   dcod_wb2dec_eq_adr_d1a1   = (wb_rfd1_adr_i == dcod_rfa1_adr_i);
+  wire   dcod_wb2dec_hazard_d1a1   = dcod_wb2dec_eq_adr_d1a1 & wb_rfd1_wb_i & dcod_rfa1_req_i;
   //---
   assign dcod_wb2dec_eq_adr_d1b1_o = (wb_rfd1_adr_i == dcod_rfb1_adr_i);
   wire   dcod_wb2dec_hazard_d1b1   = dcod_wb2dec_eq_adr_d1b1_o & wb_rfd1_wb_i & dcod_rfb1_req_i;
   //---
-  assign dcod_wb2dec_eq_adr_d1a2_o = (wb_rfd1_adr_i == dcod_rfa2_adr_i);
-  wire   dcod_wb2dec_hazard_d1a2   = dcod_wb2dec_eq_adr_d1a2_o & wb_rfd1_wb_i & dcod_rfa2_req_i;
+  wire   dcod_wb2dec_eq_adr_d1a2   = (wb_rfd1_adr_i == dcod_rfa2_adr_i);
+  wire   dcod_wb2dec_hazard_d1a2   = dcod_wb2dec_eq_adr_d1a2 & wb_rfd1_wb_i & dcod_rfa2_req_i;
   //---
-  assign dcod_wb2dec_eq_adr_d1b2_o = (wb_rfd1_adr_i == dcod_rfb2_adr_i);
-  wire   dcod_wb2dec_hazard_d1b2   = dcod_wb2dec_eq_adr_d1b2_o & wb_rfd1_wb_i & dcod_rfb2_req_i;
+  wire   dcod_wb2dec_eq_adr_d1b2   = (wb_rfd1_adr_i == dcod_rfb2_adr_i);
+  wire   dcod_wb2dec_hazard_d1b2   = dcod_wb2dec_eq_adr_d1b2 & wb_rfd1_wb_i & dcod_rfb2_req_i;
   //  # D2 related
   wire dcod_wb2dec_hazard_d2a1 = (wb_rfd2_adr_i == dcod_rfa1_adr_i) & wb_rfd2_wb_i & dcod_rfa1_req_i;
   wire dcod_wb2dec_hazard_d2b1 = (wb_rfd2_adr_i == dcod_rfb1_adr_i) & wb_rfd2_wb_i & dcod_rfb1_req_i;

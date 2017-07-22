@@ -432,10 +432,6 @@ module mor1kx_rsrvs_marocchino
   input        [(OPTION_OPERAND_WIDTH-1):0] wb_result1_i,
   input        [(OPTION_OPERAND_WIDTH-1):0] wb_result2_i,
 
-
-  // Processing of LSU's WB-miss
-  input                                     wb_rfd1_wb_lsu_miss_i,
-
   // command and its additional attributes
   input                                     dcod_op_i,    // request the unit command
   input                   [(OPC_WIDTH-1):0] dcod_opc_i,   // additional attributes for command
@@ -899,27 +895,9 @@ module mor1kx_rsrvs_marocchino
   // ---
   wire busy_d1xx_pass2exec = busy_d1a1_pass2exec | busy_d1b1_pass2exec |
                              busy_d1a2_pass2exec | busy_d1b2_pass2exec;
-  // ---
-  reg    exec_hazard_d1xx_r;
-  // ---
-  always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i)
-      exec_hazard_d1xx_r <= 1'b0;
-    else if (dcod_pushing_exec)
-      exec_hazard_d1xx_r <= exe2dec_hazard_d1xx;
-    else if (busy_pushing_exec)
-      exec_hazard_d1xx_r <= busy_d1xx_pass2exec;
-    else if (exec_hazard_d1xx_r & (~wb_rfd1_wb_lsu_miss_i))
-      exec_hazard_d1xx_r <= 1'b0;
-  end // @clock
-  // ---
-  //   We don't block OP/OPC for 1-CLOCK reservation station
-  // because 1-clock output goes directly to WB
-  // and in next turn WB already blocked by wb-lsu-valid-miss.
-  //   So, we just minimize logic for 1-CLOCK.
-  wire   exec_op_en = ((RSRVS_1CLK == 1) ? 1'b1 : ~(exec_hazard_d1xx_r & wb_rfd1_wb_lsu_miss_i));
-  assign exec_op_o  = exec_op_r  & exec_op_en;
-  assign exec_opc_o = exec_opc_r & {OPC_WIDTH{exec_op_en}};
+
+  assign exec_op_o  = exec_op_r;
+  assign exec_opc_o = exec_opc_r;
 
 
   // execute: hazards for all reservation station types
@@ -927,10 +905,6 @@ module mor1kx_rsrvs_marocchino
   reg exec_hazard_d1b1_r;
   reg exec_hazard_d2a1_r;
   reg exec_hazard_d2b1_r;
-  // take into accaunt speculative WB for LSU
-  // it makes sense for D1-related hazards only
-  wire exec_hazard_d1a1 = exec_hazard_d1a1_r & (~wb_rfd1_wb_lsu_miss_i);
-  wire exec_hazard_d1b1 = exec_hazard_d1b1_r & (~wb_rfd1_wb_lsu_miss_i);
 
   // execute: operands
   //   ## registers
@@ -963,7 +937,7 @@ module mor1kx_rsrvs_marocchino
       exec_hazard_d2a1_r <= busy_d2a1_pass2exec;
       exec_hazard_d2b1_r <= busy_d2b1_pass2exec;
     end
-    else if (exec_hazard_d1a1 | exec_hazard_d1b1 | exec_hazard_d2a1_r | exec_hazard_d2b1_r) begin
+    else if (exec_hazard_d1a1_r | exec_hazard_d1b1_r | exec_hazard_d2a1_r | exec_hazard_d2b1_r) begin
       // at the stage either A1-hazard or B1-hazard takes place,
       // but not both, so we process them at the same time
       exec_hazard_d1a1_r <= 1'b0;
@@ -982,7 +956,7 @@ module mor1kx_rsrvs_marocchino
       exec_rfa1_r <= busy_rfa1;
       exec_rfb1_r <= busy_rfb1;
     end
-    else if (exec_hazard_d1a1 | exec_hazard_d1b1 | exec_hazard_d2a1_r | exec_hazard_d2b1_r) begin
+    else if (exec_hazard_d1a1_r | exec_hazard_d1b1_r | exec_hazard_d2a1_r | exec_hazard_d2b1_r) begin
       exec_rfa1_r <= exec_rfa1;
       exec_rfb1_r <= exec_rfb1;
     end
@@ -1005,10 +979,6 @@ module mor1kx_rsrvs_marocchino
     reg exec_hazard_d1b2_r;
     reg exec_hazard_d2a2_r;
     reg exec_hazard_d2b2_r;
-    // take into accaunt speculative WB for LSU
-    // it makes sense for D!-related hazards only
-    wire exec_hazard_d1a2 = exec_hazard_d1a2_r & (~wb_rfd1_wb_lsu_miss_i);
-    wire exec_hazard_d1b2 = exec_hazard_d1b2_r & (~wb_rfd1_wb_lsu_miss_i);
     // registers for operands A & B
     reg [OPTION_OPERAND_WIDTH-1:0] exec_rfa2_r;
     reg [OPTION_OPERAND_WIDTH-1:0] exec_rfb2_r;
@@ -1032,7 +1002,7 @@ module mor1kx_rsrvs_marocchino
         exec_hazard_d2a2_r <= busy_d2a2_pass2exec;
         exec_hazard_d2b2_r <= busy_d2b2_pass2exec;
       end
-      else if (exec_hazard_d1a2 | exec_hazard_d1b2 | exec_hazard_d2a2_r | exec_hazard_d2b2_r) begin
+      else if (exec_hazard_d1a2_r | exec_hazard_d1b2_r | exec_hazard_d2a2_r | exec_hazard_d2b2_r) begin
         // at the stage either A2-hazard or B2-hazard takes place,
         // but not both, so we process them at the same time
         exec_hazard_d1a2_r <= 1'b0;
@@ -1051,7 +1021,7 @@ module mor1kx_rsrvs_marocchino
         exec_rfa2_r <= busy_rfa2_w;
         exec_rfb2_r <= busy_rfb2_w;
       end
-      else if (exec_hazard_d1a2 | exec_hazard_d1b2 | exec_hazard_d2a2_r | exec_hazard_d2b2_r) begin
+      else if (exec_hazard_d1a2_r | exec_hazard_d1b2_r | exec_hazard_d2a2_r | exec_hazard_d2b2_r) begin
         exec_rfa2_r <= exec_rfa2_w;
         exec_rfb2_r <= exec_rfb2_w;
       end

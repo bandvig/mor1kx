@@ -92,8 +92,8 @@ module mor1kx_store_buffer_marocchino
   end
 
   // "buffer is full flag"
-  assign full_o = (write_pointer_next[DEPTH_WIDTH] != read_pointer[DEPTH_WIDTH]) &
-                  (write_pointer_next[DEPTH_WIDTH-1:0] == read_pointer[DEPTH_WIDTH-1:0]);
+  assign full_o = (write_pointer[DEPTH_WIDTH] ^ read_pointer[DEPTH_WIDTH]) &
+                  (write_pointer[DEPTH_WIDTH-1:0] == read_pointer[DEPTH_WIDTH-1:0]);
 
   // "buffer is empty flag"
   assign empty_o = (write_pointer == read_pointer);
@@ -102,15 +102,6 @@ module mor1kx_store_buffer_marocchino
   assign fifo_din = {bsel_i, dat_i, phys_addr_i, virt_addr_i, sbuf_epcr_i};
   assign {bsel_o, dat_o, phys_addr_o, virt_addr_o, sbuf_epcr_o} = fifo_dout;
 
-
-  // same addresses for read and write
-  wire rw_same_addr = (read_pointer[DEPTH_WIDTH-1:0] == write_pointer[DEPTH_WIDTH-1:0]);
-
-  // Read / Write port (*_rwp_*) controls
-  wire rwp_we = write_i & read_i & rw_same_addr;
-
-  // Write-only port (*_wp_*) controls
-  wire wp_en  = write_i & (~read_i | ~rw_same_addr);
 
   // FIFO instance
   mor1kx_dpram_en_w1st_sclk
@@ -123,15 +114,15 @@ module mor1kx_store_buffer_marocchino
   (
     // common clock
     .clk    (cpu_clk),
-    // port "a": Read / Write (for RW-conflict case)
-    .en_a   (read_i), // enable port "a"
-    .we_a   (rwp_we), // operation is "write"
+    // port "a": Read
+    .en_a   (read_i),
+    .we_a   (1'b0),
     .addr_a (read_pointer[DEPTH_WIDTH-1:0]),
-    .din_a  (fifo_din),
+    .din_a  ({FIFO_DATA_WIDTH{1'b0}}),
     .dout_a (fifo_dout),
-    // port "b": Write if no RW-conflict
-    .en_b   (wp_en),  // enable port "b"
-    .we_b   (write_i), // operation is "write"
+    // port "b": Write
+    .en_b   (write_i),
+    .we_b   (write_i),
     .addr_b (write_pointer[DEPTH_WIDTH-1:0]),
     .din_b  (fifo_din),
     .dout_b ()            // not used

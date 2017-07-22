@@ -196,14 +196,10 @@ module mor1kx_cpu_marocchino
   wire                            dcod_valid;
   wire                            exec_valid;
   wire                            lsu_valid;   // result ready or exceptions
-  wire                            wb_lsu_valid_miss; // speculative WB for LSU
 
 
   // D1 related WB-to-DECODE hazards for LSU WB miss processing
-  wire                            dcod_wb2dec_eq_adr_d1a1;
   wire                            dcod_wb2dec_eq_adr_d1b1;
-  wire                            dcod_wb2dec_eq_adr_d1a2;
-  wire                            dcod_wb2dec_eq_adr_d1b2;
 
 
   wire [OPTION_OPERAND_WIDTH-1:0] dcod_rfa1;
@@ -272,10 +268,8 @@ module mor1kx_cpu_marocchino
   // Hazard could be resolving
   //  ## FLAG or CARRY
   wire                            wb_flag_wb;
-  wire                            wb_flag_wb_lsu_miss; // speculative WB for l.swa miss
   wire                            wb_carry_wb;
   //  ## A or B operand
-  wire                            wb_rfd1_wb_lsu_miss; // speculative WB for LSU miss
   wire                            wb_rfd1_wb;
   wire  [DEST_REG_ADDR_WIDTH-1:0] wb_rfd1_adr;
   //  ## for FPU64
@@ -684,10 +678,7 @@ module mor1kx_cpu_marocchino
     .wb_rfd2_adr_i                    (wb_rfd2_adr), // RF
     .wb_result2_i                     (wb_result2), // RF
     // D1 related WB-to-DECODE hazards for LSU WB miss processing
-    .dcod_wb2dec_eq_adr_d1a1_o        (dcod_wb2dec_eq_adr_d1a1), // RF
     .dcod_wb2dec_eq_adr_d1b1_o        (dcod_wb2dec_eq_adr_d1b1), // RF
-    .dcod_wb2dec_eq_adr_d1a2_o        (dcod_wb2dec_eq_adr_d1a2), // RF
-    .dcod_wb2dec_eq_adr_d1b2_o        (dcod_wb2dec_eq_adr_d1b2), // RF
     // Operands
     .dcod_rfa1_o                      (dcod_rfa1), // RF
     .dcod_rfb1_o                      (dcod_rfb1), // RF
@@ -891,9 +882,6 @@ module mor1kx_cpu_marocchino
     .op_1clk_busy_i             (op_1clk_busy), // OMAN
     .mclk_busy_i                (mclk_busy), // OMAN
     .lsu_busy_i                 (lsu_busy), // OMAN
-    .wb_lsu_valid_miss_i        (wb_lsu_valid_miss), // OMAN
-    .wb_rfd1_wb_lsu_miss_i      (wb_rfd1_wb_lsu_miss), // OMAN
-    .wb_flag_wb_lsu_miss_i      (wb_flag_wb_lsu_miss), // OMAN
 
     // collect valid flags from execution modules
     .exec_op_1clk_i             (exec_op_1clk), // OMAN
@@ -904,10 +892,7 @@ module mor1kx_cpu_marocchino
     .lsu_valid_i                (lsu_valid), // OMAN: result ready or exceptions
 
     // D1 related WB-to-DECODE hazards for LSU WB miss processing
-    .dcod_wb2dec_eq_adr_d1a1_i  (dcod_wb2dec_eq_adr_d1a1), // OMAN
     .dcod_wb2dec_eq_adr_d1b1_i  (dcod_wb2dec_eq_adr_d1b1), // OMAN
-    .dcod_wb2dec_eq_adr_d1a2_i  (dcod_wb2dec_eq_adr_d1a2), // OMAN
-    .dcod_wb2dec_eq_adr_d1b2_i  (dcod_wb2dec_eq_adr_d1b2), // OMAN
 
     // FETCH & DECODE exceptions
     .fetch_except_ibus_err_i    (fetch_except_ibus_err), // OMAN
@@ -1138,8 +1123,6 @@ module mor1kx_cpu_marocchino
     //  ## forwarding results
     .wb_result1_i               (wb_result1), // 1CLK_RSVRS
     .wb_result2_i               (wb_result2), // 1CLK_RSVRS
-    // Processing of LSU's WB-miss
-    .wb_rfd1_wb_lsu_miss_i      (wb_rfd1_wb_lsu_miss), // 1CLK_RSVRS
     // command and its additional attributes
     .dcod_op_i                  (dcod_op_1clk), // 1CLK_RSVRS
     .dcod_opc_i                 ({dcod_opc_alu_secondary, // 1CLK_RSVRS
@@ -1344,8 +1327,6 @@ module mor1kx_cpu_marocchino
     //  ## forwarding results
     .wb_result1_i               (wb_result1), // MCLK_RSVRS
     .wb_result2_i               (wb_result2), // MCLK_RSVRS
-    // Processing of LSU's WB-miss
-    .wb_rfd1_wb_lsu_miss_i      (wb_rfd1_wb_lsu_miss), // MCLK_RSVRS
     // command and its additional attributes
     .dcod_op_i                  (dcod_op_mul | dcod_op_div | dcod_op_fpxx_arith | dcod_op_fp64_cmp), // MCLK_RSVRS
     .dcod_opc_i                 ({dcod_op_mul,  // MCLK_RSVRS
@@ -1633,8 +1614,6 @@ module mor1kx_cpu_marocchino
     //  ## forwarding results
     .wb_result1_i               (wb_result1), // LSU_RSVRS
     .wb_result2_i               (wb_result2), // LSU_RSVRS
-    // Processing of LSU's WB-miss
-    .wb_rfd1_wb_lsu_miss_i      (wb_rfd1_wb_lsu_miss), // LSU_RSVRS
     // command and its additional attributes
     .dcod_op_i                  (dcod_op_lsu_load | dcod_op_lsu_store | dcod_op_msync), // LSU_RSVRS
     .dcod_opc_i                 ({dcod_op_lsu_load,dcod_op_lsu_store,dcod_op_lsu_atomic, // LSU_RSVRS
@@ -1727,28 +1706,26 @@ module mor1kx_cpu_marocchino
     // Cache sync for multi-core environment
     .snoop_adr_i                      (snoop_adr_i[31:0]), // LSU
     .snoop_en_i                       (snoop_en_i), // LSU
-    // Output flags and load result
+    // Pipe control output flags
     .lsu_taking_op_o                  (lsu_taking_op), // LSU
     .lsu_valid_o                      (lsu_valid), // LSU: result ready or exceptions
-    .wb_lsu_result_o                  (wb_lsu_result), // LSU
-    .wb_lsu_valid_miss_o              (wb_lsu_valid_miss), // LSU
-    .wb_rfd1_wb_lsu_miss_o            (wb_rfd1_wb_lsu_miss), // LSU
-    .wb_flag_wb_lsu_miss_o            (wb_flag_wb_lsu_miss), // LSU
-    // Exceprions & errors
-    .exec_an_except_lsu_o             (exec_an_except_lsu), // LSU
-    // store buffer
+    // Imprecise exception (with appropriate PC) came via the store buffer
     .sbuf_eear_o                      (sbuf_eear), // LSU
     .sbuf_epcr_o                      (sbuf_epcr), // LSU
     .sbuf_err_o                       (sbuf_err), // LSU
-    //  # particular LSU exception flags
+    //  Pre-WriteBack "an exception" flag
+    .exec_an_except_lsu_o             (exec_an_except_lsu), // LSU
+    // WriteBack load  result
+    .wb_lsu_result_o                  (wb_lsu_result), // LSU
+    // Atomic operation flag set/clear logic
+    .wb_atomic_flag_set_o             (wb_atomic_flag_set), // LSU
+    .wb_atomic_flag_clear_o           (wb_atomic_flag_clear), // LSU
+    // Exceptions & errors
     .wb_except_dbus_err_o             (wb_except_dbus_err), // LSU
     .wb_except_dpagefault_o           (wb_except_dpagefault), // LSU
     .wb_except_dtlb_miss_o            (wb_except_dtlb_miss), // LSU
     .wb_except_dbus_align_o           (wb_except_dbus_align), // LSU
-    .wb_lsu_except_addr_o             (wb_lsu_except_addr), // LSU
-
-    .wb_atomic_flag_set_o             (wb_atomic_flag_set), // LSU
-    .wb_atomic_flag_clear_o           (wb_atomic_flag_clear) // LSU
+    .wb_lsu_except_addr_o             (wb_lsu_except_addr) // LSU:
   );
 
 
@@ -2060,8 +2037,6 @@ module mor1kx_cpu_marocchino
     .wb_except_dpagefault_i           (wb_except_dpagefault), // CTRL
     .wb_except_dbus_align_i           (wb_except_dbus_align), // CTRL
     .wb_lsu_except_addr_i             (wb_lsu_except_addr), // CTRL
-    //  # LSU valid is miss (block padv-wb)
-    .wb_lsu_valid_miss_i              (wb_lsu_valid_miss), // CTRL: block padv-wb
 
     //  # overflow exception processing
     .except_overflow_enable_o         (except_overflow_enable), // CTRL

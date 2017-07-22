@@ -428,6 +428,7 @@ module mor1kx_icache_marocchino
   end // @clock
 
   // LRU way registered for re-fill process
+  // MAROCCHINO_TODO : move it to FSM ??
   always @(posedge cpu_clk) begin
     if (cpu_rst) begin            // clear lru way for re-fill            
       lru_way_refill_r <= {OPTION_ICACHE_WAYS{1'b0}};                             // reset / flush
@@ -540,12 +541,14 @@ module mor1kx_icache_marocchino
    *   As way size is equal to page one we able to use either
    * physical or virtual indexing.
    */
-
+  // MAROCCHINO_TODO: virt_addr_lru_i for re-fill ??
+  // MAROCCHINO_TODO: move it to TAG controller ??
   assign tag_windex = ic_refill     ? ibus_burst_adr_i[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH] : // TAG_WR_ADDR at re-fill
                       ic_invalidate ? tag_invdex                                              : // TAG_WR_ADDR at invalidate
                                       virt_addr_lru_i[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH];   // TAG_WR_ADDR at update LRU info
 
   // TAG read address
+  // MAROCCHINO_TODO: move it to TAG controller ??
   assign tag_rindex = padv_s1s2_i ? virt_addr_mux_i[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH] : // TAG_RE_ADDR at regular advance
                                     virt_addr_cmd_i[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH];  // TAG_RE_ADDR at re-fill, re-read, current
 

@@ -87,9 +87,6 @@ module mor1kx_oman_marocchino
   input                                 op_1clk_busy_i,
   input                                 mclk_busy_i,
   input                                 lsu_busy_i,
-  input                                 wb_lsu_valid_miss_i,
-  input                                 wb_rfd1_wb_lsu_miss_i,
-  input                                 wb_flag_wb_lsu_miss_i,
 
   // collect valid flags from execution modules
   input                                 exec_op_1clk_i,
@@ -100,10 +97,7 @@ module mor1kx_oman_marocchino
   input                                 lsu_valid_i,
 
   // D1 related WB-to-DECODE hazards for LSU WB miss processing
-  input                                 dcod_wb2dec_eq_adr_d1a1_i,
   input                                 dcod_wb2dec_eq_adr_d1b1_i,
-  input                                 dcod_wb2dec_eq_adr_d1a2_i,
-  input                                 dcod_wb2dec_eq_adr_d1b2_i,
 
   // FETCH & DECODE exceptions
   input                                 fetch_except_ibus_err_i,
@@ -217,8 +211,8 @@ module mor1kx_oman_marocchino
   output reg [OPTION_OPERAND_WIDTH-1:0] pc_wb_o,
   output reg                            wb_delay_slot_o,
   output reg  [DEST_REG_ADDR_WIDTH-1:0] wb_rfd1_adr_o,
-  output                                wb_rfd1_wb_o,
-  output                                wb_flag_wb_o,
+  output reg                            wb_rfd1_wb_o,
+  output reg                            wb_flag_wb_o,
   output reg                            wb_carry_wb_o,
   // for FPU64
   output reg [OPTION_RF_ADDR_WIDTH-1:0] wb_rfd2_adr_o,
@@ -294,14 +288,6 @@ module mor1kx_oman_marocchino
       dcod_fetch_an_except_r          <= fetch_an_except_i;
     end
   end
-
-
-  // OMAN WB-request generated with taking into accaunt
-  // speculative WB for LSU load command
-  //  # WB to RF
-  reg wb_rfd1_wb_r;
-  //  # WB to FLAG
-  reg wb_flag_wb_r;
 
 
   // extension to RFD, FLAG or CARRY
@@ -493,8 +479,7 @@ module mor1kx_oman_marocchino
   wire ocbo01_hazard_d1a1 = (ocbo01[OCBT_RFD1_ADR_MSB:OCBT_RFD1_ADR_LSB] == dcod_rfa1_adr_i) & ocbo01[OCBT_RFD1_WB_POS];
   // OMAN-to-DECODE hazard D1A1: combined flag
   wire omn2dec_hazard_d1a1 = (ocbo06_hazard_d1a1 | ocbo05_hazard_d1a1 | ocbo04_hazard_d1a1 |
-                              ocbo03_hazard_d1a1 | ocbo02_hazard_d1a1 | ocbo01_hazard_d1a1 |
-                              (dcod_wb2dec_eq_adr_d1a1_i & wb_rfd1_wb_r & wb_rfd1_wb_lsu_miss_i)) & dcod_rfa1_req_i;
+                              ocbo03_hazard_d1a1 | ocbo02_hazard_d1a1 | ocbo01_hazard_d1a1) & dcod_rfa1_req_i;
   // Reservation station busy D1A1: hazard flag
   assign busy_hazard_d1a1_o = omn2dec_hazard_d1a1 | exe2dec_hazard_d1a1_o;
   // Reservation station busy D1A1: ext-bits
@@ -504,8 +489,7 @@ module mor1kx_oman_marocchino
                                   ocbo03_hazard_d1a1  ? ocbo03[OCBT_EXT_ADR_MSB:OCBT_EXT_ADR_LSB] :
                                   ocbo02_hazard_d1a1  ? ocbo02[OCBT_EXT_ADR_MSB:OCBT_EXT_ADR_LSB] :
                                   ocbo01_hazard_d1a1  ? ocbo01[OCBT_EXT_ADR_MSB:OCBT_EXT_ADR_LSB] :
-                                  exe2dec_hazard_d1a1 ? ocbo00[OCBT_EXT_ADR_MSB:OCBT_EXT_ADR_LSB] :
-                                                        wb_rfd1_ext;
+                                                        ocbo00[OCBT_EXT_ADR_MSB:OCBT_EXT_ADR_LSB];
 
 
   // D1B1
@@ -518,8 +502,7 @@ module mor1kx_oman_marocchino
   wire ocbo01_hazard_d1b1 = (ocbo01[OCBT_RFD1_ADR_MSB:OCBT_RFD1_ADR_LSB] == dcod_rfb1_adr_i) & ocbo01[OCBT_RFD1_WB_POS];
   // OMAN-to-DECODE hazard D1B1: combined flag
   wire omn2dec_hazard_d1b1 = (ocbo06_hazard_d1b1 | ocbo05_hazard_d1b1 | ocbo04_hazard_d1b1 |
-                              ocbo03_hazard_d1b1 | ocbo02_hazard_d1b1 | ocbo01_hazard_d1b1 |
-                              (dcod_wb2dec_eq_adr_d1b1_i & wb_rfd1_wb_r & wb_rfd1_wb_lsu_miss_i)) & dcod_rfb1_req_i;
+                              ocbo03_hazard_d1b1 | ocbo02_hazard_d1b1 | ocbo01_hazard_d1b1) & dcod_rfb1_req_i;
   // Reservation station busy D1B1: hazard flag
   assign busy_hazard_d1b1_o = omn2dec_hazard_d1b1 | exe2dec_hazard_d1b1_o;
   // Reservation station busy D1B1: ext-bits
@@ -529,8 +512,7 @@ module mor1kx_oman_marocchino
                                   ocbo03_hazard_d1b1  ? ocbo03[OCBT_EXT_ADR_MSB:OCBT_EXT_ADR_LSB] :
                                   ocbo02_hazard_d1b1  ? ocbo02[OCBT_EXT_ADR_MSB:OCBT_EXT_ADR_LSB] :
                                   ocbo01_hazard_d1b1  ? ocbo01[OCBT_EXT_ADR_MSB:OCBT_EXT_ADR_LSB] :
-                                  exe2dec_hazard_d1b1 ? ocbo00[OCBT_EXT_ADR_MSB:OCBT_EXT_ADR_LSB] :
-                                                        wb_rfd1_ext;
+                                                        ocbo00[OCBT_EXT_ADR_MSB:OCBT_EXT_ADR_LSB];
 
 
   // D1A2
@@ -543,8 +525,7 @@ module mor1kx_oman_marocchino
   wire ocbo01_hazard_d1a2 = (ocbo01[OCBT_RFD1_ADR_MSB:OCBT_RFD1_ADR_LSB] == dcod_rfa2_adr_i) & ocbo01[OCBT_RFD1_WB_POS];
   // OMAN-to-DECODE hazard D1A2: combined flag
   wire omn2dec_hazard_d1a2 = (ocbo06_hazard_d1a2 | ocbo05_hazard_d1a2 | ocbo04_hazard_d1a2 |
-                              ocbo03_hazard_d1a2 | ocbo02_hazard_d1a2 | ocbo01_hazard_d1a2 |
-                              (dcod_wb2dec_eq_adr_d1a2_i & wb_rfd1_wb_r & wb_rfd1_wb_lsu_miss_i)) & dcod_rfa2_req_i;
+                              ocbo03_hazard_d1a2 | ocbo02_hazard_d1a2 | ocbo01_hazard_d1a2) & dcod_rfa2_req_i;
   // Reservation station busy D1A2: hazard flag
   assign busy_hazard_d1a2_o = omn2dec_hazard_d1a2 | exe2dec_hazard_d1a2_o;
   // Reservation station busy D1A2: ext-bits
@@ -554,8 +535,7 @@ module mor1kx_oman_marocchino
                                   ocbo03_hazard_d1a2  ? ocbo03[OCBT_EXT_ADR_MSB:OCBT_EXT_ADR_LSB] :
                                   ocbo02_hazard_d1a2  ? ocbo02[OCBT_EXT_ADR_MSB:OCBT_EXT_ADR_LSB] :
                                   ocbo01_hazard_d1a2  ? ocbo01[OCBT_EXT_ADR_MSB:OCBT_EXT_ADR_LSB] :
-                                  exe2dec_hazard_d1a2 ? ocbo00[OCBT_EXT_ADR_MSB:OCBT_EXT_ADR_LSB] :
-                                                        wb_rfd1_ext;
+                                                        ocbo00[OCBT_EXT_ADR_MSB:OCBT_EXT_ADR_LSB];
 
 
   // D1B2
@@ -568,8 +548,7 @@ module mor1kx_oman_marocchino
   wire ocbo01_hazard_d1b2 = (ocbo01[OCBT_RFD1_ADR_MSB:OCBT_RFD1_ADR_LSB] == dcod_rfb2_adr_i) & ocbo01[OCBT_RFD1_WB_POS];
   // OMAN-to-DECODE hazard D1B2: combined flag
   wire omn2dec_hazard_d1b2 = (ocbo06_hazard_d1b2 | ocbo05_hazard_d1b2 | ocbo04_hazard_d1b2 |
-                              ocbo03_hazard_d1b2 | ocbo02_hazard_d1b2 | ocbo01_hazard_d1b2 |
-                              (dcod_wb2dec_eq_adr_d1b2_i & wb_rfd1_wb_r & wb_rfd1_wb_lsu_miss_i)) & dcod_rfb2_req_i;
+                              ocbo03_hazard_d1b2 | ocbo02_hazard_d1b2 | ocbo01_hazard_d1b2) & dcod_rfb2_req_i;
   // Reservation station busy D1B2: hazard flag
   assign busy_hazard_d1b2_o = omn2dec_hazard_d1b2 | exe2dec_hazard_d1b2_o;
   // Reservation station busy D1B2: ext-bits
@@ -579,8 +558,7 @@ module mor1kx_oman_marocchino
                                   ocbo03_hazard_d1b2  ? ocbo03[OCBT_EXT_ADR_MSB:OCBT_EXT_ADR_LSB] :
                                   ocbo02_hazard_d1b2  ? ocbo02[OCBT_EXT_ADR_MSB:OCBT_EXT_ADR_LSB] :
                                   ocbo01_hazard_d1b2  ? ocbo01[OCBT_EXT_ADR_MSB:OCBT_EXT_ADR_LSB] :
-                                  exe2dec_hazard_d1b2 ? ocbo00[OCBT_EXT_ADR_MSB:OCBT_EXT_ADR_LSB] :
-                                                        wb_rfd1_ext;
+                                                        ocbo00[OCBT_EXT_ADR_MSB:OCBT_EXT_ADR_LSB];
 
 
   // D2A1
@@ -732,7 +710,7 @@ module mor1kx_oman_marocchino
   //       this completion generates padv-wb,
   //       in next turn padv-wb cleans up OCB and restores
   //       instructions issue
-  wire stall_by_mXspr = (dcod_op_mtspr_i | dcod_op_mfspr_i) & ((~ocb_empty) | wb_lsu_valid_miss_i);
+  wire stall_by_mXspr = (dcod_op_mtspr_i | dcod_op_mfspr_i) & (~ocb_empty);
 
   // combine stalls to decode-valid flag
   assign dcod_valid_o = (~stall_by_hazard_u) & (~ocb_full) & (~stall_by_mXspr);
@@ -835,13 +813,8 @@ module mor1kx_oman_marocchino
               jb_fsm_state_r  <= JB_FSM_WAITING_B1;
               jb_hazard_ext_p <= busy_hazard_d1b1_adr_o;
             end
-            else if (dcod_wb2dec_eq_adr_d1b1_i & wb_rfd1_wb_r) begin
-              if (wb_rfd1_wb_lsu_miss_i) begin
-                jb_fsm_state_r  <= JB_FSM_WAITING_B1;
-                jb_hazard_ext_p <= wb_rfd1_ext;
-              end
-              else
-                jb_fsm_state_r <= JB_FSM_DOING_JR;
+            else if (dcod_wb2dec_eq_adr_d1b1_i & wb_rfd1_wb_o) begin
+              jb_fsm_state_r <= JB_FSM_DOING_JR;
             end  // (OCB <-> DECODE) or (WB <-> DECODE) rB hazard
             else // no rB related hazards
               jb_fsm_state_r <= JB_FSM_CATCHING_JB;
@@ -854,16 +827,10 @@ module mor1kx_oman_marocchino
               jb_bf_p         <= dcod_op_bf_r;
               jb_bnf_p        <= dcod_op_bnf_r;
             end
-            else if (wb_flag_wb_r) begin
-              if (wb_flag_wb_lsu_miss_i) begin
-                jb_fsm_state_r  <= JB_FSM_WAITING_FLAG;
-                jb_hazard_ext_p <= wb_rfd1_ext;
-              end
-              else begin
-                jb_fsm_state_r <= JB_FSM_DOING_BC;
-              end
-              jb_bf_p  <= dcod_op_bf_r;
-              jb_bnf_p <= dcod_op_bnf_r;
+            else if (wb_flag_wb_o) begin
+              jb_fsm_state_r <= JB_FSM_DOING_BC;
+              jb_bf_p        <= dcod_op_bf_r;
+              jb_bnf_p       <= dcod_op_bnf_r;
             end  // (OCB <-> DECODE) vs (WB <-> DECODE) SR[F] hazard
             else // no SR[F] related hazards
               jb_fsm_state_r <= JB_FSM_CATCHING_JB;
@@ -911,7 +878,7 @@ module mor1kx_oman_marocchino
   // Detect IBUS align violation on DECODE stage.
   // To compute "fd_an_except_o" and for JB_ATTR_OCB
   //   l.jr/l.jalr hazard in DECODE
-  wire dcod_jr_hazard = ocb_hazard_d1b1 | (dcod_wb2dec_eq_adr_d1b1_i & wb_rfd1_wb_r); // l.jr/l.jalr hazard in DECODE
+  wire dcod_jr_hazard = ocb_hazard_d1b1 | (dcod_wb2dec_eq_adr_d1b1_i & wb_rfd1_wb_o); // l.jr/l.jalr hazard in DECODE
   //   It could happen only for l.jr/l.jalr
   assign dcod_except_ibus_align = dcod_op_jr_r & (~dcod_jr_hazard) & (|dcod_rfb1_jr_i[1:0]);
   //   Detect IBUS align violation on OMAN. For JB_ATTR_OCB only.
@@ -919,7 +886,7 @@ module mor1kx_oman_marocchino
 
 
   // l.bf/l.bnf flag hazard in DECODE
-  wire dcod_bc_hazard = ocb_wb_flag | wb_flag_wb_r; // l.bf/l.bnf flag hazard in DECODE
+  wire dcod_bc_hazard = ocb_wb_flag | wb_flag_wb_o; // l.bf/l.bnf flag hazard in DECODE
 
 
   // Combine IFETCH hazards
@@ -1036,18 +1003,15 @@ module mor1kx_oman_marocchino
 
 
 
-  // D1 WB-to-RF request generated with taking
-  // into accaunt speculative WB for LSU load command
+  // D1 WB-to-RF request
   always @(posedge cpu_clk) begin
     if (cpu_rst | pipeline_flush_i)
-      wb_rfd1_wb_r <= 1'b0;
+      wb_rfd1_wb_o <= 1'b0;
     else if (padv_wb_i)
-      wb_rfd1_wb_r <= ocbo00[OCBT_RFD1_WB_POS];
-    else if (~wb_rfd1_wb_lsu_miss_i)
-      wb_rfd1_wb_r <= 1'b0;
+      wb_rfd1_wb_o <= ocbo00[OCBT_RFD1_WB_POS];
+    else
+      wb_rfd1_wb_o <= 1'b0;
   end // @clock
-  // ---
-  assign wb_rfd1_wb_o = wb_rfd1_wb_r & (~wb_rfd1_wb_lsu_miss_i);
 
 
   // D2 WB-to-RF request (1-clock length)
@@ -1061,18 +1025,15 @@ module mor1kx_oman_marocchino
   end // @clock
 
 
-  // OMAN WB-to-FLAG-request generated with taking
-  // into accaunt speculative WB for LSU load command
+  // OMAN WB-to-FLAG-request
   always @(posedge cpu_clk) begin
     if (cpu_rst | pipeline_flush_i)
-      wb_flag_wb_r <= 1'b0;
+      wb_flag_wb_o <= 1'b0;
     else if (padv_wb_i)
-      wb_flag_wb_r <= ocbo00[OCBT_FLAG_WB_POS];
-    else if (~wb_flag_wb_lsu_miss_i)
-      wb_flag_wb_r <= 1'b0;
+      wb_flag_wb_o <= ocbo00[OCBT_FLAG_WB_POS];
+    else
+      wb_flag_wb_o <= 1'b0;
   end // @clock
-  // ---
-  assign wb_flag_wb_o = wb_flag_wb_r & (~wb_flag_wb_lsu_miss_i);
 
 
   // WB-to-CARRY-request (1-clock to prevent extra writes)

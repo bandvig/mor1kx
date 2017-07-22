@@ -203,8 +203,6 @@ module mor1kx_ctrl_marocchino
   input                                 wb_except_dpagefault_i,
   input                                 wb_except_dbus_align_i,
   input      [OPTION_OPERAND_WIDTH-1:0] wb_lsu_except_addr_i,
-  //  # LSU valid is miss (block padv-wb)
-  input                                 wb_lsu_valid_miss_i,
 
   //  # overflow exception processing
   output                                except_overflow_enable_o,
@@ -538,7 +536,7 @@ module mor1kx_ctrl_marocchino
 
 
   // Advance IFETCH
-  assign padv_fetch_o = (dcod_valid_i | (~dcod_insn_valid_i)) & (~spr_bus_wait_r) & (~fd_an_except_i) &
+  assign padv_fetch_o = (dcod_valid_i | (~dcod_insn_valid_i)) & (~spr_bus_wait_r) &
                         (~du_cpu_stall) & ((~stepping) | pstep[0]); // DU enabling/disabling IFETCH
   // Pass step from IFETCH to DECODE
   wire   pass_step_to_decode = dcod_insn_valid_i & pstep[0]; // for DU
@@ -552,7 +550,7 @@ module mor1kx_ctrl_marocchino
 
 
   // Advance Write Back latches
-  assign padv_wb_o = ((exec_valid_i & (~spr_bus_wait_r) & (~wb_lsu_valid_miss_i)) | (spr_bus_ack_r & spr_bus_mXspr_r)) &
+  assign padv_wb_o = ((exec_valid_i & (~spr_bus_wait_r)) | (spr_bus_ack_r & spr_bus_mXspr_r)) &
                      (~du_cpu_stall) & ((~stepping) | pstep[2]); // DU enabling/disabling WRITE-BACK
   // Complete the step
   wire   pass_step_to_stall = (exec_valid_i | (spr_bus_ack_r & spr_bus_mXspr_r)) & pstep[2]; // for DU
@@ -1150,7 +1148,7 @@ module mor1kx_ctrl_marocchino
     //       command or current step completion we generate pipe flushing
     //       AFTER the last instuction completes write back.
     //
-    wire doing_wb = pstep[3] & (~wb_lsu_valid_miss_i);
+    wire doing_wb = pstep[3];
     //
     wire du_cpu_stall_by_cmd      = doing_wb & du_stall_i;
     wire du_cpu_stall_by_stepping = doing_wb & stepping;
@@ -1235,7 +1233,7 @@ module mor1kx_ctrl_marocchino
       else begin
         if (padv_wb_o)
           pstep_r <= 4'b1000; // 1-clock delayed padv-wb on regular pipe advancing
-        else if (~wb_lsu_valid_miss_i)
+        else
           pstep_r <= 4'b0000; // 1-clock delayed padv-wb on regular pipe advancing
       end
     end // @ clock
