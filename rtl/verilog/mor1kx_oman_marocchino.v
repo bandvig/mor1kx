@@ -323,12 +323,8 @@ module mor1kx_oman_marocchino
   // pipeline_flush_i that the rfe will generate.
   wire interrupts_en = ~(dcod_op_lsu_store_i | dcod_op_mtspr_i | dcod_op_msync_i | dcod_op_rfe_i);
 
-  // take branch align exception
-  wire dcod_except_ibus_align;
-
   // Combine DECODE related exceptions
   wire fd_an_except = dcod_fetch_an_except_r  |                     // IFETCH an exception
-                      dcod_except_ibus_align  |                     // DECODE an exception
                       dcod_except_illegal_i   |                     // DECODE an exception
                       dcod_except_syscall_i   | dcod_except_trap_i; // DECODE an exception
 
@@ -806,8 +802,6 @@ module mor1kx_oman_marocchino
         // checking j/b related hazards in DECODE 
         JB_FSM_CHK_HAZARDS : begin
           if (dcod_op_jr_r) begin
-            // store target permanently to simplify logic
-            jb_target_p <= wb_result1_i;
             // select next state
             if (ocb_hazard_d1b1) begin
               jb_fsm_state_r  <= JB_FSM_WAITING_B1;
@@ -815,9 +809,12 @@ module mor1kx_oman_marocchino
             end
             else if (dcod_wb2dec_eq_adr_d1b1_i & wb_rfd1_wb_o) begin
               jb_fsm_state_r <= JB_FSM_DOING_JR;
+              jb_target_p    <= wb_result1_i;
             end  // (OCB <-> DECODE) or (WB <-> DECODE) rB hazard
-            else // no rB related hazards
-              jb_fsm_state_r <= JB_FSM_CATCHING_JB;
+            else begin // no rB related hazards
+              jb_fsm_state_r <= JB_FSM_DOING_JR;
+              jb_target_p    <= dcod_rfb1_jr_i;
+            end
           end // l.jr/l.jalr
           else if (dcod_op_bc_r) begin
             // select next state
@@ -865,24 +862,17 @@ module mor1kx_oman_marocchino
 
 
   // do_branch_o is meaningless if fetch_jr_bc_hazard_o is rised
-  assign do_branch_o = fetch_op_jimm_i |                                                            // do jump to immediate
-                       dcod_op_jr_r    | jb_fsm_doing_jr_state                                    | // do jump to register (B1)
+  assign do_branch_o = fetch_op_jimm_i       | // do jump to immediate
+                       jb_fsm_doing_jr_state | // do jump to register (B1)
                        ((dcod_op_bf_r  | (jb_fsm_doing_bc_state & jb_bf_p))  &   ctrl_flag_sr_i)  | // do conditional branch
                        ((dcod_op_bnf_r | (jb_fsm_doing_bc_state & jb_bnf_p)) & (~ctrl_flag_sr_i));  // do conditional branch
   // branch target
   assign do_branch_target_o = fetch_op_jimm_i ? fetch_to_imm_target_i : // branch target selection
-                              dcod_op_jr_r    ? dcod_rfb1_jr_i        : // branch target selection
                                                 jb_target_p ;           // branch target selection
 
 
-  // Detect IBUS align violation on DECODE stage.
-  // To compute "fd_an_except_o" and for JB_ATTR_OCB
-  //   l.jr/l.jalr hazard in DECODE
-  wire dcod_jr_hazard = ocb_hazard_d1b1 | (dcod_wb2dec_eq_adr_d1b1_i & wb_rfd1_wb_o); // l.jr/l.jalr hazard in DECODE
-  //   It could happen only for l.jr/l.jalr
-  assign dcod_except_ibus_align = dcod_op_jr_r & (~dcod_jr_hazard) & (|dcod_rfb1_jr_i[1:0]);
-  //   Detect IBUS align violation on OMAN. For JB_ATTR_OCB only.
-  wire   oman_except_ibus_align = jb_fsm_doing_jr_state & (|jb_target_p[1:0]);
+  // Detect IBUS align violation on OMAN. For JB_ATTR_OCB only.
+  wire oman_except_ibus_align = jb_fsm_doing_jr_state & (|jb_target_p[1:0]);
 
 
   // l.bf/l.bnf flag hazard in DECODE
@@ -891,14 +881,13 @@ module mor1kx_oman_marocchino
 
   // Combine IFETCH hazards
   assign fetch_jr_bc_hazard_o = (fetch_op_jr_i | fetch_op_bf_i | fetch_op_bnf_i) |           // detect l.jr/l.jalr/l.bf/l.bnf
-                                (dcod_op_jr_r & dcod_jr_hazard) | jb_fsm_waiting_b1_state |  // waiting rB for l.jr/l.jalr
+                                dcod_op_jr_r   | jb_fsm_waiting_b1_state         |           // waiting rB for l.jr/l.jalr
                                 (dcod_op_bc_r & dcod_bc_hazard) | jb_fsm_waiting_flag_state; // waiting flag for l.bf/l.bnf
 
   // jump / branch has no any hazarad (valid command)
-  wire jr_bc_valid = fetch_op_jimm_i |                  // jump to immediate is valid permanently
-                     (dcod_op_jr_r & ~dcod_jr_hazard) | // valid rB for l.jr/l.jalr in DECODE
+  wire jr_bc_valid = fetch_op_jimm_i                  | // jump to immediate is valid permanently
+                     jb_fsm_doing_jr_state            | // l.jr/l.jalr hazards are resolved
                      (dcod_op_bc_r & ~dcod_bc_hazard) | // valid flag for l.bf/l.bnf in DECODE
-                     jb_fsm_doing_jr_state |            // l.jr/l.jalr hazards are resolved
                      jb_fsm_doing_bc_state;             // l.bf/l.bnf hazards are resolved
 
 
@@ -914,13 +903,13 @@ module mor1kx_oman_marocchino
   localparam  JB_ATTR_WIDTH = JB_ATTR_MSB + 1;
   // --- input data fields for JB_ATTR_OCB ---
   wire [JB_ATTR_MSB:0] jb_attr_ocbi =
-    {
-      fetch_jr_bc_hazard_o,                              // JB_ATTR_OCB input fields: miss
-      jr_bc_valid,                                       // JB_ATTR_OCB input fields
-      (dcod_except_ibus_align | oman_except_ibus_align), // JB_ATTR_OCB input fields: align exception
-      do_branch_o,                                       // JB_ATTR_OCB input fields: jump or taken branch
-      do_branch_target_o                                 // JB_ATTR_OCB input fields
-    };
+  {
+    fetch_jr_bc_hazard_o,   // JB_ATTR_OCB input fields: miss
+    jr_bc_valid,            // JB_ATTR_OCB input fields
+    oman_except_ibus_align, // JB_ATTR_OCB input fields: align exception
+    do_branch_o,            // JB_ATTR_OCB input fields: jump or taken branch
+    do_branch_target_o      // JB_ATTR_OCB input fields
+  };
   // --- output data fields for JB_ATTR_OCB ---
   wire [JB_ATTR_MSB:0] jb_attr_ocbo;
   // --- JB_ATTR_OCB controls ---
@@ -979,7 +968,9 @@ module mor1kx_oman_marocchino
     if (cpu_rst | pipeline_flush_i)
       fd_an_except_o <= 1'b0;
     else if (padv_decode_i)
-      fd_an_except_o <= (fd_an_except  | dcod_op_rfe_i);
+      fd_an_except_o <= (fd_an_except   | oman_except_ibus_align  | dcod_op_rfe_i);
+    else if (jb_attr_ocb_write)
+      fd_an_except_o <= (fd_an_except_o | oman_except_ibus_align);
   end
 
   //   Flag to enabel/disable exterlal interrupts processing

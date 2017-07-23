@@ -546,7 +546,7 @@ module mor1kx_lsu_marocchino
     .virt_addr_idx_i            (s1t_virt_addr), // DCACHE
     .virt_addr_s1o_i            (s1o_virt_addr), // DCACHE
     .virt_addr_s2o_i            (s2o_virt_addr), // DCACHE
-    .phys_addr_tag_i            (s2t_phys_addr), // DCACHE
+    .phys_addr_s2t_i            (s2t_phys_addr), // DCACHE
     .dmmu_cache_inhibit_i       (s2t_cache_inhibit), // DCACHE
     //  # DCACHE regular answer
     .s1o_op_lsu_load_i          (s1o_op_lsu_load), // DCACHE
@@ -563,6 +563,7 @@ module mor1kx_lsu_marocchino
     .dc_refill_req_o            (s2t_dc_refill_req), // DCACHE
     .dc_refill_allowed_i        (dc_refill_allowed), // DCACHE
     .refill_first_o             (dc_refill_first), // DCACHE
+    .phys_addr_s2o_i            (s2o_phys_addr), // DCACHE
     .dbus_dat_i                 (dbus_dat_i), // DCACHE
     .dbus_ack_i                 (dbus_ack_i), // DCACHE
     .dbus_burst_adr_i           (dbus_burst_adr_i), // DCACHE

@@ -53,9 +53,9 @@ module mor1kx_icache_marocchino
 
   // regular requests in/out
   input      [OPTION_OPERAND_WIDTH-1:0] virt_addr_mux_i,
-  input      [OPTION_OPERAND_WIDTH-1:0] virt_addr_cmd_i,
-  input      [OPTION_OPERAND_WIDTH-1:0] virt_addr_lru_i,
-  input      [OPTION_OPERAND_WIDTH-1:0] phys_addr_tag_i,
+  input      [OPTION_OPERAND_WIDTH-1:0] virt_addr_s1o_i,
+  input      [OPTION_OPERAND_WIDTH-1:0] virt_addr_s2o_i,
+  input      [OPTION_OPERAND_WIDTH-1:0] phys_addr_s2t_i,
   input                                 fetch_req_hit_i,
   input                                 immu_cache_inhibit_i,
   output                                ic_ack_o,
@@ -68,6 +68,7 @@ module mor1kx_icache_marocchino
   output                                refill_req_o,
   input                                 to_refill_i,
   output reg                            ic_refill_first_o,
+  input      [OPTION_OPERAND_WIDTH-1:0] phys_addr_s2o_i,
   input          [`OR1K_INSN_WIDTH-1:0] ibus_dat_i,
   input      [OPTION_OPERAND_WIDTH-1:0] ibus_burst_adr_i,
   input                                 ibus_burst_last_i,
@@ -205,7 +206,7 @@ module mor1kx_icache_marocchino
     assign ic_check_limit_width = 1'b1;
   else if (OPTION_ICACHE_LIMIT_WIDTH < OPTION_OPERAND_WIDTH)
     assign ic_check_limit_width =
-      (phys_addr_tag_i[OPTION_OPERAND_WIDTH-1:OPTION_ICACHE_LIMIT_WIDTH] == 0);
+      (phys_addr_s2t_i[OPTION_OPERAND_WIDTH-1:OPTION_ICACHE_LIMIT_WIDTH] == 0);
   else begin
     initial begin
       $display("ICACHE ERROR: OPTION_ICACHE_LIMIT_WIDTH > OPTION_OPERAND_WIDTH");
@@ -223,7 +224,7 @@ module mor1kx_icache_marocchino
     // hit: compare stored tag with incoming tag and check valid bit
     assign hit_way[i] = tag_dout_way[i][TAGMEM_WAY_VALID] &
                         (tag_dout_way[i][TAG_WIDTH-1:0] ==
-                         phys_addr_tag_i[OPTION_ICACHE_LIMIT_WIDTH-1:WAY_WIDTH]);
+                         phys_addr_s2t_i[OPTION_ICACHE_LIMIT_WIDTH-1:WAY_WIDTH]);
   end
   endgenerate
 
@@ -336,7 +337,7 @@ module mor1kx_icache_marocchino
   wire [WAY_WIDTH-3:0] way_addr;
   // ---
   assign way_addr = ic_refill ? ibus_burst_adr_i[WAY_WIDTH-1:2] : // WAY_WR_ADDR at re-fill
-                    ic_reread ? virt_addr_cmd_i[WAY_WIDTH-1:2]  : // WAY_RE_ADDR after re-fill
+                    ic_reread ? virt_addr_s1o_i[WAY_WIDTH-1:2]  : // WAY_RE_ADDR after re-fill
                                 virt_addr_mux_i[WAY_WIDTH-1:2];   // WAY_RE_ADDR default
 
   // "en" / "we" (for re-fill) per way 
@@ -499,7 +500,7 @@ module mor1kx_icache_marocchino
           // valid to 1.
           for (w2 = 0; w2 < OPTION_ICACHE_WAYS; w2 = w2 + 1) begin
             if (lru_way_refill_r[w2]) begin
-              tag_din_way[w2] = {1'b1,ibus_burst_adr_i[OPTION_ICACHE_LIMIT_WIDTH-1:WAY_WIDTH]}; // last re-fill
+              tag_din_way[w2] = {1'b1,phys_addr_s2o_i[OPTION_ICACHE_LIMIT_WIDTH-1:WAY_WIDTH]}; // last re-fill
             end
           end
           access_way_for_lru = lru_way_refill_r; // last re-fill
@@ -541,16 +542,13 @@ module mor1kx_icache_marocchino
    *   As way size is equal to page one we able to use either
    * physical or virtual indexing.
    */
-  // MAROCCHINO_TODO: virt_addr_lru_i for re-fill ??
-  // MAROCCHINO_TODO: move it to TAG controller ??
-  assign tag_windex = ic_refill     ? ibus_burst_adr_i[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH] : // TAG_WR_ADDR at re-fill
-                      ic_invalidate ? tag_invdex                                              : // TAG_WR_ADDR at invalidate
-                                      virt_addr_lru_i[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH];   // TAG_WR_ADDR at update LRU info
+  // MAROCCHINO_TODO: virt_addr_s2o_i for re-fill ??
+  assign tag_windex = ic_invalidate ? tag_invdex                                              : // TAG_WR_ADDR at invalidate
+                                      virt_addr_s2o_i[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH];   // TAG_WR_ADDR at re-fill / update LRU
 
   // TAG read address
-  // MAROCCHINO_TODO: move it to TAG controller ??
   assign tag_rindex = padv_s1s2_i ? virt_addr_mux_i[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH] : // TAG_RE_ADDR at regular advance
-                                    virt_addr_cmd_i[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH];  // TAG_RE_ADDR at re-fill, re-read, current
+                                    virt_addr_s1o_i[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH];  // TAG_RE_ADDR at re-fill, re-read, current
 
   // Read/Write into same address
   wire tag_rw_same_addr = (tag_rindex == tag_windex);

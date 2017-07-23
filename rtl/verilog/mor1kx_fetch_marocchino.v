@@ -407,9 +407,9 @@ module mor1kx_fetch_marocchino
     .ic_enable_i          (ic_enable_i), // ICACHE
     // regular requests in/out
     .virt_addr_mux_i      (virt_addr_mux), // ICACHE
-    .virt_addr_cmd_i      (s1o_virt_addr), // ICACHE
-    .virt_addr_lru_i      (s2o_virt_addr), // ICACHE: for update LRU info
-    .phys_addr_tag_i      (s2t_phys_addr), // ICACHE
+    .virt_addr_s1o_i      (s1o_virt_addr), // ICACHE
+    .virt_addr_s2o_i      (s2o_virt_addr), // ICACHE: for update LRU info
+    .phys_addr_s2t_i      (s2t_phys_addr), // ICACHE
     .fetch_req_hit_i      (s1o_fetch_req_hit), // ICACHE: enables ICACHE's ACK
     .immu_cache_inhibit_i (s2t_cache_inhibit), // ICACHE
     .ic_ack_o             (s2t_ic_ack), // ICACHE
@@ -420,6 +420,7 @@ module mor1kx_fetch_marocchino
     .refill_req_o         (s2t_ic_refill_req), // ICACHE
     .to_refill_i          (to_refill_state), // ICACHE
     .ic_refill_first_o    (ic_refill_first), // ICACHE
+    .phys_addr_s2o_i      (s2o_phys_addr), // ICACHE
     .ibus_dat_i           (ibus_dat_i), // ICACHE
     .ibus_burst_adr_i     (ibus_burst_adr_i), // ICACHE
     .ibus_burst_last_i    (ibus_burst_last_i), // ICACHE

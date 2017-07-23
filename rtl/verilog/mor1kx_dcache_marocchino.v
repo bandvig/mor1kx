@@ -59,7 +59,7 @@ module mor1kx_dcache_marocchino
   input      [OPTION_OPERAND_WIDTH-1:0] virt_addr_idx_i,
   input      [OPTION_OPERAND_WIDTH-1:0] virt_addr_s1o_i,
   input      [OPTION_OPERAND_WIDTH-1:0] virt_addr_s2o_i,
-  input      [OPTION_OPERAND_WIDTH-1:0] phys_addr_tag_i,
+  input      [OPTION_OPERAND_WIDTH-1:0] phys_addr_s2t_i,
   input                                 dmmu_cache_inhibit_i,
   //  # DCACHE regular answer
   input                                 s1o_op_lsu_load_i,
@@ -77,6 +77,7 @@ module mor1kx_dcache_marocchino
   output                                dc_refill_req_o,
   input                                 dc_refill_allowed_i,
   output reg                            refill_first_o,
+  input      [OPTION_OPERAND_WIDTH-1:0] phys_addr_s2o_i,
   input      [OPTION_OPERAND_WIDTH-1:0] dbus_dat_i,
   input      [OPTION_OPERAND_WIDTH-1:0] dbus_burst_adr_i,
   input                                 dbus_burst_last_i,
@@ -253,7 +254,7 @@ module mor1kx_dcache_marocchino
     assign dc_check_limit_width = 1'b1;
   else if (OPTION_DCACHE_LIMIT_WIDTH < OPTION_OPERAND_WIDTH)
     assign dc_check_limit_width =
-      (phys_addr_tag_i[OPTION_OPERAND_WIDTH-1:OPTION_DCACHE_LIMIT_WIDTH] == 0);
+      (phys_addr_s2t_i[OPTION_OPERAND_WIDTH-1:OPTION_DCACHE_LIMIT_WIDTH] == 0);
   else begin
     initial begin
       $display("DCACHE ERROR: OPTION_DCACHE_LIMIT_WIDTH > OPTION_OPERAND_WIDTH");
@@ -272,7 +273,7 @@ module mor1kx_dcache_marocchino
 
     // compare stored tag with incoming tag and check valid bit
     assign dc_hit_way[i] = tag_dout_way[i][TAGMEM_WAY_VALID] &
-      (tag_dout_way[i][TAG_WIDTH-1:0] == phys_addr_tag_i[OPTION_DCACHE_LIMIT_WIDTH-1:WAY_WIDTH]); // hit detection
+      (tag_dout_way[i][TAG_WIDTH-1:0] == phys_addr_s2t_i[OPTION_DCACHE_LIMIT_WIDTH-1:WAY_WIDTH]); // hit detection
 
     // The same for the snoop tag memory
     if (OPTION_DCACHE_SNOOP != "NONE") begin
@@ -520,7 +521,7 @@ module mor1kx_dcache_marocchino
     // TAG-RAM
     tag_we     = 1'b0;                                                   // by default
     tag_rindex = lsu_s1_adv_i ? virt_addr_idx_i[WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH] : // by default if advance stage #1
-                                virt_addr_s1o_i[WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH];  // by default if slall   stage #1
+                                virt_addr_s1o_i[WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH];  // by default if stall   stage #1
     tag_windex = virt_addr_s2o_i[WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH]; // by default
 
     // WAYS-RAM
@@ -565,8 +566,7 @@ module mor1kx_dcache_marocchino
           way_din  = dbus_dat_i;                      // on re-fill
           way_addr = dbus_burst_adr_i[WAY_WIDTH-1:2]; // on re-fill
           // TAGs
-          // write addresses MAROCCHINO_TODO: virt_addr_s2o_i here instead dbus_burst_adr_i??
-          tag_windex = dbus_burst_adr_i[WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH]; // on re-fill
+          // For re-fill (tag_windex == virt_addr_s2o_i) by default setting
           //  (a) In according with WISHBONE-B3 rule 3.45:
           // "SLAVE MUST NOT assert more than one of ACK, ERR or RTY"
           //  (b) We don't interrupt re-fill on flushing, so the only reason
@@ -589,7 +589,7 @@ module mor1kx_dcache_marocchino
             if (dbus_burst_last_i) begin
               for (w2 = 0; w2 < OPTION_DCACHE_WAYS; w2 = w2 + 1) begin
                 if (lru_way_refill_r[w2])
-                  tag_din_way[w2] = {1'b1, dbus_burst_adr_i[OPTION_DCACHE_LIMIT_WIDTH-1:WAY_WIDTH]};
+                  tag_din_way[w2] = {1'b1, phys_addr_s2o_i[OPTION_DCACHE_LIMIT_WIDTH-1:WAY_WIDTH]};
               end
               lru_hit_way = lru_way_refill_r; // last re-fill
               // ---
