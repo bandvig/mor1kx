@@ -102,7 +102,7 @@ module mor1kx_ocb_marocchino
   reg [NUM_TAPS-1:0] ptr_prev; // on previous active tap
 
   // "OCB is empty" flag
-  assign empty_o = ptr_curr[0] & ptr_prev[0];
+  assign empty_o = ptr_curr[0];
 
   // "OCB is full" flag
   //  # no more availaible taps, pointer is out of range

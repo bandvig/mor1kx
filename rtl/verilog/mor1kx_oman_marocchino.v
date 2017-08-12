@@ -41,7 +41,7 @@ module mor1kx_oman_marocchino
   input                                 padv_wb_i,
   input                                 pipeline_flush_i,
 
-  // DECODE non-latched flags to indicate next required unit
+  // DECODE flags to indicate next required unit
   // (The information is stored in order control buffer)
   input                                 dcod_op_pass_exec_i,
   input                                 fetch_op_jb_i,
@@ -55,8 +55,8 @@ module mor1kx_oman_marocchino
   input                                 dcod_op_fp64_arith_i,
   input                                 dcod_op_fp64_cmp_i,
 
-  // DECODE non-latched additional information related instruction
-  //  part #1: iformation stored in order control buffer
+  // DECODE additional information related instruction
+  //  part #1: information stored in order control buffer
   input      [OPTION_OPERAND_WIDTH-1:0] pc_decode_i,            // instruction virtual address
   input      [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfd1_adr_i,        // WB address
   input                                 dcod_rfd1_wb_i,         // instruction generates WB
@@ -73,19 +73,19 @@ module mor1kx_oman_marocchino
   //  part #3: information required for create enable for
   //           for external (timer/ethernet/uart/etc) interrupts
   input                                 dcod_op_lsu_store_i,
-  input                                 dcod_op_mtspr_i,
   input                                 dcod_op_msync_i,
-  //  part #4: for MF(T)SPR processing
-  input                                 dcod_op_mfspr_i,
-  //  part #5: for FPU64, data dependancy detection
+  input                                 dcod_op_mXspr_i,
+  //  part #4: for FPU64, data dependancy detection
   input                                 dcod_rfa2_req_i,
   input      [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfa2_adr_i,
   input                                 dcod_rfb2_req_i,
   input      [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfb2_adr_i,
 
-  // collect busy flags from execution modules
+  // for unit hazard detection
   input                                 op_1clk_busy_i,
+  input                                 dcod_op_mclk_i,
   input                                 mclk_busy_i,
+  input                                 dcod_op_lsu_any_i, // (load | store | l.msync)
   input                                 lsu_busy_i,
 
   // collect valid flags from execution modules
@@ -292,36 +292,32 @@ module mor1kx_oman_marocchino
 
   // extension to RFD, FLAG or CARRY
   reg  [DEST_EXT_ADDR_WIDTH-1:0] dcod_ext_bits_r;
-  // --- initial value for simulations ---
- `ifndef SYNTHESIS // initial value for ext-bits-r
-  // synthesis translate_off
-  initial dcod_ext_bits_r = {DEST_EXT_ADDR_WIDTH{1'b0}};
-  // synthesis translate_on
- `endif // !synth
   // ---
   always @(posedge cpu_clk) begin
-    if (padv_decode_i)
+    if (cpu_rst | pipeline_flush_i)
+      dcod_ext_bits_r <= {DEST_EXT_ADDR_WIDTH{1'b0}};
+    else if (padv_decode_i)
       dcod_ext_bits_r <= dcod_ext_bits_r + 1'b1;
   end // @clock
 
 
   // Flag that istruction is restrartable.
   // Instructions which are not restartable:
-  //     "invalid" (empty FETCH result)
   //     "store" - they are buffered and couldn't be removed from buffer
   //               till execution completion
   //     l.msync - it forces LSU to report "busy" till completion of
   //               all previously issued loads and stores
-  //     l.mtspr (change internal CPU control registers)
-  //     l.rfe (cause return from exception process with serious
-  //            changing CPU state).
+  //     l.mtspr - change internal CPU control registers
+  //     l.mfspr - combined with l.mtspr (_mXspr_) to reduce combinatorial logic
+  //     l.rfe   - cause return from exception process with serious
+  //               changing CPU state.
   //   Note #1 we just not run execution for "invalid" command (CTRL), so
   // such "commands" don't achieve WB where exceptions are processed.
   //   Note #2 l.rfe is a special case. We push pipe full of rfes.
   // The reason for this is that we need the rfe to reach WB stage
   // so it will cause the branch. It will clear itself by the
   // pipeline_flush_i that the rfe will generate.
-  wire interrupts_en = ~(dcod_op_lsu_store_i | dcod_op_mtspr_i | dcod_op_msync_i | dcod_op_rfe_i);
+  wire interrupts_en = ~(dcod_op_lsu_store_i | dcod_op_msync_i | dcod_op_mXspr_i | dcod_op_rfe_i);
 
   // Combine DECODE related exceptions
   wire fd_an_except = dcod_fetch_an_except_r  |                     // IFETCH an exception
@@ -695,10 +691,9 @@ module mor1kx_oman_marocchino
   // DECODE stall components
   //  stall by unit usage hazard
   //     (unit could be either busy or waiting for WB access)
-  wire stall_by_hazard_u =
-    (dcod_op_1clk_i & op_1clk_busy_i) |
-    ((dcod_op_mul_i | dcod_op_div_i | dcod_op_fpxx_arith_i | dcod_op_fp64_cmp_i) & mclk_busy_i) |
-    ((dcod_op_ls_i | dcod_op_msync_i) & lsu_busy_i);
+  wire stall_by_hazard_u = (dcod_op_1clk_i    & op_1clk_busy_i) |  // hazard by unit
+                           (dcod_op_mclk_i    & mclk_busy_i)    |  // hazard by unit
+                           (dcod_op_lsu_any_i & lsu_busy_i);       // hazard by unit
 
   //  stall by:
   //    a) MF(T)SPR in decode till and OCB become empty (see here)
@@ -706,7 +701,7 @@ module mor1kx_oman_marocchino
   //       this completion generates padv-wb,
   //       in next turn padv-wb cleans up OCB and restores
   //       instructions issue
-  wire stall_by_mXspr = (dcod_op_mtspr_i | dcod_op_mfspr_i) & (~ocb_empty);
+  wire stall_by_mXspr = dcod_op_mXspr_i & (~ocb_empty);
 
   // combine stalls to decode-valid flag
   assign dcod_valid_o = (~stall_by_hazard_u) & (~ocb_full) & (~stall_by_mXspr);
@@ -739,21 +734,37 @@ module mor1kx_oman_marocchino
                          exe2dec_hazard_d1b1;                       // l.jr/l.jalr hazard in OCB
 
   // --- detect flag hazard for l.bf/l.bnf ---
-  wire ocb_wb_flag = ocbo06[OCBT_FLAG_WB_POS] | ocbo05[OCBT_FLAG_WB_POS] |
-                     ocbo04[OCBT_FLAG_WB_POS] | ocbo03[OCBT_FLAG_WB_POS] |
-                     ocbo02[OCBT_FLAG_WB_POS] | ocbo01[OCBT_FLAG_WB_POS] |
-                     ocbo00[OCBT_FLAG_WB_POS];
-
-  // --- destination extention for flag ---
-  wire [DEST_EXT_ADDR_WIDTH-1:0] ocb_wb_flag_ext;
+  reg                            ocb_wb_flag_r;     // SR[F] allocated for write-back
+  reg  [DEST_EXT_ADDR_WIDTH-1:0] ocb_wb_flag_ext_r; // SR[F] allocation index
+  wire                           wb2ocb_eq_adr_flag;
   // ---
-  assign ocb_wb_flag_ext = ocbo06[OCBT_FLAG_WB_POS] ? ocbo06[OCBT_EXT_ADR_MSB:OCBT_EXT_ADR_LSB] :
-                           ocbo05[OCBT_FLAG_WB_POS] ? ocbo05[OCBT_EXT_ADR_MSB:OCBT_EXT_ADR_LSB] :
-                           ocbo04[OCBT_FLAG_WB_POS] ? ocbo04[OCBT_EXT_ADR_MSB:OCBT_EXT_ADR_LSB] :
-                           ocbo03[OCBT_FLAG_WB_POS] ? ocbo03[OCBT_EXT_ADR_MSB:OCBT_EXT_ADR_LSB] :
-                           ocbo02[OCBT_FLAG_WB_POS] ? ocbo02[OCBT_EXT_ADR_MSB:OCBT_EXT_ADR_LSB] :
-                           ocbo01[OCBT_FLAG_WB_POS] ? ocbo01[OCBT_EXT_ADR_MSB:OCBT_EXT_ADR_LSB] :
-                                                      ocbo00[OCBT_EXT_ADR_MSB:OCBT_EXT_ADR_LSB];
+  assign wb2ocb_eq_adr_flag = (ocb_wb_flag_ext_r == wb_rfd1_ext);
+  // ---
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | pipeline_flush_i)
+      ocb_wb_flag_ext_r <= {DEST_EXT_ADDR_WIDTH{1'b0}};
+    else if (padv_decode_i)
+      ocb_wb_flag_ext_r <= dcod_flag_wb_i ? dcod_ext_bits_r : ocb_wb_flag_ext_r;
+  end // at cpu-clock
+  // ---
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | pipeline_flush_i)
+      ocb_wb_flag_r <= 1'b0;
+    else begin
+      // synthesis parallel_case full_case
+      case ({wb_flag_wb_o,padv_decode_i})
+        // instruction to execution
+        2'b01: ocb_wb_flag_r <= dcod_flag_wb_i     ? 1'b1 : ocb_wb_flag_r;
+        // single write back to SR[F]
+        2'b10: ocb_wb_flag_r <= wb2ocb_eq_adr_flag ? 1'b0 : ocb_wb_flag_r;
+        // overlapping
+        2'b11: ocb_wb_flag_r <= dcod_flag_wb_i     ? 1'b1 :
+                                wb2ocb_eq_adr_flag ? 1'b0 : ocb_wb_flag_r;
+        // don't change by default
+        default:;
+      endcase
+    end
+  end // at cpu-clock
 
   // --- DECODE stage J/B instruction flags ---
   reg dcod_op_jr_r, dcod_op_bf_r, dcod_op_bnf_r, dcod_op_bc_r;
@@ -818,17 +829,19 @@ module mor1kx_oman_marocchino
           end // l.jr/l.jalr
           else if (dcod_op_bc_r) begin
             // select next state
-            if (ocb_wb_flag) begin
-              jb_fsm_state_r  <= JB_FSM_WAITING_FLAG;
-              jb_hazard_ext_p <= ocb_wb_flag_ext;
-              jb_bf_p         <= dcod_op_bf_r;
-              jb_bnf_p        <= dcod_op_bnf_r;
+            if (ocb_wb_flag_r) begin
+              if (wb2ocb_eq_adr_flag & wb_flag_wb_o) begin
+                jb_fsm_state_r <= JB_FSM_DOING_BC;
+                jb_bf_p        <= dcod_op_bf_r;
+                jb_bnf_p       <= dcod_op_bnf_r;
+              end
+              else begin
+                jb_fsm_state_r  <= JB_FSM_WAITING_FLAG;
+                jb_hazard_ext_p <= ocb_wb_flag_ext_r;
+                jb_bf_p         <= dcod_op_bf_r;
+                jb_bnf_p        <= dcod_op_bnf_r;
+              end
             end
-            else if (wb_flag_wb_o) begin
-              jb_fsm_state_r <= JB_FSM_DOING_BC;
-              jb_bf_p        <= dcod_op_bf_r;
-              jb_bnf_p       <= dcod_op_bnf_r;
-            end  // (OCB <-> DECODE) vs (WB <-> DECODE) SR[F] hazard
             else // no SR[F] related hazards
               jb_fsm_state_r <= JB_FSM_CATCHING_JB;
           end // l.bf/l.bnf
@@ -875,20 +888,16 @@ module mor1kx_oman_marocchino
   wire oman_except_ibus_align = jb_fsm_doing_jr_state & (|jb_target_p[1:0]);
 
 
-  // l.bf/l.bnf flag hazard in DECODE
-  wire dcod_bc_hazard = ocb_wb_flag | wb_flag_wb_o; // l.bf/l.bnf flag hazard in DECODE
-
-
   // Combine IFETCH hazards
   assign fetch_jr_bc_hazard_o = (fetch_op_jr_i | fetch_op_bf_i | fetch_op_bnf_i) |           // detect l.jr/l.jalr/l.bf/l.bnf
                                 dcod_op_jr_r   | jb_fsm_waiting_b1_state         |           // waiting rB for l.jr/l.jalr
-                                (dcod_op_bc_r & dcod_bc_hazard) | jb_fsm_waiting_flag_state; // waiting flag for l.bf/l.bnf
+                                (dcod_op_bc_r & ocb_wb_flag_r) | jb_fsm_waiting_flag_state;  // waiting flag for l.bf/l.bnf
 
   // jump / branch has no any hazarad (valid command)
-  wire jr_bc_valid = fetch_op_jimm_i                  | // jump to immediate is valid permanently
-                     jb_fsm_doing_jr_state            | // l.jr/l.jalr hazards are resolved
-                     (dcod_op_bc_r & ~dcod_bc_hazard) | // valid flag for l.bf/l.bnf in DECODE
-                     jb_fsm_doing_bc_state;             // l.bf/l.bnf hazards are resolved
+  wire jr_bc_valid = fetch_op_jimm_i                 | // jump to immediate is valid permanently
+                     jb_fsm_doing_jr_state           | // l.jr/l.jalr hazards are resolved
+                     (dcod_op_bc_r & ~ocb_wb_flag_r) | // valid flag for l.bf/l.bnf in DECODE
+                     jb_fsm_doing_bc_state;            // l.bf/l.bnf hazards are resolved
 
 
   // JUMP/BRANCH attributes [O]rder [C]ontrol [B]uffer (JB_ATTR_OCB)

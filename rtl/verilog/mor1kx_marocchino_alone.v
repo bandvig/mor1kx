@@ -168,7 +168,6 @@ module mor1kx_marocchino_alone
   wire                            dbus_err_i;
   wire                            dbus_ack_i;
   wire [OPTION_OPERAND_WIDTH-1:0] dbus_dat_i;
-  wire [OPTION_OPERAND_WIDTH-1:0] dbus_burst_adr_i;
   wire                            dbus_burst_last_i;
 
   // BUS-Bridge <-> CPU instruction port
@@ -178,7 +177,6 @@ module mor1kx_marocchino_alone
   wire                            ibus_err_i;
   wire                            ibus_ack_i;
   wire [OPTION_OPERAND_WIDTH-1:0] ibus_dat_i;
-  wire [OPTION_OPERAND_WIDTH-1:0] ibus_burst_adr_i;
   wire                            ibus_burst_last_i;
 
   // SPR access ???
@@ -208,7 +206,6 @@ module mor1kx_marocchino_alone
     .cpu_err_o        (ibus_err_i), // IBUS_BRIDGE
     .cpu_ack_o        (ibus_ack_i), // IBUS_BRIDGE
     .cpu_dat_o        (ibus_dat_i[`OR1K_INSN_WIDTH-1:0]), // IBUS_BRIDGE
-    .cpu_burst_adr_o  (ibus_burst_adr_i), // IBUS_BRIDGE
     .cpu_burst_last_o (ibus_burst_last_i), // IBUS_BRIDGE
     .cpu_adr_i        (ibus_adr_o), // IBUS_BRIDGE
     .cpu_dat_i        ({OPTION_OPERAND_WIDTH{1'b0}}), // IBUS_BRIDGE
@@ -251,7 +248,6 @@ module mor1kx_marocchino_alone
     .cpu_err_o        (dbus_err_i), // DBUS_BRIDGE
     .cpu_ack_o        (dbus_ack_i), // DBUS_BRIDGE
     .cpu_dat_o        (dbus_dat_i), // DBUS_BRIDGE
-    .cpu_burst_adr_o  (dbus_burst_adr_i), // DBUS_BRIDGE
     .cpu_burst_last_o (dbus_burst_last_i), // DBUS_BRIDGE
     .cpu_adr_i        (dbus_adr_o), // DBUS_BRIDGE
     .cpu_dat_i        (dbus_dat_o), // DBUS_BRIDGE
@@ -359,12 +355,10 @@ module mor1kx_marocchino_alone
     .ibus_err_i               (ibus_err_i),
     .ibus_ack_i               (ibus_ack_i),
     .ibus_dat_i               (ibus_dat_i[`OR1K_INSN_WIDTH-1:0]),
-    .ibus_burst_adr_i         (ibus_burst_adr_i),
     .ibus_burst_last_i        (ibus_burst_last_i),
     .dbus_err_i               (dbus_err_i),
     .dbus_ack_i               (dbus_ack_i),
     .dbus_dat_i               (dbus_dat_i),
-    .dbus_burst_adr_i         (dbus_burst_adr_i),
     .dbus_burst_last_i        (dbus_burst_last_i),
     .irq_i                    (irq_i[31:0]),
     .du_addr_i                (du_addr_i),

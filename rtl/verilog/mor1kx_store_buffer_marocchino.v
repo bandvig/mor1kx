@@ -50,8 +50,8 @@ module mor1kx_store_buffer_marocchino
   output [OPTION_OPERAND_WIDTH/8-1:0] bsel_o,
   input                               read_i,
   // status flags
-  output                              full_o,
-  output                              empty_o
+  output reg                          full_o,
+  output reg                          empty_o
 );
 
   // The fifo stores (pc + virtual_address + physical_address + data + byte-sel)
@@ -91,12 +91,35 @@ module mor1kx_store_buffer_marocchino
       read_pointer <= read_pointer_next;
   end
 
-  // "buffer is full flag"
-  assign full_o = (write_pointer[DEPTH_WIDTH] ^ read_pointer[DEPTH_WIDTH]) &
-                  (write_pointer[DEPTH_WIDTH-1:0] == read_pointer[DEPTH_WIDTH-1:0]);
-
-  // "buffer is empty flag"
-  assign empty_o = (write_pointer == read_pointer);
+  // "buffer is full" flag & "buffer is empty" flags
+  wire full_by_write = (write_pointer_next[DEPTH_WIDTH] ^ read_pointer[DEPTH_WIDTH]) &
+                       (write_pointer_next[DEPTH_WIDTH-1:0] == read_pointer[DEPTH_WIDTH-1:0]);
+  wire empty_by_read = (write_pointer == read_pointer_next);
+  // ---
+  always @(posedge cpu_clk) begin
+    if (cpu_rst) begin
+      full_o  <= 1'b0;
+      empty_o <= 1'b1;
+    end
+    else if (sbuf_err_i) begin
+      full_o  <= 1'b0;
+      empty_o <= 1'b1;
+    end
+    else begin
+      // synthesis parallel_case full_case
+      case ({read_i,write_i})
+        2'b01: begin // write only
+          full_o  <= full_by_write;
+          empty_o <= 1'b0;
+        end
+        2'b10: begin // read only
+          full_o  <= 1'b0;
+          empty_o <= empty_by_read;
+        end
+        default:;
+      endcase
+    end
+  end
 
   // data input/output
   assign fifo_din = {bsel_i, dat_i, phys_addr_i, virt_addr_i, sbuf_epcr_i};

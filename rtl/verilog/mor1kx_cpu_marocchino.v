@@ -84,7 +84,6 @@ module mor1kx_cpu_marocchino
   input                             ibus_err_i,
   input                             ibus_ack_i,
   input      [`OR1K_INSN_WIDTH-1:0] ibus_dat_i,
-  input  [OPTION_OPERAND_WIDTH-1:0] ibus_burst_adr_i,
   input                             ibus_burst_last_i,
   output [OPTION_OPERAND_WIDTH-1:0] ibus_adr_o,
   output                            ibus_req_o,
@@ -94,7 +93,6 @@ module mor1kx_cpu_marocchino
   input                             dbus_err_i,
   input                             dbus_ack_i,
   input  [OPTION_OPERAND_WIDTH-1:0] dbus_dat_i,
-  input  [OPTION_OPERAND_WIDTH-1:0] dbus_burst_adr_i,
   input                             dbus_burst_last_i,
   output [OPTION_OPERAND_WIDTH-1:0] dbus_adr_o,
   output [OPTION_OPERAND_WIDTH-1:0] dbus_dat_o,
@@ -178,8 +176,8 @@ module mor1kx_cpu_marocchino
   wire                            dcod_flag_wb; // instruction writes comparison flag
   wire                            dcod_carry_wb; // instruction writes carry flag
 
-  wire                            dcod_op_mfspr; // to OMAN & CTRL (not latched)
-  wire                            dcod_op_mtspr; // to OMAN & CTRL (not latched)
+  wire                            dcod_op_mtspr;
+  wire                            dcod_op_mXspr; // (l.mfspr | l.mtspr)
 
 
   wire [OPTION_OPERAND_WIDTH-1:0] wb_alu_1clk_result;
@@ -313,6 +311,8 @@ module mor1kx_cpu_marocchino
   wire                      [1:0] dcod_lsu_length;
   wire                            dcod_lsu_zext;
   wire                            dcod_op_msync;
+  wire                            dcod_op_lsu_any;
+  wire [OPTION_OPERAND_WIDTH-1:0] dcod_sbuf_epcr; // EPCR for STORE_BUFFER exception
   wire                            lsu_busy;
   wire                            grant_wb_to_lsu;
 
@@ -346,6 +346,7 @@ module mor1kx_cpu_marocchino
 
 
   // Reservation station for multi-clocks execution units
+  wire                            dcod_op_mclk;
   wire                            mclk_busy;
 
   // Divider
@@ -573,7 +574,6 @@ module mor1kx_cpu_marocchino
     .ibus_err_i                       (ibus_err_i), // FETCH
     .ibus_ack_i                       (ibus_ack_i), // FETCH
     .ibus_dat_i                       (ibus_dat_i[`OR1K_INSN_WIDTH-1:0]), // FETCH
-    .ibus_burst_adr_i                 (ibus_burst_adr_i), // FETCH
     .ibus_burst_last_i                (ibus_burst_last_i), // FETCH
     .ibus_req_o                       (ibus_req_o), // FETCH
     .ibus_adr_o                       (ibus_adr_o), // FETCH
@@ -759,6 +759,9 @@ module mor1kx_cpu_marocchino
     .dcod_lsu_length_o                (dcod_lsu_length), // DECODE
     .dcod_lsu_zext_o                  (dcod_lsu_zext), // DECODE
     .dcod_op_msync_o                  (dcod_op_msync), // DECODE
+    .dcod_op_lsu_any_o                (dcod_op_lsu_any), // DECODE
+    // EPCR for store buffer. delay-slot ? (pc-4) : pc
+    .dcod_sbuf_epcr_o                 (dcod_sbuf_epcr), // DECODE
     // Instruction which passes EXECUTION through
     .dcod_op_pass_exec_o              (dcod_op_pass_exec), // DECODE
     // 1-clock instruction
@@ -798,9 +801,11 @@ module mor1kx_cpu_marocchino
     // FPU-64 comparison part
     .dcod_op_fp64_cmp_o               (dcod_op_fp64_cmp), // DECODE
     .dcod_opc_fp64_cmp_o              (dcod_opc_fp64_cmp), // DECODE
+    // Combined for MCLK_RSRVS
+    .dcod_op_mclk_o                   (dcod_op_mclk), // DECODE
     // MTSPR / MFSPR
-    .dcod_op_mfspr_o                  (dcod_op_mfspr), // DECODE
     .dcod_op_mtspr_o                  (dcod_op_mtspr), // DECODE
+    .dcod_op_mXspr_o                  (dcod_op_mXspr), // DECODE
     // Exception flags
     //  ## enable l.trap exception
     .du_trap_enable_i                 (du_trap_enable), // DECODE
@@ -868,19 +873,19 @@ module mor1kx_cpu_marocchino
     //  part #3: information required for create enable for
     //           for external (timer/ethernet/uart/etc) interrupts
     .dcod_op_lsu_store_i        (dcod_op_lsu_store), // OMAN
-    .dcod_op_mtspr_i            (dcod_op_mtspr), // OMAN
     .dcod_op_msync_i            (dcod_op_msync), // OMAN
-    //  part #4: for MF(T)SPR processing
-    .dcod_op_mfspr_i            (dcod_op_mfspr), // OMAN
-    //  part #5: for FPU64, data dependancy detection
+    .dcod_op_mXspr_i            (dcod_op_mXspr), // OMAN
+    //  part #4: for FPU64, data dependancy detection
     .dcod_rfa2_req_i            (dcod_rfa2_req), // OMAN
     .dcod_rfa2_adr_i            (dcod_rfa2_adr), // OMAN
     .dcod_rfb2_req_i            (dcod_rfb2_req), // OMAN
     .dcod_rfb2_adr_i            (dcod_rfb2_adr), // OMAN
 
-    // collect busy flags from exwcution module
+    // for unit hazard detection
     .op_1clk_busy_i             (op_1clk_busy), // OMAN
+    .dcod_op_mclk_i             (dcod_op_mclk), // OMAN
     .mclk_busy_i                (mclk_busy), // OMAN
+    .dcod_op_lsu_any_i          (dcod_op_lsu_any), // OMAN (load | store | l.msync)
     .lsu_busy_i                 (lsu_busy), // OMAN
 
     // collect valid flags from execution modules
@@ -1328,7 +1333,7 @@ module mor1kx_cpu_marocchino
     .wb_result1_i               (wb_result1), // MCLK_RSVRS
     .wb_result2_i               (wb_result2), // MCLK_RSVRS
     // command and its additional attributes
-    .dcod_op_i                  (dcod_op_mul | dcod_op_div | dcod_op_fpxx_arith | dcod_op_fp64_cmp), // MCLK_RSVRS
+    .dcod_op_i                  (dcod_op_mclk), // MCLK_RSVRS
     .dcod_opc_i                 ({dcod_op_mul,  // MCLK_RSVRS
                                   dcod_op_div, dcod_op_div_signed, dcod_op_div_unsigned, // MCLK_RSVRS
                                   dcod_op_fp64_arith, // MCLK_RSVRS
@@ -1528,17 +1533,13 @@ module mor1kx_cpu_marocchino
   wire [OPTION_OPERAND_WIDTH-1:0] exec_lsu_b1;
 
   // **** reservation station for LSU ****
-  // EPCR for store buffer
-  //  ## delay-slot ? (pc-4) : pc
-  wire [(OPTION_OPERAND_WIDTH-1):0] dcod_sbuf_epcr = pc_decode - {{(OPTION_OPERAND_WIDTH-3){1'b0}},dcod_delay_slot,2'b00};
-
   // particular commands and their attributes include:
-  //  ## separate load, store and atomic flags: averall 3
-  //  ## length:            2
-  //  ## zero extension:    1
-  //  ## l.msync:           1
-  //  ## immediate width:  16
-  //  ## PC address width: 32
+  //  ## separate load, store and atomic flags:  3 (averall)
+  //  ## length:                                 2
+  //  ## zero extension:                         1
+  //  ## l.msync:                                1
+  //  ## immediate width:                       16
+  //  ## EPCR for STORE_BUFFER exception:       32
   localparam LSU_ATTR_WIDTH = 7 + `OR1K_IMM_WIDTH + OPTION_OPERAND_WIDTH;
 
   // reservation station instance
@@ -1615,9 +1616,9 @@ module mor1kx_cpu_marocchino
     .wb_result1_i               (wb_result1), // LSU_RSVRS
     .wb_result2_i               (wb_result2), // LSU_RSVRS
     // command and its additional attributes
-    .dcod_op_i                  (dcod_op_lsu_load | dcod_op_lsu_store | dcod_op_msync), // LSU_RSVRS
+    .dcod_op_i                  (dcod_op_lsu_any), // LSU_RSVRS
     .dcod_opc_i                 ({dcod_op_lsu_load,dcod_op_lsu_store,dcod_op_lsu_atomic, // LSU_RSVRS
-                                 dcod_lsu_length,dcod_lsu_zext, // LSU_RSVRS
+                                  dcod_lsu_length,dcod_lsu_zext, // LSU_RSVRS
                                   dcod_op_msync, // LSU_RSVRS
                                   dcod_imm16,dcod_sbuf_epcr}), // LSU_RSVRS
     // outputs
@@ -1695,7 +1696,6 @@ module mor1kx_cpu_marocchino
     .dbus_err_i                       (dbus_err_i), // LSU
     .dbus_ack_i                       (dbus_ack_i), // LSU
     .dbus_dat_i                       (dbus_dat_i), // LSU
-    .dbus_burst_adr_i                 (dbus_burst_adr_i), // LSU
     .dbus_burst_last_i                (dbus_burst_last_i), // LSU
     .dbus_adr_o                       (dbus_adr_o), // LSU
     .dbus_req_o                       (dbus_req_o), // LSU
@@ -1918,8 +1918,8 @@ module mor1kx_cpu_marocchino
     .dcod_rfa1_i                      (dcod_rfa1[`OR1K_IMM_WIDTH-1:0]), // CTRL: base of addr for MT(F)SPR
     .dcod_imm16_i                     (dcod_imm16), // CTRL: offset for addr for MT(F)SPR
     .dcod_rfb1_i                      (dcod_rfb1), // CTRL: data for MTSPR
-    .dcod_op_mfspr_i                  (dcod_op_mfspr), // CTRL
     .dcod_op_mtspr_i                  (dcod_op_mtspr), // CTRL
+    .dcod_op_mXspr_i                  (dcod_op_mXspr), // CTRL
     //  ## result to WB_MUX
     .wb_mfspr_dat_o                   (wb_mfspr_dat), // CTRL: for WB_MUX
 

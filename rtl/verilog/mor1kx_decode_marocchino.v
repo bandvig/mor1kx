@@ -103,6 +103,9 @@ module mor1kx_decode_marocchino
   output reg                      [1:0] dcod_lsu_length_o,
   output reg                            dcod_lsu_zext_o,
   output reg                            dcod_op_msync_o,
+  output reg                            dcod_op_lsu_any_o, // (load | store | l.msync)
+  // EPCR for store buffer. delay-slot ? (pc-4) : pc
+  output reg [OPTION_OPERAND_WIDTH-1:0] dcod_sbuf_epcr_o,
 
   // Instruction which passes EXECUTION through
   output reg                            dcod_op_pass_exec_o,
@@ -149,9 +152,12 @@ module mor1kx_decode_marocchino
   output reg                            dcod_op_fp64_cmp_o,
   output reg                      [2:0] dcod_opc_fp64_cmp_o,
 
+  // Combined for MCLK_RSRVS
+  output reg                            dcod_op_mclk_o,
+
   // MTSPR / MFSPR
-  output reg                            dcod_op_mfspr_o,
   output reg                            dcod_op_mtspr_o,
+  output reg                            dcod_op_mXspr_o, // (l.mfspr | l.mtspr)
 
   // Exceptions detected on decode stage flags
   //  ## enable l.trap exception
@@ -788,6 +794,7 @@ module mor1kx_decode_marocchino
       dcod_lsu_length_o         <= 2'd0;
       dcod_lsu_zext_o           <= 1'b0;
       dcod_op_msync_o           <= 1'b0;
+      dcod_op_lsu_any_o         <= 1'b0; // (load | store | l.msync)
       // ALU related opc
       dcod_opc_alu_secondary_o  <= {`OR1K_ALU_OPC_WIDTH{1'b0}};
       // Adder related
@@ -823,9 +830,11 @@ module mor1kx_decode_marocchino
       // FPU-64 comparison part
       dcod_op_fp64_cmp_o        <= 1'b0;
       dcod_opc_fp64_cmp_o       <= 3'd0;
+      // Combined for MCLK_RSRVS
+      dcod_op_mclk_o            <= 1'b0;
       // MTSPR / MFSPR
-      dcod_op_mfspr_o           <= 1'b0;
       dcod_op_mtspr_o           <= 1'b0;
+      dcod_op_mXspr_o           <= 1'b0;
       // outcome exception flags
       dcod_except_syscall_o     <= 1'b0;
       dcod_except_trap_o        <= 1'b0;
@@ -867,6 +876,9 @@ module mor1kx_decode_marocchino
       dcod_lsu_length_o         <= lsu_length;
       dcod_lsu_zext_o           <= lsu_zext;
       dcod_op_msync_o           <= op_msync;
+      dcod_op_lsu_any_o         <= op_lsu_load | op_lsu_store | op_msync;
+      // EPCR for store buffer. delay-slot ? (pc-4) : pc
+      dcod_sbuf_epcr_o          <= pc_fetch_i - {{(OPTION_OPERAND_WIDTH-3){1'b0}},fetch_delay_slot_i,2'b00};
       // ALU related opc
       dcod_opc_alu_secondary_o  <= opc_alu_secondary;
       // Adder related
@@ -902,9 +914,11 @@ module mor1kx_decode_marocchino
       // FPU-64 comparison part
       dcod_op_fp64_cmp_o        <= op_fp64_cmp;
       dcod_opc_fp64_cmp_o       <= opc_fp64_cmp;
+      // Combined for MCLK_RSRVS
+      dcod_op_mclk_o            <= op_mul | op_div | op_fpxx_arith | op_fp64_cmp;
       // MTSPR / MFSPR
-      dcod_op_mfspr_o           <= op_mfspr;
       dcod_op_mtspr_o           <= op_mtspr;
+      dcod_op_mXspr_o           <= op_mfspr | op_mtspr;
       // outcome exception flags
       dcod_except_syscall_o     <= except_syscall;
       dcod_except_trap_o        <= except_trap;

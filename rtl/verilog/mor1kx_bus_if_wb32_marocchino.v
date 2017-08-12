@@ -52,7 +52,6 @@ module mor1kx_bus_if_wb32_marocchino
   output        cpu_err_o,
   output        cpu_ack_o,
   output [31:0] cpu_dat_o,
-  output [31:0] cpu_burst_adr_o,
   output        cpu_burst_last_o,
   input  [31:0] cpu_adr_i,
   input  [31:0] cpu_dat_i,
@@ -254,9 +253,7 @@ module mor1kx_bus_if_wb32_marocchino
   // WBM-TO-CPU data layout
   localparam  WBM2CPU_DAT_LSB =  0;
   localparam  WBM2CPU_DAT_MSB = 31;
-  localparam  WBM2CPU_ADR_LSB = 32;
-  localparam  WBM2CPU_ADR_MSB = 63;
-  localparam  WBM2CPU_LAST    = WBM2CPU_ADR_MSB + 1;
+  localparam  WBM2CPU_LAST    = WBM2CPU_DAT_MSB + 1;
   localparam  WBM2CPU_ACK     = WBM2CPU_LAST    + 1;
   localparam  WBM2CPU_ERR     = WBM2CPU_ACK     + 1;
   // ---
@@ -273,7 +270,7 @@ module mor1kx_bus_if_wb32_marocchino
     else if (to_wbm_cyc_r & (wbm_ack_i | wbm_err_i))
       queue_in_r <= { wbm_err_i, wbm_ack_i,                // WBM-TO-CPU data layout
                       (to_wbm_cti_r[1] & burst_done_r[0]), // WBM-TO-CPU data layout
-                      to_wbm_adr_r, wbm_dat_i };           // WBM-TO-CPU data layout
+                      wbm_dat_i };                         // WBM-TO-CPU data layout
     else
       queue_in_r <= {WBM2CPU_WIDTH{1'b0}};
   end // @wb-clock
@@ -418,7 +415,6 @@ module mor1kx_bus_if_wb32_marocchino
   end // @cpu-clock
   // --- to CPU output assignenment ---
   assign cpu_dat_o        = to_cpu_latch[WBM2CPU_DAT_MSB:WBM2CPU_DAT_LSB];
-  assign cpu_burst_adr_o  = to_cpu_latch[WBM2CPU_ADR_MSB:WBM2CPU_ADR_LSB];
   assign cpu_burst_last_o = to_cpu_latch[WBM2CPU_LAST];
   assign cpu_ack_o        = to_cpu_latch[WBM2CPU_ACK];
   assign cpu_err_o        = to_cpu_latch[WBM2CPU_ERR];

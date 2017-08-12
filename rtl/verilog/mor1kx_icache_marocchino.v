@@ -54,7 +54,6 @@ module mor1kx_icache_marocchino
   // regular requests in/out
   input      [OPTION_OPERAND_WIDTH-1:0] virt_addr_mux_i,
   input      [OPTION_OPERAND_WIDTH-1:0] virt_addr_s1o_i,
-  input      [OPTION_OPERAND_WIDTH-1:0] virt_addr_s2o_i,
   input      [OPTION_OPERAND_WIDTH-1:0] phys_addr_s2t_i,
   input                                 fetch_req_hit_i,
   input                                 immu_cache_inhibit_i,
@@ -70,7 +69,6 @@ module mor1kx_icache_marocchino
   output reg                            ic_refill_first_o,
   input      [OPTION_OPERAND_WIDTH-1:0] phys_addr_s2o_i,
   input          [`OR1K_INSN_WIDTH-1:0] ibus_dat_i,
-  input      [OPTION_OPERAND_WIDTH-1:0] ibus_burst_adr_i,
   input                                 ibus_burst_last_i,
   input                                 ibus_ack_i,
 
@@ -167,10 +165,10 @@ module mor1kx_icache_marocchino
   // The access vector to update the LRU history is the way that has
   // a hit or is refilled. It is also one-hot encoded.
   reg  [OPTION_ICACHE_WAYS-1:0] access_way_for_lru;
-  reg  [OPTION_ICACHE_WAYS-1:0] access_way_for_lru_fetcho_r; // register on IFETCH output  
+  reg  [OPTION_ICACHE_WAYS-1:0] access_way_for_lru_fetcho_r; // register on IFETCH output
   // The current LRU history as read from tag memory.
   reg  [TAG_LRU_WIDTH_BITS-1:0] current_lru_history;
-  reg  [TAG_LRU_WIDTH_BITS-1:0] current_lru_history_fetcho_r; // register on IFETCH output  
+  reg  [TAG_LRU_WIDTH_BITS-1:0] current_lru_history_fetcho_r; // register on IFETCH output
   // The update value after we accessed it to write back to tag memory.
   wire [TAG_LRU_WIDTH_BITS-1:0] next_lru_history;          // computed by mor1kx_cache_lru
 
@@ -333,14 +331,32 @@ module mor1kx_icache_marocchino
   //   As way size is equal to page one we able to use either
   // physical or virtual indexing.
 
+  // For re-fill we use local copy of bus-bridge's burst address
+  //  accumulator to generate WAY-RAM index.
+  // The approach increases logic locality and makes routing easier.
+  reg  [OPTION_OPERAND_WIDTH-1:0] virt_addr_rfl_r;
+  wire [OPTION_OPERAND_WIDTH-1:0] virt_addr_rfl_next;
+  // cache block length is 5 -> burst length is 8: 32 bytes = (8 words x 32 bits/word)
+  // cache block length is 4 -> burst length is 4: 16 bytes = (4 words x 32 bits/word)
+  assign virt_addr_rfl_next = (OPTION_ICACHE_BLOCK_WIDTH == 5) ?
+    {virt_addr_rfl_r[31:5], virt_addr_rfl_r[4:0] + 5'd4} : // 32 byte = (8 words x 32 bits/word)
+    {virt_addr_rfl_r[31:4], virt_addr_rfl_r[3:0] + 4'd4};  // 16 byte = (4 words x 32 bits/word)
+  // ---
+  always @(posedge cpu_clk) begin
+    if (padv_s1s2_i)
+      virt_addr_rfl_r <= virt_addr_s1o_i;    // before re-fill it is copy of IFETCH::s2o_virt_addr
+    else if (ic_refill & ibus_ack_i)
+      virt_addr_rfl_r <= virt_addr_rfl_next;
+  end // @ clock
+
   // way address for write
   wire [WAY_WIDTH-3:0] way_addr;
   // ---
-  assign way_addr = ic_refill ? ibus_burst_adr_i[WAY_WIDTH-1:2] : // WAY_WR_ADDR at re-fill
-                    ic_reread ? virt_addr_s1o_i[WAY_WIDTH-1:2]  : // WAY_RE_ADDR after re-fill
-                                virt_addr_mux_i[WAY_WIDTH-1:2];   // WAY_RE_ADDR default
+  assign way_addr = ic_refill ? virt_addr_rfl_r[WAY_WIDTH-1:2] : // WAY_WR_ADDR at re-fill
+                    ic_reread ? virt_addr_s1o_i[WAY_WIDTH-1:2] : // WAY_RE_ADDR after re-fill
+                                virt_addr_mux_i[WAY_WIDTH-1:2];  // WAY_RE_ADDR default
 
-  // "en" / "we" (for re-fill) per way 
+  // "en" / "we" (for re-fill) per way
   wire [OPTION_ICACHE_WAYS-1:0] way_en;
   wire [OPTION_ICACHE_WAYS-1:0] way_we;
 
@@ -419,8 +435,8 @@ module mor1kx_icache_marocchino
   // LRU related data registered on IFETCH output
   always @(posedge cpu_clk) begin
     if (cpu_rst) begin
-      access_way_for_lru_fetcho_r  <= {OPTION_ICACHE_WAYS{1'b0}}; // reset 
-      current_lru_history_fetcho_r <= {TAG_LRU_WIDTH_BITS{1'b0}}; // reset 
+      access_way_for_lru_fetcho_r  <= {OPTION_ICACHE_WAYS{1'b0}}; // reset
+      current_lru_history_fetcho_r <= {TAG_LRU_WIDTH_BITS{1'b0}}; // reset
     end
     else if (padv_s1s2_i) begin
       access_way_for_lru_fetcho_r  <= hit_way;
@@ -431,7 +447,7 @@ module mor1kx_icache_marocchino
   // LRU way registered for re-fill process
   // MAROCCHINO_TODO : move it to FSM ??
   always @(posedge cpu_clk) begin
-    if (cpu_rst) begin            // clear lru way for re-fill            
+    if (cpu_rst) begin            // clear lru way for re-fill
       lru_way_refill_r <= {OPTION_ICACHE_WAYS{1'b0}};                             // reset / flush
     end
     else if (to_refill_i) begin   // save lru way for re-fill
@@ -459,7 +475,7 @@ module mor1kx_icache_marocchino
   always @(*) begin
     // no write TAG-RAM by default
     tag_we = 1'b0; // by default
-    
+
     // by default prepare data for LRU update at hit or for re-fill initiation
     //  -- input for LRU calculator
     access_way_for_lru  = access_way_for_lru_fetcho_r; // by default
@@ -542,9 +558,8 @@ module mor1kx_icache_marocchino
    *   As way size is equal to page one we able to use either
    * physical or virtual indexing.
    */
-  // MAROCCHINO_TODO: virt_addr_s2o_i for re-fill ??
   assign tag_windex = ic_invalidate ? tag_invdex                                              : // TAG_WR_ADDR at invalidate
-                                      virt_addr_s2o_i[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH];   // TAG_WR_ADDR at re-fill / update LRU
+                                      virt_addr_rfl_r[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH];   // TAG_WR_ADDR at re-fill / update LRU
 
   // TAG read address
   assign tag_rindex = padv_s1s2_i ? virt_addr_mux_i[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH] : // TAG_RE_ADDR at regular advance

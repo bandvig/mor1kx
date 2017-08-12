@@ -82,8 +82,8 @@ module mor1kx_ctrl_marocchino
   input           [`OR1K_IMM_WIDTH-1:0] dcod_rfa1_i,  // base of addr for MT(F)SPR
   input           [`OR1K_IMM_WIDTH-1:0] dcod_imm16_i, // offset for addr for MT(F)SPR
   input      [OPTION_OPERAND_WIDTH-1:0] dcod_rfb1_i,  // data for MTSPR
-  input                                 dcod_op_mfspr_i,
   input                                 dcod_op_mtspr_i,
+  input                                 dcod_op_mXspr_i, // (l.mfspr | l.mtspr)
   //  ## result to WB_MUX
   output reg [OPTION_OPERAND_WIDTH-1:0] wb_mfspr_dat_o,
 
@@ -801,7 +801,7 @@ module mor1kx_ctrl_marocchino
   //---------------------------------------------------------------------------//
 
   // Accees to SPR BUS from l.mf(t)spr command or debug unit
-  wire take_op_mXspr = padv_decode_o & (dcod_op_mfspr_i | dcod_op_mtspr_i);
+  wire take_op_mXspr = padv_decode_o & dcod_op_mXspr_i;
 
   // Access to SPR BUS from Debug System
   wire take_access_du = (~take_op_mXspr) & (~spr_bus_wait_r) & du_stb_i;

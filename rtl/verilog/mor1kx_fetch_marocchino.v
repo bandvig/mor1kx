@@ -78,7 +78,6 @@ module mor1kx_fetch_marocchino
   input                                 ibus_err_i,
   input                                 ibus_ack_i,
   input          [`OR1K_INSN_WIDTH-1:0] ibus_dat_i,
-  input      [OPTION_OPERAND_WIDTH-1:0] ibus_burst_adr_i,
   input                                 ibus_burst_last_i,
   output reg                            ibus_req_o,
   output reg [OPTION_OPERAND_WIDTH-1:0] ibus_adr_o,
@@ -148,7 +147,7 @@ module mor1kx_fetch_marocchino
   reg                             s2o_fetch_req_hit;
   // IMMU's registered input(s)
   reg                 [IFOOW-1:0] s1o_virt_addr; // for comparison in IMMU
-  reg                 [IFOOW-1:0] s2o_virt_addr; // i.e. pc_fetch_o 
+  reg                 [IFOOW-1:0] s2o_virt_addr; // i.e. pc_fetch_o
   /* HW reload TLB related (MAROCCHINO_TODO : not implemented yet)
   wire                            tlb_reload_req;
   reg                             tlb_reload_ack;
@@ -408,7 +407,6 @@ module mor1kx_fetch_marocchino
     // regular requests in/out
     .virt_addr_mux_i      (virt_addr_mux), // ICACHE
     .virt_addr_s1o_i      (s1o_virt_addr), // ICACHE
-    .virt_addr_s2o_i      (s2o_virt_addr), // ICACHE: for update LRU info
     .phys_addr_s2t_i      (s2t_phys_addr), // ICACHE
     .fetch_req_hit_i      (s1o_fetch_req_hit), // ICACHE: enables ICACHE's ACK
     .immu_cache_inhibit_i (s2t_cache_inhibit), // ICACHE
@@ -422,7 +420,6 @@ module mor1kx_fetch_marocchino
     .ic_refill_first_o    (ic_refill_first), // ICACHE
     .phys_addr_s2o_i      (s2o_phys_addr), // ICACHE
     .ibus_dat_i           (ibus_dat_i), // ICACHE
-    .ibus_burst_adr_i     (ibus_burst_adr_i), // ICACHE
     .ibus_burst_last_i    (ibus_burst_last_i), // ICACHE
     .ibus_ack_i           (ibus_ack_i), // ICACHE
     // SPR bus
@@ -618,7 +615,7 @@ module mor1kx_fetch_marocchino
       else
         s2o_ic_ack <= 1'b0; // no new insn/except at pipe advancing
     end
-  end // @ clock  
+  end // @ clock
   // --- ICACHE data ---
   always @(posedge cpu_clk) begin
     if (padv_s1s2)
@@ -684,7 +681,7 @@ module mor1kx_fetch_marocchino
     else if (padv_fetch_i)
       fetch_delay_slot_o <= fetch_insn_valid_o ? fetch_op_jb_o : fetch_delay_slot_o;
   end // @ clock
-  
+
 
   // PC
   assign pc_fetch_o = s2o_virt_addr;

@@ -90,7 +90,6 @@ module mor1kx_lsu_marocchino
   input                                 dbus_err_i,
   input                                 dbus_ack_i,
   input      [OPTION_OPERAND_WIDTH-1:0] dbus_dat_i,
-  input      [OPTION_OPERAND_WIDTH-1:0] dbus_burst_adr_i,
   input                                 dbus_burst_last_i,
   // Cache sync for multi-core environment
   input                          [31:0] snoop_adr_i,
@@ -545,7 +544,6 @@ module mor1kx_lsu_marocchino
     //  # addresses and "DCHACHE inhibit" flag
     .virt_addr_idx_i            (s1t_virt_addr), // DCACHE
     .virt_addr_s1o_i            (s1o_virt_addr), // DCACHE
-    .virt_addr_s2o_i            (s2o_virt_addr), // DCACHE
     .phys_addr_s2t_i            (s2t_phys_addr), // DCACHE
     .dmmu_cache_inhibit_i       (s2t_cache_inhibit), // DCACHE
     //  # DCACHE regular answer
@@ -566,7 +564,6 @@ module mor1kx_lsu_marocchino
     .phys_addr_s2o_i            (s2o_phys_addr), // DCACHE
     .dbus_dat_i                 (dbus_dat_i), // DCACHE
     .dbus_ack_i                 (dbus_ack_i), // DCACHE
-    .dbus_burst_adr_i           (dbus_burst_adr_i), // DCACHE
     .dbus_burst_last_i          (dbus_burst_last_i), // DCACHE
     // DBUS read request
     .dbus_read_req_o            (s2t_dbus_read_req), // DCACHE

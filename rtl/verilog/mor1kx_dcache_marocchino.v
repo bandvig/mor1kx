@@ -58,7 +58,6 @@ module mor1kx_dcache_marocchino
   //  # addresses and "DCHACHE inhibit" flag
   input      [OPTION_OPERAND_WIDTH-1:0] virt_addr_idx_i,
   input      [OPTION_OPERAND_WIDTH-1:0] virt_addr_s1o_i,
-  input      [OPTION_OPERAND_WIDTH-1:0] virt_addr_s2o_i,
   input      [OPTION_OPERAND_WIDTH-1:0] phys_addr_s2t_i,
   input                                 dmmu_cache_inhibit_i,
   //  # DCACHE regular answer
@@ -79,7 +78,6 @@ module mor1kx_dcache_marocchino
   output reg                            refill_first_o,
   input      [OPTION_OPERAND_WIDTH-1:0] phys_addr_s2o_i,
   input      [OPTION_OPERAND_WIDTH-1:0] dbus_dat_i,
-  input      [OPTION_OPERAND_WIDTH-1:0] dbus_burst_adr_i,
   input                                 dbus_burst_last_i,
   input                                 dbus_ack_i,
 
@@ -148,6 +146,7 @@ module mor1kx_dcache_marocchino
   // FSM state register
   reg [4:0] dc_state;
   // FSM state signals
+  wire dc_refill     = dc_state[2];
   wire dc_reread     = dc_state[3];
   wire dc_invalidate = dc_state[4];
 
@@ -497,6 +496,25 @@ module mor1kx_dcache_marocchino
   end // @clock
 
 
+  // For re-fill we use local copy of bus-bridge's burst address
+  //  accumulator to generate WAY-RAM index.
+  // The approach increases logic locality and makes routing easier.
+  reg  [OPTION_OPERAND_WIDTH-1:0] virt_addr_rfl_r;
+  wire [OPTION_OPERAND_WIDTH-1:0] virt_addr_rfl_next;
+  // cache block length is 5 -> burst length is 8: 32 bytes = (8 words x 32 bits/word)
+  // cache block length is 4 -> burst length is 4: 16 bytes = (4 words x 32 bits/word)
+  assign virt_addr_rfl_next = (OPTION_DCACHE_BLOCK_WIDTH == 5) ?
+    {virt_addr_rfl_r[31:5], virt_addr_rfl_r[4:0] + 5'd4} : // 32 byte = (8 words x 32 bits/word)
+    {virt_addr_rfl_r[31:4], virt_addr_rfl_r[3:0] + 4'd4};  // 16 byte = (4 words x 32 bits/word)
+  // ---
+  always @(posedge cpu_clk) begin
+    if (lsu_s2_adv_i)
+      virt_addr_rfl_r <= virt_addr_s1o_i;    // before re-fill it is copy of LSU::s2o_virt_addr
+    else if (dc_refill & dbus_ack_i)
+      virt_addr_rfl_r <= virt_addr_rfl_next;
+  end // @ clock
+
+
   //
   // This is the combinational part of the state machine that
   // interfaces the tag and way memories.
@@ -522,7 +540,7 @@ module mor1kx_dcache_marocchino
     tag_we     = 1'b0;                                                   // by default
     tag_rindex = lsu_s1_adv_i ? virt_addr_idx_i[WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH] : // by default if advance stage #1
                                 virt_addr_s1o_i[WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH];  // by default if stall   stage #1
-    tag_windex = virt_addr_s2o_i[WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH]; // by default
+    tag_windex = virt_addr_rfl_r[WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH]; // by default
 
     // WAYS-RAM
     way_we   = {OPTION_DCACHE_WAYS{1'b0}};      // by default
@@ -548,7 +566,7 @@ module mor1kx_dcache_marocchino
 
         DC_WRITE: begin
           // WAYs address
-          way_addr = virt_addr_s2o_i[WAY_WIDTH-1:2];  // on write-hit
+          way_addr = virt_addr_rfl_r[WAY_WIDTH-1:2];  // on write-hit
           // prepare data for write ahead
           if (~dbus_bsel_i[3]) way_din[31:24] = dc_dat_s2o_i[31:24]; // on write
           if (~dbus_bsel_i[2]) way_din[23:16] = dc_dat_s2o_i[23:16]; // on write
@@ -563,10 +581,10 @@ module mor1kx_dcache_marocchino
 
         DC_REFILL: begin
           // WAYs
-          way_din  = dbus_dat_i;                      // on re-fill
-          way_addr = dbus_burst_adr_i[WAY_WIDTH-1:2]; // on re-fill
+          way_din  = dbus_dat_i;                     // on re-fill
+          way_addr = virt_addr_rfl_r[WAY_WIDTH-1:2]; // on re-fill
           // TAGs
-          // For re-fill (tag_windex == virt_addr_s2o_i) by default setting
+          // For re-fill (tag_windex == virt_addr_rfl_r) by default setting
           //  (a) In according with WISHBONE-B3 rule 3.45:
           // "SLAVE MUST NOT assert more than one of ACK, ERR or RTY"
           //  (b) We don't interrupt re-fill on flushing, so the only reason
