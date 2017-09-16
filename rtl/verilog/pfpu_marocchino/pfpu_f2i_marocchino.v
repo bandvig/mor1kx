@@ -42,6 +42,7 @@ module pfpu_f2i_marocchino
   input             cpu_rst,
   // pipe controls
   input             pipeline_flush_i,
+  input             exec_op_fpxx_any_i,
   input             start_i,
   output            f2i_taking_op_o,
   output reg        f2i_rdy_o,
@@ -71,13 +72,13 @@ module pfpu_f2i_marocchino
 
   // F2I pipe controls
   //  ## per stage ready flags
-  reg  s0o_ready;
+  reg  s0o_ready, s0o_pending;
   //  ## per stage busy flags
   wire s1_busy = f2i_rdy_o & ~rnd_taking_f2i_i;
-  wire s0_busy = s0o_ready & s1_busy;
+  wire s0_busy = s0o_ready & s0o_pending;
   //  ## per stage advance
-  wire s0_adv  = start_i   & ~s0_busy;
-  wire s1_adv  = s0o_ready & ~s1_busy;
+  wire s0_adv  = start_i                   & ~s0_busy;
+  wire s1_adv  = (s0o_ready | s0o_pending) & ~s1_busy;
 
   // F2I pipe takes operands for computation
   assign f2i_taking_op_o = s0_adv;
@@ -104,14 +105,26 @@ module pfpu_f2i_marocchino
     end
   end // @cpu-clock
 
-  // ready is special case
+  // "stage #0 is ready" flag
   always @(posedge cpu_clk) begin
     if (cpu_rst | pipeline_flush_i)
       s0o_ready <= 1'b0;
     else if (s0_adv)
-      s0o_ready <= 1'b1;
+      s0o_ready <= exec_op_fpxx_any_i;
     else if (s1_adv)
+      s0o_ready <= s0_busy;
+    else if (~s0o_pending)
       s0o_ready <= 1'b0;
+  end // @cpu-clock
+
+  // "there are pending data " flag
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | pipeline_flush_i)
+      s0o_pending <= 1'b0;
+    else if (s1_adv)
+      s0o_pending <= 1'b0;
+    else if (~s0o_pending)
+      s0o_pending <= s0o_ready;
   end // @cpu-clock
 
 
@@ -143,15 +156,39 @@ module pfpu_f2i_marocchino
     (s1t_is_shl_eq11 &   s0o_signa & (|s0o_fract53a[51:0]));
 
 
+  // pending data latches
+  reg         f2i_sign_p;
+  wire        f2i_sign_w;
+  reg  [52:0] f2i_int53_p;
+  wire [52:0] f2i_int53_m;
+  reg   [5:0] f2i_shr_p;
+  reg   [3:0] f2i_shl_p;
+  reg         f2i_ovf_p;
+
+  // pre-out multiplexsors
+  // for rounding engine we re-pack single precision 24-bits mantissa to LSBs
+  assign f2i_sign_w  = s0o_signa & (~(s0o_qnan | s0o_snan)); // if 'a' is a NaN than ouput is max. positive
+  assign f2i_int53_m = s0o_op_fp64_arith ? (s0o_fract53a) : ({29'd0,s0o_fract53a[52:29]});
+
+  // pending data latches
+  always @(posedge cpu_clk) begin
+    if (~s0o_pending) begin
+      f2i_sign_p  <= f2i_sign_w;
+      f2i_int53_p <= f2i_int53_m;
+      f2i_shr_p   <= s1t_shr;
+      f2i_shl_p   <= s1t_shl;
+      f2i_ovf_p   <= s1t_is_shl_ovf;
+    end // advance
+  end // @clock
+
   // registering output
   always @(posedge cpu_clk) begin
     if (s1_adv) begin
-      f2i_sign_o  <= s0o_signa & (~(s0o_qnan | s0o_snan)); // if 'a' is a NaN than ouput is max. positive
-      // for rounding engine we re-pack single precision 24-bits mantissa to LSBs
-      f2i_int53_o <= s0o_op_fp64_arith ? (s0o_fract53a) : ({29'd0,s0o_fract53a[52:29]});
-      f2i_shr_o   <= s1t_shr;
-      f2i_shl_o   <= s1t_shl;
-      f2i_ovf_o   <= s1t_is_shl_ovf;
+      f2i_sign_o  <= s0o_pending ? f2i_int53_p : f2i_sign_w;
+      f2i_int53_o <= s0o_pending ? f2i_int53_p : f2i_int53_m;
+      f2i_shr_o   <= s0o_pending ? f2i_shr_p   : s1t_shr;
+      f2i_shl_o   <= s0o_pending ? f2i_shl_p   : s1t_shl;
+      f2i_ovf_o   <= s0o_pending ? f2i_ovf_p   : s1t_is_shl_ovf;
     end // advance
   end // @clock
 

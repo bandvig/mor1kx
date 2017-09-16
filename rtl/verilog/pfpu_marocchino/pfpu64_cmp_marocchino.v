@@ -56,6 +56,8 @@ module pfpu64_fcmp_marocchino
   output             taking_op_fp64_cmp_o,
   input              padv_wb_i,            // advance output latches
   input              grant_wb_to_fp64_cmp_i,
+  // From multi-clock reservation station
+  input              exec_op_fpxx_any_i,
   // command
   input              op_fp64_cmp_i,
   input        [2:0] opc_fp64_cmp_i,
@@ -114,7 +116,7 @@ module pfpu64_fcmp_marocchino
   //  ## per stage busy flags
   wire s1_busy = s1o_ready & fpxx_cmp_wb_miss_r;
   //  ## per stage advance
-  wire s1_adv  = op_fp64_cmp_i & ~s1_busy;
+  wire s1_adv  = op_fp64_cmp_i & (~s1_busy);
 
   // ADD/SUB pipe takes operands for computation
   assign taking_op_fp64_cmp_o = s1_adv;
@@ -166,7 +168,7 @@ module pfpu64_fcmp_marocchino
     if (cpu_rst | pipeline_flush_i)
       s1o_ready <= 1'b0;
     else if (s1_adv)
-      s1o_ready <= 1'b1;
+      s1o_ready <= exec_op_fpxx_any_i;
     else if (~fpxx_cmp_wb_miss_r)
       s1o_ready <= 1'b0;
   end // @clock
@@ -176,7 +178,7 @@ module pfpu64_fcmp_marocchino
     if (cpu_rst | pipeline_flush_i)
       fp64_cmp_valid_o <= 1'b0;
     else if (s1_adv)
-      fp64_cmp_valid_o <= 1'b1;
+      fp64_cmp_valid_o <= exec_op_fpxx_any_i;
     else if (padv_wb_i & grant_wb_to_fp64_cmp_i)
       fp64_cmp_valid_o <= fpxx_cmp_wb_miss_r ? s1o_ready : 1'b0;
   end // @clock

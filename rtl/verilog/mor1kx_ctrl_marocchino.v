@@ -85,7 +85,10 @@ module mor1kx_ctrl_marocchino
   input                                 dcod_op_mtspr_i,
   input                                 dcod_op_mXspr_i, // (l.mfspr | l.mtspr)
   //  ## result to WB_MUX
-  output reg [OPTION_OPERAND_WIDTH-1:0] wb_mfspr_dat_o,
+  output reg [OPTION_OPERAND_WIDTH-1:0] wb_mfspr_result_o,
+  output reg [OPTION_OPERAND_WIDTH-1:0] wb_mfspr_result_cp1_o,
+  output reg [OPTION_OPERAND_WIDTH-1:0] wb_mfspr_result_cp2_o,
+  output reg [OPTION_OPERAND_WIDTH-1:0] wb_mfspr_result_cp3_o,
 
   // Support IBUS error handling in CTRL
   input                                 wb_jump_or_branch_i,
@@ -98,7 +101,7 @@ module mor1kx_ctrl_marocchino
   input      [OPTION_OPERAND_WIDTH-1:0] du_dat_i,
   input                                 du_we_i,
   output     [OPTION_OPERAND_WIDTH-1:0] du_dat_o,
-  output reg                            du_ack_o,
+  output                                du_ack_o,
   // Stall control from debug interface
   input                                 du_stall_i,
   output                                du_stall_o,
@@ -268,6 +271,9 @@ module mor1kx_ctrl_marocchino
   wire                              spr_bus_cs_du;  // "chip select" for DU
   reg                               spr_bus_ack_du_r;
   wire                       [31:0] spr_bus_dat_du;
+  wire                              du2spr_we_w;    // DU->SPR write request
+  wire                       [15:0] du2spr_waddr_w; // DU->SPR write address
+  wire   [OPTION_OPERAND_WIDTH-1:0] du2spr_wdat_w;  // DU->SPR write data
   // Access to NextPC SPR from Debug System through SPR BUS
   wire                              du_npc_we;
   wire                              du_npc_hold; // till restart command from Debug System
@@ -284,14 +290,13 @@ module mor1kx_ctrl_marocchino
 
 
   /* For SPR BUS transactions */
-  reg                               spr_bus_wait_r;  // wait SPR ACK regardless on access validity
-  reg                               spr_bus_mXspr_r; // access by l.mf(t)spr command indicator (for write back push)
-  wire                              spr_bus_mXdbg;   // "move to/from Debug System"
+  reg                               spr_bus_cpu_stall_r; // stall pipe
+  wire                              spr_bus_wb;          // push l.mf(t)spr to write-back stage
+  wire                              spr_bus_mXdbg;       // "move to/from Debug System"
   //  # instant ACK and data
   wire                              spr_bus_ack;
   wire   [OPTION_OPERAND_WIDTH-1:0] spr_bus_dat_mux;
   //  # registered ACK and data
-  reg                               spr_bus_ack_r;
   reg    [OPTION_OPERAND_WIDTH-1:0] spr_bus_dat_r;
   //  # access to SYSTEM GROUP control registers
   //  # excluding GPR0
@@ -536,24 +541,24 @@ module mor1kx_ctrl_marocchino
 
 
   // Advance IFETCH
-  assign padv_fetch_o = (dcod_valid_i | (~dcod_insn_valid_i)) & (~spr_bus_wait_r) &
+  assign padv_fetch_o = (dcod_valid_i | (~dcod_insn_valid_i)) & (~spr_bus_cpu_stall_r) &
                         (~du_cpu_stall) & ((~stepping) | pstep[0]); // DU enabling/disabling IFETCH
   // Pass step from IFETCH to DECODE
   wire   pass_step_to_decode = dcod_insn_valid_i & pstep[0]; // for DU
 
 
   // Advance DECODE->EXECUTE latches
-  assign padv_decode_o = dcod_valid_i & dcod_insn_valid_i & (~spr_bus_wait_r) & (~fd_an_except_i) &
+  assign padv_decode_o = dcod_valid_i & dcod_insn_valid_i & (~spr_bus_cpu_stall_r) & (~fd_an_except_i) &
                          (~du_cpu_stall) & ((~stepping) | pstep[1]); // DU enabling/disabling DECODE
   // Pass step from DECODE to WB
   wire   pass_step_to_wb = pstep[1]; // for DU
 
 
   // Advance Write Back latches
-  assign padv_wb_o = ((exec_valid_i & (~spr_bus_wait_r)) | (spr_bus_ack_r & spr_bus_mXspr_r)) &
+  assign padv_wb_o = ((exec_valid_i & (~spr_bus_cpu_stall_r)) | spr_bus_wb) &
                      (~du_cpu_stall) & ((~stepping) | pstep[2]); // DU enabling/disabling WRITE-BACK
   // Complete the step
-  wire   pass_step_to_stall = (exec_valid_i | (spr_bus_ack_r & spr_bus_mXspr_r)) & pstep[2]; // for DU
+  wire   pass_step_to_stall = (exec_valid_i | spr_bus_wb) & pstep[2]; // for DU
 
 
   //-----------------------------------//
@@ -697,7 +702,7 @@ module mor1kx_ctrl_marocchino
   end // @ clock
 
 
-  // NPC for SPR (write accesses implemented for Debug System only)
+  // NPC for SPR (write accesses implemented for Debug System only: MAROCCHINO_TODO: fix and kill spr_bus_mXdbg ??)
   assign du_npc_we = (spr_sys_group_cs & (`SPR_OFFSET(spr_bus_addr_o) == `SPR_OFFSET(`OR1K_SPR_NPC_ADDR)) &
                       spr_sys_group_wr_r & spr_bus_mXdbg);
   // --- Actually it is used just to restart CPU after salling by DU ---
@@ -800,15 +805,58 @@ module mor1kx_ctrl_marocchino
   //   Allow accesses from either the instructions or from the debug interface //
   //---------------------------------------------------------------------------//
 
+  //
+  // MT(F)SPR_RULE:
+  //   Before issuing MT(F)SPR, OMAN waits till order control buffer has become
+  // empty. Also we don't issue new instruction till l.mf(t)spr completion.
+  //   So, we don't need neither operand forwarding nor 'grant WB-access' signal here.
+  //
+
+  // SPR BUS controller states
+  localparam [6:0] SPR_BUS_WAIT_REQ    = 7'b0000001,
+                   SPR_BUS_RUN_MXSPR   = 7'b0000010,
+                   SPR_BUS_WAIT_MXSPR  = 7'b0000100,
+                   SPR_BUS_WB_MXSPR    = 7'b0001000,
+                   SPR_BUS_RUN_DU_REQ  = 7'b0010000,
+                   SPR_BUS_WAIT_DU_ACK = 7'b0100000,
+                   SPR_BUS_DU_ACK_O    = 7'b1000000;
+
+  reg  [6:0] spr_bus_state;
+  wire       spr_bus_run_mxspr   = spr_bus_state[1];
+  wire       spr_bus_wait_mxspr  = spr_bus_state[2];
+  wire       spr_bus_run_du      = spr_bus_state[4];
+  //wire       spr_bus_wait_du_ack = spr_bus_state[5];
+  // ---
+  assign     spr_bus_wb          = spr_bus_state[3];
+  // ---
+  assign     du_ack_o            = spr_bus_state[6];
+
   // Accees to SPR BUS from l.mf(t)spr command or debug unit
   wire take_op_mXspr = padv_decode_o & dcod_op_mXspr_i;
 
   // Access to SPR BUS from Debug System
-  wire take_access_du = (~take_op_mXspr) & (~spr_bus_wait_r) & du_stb_i;
+  wire take_access_du = (~dcod_op_mXspr_i) & (~spr_bus_cpu_stall_r) & du_stb_i;
+
+  // registering l.mf(t)spr data
+  reg                            ctrl_op_mtspr_r;
+  reg      [`OR1K_IMM_WIDTH-1:0] ctrl_rfa1_r;  // base of addr for MT(F)SPR
+  reg      [`OR1K_IMM_WIDTH-1:0] ctrl_imm16_r; // offset for addr for MT(F)SPR
+  reg [OPTION_OPERAND_WIDTH-1:0] ctrl_rfb1_r;  // data for MTSPR
+  // ---
+  always @(posedge cpu_clk) begin
+    if (take_op_mXspr) begin
+      // registering l.mf(t)spr data
+      ctrl_op_mtspr_r <= dcod_op_mtspr_i;
+      ctrl_rfa1_r     <= dcod_rfa1_i;
+      ctrl_imm16_r    <= dcod_imm16_i;
+      ctrl_rfb1_r     <= dcod_rfb1_i;
+    end
+  end // @clock
 
   // SPR address for latch
-  wire [15:0] spr_addr_mux = take_op_mXspr ? (dcod_rfa1_i | dcod_imm16_i) :
-                                              du_addr_i;
+  wire [15:0] spr_addr_mux = spr_bus_run_mxspr ? (ctrl_rfa1_r | ctrl_imm16_r) :
+                             spr_bus_run_du    ? du2spr_waddr_w               :
+                                                 16'hffff;
 
   // Is accessiblr SPR is present
   reg spr_access_valid_mux;
@@ -836,59 +884,73 @@ module mor1kx_ctrl_marocchino
     endcase
   end // always
 
-  //
-  // MT(F)SPR_RULE:
-  //   Before issuing MT(F)SPR, OMAN waits till order control buffer has become
-  // empty. Also we don't issue new instruction till l.mf(t)spr completion.
-  //   So, we don't need neither forwarding nor 'grant' signals here.
-  //
-
+  // SPR BUS controller
   always @(posedge cpu_clk) begin
     if (cpu_rst | pipeline_flush_o) begin
-      spr_bus_addr_o  <= 16'd0; // on reset / flush
-      spr_bus_we_o    <=  1'b0; // on reset / flush
-      spr_bus_stb_o   <=  1'b0; // on reset / flush
-      spr_bus_dat_o   <= {OPTION_OPERAND_WIDTH{1'b0}}; // on reset / flush
+      spr_bus_addr_o <= 16'd0; // on reset / flush
+      spr_bus_we_o   <=  1'b0; // on reset / flush
+      spr_bus_stb_o  <=  1'b0; // on reset / flush
+      spr_bus_dat_o  <= {OPTION_OPERAND_WIDTH{1'b0}}; // on reset / flush
       // internal auxiliaries
-      spr_bus_wait_r       <= 1'b0; // on reset / flush
-      spr_bus_mXspr_r      <= 1'b0; // on reset / flush
+      spr_bus_cpu_stall_r  <= 1'b0; // on reset / flush
       spr_access_valid_reg <= 1'b1; // on reset / flush
-      // Registered ACK and data
-      spr_bus_ack_r   <=  1'b0; // on reset / flush
-      spr_bus_dat_r   <= {OPTION_OPERAND_WIDTH{1'b0}}; // on reset / flush
+      // SPR BUS controller state
+      spr_bus_state <= SPR_BUS_WAIT_REQ;
     end
-    else if (spr_bus_ack_r) begin
-      // internal auxiliaries
-      spr_bus_wait_r       <= 1'b0; // on read completion with registering
-      spr_bus_mXspr_r      <= 1'b0; // on read completion with registering
-      spr_access_valid_reg <= 1'b1; // on read completion with registering
-      // Registered ACK and data
-      spr_bus_ack_r   <=  1'b0; // on read completion with registering
-      spr_bus_dat_r   <= {OPTION_OPERAND_WIDTH{1'b0}}; // on read completion with registering
-    end
-    else if (spr_bus_ack) begin
-      spr_bus_addr_o  <= 16'd0;
-      spr_bus_we_o    <=  1'b0;
-      spr_bus_stb_o   <=  1'b0;
-      spr_bus_dat_o   <= {OPTION_OPERAND_WIDTH{1'b0}};
-      // Registered ACK and data
-      spr_bus_ack_r   <= 1'b1; // on read completion: registering
-      spr_bus_dat_r   <= spr_bus_dat_mux; // on read completion: registering
-    end
-    else if (take_op_mXspr | take_access_du) begin
-      if (spr_access_valid_mux) begin
-        spr_bus_addr_o <= spr_addr_mux;
-        spr_bus_we_o   <= take_op_mXspr ? dcod_op_mtspr_i : du_we_i;
-        spr_bus_stb_o  <= 1'b1;
-        spr_bus_dat_o  <= take_op_mXspr ? dcod_rfb1_i : du_dat_i;
-      end
-      // internal auxiliaries
-      spr_bus_wait_r       <= 1'b1; // on access initialization
-      spr_bus_mXspr_r      <= take_op_mXspr; // on access initialization
-      spr_access_valid_reg <= spr_access_valid_mux; // on access initialization
+    else begin
+      // synthesis parallel_case full_case
+      case (spr_bus_state)
+        // wait SPR BUS access request
+        SPR_BUS_WAIT_REQ: begin
+          spr_bus_state <= take_op_mXspr  ? SPR_BUS_RUN_MXSPR  :
+                           take_access_du ? SPR_BUS_RUN_DU_REQ :
+                                            SPR_BUS_WAIT_REQ;
+          if (take_op_mXspr | take_access_du)
+            spr_bus_cpu_stall_r <= 1'b1;
+        end
+        // run l.mf(t)spr processing
+        SPR_BUS_RUN_MXSPR,
+        SPR_BUS_RUN_DU_REQ: begin
+          if (spr_access_valid_mux) begin
+            spr_bus_addr_o <= spr_addr_mux;
+            spr_bus_we_o   <= spr_bus_run_mxspr ? ctrl_op_mtspr_r : du2spr_we_w;
+            spr_bus_stb_o  <= 1'b1;
+            spr_bus_dat_o  <= spr_bus_run_mxspr ? ctrl_rfb1_r : du2spr_wdat_w;
+          end
+          // internal auxiliaries
+          spr_access_valid_reg <= spr_access_valid_mux;
+          // SPR BUS controller state
+          spr_bus_state <= spr_bus_run_mxspr ? SPR_BUS_WAIT_MXSPR : SPR_BUS_WAIT_DU_ACK;
+        end
+        // wait SPR BUS ACK from l.mf(t)spr processing
+        SPR_BUS_WAIT_MXSPR,
+        SPR_BUS_WAIT_DU_ACK: begin
+          if (spr_bus_ack) begin
+            spr_bus_addr_o  <= 16'd0;
+            spr_bus_we_o    <=  1'b0;
+            spr_bus_stb_o   <=  1'b0;
+            spr_bus_dat_o   <= {OPTION_OPERAND_WIDTH{1'b0}};
+            // registering read data
+            spr_bus_dat_r   <= spr_bus_dat_mux;
+            // internal auxiliaries
+            spr_access_valid_reg <= 1'b1;
+            // next state
+            spr_bus_state <= spr_bus_wait_mxspr ? SPR_BUS_WB_MXSPR : SPR_BUS_DU_ACK_O;
+          end
+        end
+        // push l.mf(t)spr instruction to write-back stage
+        SPR_BUS_WB_MXSPR,
+        SPR_BUS_DU_ACK_O: begin
+          // internal auxiliaries
+          spr_bus_cpu_stall_r <= 1'b0;
+          // next state
+          spr_bus_state <= SPR_BUS_WAIT_REQ;
+        end
+        // others
+        default:;
+      endcase
     end
   end // @clock
-
 
   // System group (0) SPR data out
   reg [OPTION_OPERAND_WIDTH-1:0]    spr_sys_group_dat;
@@ -999,9 +1061,16 @@ module mor1kx_ctrl_marocchino
 
 
   // MFSPR data and flag for WB_MUX
+  wire [OPTION_OPERAND_WIDTH-1:0] wb_mfspr_result_m;
+  assign wb_mfspr_result_m = {OPTION_OPERAND_WIDTH{spr_bus_wb}} & spr_bus_dat_r;
+  // ---
   always @(posedge cpu_clk) begin
-    if (padv_wb_o)
-      wb_mfspr_dat_o <= {OPTION_OPERAND_WIDTH{spr_bus_mXspr_r}} & spr_bus_dat_r;
+    if (padv_wb_o) begin
+      wb_mfspr_result_o     <= wb_mfspr_result_m;
+      wb_mfspr_result_cp1_o <= wb_mfspr_result_m;
+      wb_mfspr_result_cp2_o <= wb_mfspr_result_m;
+      wb_mfspr_result_cp3_o <= wb_mfspr_result_m;
+    end
   end // @clock
 
 
@@ -1021,27 +1090,37 @@ module mor1kx_ctrl_marocchino
 
     /* Generate answers to Debug System */
 
-    // "move to/from Debbug System"
+    // registerind DU->SPR address and data
+    reg                            du2spr_we_r;
+    reg                     [15:0] du2spr_waddr_r;
+    reg [OPTION_OPERAND_WIDTH-1:0] du2spr_wdat_r;
+    // ---
+    always @(posedge cpu_clk) begin
+      if (take_access_du) begin
+        du2spr_we_r    <= du_we_i;
+        du2spr_waddr_r <= du_addr_i;
+        du2spr_wdat_r  <= du_dat_i;
+      end
+    end // @clock
+    // ---
+    assign du2spr_we_w    = du2spr_we_r;    // DU enabled
+    assign du2spr_waddr_w = du2spr_waddr_r; // DU enabled
+    assign du2spr_wdat_w  = du2spr_wdat_r;  // DU enabled
+
+
+    // "move to/from Debug System"
     reg spr_bus_mXdbg_r;
     // Generate ack back to the debug interface bus
     always @(posedge cpu_clk) begin
       if (cpu_rst) begin
         spr_bus_mXdbg_r <= 1'b0;
-        du_ack_o        <= 1'b0;
-      end
-      else if (du_ack_o) begin
-        spr_bus_mXdbg_r <= 1'b0;
-        du_ack_o        <= 1'b0;
       end
       else if (spr_bus_mXdbg_r) begin
-        if (spr_bus_ack) begin // DU uses non-registered SPR BUS sources
+        if (spr_bus_ack) // DU uses non-registered SPR BUS sources
           spr_bus_mXdbg_r <= 1'b0;
-          du_ack_o        <= 1'b1;
-        end
       end
       else if (take_access_du) begin
         spr_bus_mXdbg_r <= 1'b1;
-        du_ack_o        <= 1'b0;
       end
     end // @ clock
     // ---
@@ -1059,6 +1138,7 @@ module mor1kx_ctrl_marocchino
     end
     // ---
     assign du_dat_o = du_dat_r; // DU enabled
+
 
     /* DU's Control registers and SPR BUS access cycle */
 
@@ -1318,17 +1398,12 @@ module mor1kx_ctrl_marocchino
     assign spr_bus_mXdbg  = 1'b0; // DU disabled
 
 
-    // make ACK to Debug System
-    always @(posedge cpu_clk) begin
-      if (cpu_rst)
-        du_ack_o <= 1'b0; // DU disabled
-      else if (du_ack_o)
-        du_ack_o <= 1'b0; // DU disabled
-      else if (du_stb_i)
-        du_ack_o <= 1'b1; // DU disabled
-    end // @ clock
     // data to Debug System
     assign du_dat_o = {OPTION_OPERAND_WIDTH{1'b0}}; // DU disabled
+    // DU->SPR BUS request / address / data
+    assign du2spr_we_w    =  1'b0; // DU disabled
+    assign du2spr_waddr_w = 16'd0; // DU disabled
+    assign du2spr_wdat_w  = {OPTION_OPERAND_WIDTH{1'b0}}; // DU disabled
 
 
     // stall / unstall

@@ -46,6 +46,7 @@ module pfpu_muldiv_marocchino
   input             cpu_rst,
   // pipe controls
   input             pipeline_flush_i,   // flushe pipe
+  input             exec_op_fpxx_any_i,
   input             mul_start_i,
   input             div_start_i,
   output            muldiv_taking_op_o,
@@ -92,7 +93,7 @@ module pfpu_muldiv_marocchino
 
   // MUL/DIV pipe controls
   //  ## ready flags
-  reg  sIo_ready;
+  reg  sIo_ready, sIo_pending;
   reg  s0o_mul_ready, s0o_div_ready;
   reg  s1o_mul_ready, s1o_div_ready;
   //  ## Multiplier / Divider is taking operands
@@ -101,12 +102,12 @@ module pfpu_muldiv_marocchino
   //  ## per stage busy flags
   wire s1_busy = mul_busy | div_busy;
   wire s0_busy = (s0o_mul_ready | s0o_div_ready) & s1_busy;
-  wire sI_busy = sIo_ready & s0_busy;
+  wire sI_busy = sIo_ready & sIo_pending;
   //  ## per stage advance flags
-  wire sI_adv = (mul_start_i | div_start_i)     & ~sI_busy;
-  wire s0_adv = sIo_ready                       & ~s0_busy;
+  wire sI_adv = (mul_start_i   | div_start_i)   & ~sI_busy;
+  wire s0_adv = (sIo_ready     | sIo_pending)   & ~s0_busy;
   wire s1_adv = (s0o_mul_ready | s0o_div_ready) & ~s1_busy;
-  wire s2_adv = mul_taking_op | div_taking_op;
+  wire s2_adv =  mul_taking_op | div_taking_op;
   //  ## MUL/DIV taking operands
   assign muldiv_taking_op_o = sI_adv;
 
@@ -147,14 +148,26 @@ module pfpu_muldiv_marocchino
     end
   end
 
-  // ready is special case
+  // "stage I is ready" flag
   always @(posedge cpu_clk) begin
     if (cpu_rst | pipeline_flush_i)
       sIo_ready <= 1'b0;
     else if (sI_adv)
-      sIo_ready <= 1'b1;
+      sIo_ready <= exec_op_fpxx_any_i;
     else if (s0_adv)
+      sIo_ready <= sI_busy;
+    else if (~sIo_pending)
       sIo_ready <= 1'b0;
+  end // @cpu-clock
+
+  // "there are pending data " flag
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | pipeline_flush_i)
+      sIo_pending <= 1'b0;
+    else if (s0_adv)
+      sIo_pending <= 1'b0;
+    else if (~sIo_pending)
+      sIo_pending <= sIo_ready;
   end // @cpu-clock
 
 
@@ -285,30 +298,49 @@ module pfpu_muldiv_marocchino
     endcase
   end // nlz of 'b'
 
-  // pre-norm stage outputs
-  reg        s0o_opc_0;
-  reg        s0o_signc;
-  reg [12:0] s0o_exp13a;
-  reg [52:0] s0o_fract53a;
-  reg  [5:0] s0o_shla;
-  reg [12:0] s0o_exp13b;
-  reg [52:0] s0o_fract53b;
-  reg  [5:0] s0o_shlb;
-  reg        s0o_dbz;
-  reg        s0o_op_fp64_arith;
+  // pre-norm stage outputs and pendings
+  reg        s0o_opc_0,         s0o_opc_0_p;
+  reg        s0o_signc,         s0o_signc_p;
+  reg [12:0] s0o_exp13a,        s0o_exp13a_p;
+  reg [52:0] s0o_fract53a,      s0o_fract53a_p;
+  reg  [5:0] s0o_shla,          s0o_shla_p;
+  reg [12:0] s0o_exp13b,        s0o_exp13b_p;
+  reg [52:0] s0o_fract53b,      s0o_fract53b_p;
+  reg  [5:0] s0o_shlb,          s0o_shlb_p;
+  reg        s0o_dbz,           s0o_dbz_p;
+  reg        s0o_op_fp64_arith, s0o_op_fp64_arith_p;
+  // MUL/DIV OP pendings
+  reg s0o_op_div_p, s0o_op_mul_p;
+  // pendings
+  always @(posedge cpu_clk) begin
+    if (~sIo_pending) begin
+      s0o_opc_0_p         <= sIo_opc_0;
+      s0o_signc_p         <= sIo_signc;
+      s0o_exp13a_p        <= sIo_exp13a;
+      s0o_fract53a_p      <= sIo_fract53a;
+      s0o_shla_p          <= s0t_nlza;
+      s0o_exp13b_p        <= sIo_exp13b;
+      s0o_fract53b_p      <= sIo_fract53b;
+      s0o_shlb_p          <= s0t_nlzb;
+      s0o_dbz_p           <= sIo_dbz;
+      s0o_op_fp64_arith_p <= sIo_op_fp64_arith;
+      s0o_op_div_p        <= sIo_op_div;
+      s0o_op_mul_p        <= sIo_op_mul;
+    end // push pipe
+  end
   // registering
   always @(posedge cpu_clk) begin
     if (s0_adv) begin
-      s0o_opc_0         <= sIo_opc_0;
-      s0o_signc         <= sIo_signc;
-      s0o_exp13a        <= sIo_exp13a;
-      s0o_fract53a      <= sIo_fract53a;
-      s0o_shla          <= s0t_nlza;
-      s0o_exp13b        <= sIo_exp13b;
-      s0o_fract53b      <= sIo_fract53b;
-      s0o_shlb          <= s0t_nlzb;
-      s0o_dbz           <= sIo_dbz;
-      s0o_op_fp64_arith <= sIo_op_fp64_arith;
+      s0o_opc_0         <= sIo_pending ? s0o_opc_0_p         : sIo_opc_0;
+      s0o_signc         <= sIo_pending ? s0o_signc_p         : sIo_signc;
+      s0o_exp13a        <= sIo_pending ? s0o_exp13a_p        : sIo_exp13a;
+      s0o_fract53a      <= sIo_pending ? s0o_fract53a_p      : sIo_fract53a;
+      s0o_shla          <= sIo_pending ? s0o_shla_p          : s0t_nlza;
+      s0o_exp13b        <= sIo_pending ? s0o_exp13b_p        : sIo_exp13b;
+      s0o_fract53b      <= sIo_pending ? s0o_fract53b_p      : sIo_fract53b;
+      s0o_shlb          <= sIo_pending ? s0o_shlb_p          : s0t_nlzb;
+      s0o_dbz           <= sIo_pending ? s0o_dbz_p           : sIo_dbz;
+      s0o_op_fp64_arith <= sIo_pending ? s0o_op_fp64_arith_p : sIo_op_fp64_arith;
     end // push pipe
   end
 
@@ -319,8 +351,8 @@ module pfpu_muldiv_marocchino
       s0o_mul_ready <= 1'b0;
     end
     else if (s0_adv) begin
-      s0o_div_ready <= sIo_op_div;
-      s0o_mul_ready <= sIo_op_mul;
+      s0o_div_ready <= sIo_pending ? s0o_op_div_p : sIo_op_div;
+      s0o_mul_ready <= sIo_pending ? s0o_op_mul_p : sIo_op_mul;
     end
     else if (s1_adv) begin
       s0o_div_ready <= 1'b0;

@@ -63,18 +63,45 @@ module mor1kx_decode_marocchino
   input      [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfb1_adr_i,
   input      [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfa2_adr_i,
   input      [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfb2_adr_i,
-  //  # D2 address
+  //  # destiny addresses
+  input      [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfd1_adr_i,
   input      [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfd2_adr_i,
   //  # instruction PC
   input      [OPTION_OPERAND_WIDTH-1:0] pc_fetch_i,
 
+  // for RAT
+  //  # allocation SR[F]
+  output                                fetch_flag_wb_o,  // any instruction which affects comparison flag
+  //  # allocated as D1
+  output                                ratin_rfd1_wb_o,
+  output     [OPTION_RF_ADDR_WIDTH-1:0] ratin_rfd1_adr_o,
+  //  # allocated as D2
+  output                                ratin_rfd2_wb_o,
+  output     [OPTION_RF_ADDR_WIDTH-1:0] ratin_rfd2_adr_o,
+  //  # requested operands
+  output                                ratin_rfa1_req_o,
+  output                                ratin_rfb1_req_o,
+  output                                ratin_rfa2_req_o,
+  output                                ratin_rfb2_req_o,
+
   // latched instruction word and it's attributes
   output reg                            dcod_insn_valid_o,
   output reg                            dcod_delay_slot_o,
+
+  // operand A1
   output reg [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfa1_adr_o,
+  // operand B1
   output reg [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfb1_adr_o,
+  // destiny D1
+  output reg [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfd1_adr_o, // address of WB
+  output reg                            dcod_rfd1_wb_o,  // instruction performes WB to D1
+  // operand A2 (for FPU64)
   output reg [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfa2_adr_o,
+  // operand B2 (for FPU64)
   output reg [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfb2_adr_o,
+  // destiny D2 (for FPU64)
+  output reg [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfd2_adr_o, // D2 address
+  output reg                            dcod_rfd2_wb_o, // instruction performes WB to D2
 
   // PC
   output reg [OPTION_OPERAND_WIDTH-1:0] pc_decode_o,
@@ -84,16 +111,8 @@ module mor1kx_decode_marocchino
   output reg                            dcod_immediate_sel_o,
 
   // various instruction attributes
-  output reg                            dcod_rfa1_req_o, // instruction requires operand A
-  output reg                            dcod_rfb1_req_o, // instruction requires operand B
-  output reg                            dcod_rfd1_wb_o,   // instruction performes WB
-  output reg [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfd1_adr_o, // address of WB
   output reg                            dcod_flag_wb_o,   // instruction writes comparison flag
   output reg                            dcod_carry_wb_o,  // instruction writes carry flag
-  // for FPU64
-  output reg                            dcod_rfa2_req_o, // instruction requires operand A2
-  output reg                            dcod_rfb2_req_o, // instruction requires operand B2
-  output reg [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfd2_adr_o, // D2 address corrected
 
   // LSU related
   output reg      [`OR1K_IMM_WIDTH-1:0] dcod_imm16_o,
@@ -124,6 +143,7 @@ module mor1kx_decode_marocchino
   output reg                            dcod_op_movhi_o,
   output reg                            dcod_op_cmov_o,
   // Logic
+  output reg                            dcod_op_logic_o,
   output reg  [`OR1K_ALU_OPC_WIDTH-1:0] dcod_opc_logic_o,
   // Jump & Link
   output reg                            dcod_op_jal_o,
@@ -137,6 +157,9 @@ module mor1kx_decode_marocchino
   output reg                            dcod_op_div_o, // (not latched, to OMAN)
   output reg                            dcod_op_div_signed_o,
   output reg                            dcod_op_div_unsigned_o,
+
+  // Combined for MULDIV_RSRVS
+  output reg                            dcod_op_muldiv_o,
 
   // FPU3264 arithmetic part
   output reg                            dcod_op_fpxx_arith_o, // to OMAN and FPU3264_ARITH
@@ -152,8 +175,8 @@ module mor1kx_decode_marocchino
   output reg                            dcod_op_fp64_cmp_o,
   output reg                      [2:0] dcod_opc_fp64_cmp_o,
 
-  // Combined for MCLK_RSRVS
-  output reg                            dcod_op_mclk_o,
+  // Combined for FPXX_RSRVS
+  output reg                            dcod_op_fpxx_any_o,
 
   // MTSPR / MFSPR
   output reg                            dcod_op_mtspr_o,
@@ -429,7 +452,7 @@ module mor1kx_decode_marocchino
         begin
           attr_except_illegal = 1'b0;
           attr_op_1clk        = op_jal;  // compute GPR[9] by adder in 1CLK_EXEC
-          attr_op_pass_exec   = 1'b0;    // wait jump/branch attributes order control buffer
+          attr_op_pass_exec   = 1'b0;    // j/b attributes OCB and dcod_op_jb in command OCB are used instead
           attr_rfa1_req       = 1'b0;
           attr_rfb1_req       = 1'b0;    // l.jr/l.jalr are processed in OMAN in special way
           attr_rfd1_wb        = op_jal;  // save GPR[9] by l.jal/l.jalr
@@ -769,6 +792,25 @@ module mor1kx_decode_marocchino
   localparam [(OPTION_RF_ADDR_WIDTH-1):0]  RST_RFD2_ADR =  1;
 
 
+  //---------//
+  // for RAT //
+  //---------//
+
+  //  # allocation SR[F]
+  assign fetch_flag_wb_o  = op_setflag | op_fp64_cmp | (opc_insn == `OR1K_OPCODE_SWA);
+  //  # allocated as D1
+  assign ratin_rfd1_wb_o  = attr_rfd1_wb;
+  assign ratin_rfd1_adr_o = op_jal ? JAL_RFD1_ADR : fetch_rfd1_adr_i;
+  //  # allocated as D2
+  assign ratin_rfd2_wb_o  = op_fpxx_arith & op_fp64_arith;
+  assign ratin_rfd2_adr_o = op_jal ? JAL_RFD2_ADR : fetch_rfd2_adr_i;
+  //  # operands requestes
+  assign ratin_rfa1_req_o = attr_rfa1_req;
+  assign ratin_rfb1_req_o = attr_rfb1_req;
+  assign ratin_rfa2_req_o = attr_rfa2_req;
+  assign ratin_rfb2_req_o = attr_rfb2_req;
+
+
   //--------------------------//
   // IFETCH -> DECODE latches //
   //--------------------------//
@@ -777,12 +819,20 @@ module mor1kx_decode_marocchino
     if (cpu_rst | pipeline_flush_i) begin
       dcod_insn_valid_o         <= 1'b0;
       dcod_delay_slot_o         <= 1'b0;
+      // operand A1
       dcod_rfa1_adr_o           <= {OPTION_RF_ADDR_WIDTH{1'b0}};
+      // operand B1
       dcod_rfb1_adr_o           <= {OPTION_RF_ADDR_WIDTH{1'b0}};
+      // destiny D1
       dcod_rfd1_adr_o           <= {OPTION_RF_ADDR_WIDTH{1'b0}};
+      dcod_rfd1_wb_o            <= 1'b0;
+      // operand A2 (for FPU64)
       dcod_rfa2_adr_o           <= {OPTION_RF_ADDR_WIDTH{1'b0}};
+      // operand B2 (for FPU64)
       dcod_rfb2_adr_o           <= {OPTION_RF_ADDR_WIDTH{1'b0}};
+      // destiny D2 (for FPU64)
       dcod_rfd2_adr_o           <= RST_RFD2_ADR;
+      dcod_rfd2_wb_o            <= 1'b0;
       // IMM
       dcod_immediate_o          <= {OPTION_OPERAND_WIDTH{1'b0}};
       dcod_immediate_sel_o      <= 1'b0;
@@ -807,6 +857,7 @@ module mor1kx_decode_marocchino
       dcod_op_movhi_o           <= 1'b0;
       dcod_op_cmov_o            <= 1'b0;
       // Logic
+      dcod_op_logic_o           <= 1'b0;
       dcod_opc_logic_o          <= {`OR1K_ALU_OPC_WIDTH{1'b0}};
       // Jump & Link
       dcod_op_jal_o             <= 1'b0;
@@ -818,6 +869,8 @@ module mor1kx_decode_marocchino
       dcod_op_div_o             <= 1'b0;
       dcod_op_div_signed_o      <= 1'b0;
       dcod_op_div_unsigned_o    <= 1'b0;
+      // Combined for MULDIV_RSRVS
+      dcod_op_muldiv_o          <= 1'b0;
       // FPU3264 arithmetic part
       dcod_op_fpxx_arith_o      <= 1'b0;
       dcod_op_fp64_arith_o      <= 1'b0;
@@ -830,8 +883,8 @@ module mor1kx_decode_marocchino
       // FPU-64 comparison part
       dcod_op_fp64_cmp_o        <= 1'b0;
       dcod_opc_fp64_cmp_o       <= 3'd0;
-      // Combined for MCLK_RSRVS
-      dcod_op_mclk_o            <= 1'b0;
+      // Combined for FPXX_RSRVS
+      dcod_op_fpxx_any_o        <= 1'b0;
       // MTSPR / MFSPR
       dcod_op_mtspr_o           <= 1'b0;
       dcod_op_mXspr_o           <= 1'b0;
@@ -844,11 +897,6 @@ module mor1kx_decode_marocchino
       dcod_except_illegal_o     <= 1'b0;
       dcod_op_1clk_o            <= 1'b0;
       dcod_op_pass_exec_o       <= 1'b0;
-      dcod_rfa1_req_o           <= 1'b0;
-      dcod_rfb1_req_o           <= 1'b0;
-      dcod_rfd1_wb_o            <= 1'b0;
-      dcod_rfa2_req_o           <= 1'b0;
-      dcod_rfb2_req_o           <= 1'b0;
       // Which instructions writes comparison flag?
       dcod_flag_wb_o            <= 1'b0;
       // Which instruction writes carry flag?
@@ -859,12 +907,20 @@ module mor1kx_decode_marocchino
     else if (padv_fetch_i) begin
       dcod_insn_valid_o         <= fetch_insn_valid_i;
       dcod_delay_slot_o         <= fetch_delay_slot_i;
+      // operand A1
       dcod_rfa1_adr_o           <= fetch_rfa1_adr_i;
+      // operand B1
       dcod_rfb1_adr_o           <= fetch_rfb1_adr_i;
-      dcod_rfd1_adr_o           <= op_jal ? JAL_RFD1_ADR : fetch_insn_i[`OR1K_RD_SELECT];
+      // destiny D1
+      dcod_rfd1_adr_o           <= ratin_rfd1_adr_o;
+      dcod_rfd1_wb_o            <= ratin_rfd1_wb_o;
+      // operand A2 (for FPU64)
       dcod_rfa2_adr_o           <= fetch_rfa2_adr_i;
+      // operand B2 (for FPU64)
       dcod_rfb2_adr_o           <= fetch_rfb2_adr_i;
-      dcod_rfd2_adr_o           <= op_jal ? JAL_RFD2_ADR : fetch_rfd2_adr_i;
+      // destiny D2 (for FPU64)
+      dcod_rfd2_adr_o           <= ratin_rfd2_adr_o;
+      dcod_rfd2_wb_o            <= ratin_rfd2_wb_o;
       // IMM
       dcod_immediate_o          <= immediate;
       dcod_immediate_sel_o      <= immediate_sel;
@@ -891,6 +947,7 @@ module mor1kx_decode_marocchino
       dcod_op_movhi_o           <= op_movhi;
       dcod_op_cmov_o            <= op_cmov;
       // Logic
+      dcod_op_logic_o           <= |opc_logic;
       dcod_opc_logic_o          <= opc_logic;
       // Jump & Link
       dcod_op_jal_o             <= op_jal;
@@ -902,6 +959,8 @@ module mor1kx_decode_marocchino
       dcod_op_div_o             <= op_div;
       dcod_op_div_signed_o      <= op_div_signed;
       dcod_op_div_unsigned_o    <= op_div_unsigned;
+      // Combined for MULDIV_RSRVS
+      dcod_op_muldiv_o          <= op_mul | op_div;
       // FPU3264 arithmetic part
       dcod_op_fpxx_arith_o      <= op_fpxx_arith;
       dcod_op_fp64_arith_o      <= op_fp64_arith;
@@ -914,8 +973,8 @@ module mor1kx_decode_marocchino
       // FPU-64 comparison part
       dcod_op_fp64_cmp_o        <= op_fp64_cmp;
       dcod_opc_fp64_cmp_o       <= opc_fp64_cmp;
-      // Combined for MCLK_RSRVS
-      dcod_op_mclk_o            <= op_mul | op_div | op_fpxx_arith | op_fp64_cmp;
+      // Combined for FPXX_RSRVS
+      dcod_op_fpxx_any_o        <= op_fpxx_arith | op_fp64_cmp;
       // MTSPR / MFSPR
       dcod_op_mtspr_o           <= op_mtspr;
       dcod_op_mXspr_o           <= op_mfspr | op_mtspr;
@@ -928,13 +987,8 @@ module mor1kx_decode_marocchino
       dcod_except_illegal_o     <= attr_except_illegal;
       dcod_op_1clk_o            <= attr_op_1clk;
       dcod_op_pass_exec_o       <= attr_op_pass_exec;
-      dcod_rfa1_req_o           <= attr_rfa1_req;
-      dcod_rfb1_req_o           <= attr_rfb1_req;
-      dcod_rfd1_wb_o            <= attr_rfd1_wb;
-      dcod_rfa2_req_o           <= attr_rfa2_req;
-      dcod_rfb2_req_o           <= attr_rfb2_req;
       // Which instructions writes comparison flag?
-      dcod_flag_wb_o            <= op_setflag | op_fp64_cmp | (opc_insn == `OR1K_OPCODE_SWA);
+      dcod_flag_wb_o            <= fetch_flag_wb_o;
       // Which instruction writes carry flag?
       dcod_carry_wb_o           <= op_add | op_div;
       // INSN PC

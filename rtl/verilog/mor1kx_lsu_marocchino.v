@@ -61,16 +61,16 @@ module mor1kx_lsu_marocchino
   input                                 supervisor_mode_i,
   // Input from RSRVS
   input                                 exec_op_lsu_any_i,
-  input      [OPTION_OPERAND_WIDTH-1:0] exec_sbuf_epcr_i,       // for store buffer EPCR computation
-  input           [`OR1K_IMM_WIDTH-1:0] exec_lsu_imm16_i, // immediate offset for address computation
-  input      [OPTION_OPERAND_WIDTH-1:0] exec_lsu_a1_i,   // operand "A" (part of address)
-  input      [OPTION_OPERAND_WIDTH-1:0] exec_lsu_b1_i,   // operand "B" (value to store)
   input                                 exec_op_lsu_load_i,
   input                                 exec_op_lsu_store_i,
+  input                                 exec_op_msync_i,
   input                                 exec_op_lsu_atomic_i,
   input                           [1:0] exec_lsu_length_i,
   input                                 exec_lsu_zext_i,
-  input                                 exec_op_msync_i,
+  input           [`OR1K_IMM_WIDTH-1:0] exec_lsu_imm16_i, // immediate offset for address computation
+  input      [OPTION_OPERAND_WIDTH-1:0] exec_sbuf_epcr_i,       // for store buffer EPCR computation
+  input      [OPTION_OPERAND_WIDTH-1:0] exec_lsu_a1_i,   // operand "A" (part of address)
+  input      [OPTION_OPERAND_WIDTH-1:0] exec_lsu_b1_i,   // operand "B" (value to store)
   // SPR interface
   input                          [15:0] spr_bus_addr_i,
   input                                 spr_bus_we_i,
@@ -105,6 +105,9 @@ module mor1kx_lsu_marocchino
   output                                exec_an_except_lsu_o,
   // WriteBack load  result
   output     [OPTION_OPERAND_WIDTH-1:0] wb_lsu_result_o,
+  output reg [OPTION_OPERAND_WIDTH-1:0] wb_lsu_result_cp1_o,
+  output reg [OPTION_OPERAND_WIDTH-1:0] wb_lsu_result_cp2_o,
+  output reg [OPTION_OPERAND_WIDTH-1:0] wb_lsu_result_cp3_o,
   // Atomic operation flag set/clear logic
   output                                wb_atomic_flag_set_o,
   output                                wb_atomic_flag_clear_o,
@@ -341,6 +344,12 @@ module mor1kx_lsu_marocchino
   wire spr_bus_stb_lsu = spr_bus_stb_i & dbus_idle_state; // SPR access
 
 
+  //--------------------------//
+  // Load/Store input command //
+  //--------------------------//
+  wire exec_op_lsu_ls = exec_op_lsu_load_i | exec_op_lsu_store_i;
+
+
   /*********************************/
   /* Stage #1: address computation */
   /*********************************/
@@ -360,7 +369,7 @@ module mor1kx_lsu_marocchino
     else if (lsu_s1_adv) begin // rise "new load command is in stage #1" flag
       s1o_op_lsu_load   <= exec_op_lsu_load_i;
       s1o_op_lsu_atomic <= exec_op_lsu_atomic_i;
-      s1o_op_lsu_ls     <= ~exec_op_msync_i;
+      s1o_op_lsu_ls     <= exec_op_lsu_ls;
     end
     else if (lsu_s2_adv) begin   // drop "new load command is in stage #1" flag
       s1o_op_lsu_load   <= 1'b0;
@@ -456,7 +465,7 @@ module mor1kx_lsu_marocchino
   wire              s2t_pagefault;
 
   // Enable DMUU for load/store only
-  wire dmmu_enable = dmmu_enable_i & (~exec_op_msync_i);
+  wire dmmu_enable = dmmu_enable_i & exec_op_lsu_ls;
 
   //------------------//
   // Instance of DMMU //
@@ -476,13 +485,13 @@ module mor1kx_lsu_marocchino
     .cpu_clk                          (cpu_clk), // DMMU
     .cpu_rst                          (cpu_rst), // DMMU
     // pipe controls
-    .padv_dmmu_i                      (lsu_s1_adv), // DMMU
+    .lsu_s1_adv_i                     (lsu_s1_adv), // DMMU
     .pipeline_flush_i                 (pipeline_flush_i), // DMMU
     // configuration and commands
     .enable_i                         (dmmu_enable), // DMMU
     .supervisor_mode_i                (supervisor_mode_i), // DMMU
-    .op_lsu_store_i                   (s1o_op_lsu_store), // DMMU
-    .op_lsu_load_i                    (s1o_op_lsu_load), // DMMU
+    .s1o_op_lsu_store_i               (s1o_op_lsu_store), // DMMU
+    .s1o_op_lsu_load_i                (s1o_op_lsu_load), // DMMU
     // address translation
     .virt_addr_idx_i                  (s1t_virt_addr), // DMMU
     .virt_addr_tag_i                  (s1o_virt_addr), // DMMU
@@ -1118,15 +1127,24 @@ module mor1kx_lsu_marocchino
   localparam  ODAT_WB_MSB = ODAT_MISS_MSB - 1;
   localparam  ODAT_WB_DW  = ODAT_WB_MSB   + 1;
   // ---
-  reg [ODAT_WB_MSB:0] wb_odat;
+  reg  [ODAT_WB_MSB:0] wb_odat;
+  wire [LSUOOW-1:0] wb_lsu_result_m = lsu_wb_miss ? s3o_odat_miss[ODAT_LDAT_MSB:ODAT_LDAT_LSB] : s3t_odat[ODAT_LDAT_MSB:ODAT_LDAT_LSB];
   // ---
   always @(posedge cpu_clk) begin
-    if (cpu_rst | flush_by_ctrl)
-      wb_odat <= {ODAT_WB_DW{1'b0}};
-    else if (padv_wb_i & grant_wb_to_lsu_i)
-      wb_odat <= lsu_wb_miss ? s3o_odat_miss[ODAT_WB_MSB:0] : s3t_odat[ODAT_WB_MSB:0];
-    else
-      wb_odat <= {ODAT_WB_DW{1'b0}};
+    if (padv_wb_i) begin
+      if (grant_wb_to_lsu_i) begin
+        wb_odat             <= lsu_wb_miss ? s3o_odat_miss[ODAT_WB_MSB:0] : s3t_odat[ODAT_WB_MSB:0];
+        wb_lsu_result_cp1_o <= wb_lsu_result_m;
+        wb_lsu_result_cp2_o <= wb_lsu_result_m;
+        wb_lsu_result_cp3_o <= wb_lsu_result_m;
+      end
+      else begin
+        wb_odat             <= {ODAT_WB_DW{1'b0}};
+        wb_lsu_result_cp1_o <= {ODAT_WB_DW{1'b0}};
+        wb_lsu_result_cp2_o <= {ODAT_WB_DW{1'b0}};
+        wb_lsu_result_cp3_o <= {ODAT_WB_DW{1'b0}};
+      end
+    end
   end // @clock
 
   // WB-output assignement

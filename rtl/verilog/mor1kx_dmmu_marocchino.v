@@ -38,7 +38,7 @@ module mor1kx_dmmu_marocchino
   input                                 cpu_rst,
 
   // pipe controls
-  input                                 padv_dmmu_i,
+  input                                 lsu_s1_adv_i,
   input                                 pipeline_flush_i,
 
   // configuration
@@ -46,8 +46,8 @@ module mor1kx_dmmu_marocchino
   input                                 supervisor_mode_i,
 
   // commnads
-  input                                 op_lsu_store_i,
-  input                                 op_lsu_load_i,
+  input                                 s1o_op_lsu_store_i,
+  input                                 s1o_op_lsu_load_i,
 
   // address translation
   input      [OPTION_OPERAND_WIDTH-1:0] virt_addr_idx_i,
@@ -146,7 +146,7 @@ module mor1kx_dmmu_marocchino
       enable_r          <= 1'b0;
       supervisor_mode_r <= 1'b0;
     end
-    else if (padv_dmmu_i) begin
+    else if (lsu_s1_adv_i) begin
       if (enable_i) begin
         enable_r          <= 1'b1;
         supervisor_mode_r <= supervisor_mode_i;
@@ -321,8 +321,8 @@ module mor1kx_dmmu_marocchino
     end // loop by ways
   end // always
 
-  assign pagefault_o = (supervisor_mode_r ? ((~swe & op_lsu_store_i) | (~sre & op_lsu_load_i)) :
-                                            ((~uwe & op_lsu_store_i) | (~ure & op_lsu_load_i))) &
+  assign pagefault_o = (supervisor_mode_r ? ((~swe & s1o_op_lsu_store_i) | (~sre & s1o_op_lsu_load_i)) :
+                                            ((~uwe & s1o_op_lsu_store_i) | (~ure & s1o_op_lsu_load_i))) &
                        ~tlb_reload_busy_o & enable_r;
 
  `ifdef SIM_SMPL_SOC // MAROCCHINO_TODO
@@ -388,7 +388,7 @@ module mor1kx_dmmu_marocchino
     reg [3:0] tlb_reload_state = TLB_IDLE;
     wire      do_reload;
 
-    assign do_reload = enable_r & tlb_miss_o & (dmmucr[31:10] != 0) & (op_lsu_load_i | op_lsu_store_i);
+    assign do_reload = enable_r & tlb_miss_o & (dmmucr[31:10] != 0) & (s1o_op_lsu_load_i | s1o_op_lsu_store_i);
 
     assign tlb_reload_busy_o = enable_r & (tlb_reload_state != TLB_IDLE) | do_reload;
 
@@ -520,7 +520,7 @@ module mor1kx_dmmu_marocchino
   //     (we don't care about exceptions here, because
   //      we force local enable-r OFF if an exception is asserted)
   //  2) SPR access
-  wire ram_re = padv_dmmu_i | spr_dmmu_re | spr_bus_ack_o;
+  wire ram_re = lsu_s1_adv_i | spr_dmmu_re | spr_bus_ack_o;
 
 
   generate

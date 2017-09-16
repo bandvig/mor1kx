@@ -52,6 +52,7 @@ module pfpu_addsub_marocchino
   input             cpu_rst,
   // ADD/SUB pipe controls
   input             pipeline_flush_i,
+  input             exec_op_fpxx_any_i,
   input             add_start_i,
   input             exec_op_fpxx_sub_i,         // 1: substruction, 0: addition
   output            add_taking_op_o,
@@ -91,7 +92,7 @@ module pfpu_addsub_marocchino
 
   // ADD/SUB pipe controls
   //  ## ready flags of stages
-  reg  s0o_ready;
+  reg  s0o_ready, s0o_pending;
   reg  s1o_ready;
   reg  s2o_ready;
   reg  s3o_ready;
@@ -100,19 +101,19 @@ module pfpu_addsub_marocchino
   wire s3_busy = s3o_ready & s4_busy;
   wire s2_busy = s2o_ready & s3_busy;
   wire s1_busy = s1o_ready & s2_busy;
-  wire s0_busy = s0o_ready & s1_busy;
+  wire s0_busy = s0o_ready & s0o_pending;
   //  ## per stage advance
-  wire s0_adv  = add_start_i & ~s0_busy;
-  wire s1_adv  = s0o_ready   & ~s1_busy;
-  wire s2_adv  = s1o_ready   & ~s2_busy;
-  wire s3_adv  = s2o_ready   & ~s3_busy;
-  wire s4_adv  = s3o_ready   & ~s4_busy;
+  wire s0_adv  = add_start_i               & ~s0_busy;
+  wire s1_adv  = (s0o_ready | s0o_pending) & ~s1_busy;
+  wire s2_adv  = s1o_ready                 & ~s2_busy;
+  wire s3_adv  = s2o_ready                 & ~s3_busy;
+  wire s4_adv  = s3o_ready                 & ~s4_busy;
 
   // ADD/SUB pipe takes operands for computation
   assign add_taking_op_o = s0_adv;
 
 
-  /* Stage #0: latch inpot data */
+  /* Stage #0: latch input data */
 
 
   // reg 'a' related values
@@ -154,14 +155,26 @@ module pfpu_addsub_marocchino
     end
   end // @ cpu-clock
 
-  // ready is special case
+  // "stage #0 is ready" flag
   always @(posedge cpu_clk) begin
     if (cpu_rst | pipeline_flush_i)
       s0o_ready <= 1'b0;
     else if (s0_adv)
-      s0o_ready <= 1'b1;
+      s0o_ready <= exec_op_fpxx_any_i;
     else if (s1_adv)
+      s0o_ready <= s0_busy;
+    else if (~s0o_pending)
       s0o_ready <= 1'b0;
+  end // @cpu-clock
+
+  // "there are pending data " flag
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | pipeline_flush_i)
+      s0o_pending <= 1'b0;
+    else if (s1_adv)
+      s0o_pending <= 1'b0;
+    else if (~s0o_pending)
+      s0o_pending <= s0o_ready;
   end // @cpu-clock
 
 
@@ -189,26 +202,52 @@ module pfpu_addsub_marocchino
   // limiter by 63
   wire [5:0] s1t_shr = s1t_exp_diff[5:0] | {6{|s1t_exp_diff[12:6]}};
 
-  // stage #1 outputs
-  reg        s1o_aeqb;
-  reg  [5:0] s1o_shr;
-  reg        s1o_sign_nsh;
-  reg        s1o_op_sub;
-  reg [12:0] s1o_exp13c;
-  reg [52:0] s1o_fract53_nsh;
-  reg [52:0] s1o_fract53_fsh;
-  reg        s1o_op_fp64_arith;
-  //  registering
+  // stage #1 outputs, pendings and pre-out combinatories
+  reg         s1o_aeqb,          s1o_aeqb_p;
+  reg   [5:0] s1o_shr,           s1o_shr_p;
+  wire  [5:0] s1o_shr_w;
+  reg         s1o_sign_nsh,      s1o_sign_nsh_p;
+  wire        s1o_sign_nsh_w;
+  reg         s1o_op_sub,        s1o_op_sub_p;
+  wire        s1o_op_sub_w;
+  reg  [12:0] s1o_exp13c,        s1o_exp13c_p;
+  wire [12:0] s1o_exp13c_w;
+  reg  [52:0] s1o_fract53_nsh,   s1o_fract53_nsh_p;
+  wire [52:0] s1o_fract53_nsh_w;
+  reg  [52:0] s1o_fract53_fsh,   s1o_fract53_fsh_p;
+  wire [52:0] s1o_fract53_fsh_w;
+  reg         s1o_op_fp64_arith, s1o_op_fp64_arith_p;
+  // pre-out combinatories
+  assign s1o_shr_w         = s1t_shr & {6{~s0o_opc_0}};
+  assign s1o_sign_nsh_w    = s1t_addsub_agtb ? s1t_calc_signa : s1t_calc_signb;
+  assign s1o_op_sub_w      = s1t_calc_signa ^ s1t_calc_signb;
+  assign s1o_exp13c_w      = s1t_addsub_agtb ? s0o_exp13a : s0o_exp13b;
+  assign s1o_fract53_nsh_w = s1t_fract53_nsh & {53{~s0o_opc_0}};
+  assign s1o_fract53_fsh_w = s1t_fract53_fsh & {53{~s0o_opc_0}};
+  // pendings
+  always @(posedge cpu_clk) begin
+    if (~s0o_pending) begin
+      s1o_aeqb_p          <= s1t_addsub_aeqb;
+      s1o_shr_p           <= s1o_shr_w;
+      s1o_sign_nsh_p      <= s1o_sign_nsh_w;
+      s1o_op_sub_p        <= s1o_op_sub_w;
+      s1o_exp13c_p        <= s1o_exp13c_w;
+      s1o_fract53_nsh_p   <= s1o_fract53_nsh_w;
+      s1o_fract53_fsh_p   <= s1o_fract53_fsh_w;
+      s1o_op_fp64_arith_p <= s0o_op_fp64_arith;
+    end // advance
+  end // @clock
+  // registering
   always @(posedge cpu_clk) begin
     if (s1_adv) begin
-      s1o_aeqb          <= s1t_addsub_aeqb;
-      s1o_shr           <= s1t_shr & {6{~s0o_opc_0}};
-      s1o_sign_nsh      <= s1t_addsub_agtb ? s1t_calc_signa : s1t_calc_signb;
-      s1o_op_sub        <= s1t_calc_signa ^ s1t_calc_signb;
-      s1o_exp13c        <= s1t_addsub_agtb ? s0o_exp13a : s0o_exp13b;
-      s1o_fract53_nsh   <= s1t_fract53_nsh & {53{~s0o_opc_0}};
-      s1o_fract53_fsh   <= s1t_fract53_fsh & {53{~s0o_opc_0}};
-      s1o_op_fp64_arith <= s0o_op_fp64_arith;
+      s1o_aeqb          <= s0o_pending ? s1o_aeqb_p          : s1t_addsub_aeqb;
+      s1o_shr           <= s0o_pending ? s1o_shr_p           : s1o_shr_w;
+      s1o_sign_nsh      <= s0o_pending ? s1o_sign_nsh_p      : s1o_sign_nsh_w;
+      s1o_op_sub        <= s0o_pending ? s1o_op_sub_p        : s1o_op_sub_w;
+      s1o_exp13c        <= s0o_pending ? s1o_exp13c_p        : s1o_exp13c_w;
+      s1o_fract53_nsh   <= s0o_pending ? s1o_fract53_nsh_p   : s1o_fract53_nsh_w;
+      s1o_fract53_fsh   <= s0o_pending ? s1o_fract53_fsh_p   : s1o_fract53_fsh_w;
+      s1o_op_fp64_arith <= s0o_pending ? s1o_op_fp64_arith_p : s0o_op_fp64_arith;
     end // advance
   end // @clock
 

@@ -42,6 +42,7 @@ module pfpu_i2f_marocchino
   input             cpu_rst,
   // I2F pipe controls
   input             pipeline_flush_i,
+  input             exec_op_fpxx_any_i,
   input             start_i,
   output            i2f_taking_op_o,
   output reg        i2f_rdy_o,
@@ -69,13 +70,13 @@ module pfpu_i2f_marocchino
 
   // I2F pipe controls
   //  ## per stage ready flags
-  reg  s0o_ready;
+  reg  s0o_ready, s0o_pending;
   //  ## per stage busy flags
   wire s1_busy = i2f_rdy_o & ~rnd_taking_i2f_i;
-  wire s0_busy = s0o_ready & s1_busy;
+  wire s0_busy = s0o_ready & s0o_pending;
   //  ## per stage advance
-  wire s0_adv  = start_i   & ~s0_busy;
-  wire s1_adv  = s0o_ready & ~s1_busy;
+  wire s0_adv  = start_i                   & ~s0_busy;
+  wire s1_adv  = (s0o_ready | s0o_pending) & ~s1_busy;
 
   // I2F pipe takes operands for computation
   assign i2f_taking_op_o = s0_adv;
@@ -96,14 +97,26 @@ module pfpu_i2f_marocchino
     end
   end // @cpu-clock
 
-  // ready is special case
+  // "stage #0 is ready" flag
   always @(posedge cpu_clk) begin
     if (cpu_rst | pipeline_flush_i)
       s0o_ready <= 1'b0;
     else if (s0_adv)
-      s0o_ready <= 1'b1;
+      s0o_ready <= exec_op_fpxx_any_i;
     else if (s1_adv)
+      s0o_ready <= s0_busy;
+    else if (~s0o_pending)
       s0o_ready <= 1'b0;
+  end // @cpu-clock
+
+  // "there are pending data " flag
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | pipeline_flush_i)
+      s0o_pending <= 1'b0;
+    else if (s1_adv)
+      s0o_pending <= 1'b0;
+    else if (~s0o_pending)
+      s0o_pending <= s0o_ready;
   end // @cpu-clock
 
 
@@ -209,20 +222,51 @@ module pfpu_i2f_marocchino
     endcase
   end
 
+  // pending data latches
+  reg         i2f_sign_p;
+  reg   [3:0] i2f_shr_p;
+  reg  [10:0] i2f_exp11shr_p;
+  wire [10:0] i2f_exp11shr_m;
+  reg   [5:0] i2f_shl_p;
+  reg  [10:0] i2f_exp11shl_p;
+  wire [10:0] i2f_exp11shl_m;
+  reg  [10:0] i2f_exp11sh0_p;
+  wire [10:0] i2f_exp11sh0_m; 
+  reg  [63:0] i2f_fract64_p;
+  wire [63:0] i2f_fract64_m;
 
+  // pre-latching multiplexors
+  assign i2f_exp11shr_m = (s0o_op_fp64_arith ? 11'd1075 : 11'd150) + {7'd0,s1t_shrx}; // 1075=1023+52, 150=127+23
+  assign i2f_exp11shl_m = (s0o_op_fp64_arith ? 11'd1075 : 11'd150) - {5'd0,s1t_shlx};
+  assign i2f_exp11sh0_m =  s0o_op_fp64_arith ? ({11{s1t_fract64[52]}} & 11'd1075) : // "1" is in [52] / zero
+                                               ({11{s1t_fract64[55]}} & 11'd150);
+  // for rounding engine we re-pack 32-bits integer to LSBs
+  assign i2f_fract64_m  =  s0o_op_fp64_arith ? (s1t_fract64) : ({32'd0,s1t_fract64[63:32]});
+
+  // pending data latches
+  always @(posedge cpu_clk) begin
+    if (~s0o_pending) begin
+      i2f_sign_p      <= s1t_signa;
+      i2f_shr_p       <= s1t_shrx;
+      i2f_exp11shr_p  <= i2f_exp11shr_m;
+      i2f_shl_p       <= s1t_shlx;
+      i2f_exp11shl_p  <= i2f_exp11shl_m;
+      i2f_exp11sh0_p  <= i2f_exp11sh0_m;
+      i2f_fract64_p   <= i2f_fract64_m;
+    end // advance
+  end // @clock
+  
   // registering output
   always @(posedge cpu_clk) begin
     if (s1_adv) begin
         // computation related
-      i2f_sign_o     <= s1t_signa;
-      i2f_shr_o      <= s1t_shrx;
-      i2f_exp11shr_o <= (s0o_op_fp64_arith ? 11'd1075 : 11'd150) + {7'd0,s1t_shrx}; // 1075=1023+52, 150=127+23
-      i2f_shl_o      <= s1t_shlx;
-      i2f_exp11shl_o <= (s0o_op_fp64_arith ? 11'd1075 : 11'd150) - {5'd0,s1t_shlx};
-      i2f_exp11sh0_o <= s0o_op_fp64_arith ? ({11{s1t_fract64[52]}} & 11'd1075) : // "1" is in [52] / zero
-                                            ({11{s1t_fract64[55]}} & 11'd150);
-      // for rounding engine we re-pack 32-bits integer to LSBs
-      i2f_fract64_o  <= s0o_op_fp64_arith ? (s1t_fract64) : ({32'd0,s1t_fract64[63:32]});
+      i2f_sign_o     <= s0o_pending ? i2f_sign_p     : s1t_signa;
+      i2f_shr_o      <= s0o_pending ? i2f_shr_p      : s1t_shrx;
+      i2f_exp11shr_o <= s0o_pending ? i2f_exp11shr_p : i2f_exp11shr_m;
+      i2f_shl_o      <= s0o_pending ? i2f_shl_p      : s1t_shlx;
+      i2f_exp11shl_o <= s0o_pending ? i2f_exp11shl_p : i2f_exp11shl_m;
+      i2f_exp11sh0_o <= s0o_pending ? i2f_exp11sh0_p : i2f_exp11sh0_m;
+      i2f_fract64_o  <= s0o_pending ? i2f_fract64_p  : i2f_fract64_m;
     end // advance
   end // @clock
 
