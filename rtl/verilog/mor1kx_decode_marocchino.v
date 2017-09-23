@@ -35,8 +35,6 @@
 module mor1kx_decode_marocchino
 #(
   parameter OPTION_OPERAND_WIDTH = 32,
-  parameter OPTION_RESET_PC      = {{(OPTION_OPERAND_WIDTH-13){1'b0}},
-                                    `OR1K_RESET_VECTOR,8'd0},
   parameter OPTION_RF_ADDR_WIDTH =  5,
 
   parameter FEATURE_PSYNC        = "NONE",

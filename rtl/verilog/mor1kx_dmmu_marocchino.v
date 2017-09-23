@@ -136,26 +136,23 @@ module mor1kx_dmmu_marocchino
   genvar                           i;
 
 
-  // Stored "DMMU enable" and "Supevisor Mode" flags
+  // Local copy of SR[DME]
   // (for masking DMMU output flags, but not for advancing)
   reg enable_r;
+  // ---
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | pipeline_flush_i)
+      enable_r <= 1'b0;
+    else if (lsu_s1_adv_i)
+      enable_r <= enable_i;
+  end // @ clock
+
+  // Local copy of SR[SM] - makes sence only if DMMU enabled
   reg supervisor_mode_r;
   // ---
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i) begin
-      enable_r          <= 1'b0;
-      supervisor_mode_r <= 1'b0;
-    end
-    else if (lsu_s1_adv_i) begin
-      if (enable_i) begin
-        enable_r          <= 1'b1;
-        supervisor_mode_r <= supervisor_mode_i;
-      end
-      else begin
-        enable_r          <= 1'b0;
-        supervisor_mode_r <= 1'b0;
-      end
-    end
+    if (lsu_s1_adv_i)
+      supervisor_mode_r <= supervisor_mode_i;
   end // @ clock
 
 
@@ -167,13 +164,14 @@ module mor1kx_dmmu_marocchino
   // because we execute l.mt(f)spr after pipeline stalling (see OMAN)
 
   // SPR BUS transaction states
-  localparam [4:0] SPR_DMMU_WAIT  = 5'b00001,
-                   SPR_DMMU_WRITE = 5'b00010,
-                   SPR_DMMU_RINIT = 5'b00100,
-                   SPR_DMMU_RMUX  = 5'b01000,
-                   SPR_DMMU_ACK   = 5'b10000;
+  localparam [5:0] SPR_DMMU_WAIT  = 6'b000001,
+                   SPR_DMMU_WRITE = 6'b000010,
+                   SPR_DMMU_RINIT = 6'b000100,
+                   SPR_DMMU_RMUX  = 6'b001000,
+                   SPR_DMMU_ACK   = 6'b010000,
+                   SPR_DMMU_RST   = 6'b100000;
   // SPR BUS transaction state register
-  reg [4:0] spr_dmmu_state_r;
+  reg [5:0] spr_dmmu_state_r;
   // SPR BUS transaction particular strobes
   wire      spr_dmmu_we   = spr_dmmu_state_r[1];
   wire      spr_dmmu_re   = spr_dmmu_state_r[2];
@@ -184,72 +182,69 @@ module mor1kx_dmmu_marocchino
 
   assign spr_way_idx = {spr_bus_addr_i[10], spr_bus_addr_i[8]};
 
-  // SPR processing cycle
+  // SPR processing cycle: states switching
   always @(posedge cpu_clk) begin
     if (cpu_rst) begin
-      dtlb_match_spr_cs_r <= 1'b0;
-      dtlb_trans_spr_cs_r <= 1'b0;
-      dmmucr_spr_cs_r     <= 1'b0;
-      spr_way_idx_r       <= {WAYS_WIDTH{1'b0}};
-      spr_bus_dat_r       <= {OPTION_OPERAND_WIDTH{1'b0}};
-      spr_bus_addr_r      <= {OPTION_DMMU_SET_WIDTH{1'b0}};
-      spr_bus_dat_o       <= {OPTION_OPERAND_WIDTH{1'b0}};
-      // state
-      spr_dmmu_state_r    <= SPR_DMMU_WAIT; // on reset
+      spr_dmmu_state_r <= SPR_DMMU_RST; // on cpu-reset
     end
     else begin
       // synthesis parallel_case full_case
       case (spr_dmmu_state_r)
         // wait SPR BUS request
-        SPR_DMMU_WAIT : begin
+        SPR_DMMU_WAIT: begin
           if (spr_dmmu_cs) begin
-            dtlb_match_spr_cs_r <= (|spr_bus_addr_i[10:9]) & ~spr_bus_addr_i[7];
-            dtlb_trans_spr_cs_r <= (|spr_bus_addr_i[10:9]) &  spr_bus_addr_i[7];
-            dmmucr_spr_cs_r     <= (`SPR_OFFSET(spr_bus_addr_i) == `SPR_OFFSET(`OR1K_SPR_DMMUCR_ADDR));
-            spr_way_idx_r       <= spr_way_idx[WAYS_WIDTH-1:0];
-            spr_bus_dat_r       <= spr_bus_dat_i;
-            spr_bus_addr_r      <= spr_bus_addr_i[OPTION_DMMU_SET_WIDTH-1:0];
-            // state
-            spr_dmmu_state_r    <= spr_bus_we_i ? SPR_DMMU_WRITE : SPR_DMMU_RINIT; // on spr request take
+            spr_dmmu_state_r <= spr_bus_we_i ? SPR_DMMU_WRITE : SPR_DMMU_RINIT; // on spr request take
           end
         end
         // done write and start ACK
-        SPR_DMMU_WRITE : begin
-          dtlb_match_spr_cs_r <= 1'b0; // done write
-          dtlb_trans_spr_cs_r <= 1'b0; // done write
-          dmmucr_spr_cs_r     <= 1'b0; // done write
-          // state
-          spr_dmmu_state_r    <= SPR_DMMU_ACK; // on write completion
-        end
+        SPR_DMMU_WRITE: spr_dmmu_state_r <= SPR_DMMU_ACK; // on write completion
         // drop "read" strobe and go to latching read values
-        SPR_DMMU_RINIT : begin
-          spr_dmmu_state_r    <= SPR_DMMU_RMUX; // on read strobe completion
-        end
+        SPR_DMMU_RINIT: spr_dmmu_state_r <= SPR_DMMU_RMUX; // on read strobe completion
         // latch read data
-        SPR_DMMU_RMUX : begin
-          spr_bus_dat_o       <= dtlb_match_spr_cs_r ? dtlb_match_dout[spr_way_idx_r] :
-                                 dtlb_trans_spr_cs_r ? dtlb_trans_dout[spr_way_idx_r] :
-                                 dmmucr_spr_cs_r     ? dmmucr                         :
-                                                       {OPTION_OPERAND_WIDTH{1'b0}};
-          dtlb_match_spr_cs_r <= 1'b0; // latch read data
-          dtlb_trans_spr_cs_r <= 1'b0; // latch read data
-          dmmucr_spr_cs_r     <= 1'b0; // latch read data
-          // state
-          spr_dmmu_state_r    <= SPR_DMMU_ACK; // on read result latching
-        end
-        // default including SPR_DMMU_ACK
-        default : begin
-          spr_bus_dat_o       <= {OPTION_OPERAND_WIDTH{1'b0}};
-          // state
-          spr_dmmu_state_r    <= SPR_DMMU_WAIT; // on default/ack
-        end
+        SPR_DMMU_RMUX:  spr_dmmu_state_r <= SPR_DMMU_ACK; // on read result latching
+        // default including SPR_DMMU_ACK, SPR_DMMU_RST
+        default:        spr_dmmu_state_r <= SPR_DMMU_WAIT; // on default/ack
       endcase
     end
   end // @ clock
 
+  // SPR processing cycle: controls
+  always @(posedge cpu_clk) begin
+    // synthesis parallel_case full_case
+    case (spr_dmmu_state_r)
+      // wait SPR BUS request
+      SPR_DMMU_WAIT: begin
+        if (spr_dmmu_cs) begin
+          dtlb_match_spr_cs_r <= (|spr_bus_addr_i[10:9]) & ~spr_bus_addr_i[7];
+          dtlb_trans_spr_cs_r <= (|spr_bus_addr_i[10:9]) &  spr_bus_addr_i[7];
+          dmmucr_spr_cs_r     <= (`SPR_OFFSET(spr_bus_addr_i) == `SPR_OFFSET(`OR1K_SPR_DMMUCR_ADDR));
+          spr_way_idx_r       <= spr_way_idx[WAYS_WIDTH-1:0];
+          spr_bus_dat_r       <= spr_bus_dat_i;
+          spr_bus_addr_r      <= spr_bus_addr_i[OPTION_DMMU_SET_WIDTH-1:0];
+        end
+      end
+      // do nothing
+      SPR_DMMU_WRITE, SPR_DMMU_RINIT:;
+      // latch read data
+      SPR_DMMU_RMUX: begin
+        spr_bus_dat_o       <= dtlb_match_spr_cs_r ? dtlb_match_dout[spr_way_idx_r] :
+                               dtlb_trans_spr_cs_r ? dtlb_trans_dout[spr_way_idx_r] :
+                               dmmucr_spr_cs_r     ? dmmucr                         :
+                                                     {OPTION_OPERAND_WIDTH{1'b0}};
+      end
+      // default including SPR_DMMU_ACK, SPR_DMMU_RST
+      default: begin
+        dtlb_match_spr_cs_r <= 1'b0; // on default/ack/rst
+        dtlb_trans_spr_cs_r <= 1'b0; // on default/ack/rst
+        dmmucr_spr_cs_r     <= 1'b0; // on default/ack/rst
+        spr_way_idx_r       <= {WAYS_WIDTH{1'b0}}; // on default/ack/rst
+        spr_bus_dat_o       <= {OPTION_OPERAND_WIDTH{1'b0}}; // on default/ack/rst
+      end
+    endcase
+  end // @ clock
+
 
   // Process DMMU Control Register
-  //  # DMMUCR proc
   always @(posedge cpu_clk) begin
     if (cpu_rst)
       dmmucr <= {OPTION_OPERAND_WIDTH{1'b0}};

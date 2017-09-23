@@ -588,7 +588,6 @@ module mor1kx_cpu_marocchino
   mor1kx_fetch_marocchino
   #(
     .OPTION_OPERAND_WIDTH             (OPTION_OPERAND_WIDTH), // FETCH
-    .OPTION_RESET_PC                  (OPTION_RESET_PC), // FETCH
     // ICACHE configuration
     .OPTION_ICACHE_BLOCK_WIDTH        (OPTION_ICACHE_BLOCK_WIDTH), // FETCH
     .OPTION_ICACHE_SET_WIDTH          (OPTION_ICACHE_SET_WIDTH), // FETCH
@@ -771,7 +770,6 @@ module mor1kx_cpu_marocchino
   mor1kx_decode_marocchino
   #(
     .OPTION_OPERAND_WIDTH             (OPTION_OPERAND_WIDTH), // DECODE
-    .OPTION_RESET_PC                  (OPTION_RESET_PC), // DECODE
     .OPTION_RF_ADDR_WIDTH             (OPTION_RF_ADDR_WIDTH), // DECODE
     .FEATURE_PSYNC                    (FEATURE_PSYNC), // DECODE
     .FEATURE_CSYNC                    (FEATURE_CSYNC) // DECODE
@@ -779,11 +777,11 @@ module mor1kx_cpu_marocchino
   u_decode
   (
     // clocks ans reset
-    .cpu_clk                          (cpu_clk),
-    .cpu_rst                          (cpu_rst),
+    .cpu_clk                          (cpu_clk), // DECODE
+    .cpu_rst                          (cpu_rst), // DECODE
     // pipeline controls
-    .padv_fetch_i                     (padv_fetch),
-    .pipeline_flush_i                 (pipeline_flush),
+    .padv_fetch_i                     (padv_fetch), // DECODE
+    .pipeline_flush_i                 (pipeline_flush), // DECODE
     // from IFETCH
     //  # instruction word valid flag
     .fetch_insn_valid_i               (fetch_insn_valid), // DECODE

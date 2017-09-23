@@ -28,8 +28,6 @@ module mor1kx_immu_marocchino
 #(
   parameter FEATURE_IMMU_HW_TLB_RELOAD = "NONE",
   parameter OPTION_OPERAND_WIDTH       = 32,
-  parameter OPTION_RESET_PC            = {{(OPTION_OPERAND_WIDTH-13){1'b0}},
-                                          `OR1K_RESET_VECTOR,8'd0},
   parameter OPTION_IMMU_SET_WIDTH      = 6,
   parameter OPTION_IMMU_WAYS           = 1,
   parameter OPTION_IMMU_CLEAR_ON_INIT  = 0
@@ -132,26 +130,23 @@ module mor1kx_immu_marocchino
   integer                          j;
 
 
-  // Stored "IMMU enable" and "Supevisor Mode" flags
+  // Local copy of SR[IME]
   // (for masking IMMU output flags, but not for advancing)
   reg enable_r;
+  // ---
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | flush_by_ctrl_i)
+      enable_r <= 1'b0;
+    else if (padv_immu_i)
+      enable_r <= enable_i;
+  end // @ clock
+
+  // Local copy of SR[SM] - makes sence only if IMMU enabled
   reg supervisor_mode_r;
   // ---
   always @(posedge cpu_clk) begin
-    if (cpu_rst | flush_by_ctrl_i) begin
-      enable_r          <= 1'b0;
-      supervisor_mode_r <= 1'b0;
-    end
-    else if (padv_immu_i) begin
-      if (enable_i) begin
-        enable_r          <= 1'b1;
-        supervisor_mode_r <= supervisor_mode_i;
-      end
-      else begin
-        enable_r          <= 1'b0;
-        supervisor_mode_r <= 1'b0;
-      end
-    end
+    if (padv_immu_i)
+      supervisor_mode_r <= supervisor_mode_i;
   end // @ clock
 
 
@@ -163,13 +158,14 @@ module mor1kx_immu_marocchino
   // because we execute l.mt(f)spr after pipeline stalling (see OMAN)
 
   // SPR BUS transaction states
-  localparam [4:0] SPR_IMMU_WAIT  = 5'b00001,
-                   SPR_IMMU_WRITE = 5'b00010,
-                   SPR_IMMU_RINIT = 5'b00100,
-                   SPR_IMMU_RMUX  = 5'b01000,
-                   SPR_IMMU_ACK   = 5'b10000;
+  localparam [5:0] SPR_IMMU_WAIT  = 6'b000001,
+                   SPR_IMMU_WRITE = 6'b000010,
+                   SPR_IMMU_RINIT = 6'b000100,
+                   SPR_IMMU_RMUX  = 6'b001000,
+                   SPR_IMMU_ACK   = 6'b010000,
+                   SPR_IMMU_RST   = 6'b100000;
   // SPR BUS transaction state register
-  reg [4:0] spr_immu_state_r;
+  reg [5:0] spr_immu_state_r;
   // SPR BUS transaction particular strobes
   wire      spr_immu_we   = spr_immu_state_r[1];
   wire      spr_immu_re   = spr_immu_state_r[2];
@@ -180,72 +176,68 @@ module mor1kx_immu_marocchino
 
   assign spr_way_idx = {spr_bus_addr_i[10], spr_bus_addr_i[8]};
 
-  // SPR processing cycle
+  // SPR processing cycle: states switching
   always @(posedge cpu_clk) begin
     if (cpu_rst) begin
-      itlb_match_spr_cs_r <= 1'b0;
-      itlb_trans_spr_cs_r <= 1'b0;
-      immucr_spr_cs_r     <= 1'b0;
-      spr_way_idx_r       <= {WAYS_WIDTH{1'b0}};
-      spr_bus_dat_r       <= {OPTION_OPERAND_WIDTH{1'b0}};
-      spr_bus_addr_r      <= {OPTION_IMMU_SET_WIDTH{1'b0}};
-      spr_bus_dat_o       <= {OPTION_OPERAND_WIDTH{1'b0}};
-      // state
-      spr_immu_state_r    <= SPR_IMMU_WAIT; // on reset
+      spr_immu_state_r <= SPR_IMMU_RST; // on cpu-reset
     end
     else begin
       // synthesis parallel_case full_case
       case (spr_immu_state_r)
         // wait SPR BUS request
-        SPR_IMMU_WAIT : begin
-          if (spr_immu_cs) begin
-            itlb_match_spr_cs_r <= (|spr_bus_addr_i[10:9]) & ~spr_bus_addr_i[7];
-            itlb_trans_spr_cs_r <= (|spr_bus_addr_i[10:9]) &  spr_bus_addr_i[7];
-            immucr_spr_cs_r     <= (`SPR_OFFSET(spr_bus_addr_i) == `SPR_OFFSET(`OR1K_SPR_IMMUCR_ADDR));
-            spr_way_idx_r       <= spr_way_idx[WAYS_WIDTH-1:0];
-            spr_bus_dat_r       <= spr_bus_dat_i;
-            spr_bus_addr_r      <= spr_bus_addr_i[OPTION_IMMU_SET_WIDTH-1:0];
-            // state
-            spr_immu_state_r    <= spr_bus_we_i ? SPR_IMMU_WRITE : SPR_IMMU_RINIT; // on spr request take
-          end
+        SPR_IMMU_WAIT: begin
+          if (spr_immu_cs)
+            spr_immu_state_r <= spr_bus_we_i ? SPR_IMMU_WRITE : SPR_IMMU_RINIT; // on spr request take
         end
         // done write and start ACK
-        SPR_IMMU_WRITE : begin
-          itlb_match_spr_cs_r <= 1'b0; // done write
-          itlb_trans_spr_cs_r <= 1'b0; // done write
-          immucr_spr_cs_r     <= 1'b0; // done write
-          // state
-          spr_immu_state_r    <= SPR_IMMU_ACK; // on write completion
-        end
+        SPR_IMMU_WRITE: spr_immu_state_r <= SPR_IMMU_ACK; // on write completion
         // drop "read" strobe and go to latching read values
-        SPR_IMMU_RINIT : begin
-          spr_immu_state_r    <= SPR_IMMU_RMUX; // on read strobe completion
-        end
+        SPR_IMMU_RINIT: spr_immu_state_r <= SPR_IMMU_RMUX; // on read strobe completion
         // latch read data
-        SPR_IMMU_RMUX : begin
-          spr_bus_dat_o       <= itlb_match_spr_cs_r ? itlb_match_dout[spr_way_idx_r] :
-                                 itlb_trans_spr_cs_r ? itlb_trans_dout[spr_way_idx_r] :
-                                 immucr_spr_cs_r     ? immucr                         :
-                                                       {OPTION_OPERAND_WIDTH{1'b0}};
-          itlb_match_spr_cs_r <= 1'b0; // latch read data
-          itlb_trans_spr_cs_r <= 1'b0; // latch read data
-          immucr_spr_cs_r     <= 1'b0; // latch read data
-          // state
-          spr_immu_state_r    <= SPR_IMMU_ACK; // on read result latching
-        end
-        // default including SPR_IMMU_ACK
-        default : begin
-          spr_bus_dat_o       <= {OPTION_OPERAND_WIDTH{1'b0}};
-          // state
-          spr_immu_state_r    <= SPR_IMMU_WAIT; // on default/ack
-        end
+        SPR_IMMU_RMUX:  spr_immu_state_r <= SPR_IMMU_ACK; // on read result latching
+        // default including SPR_IMMU_ACK, SPR_IMMU_RST
+        default:        spr_immu_state_r <= SPR_IMMU_WAIT; // on default/ack/rst
       endcase
     end
   end // @ clock
 
+  // SPR processing cycle: controls
+  always @(posedge cpu_clk) begin
+    // synthesis parallel_case full_case
+    case (spr_immu_state_r)
+      // wait SPR BUS request
+      SPR_IMMU_WAIT: begin
+        if (spr_immu_cs) begin
+          itlb_match_spr_cs_r <= (|spr_bus_addr_i[10:9]) & ~spr_bus_addr_i[7];
+          itlb_trans_spr_cs_r <= (|spr_bus_addr_i[10:9]) &  spr_bus_addr_i[7];
+          immucr_spr_cs_r     <= (`SPR_OFFSET(spr_bus_addr_i) == `SPR_OFFSET(`OR1K_SPR_IMMUCR_ADDR));
+          spr_way_idx_r       <= spr_way_idx[WAYS_WIDTH-1:0];
+          spr_bus_dat_r       <= spr_bus_dat_i;
+          spr_bus_addr_r      <= spr_bus_addr_i[OPTION_IMMU_SET_WIDTH-1:0];
+        end
+      end
+      // do nothing
+      SPR_IMMU_WRITE, SPR_IMMU_RINIT:;
+      // latch read data
+      SPR_IMMU_RMUX: begin
+        spr_bus_dat_o <= itlb_match_spr_cs_r ? itlb_match_dout[spr_way_idx_r] :
+                         itlb_trans_spr_cs_r ? itlb_trans_dout[spr_way_idx_r] :
+                         immucr_spr_cs_r     ? immucr                         :
+                                               {OPTION_OPERAND_WIDTH{1'b0}};
+      end
+      // default including SPR_IMMU_ACK, SPR_IMMU_RST
+      default: begin
+        itlb_match_spr_cs_r <= 1'b0; // on default/ack/rst
+        itlb_trans_spr_cs_r <= 1'b0; // on default/ack/rst
+        immucr_spr_cs_r     <= 1'b0; // on default/ack/rst
+        spr_way_idx_r       <= {WAYS_WIDTH{1'b0}}; // on default/ack/rst
+        spr_bus_dat_o       <= {OPTION_OPERAND_WIDTH{1'b0}}; // on default/ack/rst
+      end
+    endcase
+  end // @ clock
+
 
   // Process IMMU Control Register
-  //  # IMMUCR proc
   always @(posedge cpu_clk) begin
     if (cpu_rst)
       immucr <= {OPTION_OPERAND_WIDTH{1'b0}};

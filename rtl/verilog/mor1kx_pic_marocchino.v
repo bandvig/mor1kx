@@ -77,7 +77,6 @@ module mor1kx_pic_marocchino
   //  to latch SPR bus signals in Wishbone clock domain
   reg        spr_bus_toggle_r;
   // Latch all necassary SPR access controls
-  reg        spr_pic_cs_r;
   reg [34:0] spr_pic_cmd_r; // {"picmr-cs", "picsr-cs", "we", dat}
 
   // initial value for simulation
@@ -91,17 +90,24 @@ module mor1kx_pic_marocchino
  `endif // !synth
 
   // pulse to initiate read/write transaction
+  reg  spr_pic_cs_r;
+  wire spr_pic_cs_pulse;
   // ---
   always @(posedge cpu_clk) begin
-    if (cpu_rst | spr_bus_ack_pic_o) begin
-      spr_pic_cs_r     <= 1'b0;
+    if (cpu_rst)
+      spr_pic_cs_r <= 1'b0;
+    else
+      spr_pic_cs_r <= spr_pic_cs;
+  end // @clock
+  // ---
+  assign spr_pic_cs_pulse = (~spr_pic_cs_r) & spr_pic_cs;
+  // SPR BUS data for PIC
+  always @(posedge cpu_clk) begin
+    if (spr_pic_cs_pulse) begin
+      spr_bus_toggle_r <= (~spr_bus_toggle_r);
+      spr_pic_cmd_r    <= {spr_picmr_cs,spr_picsr_cs,spr_bus_we_i,spr_bus_dat_i};
     end
-    else if (~spr_pic_cs_r) begin
-      spr_bus_toggle_r <= spr_pic_cs ? (~spr_bus_toggle_r) : spr_bus_toggle_r;
-      spr_pic_cs_r     <= spr_pic_cs;
-      spr_pic_cmd_r    <= spr_pic_cs ? {spr_picmr_cs,spr_picsr_cs,spr_bus_we_i,spr_bus_dat_i} : 35'd0;
-    end
-  end
+  end // @clock
 
 
   // Wishbone clock domain:
@@ -189,16 +195,19 @@ module mor1kx_pic_marocchino
   wire pic2cpu_ack = pic2cpu_ack_r2 & (~pic2cpu_ack_r3);
 
 
-  // SPR BUS: output data and ack (CPU clock domain)
+  // SPR BUS: ACK (CPU clock domain, 1-clock)
   always @(posedge cpu_clk) begin
-    if (cpu_rst | spr_bus_ack_pic_o) begin
-      spr_bus_ack_pic_o <=  1'b0;
-      spr_bus_dat_pic_o <= 32'd0;
-    end
-    else if (pic2cpu_ack) begin
-      spr_bus_ack_pic_o <= 1'b1;
+    if (cpu_rst)
+      spr_bus_ack_pic_o <= 1'b0;
+    else
+      spr_bus_ack_pic_o <= pic2cpu_ack;
+  end
+  // SPR BUS: output data (CPU clock domain, valid for 1-clock)
+  always @(posedge cpu_clk) begin
+    if (pic2cpu_ack)
       spr_bus_dat_pic_o <= pic_dato_r;
-    end
+    else
+      spr_bus_dat_pic_o <= 32'd0;
   end
 
 

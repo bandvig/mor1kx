@@ -359,7 +359,6 @@ module mor1kx_rf_marocchino
         spr_gpr_re_r      <= 1'b0;
         spr_gpr_mux_r     <= 1'b0;
         spr_bus_ack_gpr_o <= 1'b0;
-        spr_bus_dat_gpr_r <= {RF_DW{1'b0}};
       end
       else if (spr_bus_ack_gpr_o) begin
         spr_gpr_we_r      <= 1'b0;
@@ -368,7 +367,6 @@ module mor1kx_rf_marocchino
         spr_gpr_re_r      <= 1'b0;
         spr_gpr_mux_r     <= 1'b0;
         spr_bus_ack_gpr_o <= 1'b0;
-        spr_bus_dat_gpr_r <= {RF_DW{1'b0}};
       end
       else if (spr_gpr_mux_r) begin
         spr_gpr_we_r      <= 1'b0;
@@ -377,7 +375,6 @@ module mor1kx_rf_marocchino
         spr_gpr_re_r      <= 1'b0;
         spr_gpr_mux_r     <= 1'b0;
         spr_bus_ack_gpr_o <= 1'b1;
-        spr_bus_dat_gpr_r <= rfspr_dout;
       end
       else if (spr_gpr_re_r) begin
         spr_gpr_we_r      <= 1'b0;
@@ -386,7 +383,6 @@ module mor1kx_rf_marocchino
         spr_gpr_re_r      <= 1'b0;
         spr_gpr_mux_r     <= 1'b1;
         spr_bus_ack_gpr_o <= 1'b0;
-        spr_bus_dat_gpr_r <= {RF_DW{1'b0}};
       end
       else if (spr_gpr_cs) begin
         spr_gpr_we_r      <= spr_bus_we_i;
@@ -395,18 +391,27 @@ module mor1kx_rf_marocchino
         spr_gpr_re_r      <= ~spr_bus_we_i;
         spr_gpr_mux_r     <= 1'b0;
         spr_bus_ack_gpr_o <= spr_bus_we_i; // write on next posedge of clock and finish
-        spr_bus_dat_gpr_r <= {RF_DW{1'b0}};
-        // Address and data for write
-        spr_gpr_waddr_r   <= spr_bus_addr_i[(RF_AW-1):0];
-        spr_gpr_wdata_r   <= spr_bus_dat_i;
       end
     end // @ clock
 
     assign spr_gpr_we_even   = spr_gpr_we_even_r;
     assign spr_gpr_we_odd    = spr_gpr_we_odd_r;
+
+    // registered output data: valid for 1-clock only with rised ACK
+    always @(posedge cpu_clk) begin
+      spr_bus_dat_gpr_r <= {RF_DW{spr_gpr_mux_r}} & rfspr_dout;
+    end
+    // ---
     assign spr_bus_dat_gpr_o = spr_bus_dat_gpr_r;
 
     // Address and data for write
+    always @(posedge cpu_clk) begin
+      if (spr_gpr_cs) begin
+        spr_gpr_waddr_r <= spr_bus_addr_i[(RF_AW-1):0];
+        spr_gpr_wdata_r <= spr_bus_dat_i;
+      end
+    end
+    // ---
     assign spr_gpr_waddr = spr_gpr_waddr_r;
     assign spr_gpr_wdata = spr_gpr_wdata_r;
 

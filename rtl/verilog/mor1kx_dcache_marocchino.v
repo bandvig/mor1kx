@@ -138,13 +138,14 @@ module mor1kx_dcache_marocchino
 
 
   // States
-  localparam  [4:0] DC_CHECK      = 5'b00001,
-                    DC_WRITE      = 5'b00010,
-                    DC_REFILL     = 5'b00100,
-                    DC_REREAD     = 5'b01000,
-                    DC_INVALIDATE = 5'b10000;
+  localparam  [5:0] DC_CHECK      = 6'b000001,
+                    DC_WRITE      = 6'b000010,
+                    DC_REFILL     = 6'b000100,
+                    DC_REREAD     = 6'b001000,
+                    DC_INVALIDATE = 6'b010000,
+                    DC_RST        = 6'b100000;
   // FSM state register
-  reg [4:0] dc_state;
+  reg [5:0] dc_state;
   // FSM state signals
   wire dc_refill     = dc_state[2];
   wire dc_reread     = dc_state[3];
@@ -239,7 +240,7 @@ module mor1kx_dcache_marocchino
   always @(posedge cpu_clk) begin
     if (cpu_rst)
       dc_enable_r <= 1'b0; // pipeline_flush doesn't switch caches on/off
-    else if (dc_enable_r != dc_enable_i)
+    else if (dc_enable_r ^ dc_enable_i)
       dc_enable_r <= dc_enable_i;
   end
 
@@ -351,61 +352,32 @@ module mor1kx_dcache_marocchino
    * DCACHE FSM
    */
 
+  // DCACHE FSM: state switching
   always @(posedge cpu_clk) begin
     if (cpu_rst) begin
-      refill_first_o      <= 1'b0; // on reset
-      lru_way_refill_r    <= {OPTION_DCACHE_WAYS{1'b0}};      // on reset
-      s2o_dc_ack_write    <= 1'b0; // on reset
-      snoop_check         <= 1'b0; // on reset
-      snoop_tag           <= {TAG_WIDTH{1'b0}};               // on reset
-      snoop_windex        <= {OPTION_DCACHE_SET_WIDTH{1'b0}}; // on reset
-      spr_bus_ack_o       <= 1'b0; // on reset
-      dc_state            <= DC_CHECK;  // on reset
+      dc_state <= DC_RST;  // on reset
     end
     else begin
-      // snoop processing
-      if (snoop_event_i) begin
-        //
-        // If there is a snoop event, we need to store this
-        // information. This happens independent of whether we
-        // have a snoop tag memory or not.
-        //
-        snoop_check  <= 1'b1;
-        snoop_windex <= snoop_index; // on snoop-event
-        snoop_tag    <= snoop_adr_i[OPTION_DCACHE_LIMIT_WIDTH-1:WAY_WIDTH];
-      end
-      else begin
-        snoop_check  <= 1'b0;
-      end
-
-      // states switching
       // synthesis parallel_case full_case
       case (dc_state)
         DC_CHECK: begin
-          spr_bus_ack_o <= 1'b0; // check
-          // next states
           if (dc_cancel | snoop_hit_o) begin // keep check
             dc_state <= DC_CHECK;
           end
           else if (spr_bus_dc_invalidate) begin // check -> invalidate
-            dc_state   <= DC_INVALIDATE; // check -> invalidate
-            tag_invdex <= spr_bus_dat_i[WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH]; // check -> invalidate
+            dc_state <= DC_INVALIDATE; // check -> invalidate
           end
           else if (dc_refill_allowed_i) begin
-            lru_way_refill_r <= lru_way;    // check -> re-fill
-            refill_first_o   <= 1'b1;       // check -> re-fill
-            dc_state         <= DC_REFILL;  // check -> re-fill
+            dc_state <= DC_REFILL;  // check -> re-fill
           end
           else if (lsu_s2_adv_i) begin // check -> write / keep check
-            s2o_dc_ack_write <= dc_ack_write; // check -> write / keep check
-            dc_state         <= s1o_op_lsu_store_i ? DC_WRITE : DC_CHECK; // check -> write / keep check
+            dc_state <= (s1o_op_lsu_store_i ? DC_WRITE : DC_CHECK); // check -> write / keep check
           end
         end // check
 
         DC_WRITE: begin
           if (s3t_store_ack_i | dbus_err_i | dc_cancel) begin // done / abort write (IBUS error is possible for l.swa)
-            s2o_dc_ack_write <= 1'b0;     // done / abort write
-            dc_state         <= DC_CHECK; // done / abort write
+            dc_state <= DC_CHECK; // done / abort write
           end
         end // write
 
@@ -415,20 +387,14 @@ module mor1kx_dcache_marocchino
           // 2) In according with WISHBONE-B3 rule 3.45:
           //    "SLAVE MUST NOT assert more than one of ACK, ERR or RTY"
           if (snoop_hit_o) begin
-            refill_first_o   <= 1'b0;     // on snoop-hit during re-fill
-            lru_way_refill_r <= {OPTION_DCACHE_WAYS{1'b0}};  // on snoop-hit during re-fill
-            dc_state         <= DC_CHECK;  // on snoop-hit during re-fill
+            dc_state <= DC_CHECK;  // on snoop-hit during re-fill
           end
           else if (dbus_err_i) begin  // abort re-fill
-            refill_first_o   <= 1'b0; // on dbus error during re-fill
-            lru_way_refill_r <= {OPTION_DCACHE_WAYS{1'b0}};  // on dbus error during re-fill
-            dc_state         <= DC_CHECK;  // on dbus error during re-fill
+            dc_state <= DC_CHECK;  // on dbus error during re-fill
           end
           else if (dbus_ack_i) begin
-            refill_first_o <= 1'b0; // any re-fill
             if (dbus_burst_last_i) begin
-              lru_way_refill_r <= {OPTION_DCACHE_WAYS{1'b0}}; // on last re-fill
-              dc_state         <= (flush_by_ctrl_i ? DC_CHECK : DC_REREAD);  // on last re-fill
+              dc_state <= (flush_by_ctrl_i ? DC_CHECK : DC_REREAD);  // on last re-fill
             end
           end // snoop-hit / dbus-ack
         end // re-fill
@@ -439,24 +405,100 @@ module mor1kx_dcache_marocchino
 
         DC_INVALIDATE: begin
           if (~snoop_hit_o) begin // wait till snoop-inv completion
-            spr_bus_ack_o <= 1'b1;     // invalidate -> check
-            dc_state      <= DC_CHECK; // invalidate -> check
+            dc_state <= DC_CHECK; // invalidate -> check
           end
         end
 
-        default: begin
-          refill_first_o   <= 1'b0; // on default
-          lru_way_refill_r <= {OPTION_DCACHE_WAYS{1'b0}}; // on default
-          s2o_dc_ack_write <= 1'b0; // on default
-          snoop_check      <= 1'b0; // on default
-          snoop_tag        <= {TAG_WIDTH{1'b0}}; // on default
-          snoop_windex     <= {OPTION_DCACHE_SET_WIDTH{1'b0}}; // on default
-          spr_bus_ack_o    <= 1'b0;    // on default
-          dc_state         <= DC_CHECK;  // on default
+        default: begin // including DC_RST
+          dc_state <= DC_CHECK;  // on default
         end
       endcase
     end
-  end
+  end // at clock
+
+  // DCACHE FSM: various data
+  always @(posedge cpu_clk) begin
+    // snoop processing
+    if (snoop_event_i) begin
+      //
+      // If there is a snoop event, we need to store this
+      // information. This happens independent of whether we
+      // have a snoop tag memory or not.
+      //
+      snoop_check  <= 1'b1;
+      snoop_windex <= snoop_index; // on snoop-event
+      snoop_tag    <= snoop_adr_i[OPTION_DCACHE_LIMIT_WIDTH-1:WAY_WIDTH];
+    end
+    else begin
+      snoop_check  <= 1'b0;
+    end
+
+    // states switching
+    // synthesis parallel_case full_case
+    case (dc_state)
+      DC_CHECK: begin
+        spr_bus_ack_o <= 1'b0; // check
+        // next states
+        if (dc_cancel | snoop_hit_o) begin // keep check
+        end
+        else if (spr_bus_dc_invalidate) begin // check -> invalidate
+          tag_invdex <= spr_bus_dat_i[WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH]; // FSM: check -> invalidate
+        end
+        else if (dc_refill_allowed_i) begin
+          lru_way_refill_r <= lru_way;    // check -> re-fill
+          refill_first_o   <= 1'b1;       // check -> re-fill
+        end
+        else if (lsu_s2_adv_i) begin // check -> write / keep check
+          s2o_dc_ack_write <= dc_ack_write; // check -> write / keep check
+        end
+      end // check
+
+      DC_WRITE: begin
+        if (s3t_store_ack_i | dbus_err_i | dc_cancel) begin // done / abort write (IBUS error is possible for l.swa)
+          s2o_dc_ack_write <= 1'b0;     // done / abort write
+        end
+      end // write
+
+      DC_REFILL: begin
+        // 1) Abort re-fill on snoop-hit
+        //    TODO: only abort on snoop-hits to re-fill address
+        // 2) In according with WISHBONE-B3 rule 3.45:
+        //    "SLAVE MUST NOT assert more than one of ACK, ERR or RTY"
+        if (snoop_hit_o) begin
+          refill_first_o   <= 1'b0;     // on snoop-hit during re-fill
+          lru_way_refill_r <= {OPTION_DCACHE_WAYS{1'b0}};  // on snoop-hit during re-fill
+        end
+        else if (dbus_err_i) begin  // abort re-fill
+          refill_first_o   <= 1'b0; // on dbus error during re-fill
+          lru_way_refill_r <= {OPTION_DCACHE_WAYS{1'b0}};  // on dbus error during re-fill
+        end
+        else if (dbus_ack_i) begin
+          refill_first_o <= 1'b0; // any re-fill
+          if (dbus_burst_last_i) begin
+            lru_way_refill_r <= {OPTION_DCACHE_WAYS{1'b0}}; // on last re-fill
+          end
+        end // snoop-hit / dbus-ack
+      end // re-fill
+
+      DC_REREAD:;
+
+      DC_INVALIDATE: begin
+        if (~snoop_hit_o) begin  // wait till snoop-inv completion
+          spr_bus_ack_o <= 1'b1; // invalidate -> check
+        end
+      end
+
+      default: begin // including DC_RST
+        refill_first_o   <= 1'b0; // on default
+        lru_way_refill_r <= {OPTION_DCACHE_WAYS{1'b0}}; // on default
+        s2o_dc_ack_write <= 1'b0; // on default
+        snoop_check      <= 1'b0; // on default
+        snoop_tag        <= {TAG_WIDTH{1'b0}}; // on default
+        snoop_windex     <= {OPTION_DCACHE_SET_WIDTH{1'b0}}; // on default
+        spr_bus_ack_o    <= 1'b0;    // on default
+      end
+    endcase
+  end // @ clock
 
 
   // s2o_* latches for WAY-fields of TAG
@@ -472,11 +514,7 @@ module mor1kx_dcache_marocchino
 
   // s2o_* latch for hit and current LRU history
   always @(posedge cpu_clk) begin
-    if (cpu_rst) begin // don't use flush here
-      s2o_hit_way          <= {OPTION_DCACHE_WAYS{1'b0}}; // reset
-      lru_history_curr_s2o <= {TAG_LRU_WIDTH_BITS{1'b0}}; // reset
-    end
-    else if (lsu_s2_adv_i) begin
+    if (lsu_s2_adv_i) begin
       s2o_hit_way          <= dc_hit_way;
       lru_history_curr_s2o <= tag_dout[TAG_LRU_MSB:TAG_LRU_LSB];
     end

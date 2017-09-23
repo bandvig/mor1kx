@@ -32,8 +32,6 @@
 module mor1kx_fetch_marocchino
 #(
   parameter OPTION_OPERAND_WIDTH        = 32,
-  parameter OPTION_RESET_PC             = {{(OPTION_OPERAND_WIDTH-13){1'b0}},
-                                           `OR1K_RESET_VECTOR,8'd0},
   parameter OPTION_RF_ADDR_WIDTH        =  5,
   // cache configuration
   parameter OPTION_ICACHE_BLOCK_WIDTH   =  5,
@@ -278,16 +276,21 @@ module mor1kx_fetch_marocchino
   reg [IFOOW-1:0] do_branch_target_p;
   // ---
   always @(posedge cpu_clk) begin
-    if (cpu_rst | flush_by_ctrl) begin
+    if (cpu_rst | flush_by_ctrl)
       do_branch_p <= 1'b0;  // reset / flushing
-    end
-    else if (padv_s1s2) begin // clean up / keep stored branch
-      do_branch_p <= 1'b0; // regular advance stages #1 and #2
-    end
-    else if (~do_branch_p) begin
-      do_branch_p        <= do_branch_i & (~fetch_jr_bc_hazard_i); // if IFETCH's stage #1 stalled
-      do_branch_target_p <= do_branch_target_i;                    // if IFETCH's stage #1 stalled
-    end
+    else if (padv_s1s2)     // clean up / keep stored branch
+      do_branch_p <= 1'b0;  // regular advance stages #1 and #2
+    else if (~do_branch_p)
+      do_branch_p <= do_branch_i & (~fetch_jr_bc_hazard_i); // if IFETCH's stage #1 stalled
+  end // @ clock
+  // ---
+  always @(posedge cpu_clk) begin
+    if (flush_by_ctrl)                          // MAROCCHINO_TODO: ????
+      do_branch_target_p <= do_branch_target_p; // flush
+    else if (padv_s1s2)                         // MAROCCHINO_TODO: ????
+      do_branch_target_p <= do_branch_target_p; // regular advance
+    else if (~do_branch_p)
+      do_branch_target_p <= do_branch_target_i; // if IFETCH's stage #1 stalled
   end // @ clock
 
 
@@ -304,14 +307,14 @@ module mor1kx_fetch_marocchino
 
   // IMMU match address store register
   always @(posedge cpu_clk) begin
-    if (cpu_rst) begin
-      s1o_virt_addr <= OPTION_RESET_PC - 4; // reset: will be restored on 1st advance
-      s2o_virt_addr <= {IFOOW{1'b0}};
-    end
-    else if (padv_s1s2) begin
+    if (padv_s1s2)
       s1o_virt_addr <= virt_addr_mux;
+  end // @ clock
+
+  // IMMU match address store register
+  always @(posedge cpu_clk) begin
+    if (padv_s1s2)
       s2o_virt_addr <= s1o_virt_addr;
-    end
   end // @ clock
 
 
@@ -319,7 +322,7 @@ module mor1kx_fetch_marocchino
   always @(posedge cpu_clk) begin
     if (cpu_rst | flush_by_ctrl)
       s1o_fetch_req_hit <= 1'b0;
-    else if (padv_s1s2)
+    else if (padv_s1s2)                           // latch s1o-fetch-req-hit
       s1o_fetch_req_hit <= ~fetch_jr_bc_hazard_i;
   end // @ clock
 
@@ -340,7 +343,6 @@ module mor1kx_fetch_marocchino
   #(
     .FEATURE_IMMU_HW_TLB_RELOAD     (FEATURE_IMMU_HW_TLB_RELOAD), // IMMU
     .OPTION_OPERAND_WIDTH           (OPTION_OPERAND_WIDTH), // IMMU
-    .OPTION_RESET_PC                (OPTION_RESET_PC), // IMMU
     .OPTION_IMMU_SET_WIDTH          (OPTION_IMMU_SET_WIDTH), // IMMU
     .OPTION_IMMU_WAYS               (OPTION_IMMU_WAYS), // IMMU
     .OPTION_IMMU_CLEAR_ON_INIT      (OPTION_IMMU_CLEAR_ON_INIT) // IMMU
@@ -481,7 +483,6 @@ module mor1kx_fetch_marocchino
             ibus_state <= IBUS_TO_IC_REFILL; // IBUS-IDLE -> IBUS-TO-IC-REFILL
           else if (s2o_ibus_read_req) begin
             ibus_req_o <= ~ibus_req_o;       // IBUS-IDLE -> IBUS read
-            ibus_adr_o <= s2o_phys_addr;     // IBUS-IDLE -> IBUS read
             ibus_state <= IBUS_READ;         // IBUS-IDLE -> IBUS read
           end
         end
@@ -498,7 +499,6 @@ module mor1kx_fetch_marocchino
             ibus_state <= IBUS_IDLE;      // IBUS-TO-IC-REFILL -> IDLE by flush
           else begin
             ibus_req_o <= ~ibus_req_o;    // IBUS-TO-IC-REFILL -> ICACHE refill
-            ibus_adr_o <= s2o_phys_addr;  // IBUS-TO-IC-REFILL -> ICACHE refill
             ibus_state <= IBUS_IC_REFILL; // IBUS-TO-IC-REFILL -> ICACHE refill
           end
         end
@@ -524,6 +524,26 @@ module mor1kx_fetch_marocchino
         end
       endcase // case (state)
     end // reset / regular update
+  end // @ clock
+
+  // IBUS access machine: read address
+  always @(posedge cpu_clk) begin
+    // synthesis parallel_case full_case
+    case (ibus_state)
+      // to IBUS read 
+      IBUS_IDLE: begin
+        if ((~spr_bus_stb_i) & (~flush_by_ctrl) &
+            (~s2o_immu_an_except) & s2o_ibus_read_req)
+          ibus_adr_o <= s2o_phys_addr; // IBUS-IDLE -> IBUS read
+      end
+      // to ICACHE re-fill
+      IBUS_TO_IC_REFILL: begin
+        if (~flush_by_ctrl)
+          ibus_adr_o <= s2o_phys_addr;  // IBUS-TO-IC-REFILL -> ICACHE refill
+      end
+      // do nothing
+      default:;
+    endcase
   end // @ clock
 
   // And burst mode

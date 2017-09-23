@@ -70,7 +70,6 @@ module mor1kx_ticktimer_marocchino
   //  to latch SPR bus signals in Wishbone clock domain
   reg        spr_bus_toggle_r;
   // Latch all necassary SPR access controls
-  reg        spr_tt_cs_r;
   reg [34:0] spr_tt_cmd_r; // {"ttmr-cs", "ttcr-cs", "we", dat}
 
   // initial value for simulation
@@ -84,15 +83,22 @@ module mor1kx_ticktimer_marocchino
  `endif // !synth
 
   // pulse to initiate read/write transaction
+  reg  spr_tt_cs_r;
+  wire spr_tt_cs_pulse;
   // ---
   always @(posedge cpu_clk) begin
-    if (cpu_rst | spr_bus_ack_tt_o) begin
-      spr_tt_cs_r     <= 1'b0;
-    end
-    else if (~spr_tt_cs_r) begin
-      spr_bus_toggle_r <= spr_tt_cs ? (~spr_bus_toggle_r) : spr_bus_toggle_r;
-      spr_tt_cs_r      <= spr_tt_cs;
-      spr_tt_cmd_r     <= spr_tt_cs ? {spr_ttmr_cs,spr_ttcr_cs,spr_bus_we_i,spr_bus_dat_i} : 35'd0;
+    if (cpu_rst)
+      spr_tt_cs_r <= 1'b0;
+    else
+      spr_tt_cs_r <= spr_tt_cs;
+  end
+  // ---
+  assign spr_tt_cs_pulse = (~spr_tt_cs_r) & spr_tt_cs;
+  // transaction data latch
+  always @(posedge cpu_clk) begin
+    if (spr_tt_cs_pulse) begin
+      spr_bus_toggle_r <= (~spr_bus_toggle_r);
+      spr_tt_cmd_r     <= {spr_ttmr_cs,spr_ttcr_cs,spr_bus_we_i,spr_bus_dat_i};
     end
   end
 
@@ -115,23 +121,22 @@ module mor1kx_ticktimer_marocchino
     end
   end
   // ---
-  wire       cpu2tt_cs_pulse = cpu2tt_cs_r2 ^ cpu2tt_cs_r3;
-  reg        cpu2tt_cs_pulse_r;
+  wire cpu2tt_cs_pulse = cpu2tt_cs_r2 ^ cpu2tt_cs_r3;
+  reg  cpu2tt_cs_pulse_r;
+  // ---
+  always @(posedge wb_clk) begin
+    if (wb_rst)
+      cpu2tt_cs_pulse_r <= 1'b0;
+    else
+      cpu2tt_cs_pulse_r <= cpu2tt_cs_pulse;
+  end // at clock
+  // --- latch SPR access parameters in Wishbone clock domain ---
   reg [34:0] cpu2tt_cmd_r; // {"ttmr-cs", "ttcr-cs", "we", dat}
   // ---
-  // --- latch SPR access parameters in Wishbone clock domain ---
   always @(posedge wb_clk) begin
-    if (wb_rst) begin
-      cpu2tt_cs_pulse_r <= 1'b0;
-    end
-    else begin
-      // re-clocked SPR BUS request is ready
-      cpu2tt_cs_pulse_r <= cpu2tt_cs_pulse;
-      // re-clocked SPR BUS request data
-      if (cpu2tt_cs_pulse)
-        cpu2tt_cmd_r <= spr_tt_cmd_r;
-    end
-  end
+    if (cpu2tt_cs_pulse)
+      cpu2tt_cmd_r <= spr_tt_cmd_r;
+  end // at clock
   // --- unpack SPR access parameters ---
   wire        cpu2tt_ttmr_cs = cpu2tt_cmd_r[34];
   wire        cpu2tt_ttcr_cs = cpu2tt_cmd_r[33];
@@ -144,20 +149,19 @@ module mor1kx_ticktimer_marocchino
   reg [31:0] tt_dato_r;
   // ---
   always @(posedge wb_clk) begin
-    if (wb_rst) begin
+    if (wb_rst)
       tt_ack_r <= 1'b0;
-    end
-    else begin
-      // ack is single wb-clk
+    else
       tt_ack_r <= cpu2tt_cs_pulse_r;
-      // data: latch regardless of "we"
-      if (cpu2tt_cs_pulse_r) begin
-        tt_dato_r <= cpu2tt_ttmr_cs ? spr_ttmr :
-                     cpu2tt_ttcr_cs ? spr_ttcr :
-                                      32'd0;
-      end
+  end // at clock
+  // ---
+  always @(posedge wb_clk) begin
+    if (cpu2tt_cs_pulse_r) begin
+      tt_dato_r <= cpu2tt_ttmr_cs ? spr_ttmr :
+                   cpu2tt_ttcr_cs ? spr_ttcr :
+                                    32'd0;
     end
-  end
+  end // at clock
 
 
   // TT-ack-pulse -> CPU-ack-pulse
@@ -185,14 +189,17 @@ module mor1kx_ticktimer_marocchino
 
   // SPR BUS: output data and ack (CPU clock domain)
   always @(posedge cpu_clk) begin
-    if (cpu_rst | spr_bus_ack_tt_o) begin
+    if (cpu_rst)
       spr_bus_ack_tt_o <=  1'b0;
-      spr_bus_dat_tt_o <= 32'd0;
-    end
-    else if (tt2cpu_ack) begin
-      spr_bus_ack_tt_o <= 1'd1;
+    else
+      spr_bus_ack_tt_o <= tt2cpu_ack;
+  end
+  // SPR BUS: output data latch (1-clock valid)
+  always @(posedge cpu_clk) begin
+    if (tt2cpu_ack)
       spr_bus_dat_tt_o <= tt_dato_r;
-    end
+    else
+      spr_bus_dat_tt_o <= 32'd0;
   end
 
 
@@ -220,7 +227,7 @@ module mor1kx_ticktimer_marocchino
   // Timer SPR control
   always @(posedge wb_clk) begin
     if (wb_rst)
-      spr_ttmr <= 1'b0;
+      spr_ttmr <= 32'd0;
     else if (cpu2tt_cs_pulse_r & cpu2tt_ttmr_cs & cpu2tt_we)
       spr_ttmr <= cpu2tt_dat;
     else if (ttcr_match & spr_ttmr[29])

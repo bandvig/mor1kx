@@ -189,7 +189,7 @@ module mor1kx_icache_marocchino
   always @(posedge cpu_clk) begin
     if (cpu_rst)
       ic_enable_r <= 1'b0;
-    else if (ic_enable_r != ic_enable_i) // pipeline_flush doesn't switch caches on/off
+    else if (ic_enable_r ^ ic_enable_i) // pipeline_flush doesn't switch caches on/off
       ic_enable_r <= ic_enable_i;
   end // @ clock
 
@@ -282,8 +282,7 @@ module mor1kx_icache_marocchino
             ic_state <= IC_READ;
           end
           else if (spr_bus_ic_invalidate) begin
-            ic_state   <= IC_INVALIDATE;    // FSM: read -> invalidate
-            tag_invdex <= spr_bus_dat_i[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH]; // FSM: read -> invalidate
+            ic_state <= IC_INVALIDATE;      // FSM: read -> invalidate
           end
           else if (to_refill_i) begin       // FSM: read -> re-fill
             ic_refill_first_o <= 1'b1;      // FSM: read -> re-fill
@@ -323,6 +322,13 @@ module mor1kx_icache_marocchino
     end // reset / regular update
   end // @ clock
 
+
+  // Invalidate address registering.
+  // It makes sence in invalidation state only
+  always @(posedge cpu_clk) begin
+    if (ic_read & spr_bus_ic_invalidate)
+      tag_invdex <= spr_bus_dat_i[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH]; // FSM: read -> invalidate
+  end // at clock
 
 
   //   In fact we don't need different addresses per way
@@ -434,30 +440,24 @@ module mor1kx_icache_marocchino
 
   // LRU related data registered on IFETCH output
   always @(posedge cpu_clk) begin
-    if (cpu_rst) begin
-      access_way_for_lru_fetcho_r  <= {OPTION_ICACHE_WAYS{1'b0}}; // reset
-      current_lru_history_fetcho_r <= {TAG_LRU_WIDTH_BITS{1'b0}}; // reset
-    end
-    else if (padv_s1s2_i) begin
+    if (padv_s1s2_i) begin
       access_way_for_lru_fetcho_r  <= hit_way;
       current_lru_history_fetcho_r <= tag_dout[TAG_LRU_MSB:TAG_LRU_LSB];
     end
   end // @clock
 
   // LRU way registered for re-fill process
-  // MAROCCHINO_TODO : move it to FSM ??
   always @(posedge cpu_clk) begin
-    if (cpu_rst) begin            // clear lru way for re-fill
-      lru_way_refill_r <= {OPTION_ICACHE_WAYS{1'b0}};                             // reset / flush
-    end
-    else if (to_refill_i) begin   // save lru way for re-fill
+    if (to_refill_i) begin   // save lru way for re-fill
       lru_way_refill_r <= flush_by_ctrl_i ? {OPTION_ICACHE_WAYS{1'b0}} : lru_way; // to re-fill
     end
     else if (ic_refill) begin
       if ((ibus_ack_i & ibus_burst_last_i) | ibus_err_i) begin
-        lru_way_refill_r <= {OPTION_ICACHE_WAYS{1'b0}};                           // last re-fill / IBUS error
+        lru_way_refill_r <= {OPTION_ICACHE_WAYS{1'b0}}; // last re-fill / IBUS error
       end
     end
+    else
+      lru_way_refill_r <= {OPTION_ICACHE_WAYS{1'b0}}; // default
   end // @clock
 
   // store tag state

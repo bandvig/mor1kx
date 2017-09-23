@@ -41,38 +41,38 @@ module mor1kx_bus_if_wb32_marocchino
 )
 (
   // Wishbone side clock and reset
-  input         wb_clk,
-  input         wb_rst,
+  input             wb_clk,
+  input             wb_rst,
 
   // CPU side clock and reset
-  input         cpu_clk,
-  input         cpu_rst,
+  input             cpu_clk,
+  input             cpu_rst,
 
   // CPU side
-  output        cpu_err_o,
-  output        cpu_ack_o,
-  output [31:0] cpu_dat_o,
-  output        cpu_burst_last_o,
-  input  [31:0] cpu_adr_i,
-  input  [31:0] cpu_dat_i,
-  input         cpu_req_i,
-  input   [3:0] cpu_bsel_i,
-  input         cpu_we_i,
-  input         cpu_burst_i,
+  output reg        cpu_err_o,
+  output reg        cpu_ack_o,
+  output reg [31:0] cpu_dat_o,
+  output reg        cpu_burst_last_o,
+  input      [31:0] cpu_adr_i,
+  input      [31:0] cpu_dat_i,
+  input             cpu_req_i,
+  input       [3:0] cpu_bsel_i,
+  input             cpu_we_i,
+  input             cpu_burst_i,
 
   // Wishbone side
-  output [31:0] wbm_adr_o,
-  output        wbm_stb_o,
-  output        wbm_cyc_o,
-  output  [3:0] wbm_sel_o,
-  output        wbm_we_o,
-  output  [2:0] wbm_cti_o,
-  output  [1:0] wbm_bte_o,
-  output [31:0] wbm_dat_o,
-  input         wbm_err_i,
-  input         wbm_ack_i,
-  input  [31:0] wbm_dat_i,
-  input         wbm_rty_i
+  output     [31:0] wbm_adr_o,
+  output            wbm_stb_o,
+  output            wbm_cyc_o,
+  output      [3:0] wbm_sel_o,
+  output            wbm_we_o,
+  output      [2:0] wbm_cti_o,
+  output      [1:0] wbm_bte_o,
+  output     [31:0] wbm_dat_o,
+  input             wbm_err_i,
+  input             wbm_ack_i,
+  input      [31:0] wbm_dat_i,
+  input             wbm_rty_i
 );
 
   generate
@@ -260,19 +260,14 @@ module mor1kx_bus_if_wb32_marocchino
   localparam  WBM2CPU_MSB     = WBM2CPU_ERR;
   localparam  WBM2CPU_WIDTH   = WBM2CPU_MSB     + 1;
 
-  // --- input data ---
-  //  # registered (keep value one wb-clock)
+  // --- registered input data ---
   reg  [WBM2CPU_MSB:0] queue_in_r;
   // ---
   always @(posedge wb_clk) begin
-    if (wb_rst)
-      queue_in_r <= {WBM2CPU_WIDTH{1'b0}};
-    else if (to_wbm_cyc_r & (wbm_ack_i | wbm_err_i))
+    if (to_wbm_cyc_r & (wbm_ack_i | wbm_err_i))
       queue_in_r <= { wbm_err_i, wbm_ack_i,                // WBM-TO-CPU data layout
                       (to_wbm_cti_r[1] & burst_done_r[0]), // WBM-TO-CPU data layout
                       wbm_dat_i };                         // WBM-TO-CPU data layout
-    else
-      queue_in_r <= {WBM2CPU_WIDTH{1'b0}};
   end // @wb-clock
 
   // --- output data ---
@@ -284,8 +279,17 @@ module mor1kx_bus_if_wb32_marocchino
   wire                 queue_o1_ack = queue_o1[WBM2CPU_ACK];
   wire                 queue_o1_err = queue_o1[WBM2CPU_ERR];
 
-  // --- write control ---
-  wire queue_write = queue_in_r[WBM2CPU_ACK] | queue_in_r[WBM2CPU_ERR];
+  // --- write control (1-clock length) ---
+  reg  queue_write_r;
+  // ---
+  always @(posedge wb_clk) begin
+    if (wb_rst)
+      queue_write_r <= 1'b0;
+    else if (to_wbm_cyc_r & (wbm_ack_i | wbm_err_i))
+      queue_write_r <= wbm_ack_i | wbm_err_i;
+    else
+      queue_write_r <= 1'b0;
+  end // @wb-clock  
   // --- read control ---
   wire queue_read  = cpu2queue_ack_pulse;
   // --- flushing ---
@@ -307,7 +311,7 @@ module mor1kx_bus_if_wb32_marocchino
     .rst              (wb_rst), // WBM_TO_CPU_QUEUE
     // pipe controls
     .pipeline_flush_i (queue_flush), // WBM_TO_CPU_QUEUE
-    .write_i          (queue_write), // WBM_TO_CPU_QUEUE
+    .write_i          (queue_write_r), // WBM_TO_CPU_QUEUE
     .read_i           (queue_read),  // WBM_TO_CPU_QUEUE
     // value at reset/flush
     .default_value_i  ({WBM2CPU_WIDTH{1'b0}}), // WBM_TO_CPU_QUEUE
@@ -328,9 +332,9 @@ module mor1kx_bus_if_wb32_marocchino
   //---------------------------//
 
   //  Data is ready: we use toggle to overcome coupled ACKs
-  wire  queue2cpu_rdy_toggle = (queue_write & queue_empty) | // QUEUE-TO-CPU-RDY-TOGGLE
-                               (queue_read  & queue_write) | // QUEUE-TO-CPU-RDY-TOGGLE
-                               (queue_read  & (queue_o1_ack | queue_o1_err)); // QUEUE-TO-CPU-RDY-TOGGLE
+  wire  queue2cpu_rdy_toggle = (queue_write_r & queue_empty)   | // QUEUE-TO-CPU-RDY-TOGGLE
+                               (queue_read    & queue_write_r) | // QUEUE-TO-CPU-RDY-TOGGLE
+                               (queue_read    & (queue_o1_ack  | queue_o1_err)); // QUEUE-TO-CPU-RDY-TOGGLE
   reg   queue2cpu_rdy_toggle_r;
   // ---
   always @(posedge wb_clk) begin
@@ -403,20 +407,29 @@ module mor1kx_bus_if_wb32_marocchino
   //----------------------------------------------//
   // CPU-clock domain registered signals (to CPU) //
   //----------------------------------------------//
-  reg [WBM2CPU_MSB:0] to_cpu_latch;
-  // ---
+  //
+  // We don't use cpu-rst here because IFETCH's and
+  // LSU's bus controllers don't analyze these signals
+  // just after reset, while with next posedge of
+  // cpu-clk they go to zero.
+  //
+  // --- ack/err/burst-last ---
   always @(posedge cpu_clk) begin
-    if (cpu_rst)
-      to_cpu_latch <= {WBM2CPU_WIDTH{1'b0}};
-    else if (queue2cpu_rdy_pulse)
-      to_cpu_latch <= queue_o0;
-    else
-      to_cpu_latch <= {WBM2CPU_WIDTH{1'b0}};
+    if (queue2cpu_rdy_pulse) begin
+      cpu_burst_last_o <= queue_o0[WBM2CPU_LAST];
+      cpu_ack_o        <= queue_o0[WBM2CPU_ACK];
+      cpu_err_o        <= queue_o0[WBM2CPU_ERR];
+    end
+    else begin
+      cpu_burst_last_o <= 1'b0;
+      cpu_ack_o        <= 1'b0;
+      cpu_err_o        <= 1'b0;
+    end
   end // @cpu-clock
-  // --- to CPU output assignenment ---
-  assign cpu_dat_o        = to_cpu_latch[WBM2CPU_DAT_MSB:WBM2CPU_DAT_LSB];
-  assign cpu_burst_last_o = to_cpu_latch[WBM2CPU_LAST];
-  assign cpu_ack_o        = to_cpu_latch[WBM2CPU_ACK];
-  assign cpu_err_o        = to_cpu_latch[WBM2CPU_ERR];
+  // --- read data ---
+  always @(posedge cpu_clk) begin
+    if (queue2cpu_rdy_pulse)
+      cpu_dat_o <= queue_o0[WBM2CPU_DAT_MSB:WBM2CPU_DAT_LSB];
+  end // @cpu-clock
 
 endmodule // mor1kx_bus_if_wb32_marocchino

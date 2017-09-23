@@ -253,8 +253,8 @@ module mor1kx_ctrl_marocchino
   localparam  SPR_EVBAR_LSB   = 13;
   localparam  SPR_EVBAR_WIDTH = OPTION_OPERAND_WIDTH - SPR_EVBAR_LSB;
   // ---
-  reg  [SPR_EVBAR_WIDTH-1:0]        spr_evbar;
-  wire [OPTION_OPERAND_WIDTH-1:0]   exception_pc_addr;
+  reg       [SPR_EVBAR_WIDTH-1:0]   spr_evbar;
+  reg  [OPTION_OPERAND_WIDTH-1:0]   exception_pc_addr;
 
 
   // FPU Control & Status Register
@@ -362,7 +362,7 @@ module mor1kx_ctrl_marocchino
   reg [OPTION_OPERAND_WIDTH-1:0] last_jump_or_branch_pc;
   // ---
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_o)
+    if (pipeline_flush_o)
       last_jump_or_branch_pc <= {OPTION_OPERAND_WIDTH{1'b0}};
     else if (wb_jump_or_branch_i)
       last_jump_or_branch_pc <= pc_wb_i;
@@ -427,12 +427,21 @@ module mor1kx_ctrl_marocchino
   end // @ clock
 
 
-  // Store exception vector
-  reg [4:0] exception_vector_r;
-  //---
+  // Exception Vector Address
   always @(posedge cpu_clk) begin
     if (cpu_rst)
-      exception_vector_r <= 5'd0;
+      spr_evbar <= {SPR_EVBAR_WIDTH{1'b0}};
+    else if (spr_sys_group_cs & (`SPR_OFFSET(spr_bus_addr_o) == `SPR_OFFSET(`OR1K_SPR_EVBAR_ADDR)) &
+             spr_sys_group_wr_r)
+      spr_evbar <= spr_bus_dat_o[(OPTION_OPERAND_WIDTH-1):SPR_EVBAR_LSB];
+  end // @ clock
+
+
+  // Store exception vector
+  always @(posedge cpu_clk) begin
+    if (cpu_rst) begin
+      exception_pc_addr <= OPTION_RESET_PC;
+    end
     else if (wb_an_except_i) begin
       // synthesis parallel_case full_case
       casez({wb_except_itlb_miss_i,
@@ -450,26 +459,25 @@ module mor1kx_ctrl_marocchino
              wb_pic_interrupt_i,
              wb_tt_interrupt_i
             })
-        14'b1?????????????: exception_vector_r <= `OR1K_ITLB_VECTOR;
-        14'b01????????????: exception_vector_r <= `OR1K_IPF_VECTOR;
-        14'b001???????????: exception_vector_r <= `OR1K_BERR_VECTOR;
-        14'b0001??????????: exception_vector_r <= `OR1K_ILLEGAL_VECTOR;
-        14'b00001?????????: exception_vector_r <= `OR1K_ALIGN_VECTOR;
-        14'b000001????????: exception_vector_r <= `OR1K_SYSCALL_VECTOR;
-        14'b0000001???????: exception_vector_r <= `OR1K_DTLB_VECTOR;
-        14'b00000001??????: exception_vector_r <= `OR1K_DPF_VECTOR;
-        14'b000000001?????: exception_vector_r <= `OR1K_TRAP_VECTOR;
-        14'b0000000001????: exception_vector_r <= `OR1K_BERR_VECTOR;
-        14'b00000000001???: exception_vector_r <= `OR1K_RANGE_VECTOR;
-        14'b000000000001??: exception_vector_r <= `OR1K_FP_VECTOR;
-        14'b0000000000001?: exception_vector_r <= `OR1K_INT_VECTOR;
-        14'b00000000000001: exception_vector_r <= `OR1K_TT_VECTOR;
-        default:            exception_vector_r <= `OR1K_RESET_VECTOR;
+        14'b1?????????????: exception_pc_addr <= {spr_evbar,`OR1K_ITLB_VECTOR,8'd0};
+        14'b01????????????: exception_pc_addr <= {spr_evbar,`OR1K_IPF_VECTOR,8'd0};
+        14'b001???????????: exception_pc_addr <= {spr_evbar,`OR1K_BERR_VECTOR,8'd0};
+        14'b0001??????????: exception_pc_addr <= {spr_evbar,`OR1K_ILLEGAL_VECTOR,8'd0};
+        14'b00001?????????: exception_pc_addr <= {spr_evbar,`OR1K_ALIGN_VECTOR,8'd0};
+        14'b000001????????: exception_pc_addr <= {spr_evbar,`OR1K_SYSCALL_VECTOR,8'd0};
+        14'b0000001???????: exception_pc_addr <= {spr_evbar,`OR1K_DTLB_VECTOR,8'd0};
+        14'b00000001??????: exception_pc_addr <= {spr_evbar,`OR1K_DPF_VECTOR,8'd0};
+        14'b000000001?????: exception_pc_addr <= {spr_evbar,`OR1K_TRAP_VECTOR,8'd0};
+        14'b0000000001????: exception_pc_addr <= {spr_evbar,`OR1K_BERR_VECTOR,8'd0};
+        14'b00000000001???: exception_pc_addr <= {spr_evbar,`OR1K_RANGE_VECTOR,8'd0};
+        14'b000000000001??: exception_pc_addr <= {spr_evbar,`OR1K_FP_VECTOR,8'd0};
+        14'b0000000000001?: exception_pc_addr <= {spr_evbar,`OR1K_INT_VECTOR,8'd0};
+        14'b00000000000001: exception_pc_addr <= {spr_evbar,`OR1K_TT_VECTOR,8'd0};
+        default:            exception_pc_addr <= OPTION_RESET_PC;
       endcase // casex (...
     end
   end // @ clock
-  //---
-  assign exception_pc_addr = {spr_evbar,exception_vector_r,8'd0};
+
 
   // flag to select l.rfe related branch vector
   reg doing_rfe_r;
@@ -488,7 +496,7 @@ module mor1kx_ctrl_marocchino
   // ---
   always @(posedge cpu_clk) begin
     if (cpu_rst)
-      doing_exception_r <= 1'b0;
+      doing_exception_r <= 1'b1; // by reset
     else if ((doing_exception_r | du_cpu_unstall) & fetch_exception_taken_i)
       doing_exception_r <= 1'b0;
     else if (wb_an_except_i)
@@ -727,14 +735,6 @@ module mor1kx_ctrl_marocchino
     end
   end // @ clock
 
-  // Exception Vector Address
-  always @(posedge cpu_clk) begin
-    if (cpu_rst)
-      spr_evbar <= {SPR_EVBAR_WIDTH{1'b0}};
-    else if (spr_sys_group_cs & (`SPR_OFFSET(spr_bus_addr_o) == `SPR_OFFSET(`OR1K_SPR_EVBAR_ADDR)) &
-             spr_sys_group_wr_r)
-      spr_evbar <= spr_bus_dat_o[(OPTION_OPERAND_WIDTH-1):SPR_EVBAR_LSB];
-  end // @ clock
 
   // configuration registers
   mor1kx_cfgrs
@@ -884,13 +884,12 @@ module mor1kx_ctrl_marocchino
     endcase
   end // always
 
-  // SPR BUS controller
+  // SPR BUS controller: flags
   always @(posedge cpu_clk) begin
     if (cpu_rst | pipeline_flush_o) begin
-      spr_bus_addr_o <= 16'd0; // on reset / flush
+      // SPR BUS "we" and "stb" 
       spr_bus_we_o   <=  1'b0; // on reset / flush
       spr_bus_stb_o  <=  1'b0; // on reset / flush
-      spr_bus_dat_o  <= {OPTION_OPERAND_WIDTH{1'b0}}; // on reset / flush
       // internal auxiliaries
       spr_bus_cpu_stall_r  <= 1'b0; // on reset / flush
       spr_access_valid_reg <= 1'b1; // on reset / flush
@@ -911,11 +910,10 @@ module mor1kx_ctrl_marocchino
         // run l.mf(t)spr processing
         SPR_BUS_RUN_MXSPR,
         SPR_BUS_RUN_DU_REQ: begin
+          // SPR BUS "we" and "stb"
           if (spr_access_valid_mux) begin
-            spr_bus_addr_o <= spr_addr_mux;
-            spr_bus_we_o   <= spr_bus_run_mxspr ? ctrl_op_mtspr_r : du2spr_we_w;
-            spr_bus_stb_o  <= 1'b1;
-            spr_bus_dat_o  <= spr_bus_run_mxspr ? ctrl_rfb1_r : du2spr_wdat_w;
+            spr_bus_we_o  <= spr_bus_run_mxspr ? ctrl_op_mtspr_r : du2spr_we_w;
+            spr_bus_stb_o <= 1'b1;
           end
           // internal auxiliaries
           spr_access_valid_reg <= spr_access_valid_mux;
@@ -926,12 +924,9 @@ module mor1kx_ctrl_marocchino
         SPR_BUS_WAIT_MXSPR,
         SPR_BUS_WAIT_DU_ACK: begin
           if (spr_bus_ack) begin
-            spr_bus_addr_o  <= 16'd0;
+            // SPR BUS "we" and "stb"
             spr_bus_we_o    <=  1'b0;
             spr_bus_stb_o   <=  1'b0;
-            spr_bus_dat_o   <= {OPTION_OPERAND_WIDTH{1'b0}};
-            // registering read data
-            spr_bus_dat_r   <= spr_bus_dat_mux;
             // internal auxiliaries
             spr_access_valid_reg <= 1'b1;
             // next state
@@ -948,6 +943,45 @@ module mor1kx_ctrl_marocchino
         end
         // others
         default:;
+      endcase
+    end
+  end // @clock
+
+  // SPR BUS controller: in/out address and data
+  always @(posedge cpu_clk) begin
+    if (pipeline_flush_o) begin
+      spr_bus_addr_o <= 16'd0; // on reset / flush
+      spr_bus_dat_o  <= {OPTION_OPERAND_WIDTH{1'b0}}; // on reset / flush
+      spr_bus_dat_r  <= {OPTION_OPERAND_WIDTH{1'b0}}; // on reset / flush
+    end
+    else begin
+      // synthesis parallel_case full_case
+      case (spr_bus_state)
+        // wait SPR BUS access request
+        SPR_BUS_WAIT_REQ:;
+        // run l.mf(t)spr processing
+        SPR_BUS_RUN_MXSPR,
+        SPR_BUS_RUN_DU_REQ: begin
+          if (spr_access_valid_mux) begin
+            spr_bus_addr_o <= spr_addr_mux;
+            spr_bus_dat_o  <= spr_bus_run_mxspr ? ctrl_rfb1_r : du2spr_wdat_w;
+          end
+        end
+        // wait SPR BUS ACK from l.mf(t)spr processing
+        SPR_BUS_WAIT_MXSPR,
+        SPR_BUS_WAIT_DU_ACK: begin
+          if (spr_bus_ack) begin
+            spr_bus_addr_o <= 16'd0; // on SPR BUS ACK
+            spr_bus_dat_o  <= {OPTION_OPERAND_WIDTH{1'b0}}; // on SPR BUS ACK
+            spr_bus_dat_r  <= spr_bus_dat_mux;// on SPR BUS ACK
+          end
+        end
+        // others, incliding SPR_BUS_WB_MXSPR and SPR_BUS_DU_ACK_O
+        default: begin
+          spr_bus_addr_o <= 16'd0; // by default
+          spr_bus_dat_o  <= {OPTION_OPERAND_WIDTH{1'b0}}; // by default
+          spr_bus_dat_r  <= {OPTION_OPERAND_WIDTH{1'b0}}; // by default
+        end
       endcase
     end
   end // @clock
@@ -1010,31 +1044,31 @@ module mor1kx_ctrl_marocchino
   // SPR BUS interface for SYSTEM GROUP
   //  !!! Excluding GPR0 !!!
   assign spr_sys_group_cs = spr_bus_stb_o & (`SPR_BASE(spr_bus_addr_o) == `OR1K_SPR_SYS_BASE);
-  // ---
+  // "we" and "ack"
   always @(posedge cpu_clk) begin
     if (cpu_rst) begin
       spr_sys_group_wr_r    <=  1'b0;
       spr_bus_ack_sys_group <=  1'b0;
-      spr_bus_dat_sys_group <= 32'd0;
     end
     else if (spr_bus_ack_sys_group) begin // end of cycle
       spr_sys_group_wr_r    <=  1'b0;
       spr_bus_ack_sys_group <=  1'b0;
-      spr_bus_dat_sys_group <= 32'd0;
     end
     else if (spr_sys_group_cs & (spr_bus_addr_o[15:10] != 6'b000001)) begin // and not acceess to GPR (see OR1K_SPR_GPR0_ADDR)
-      if (spr_bus_we_o) begin
-        spr_sys_group_wr_r    <=  1'b1;
-        spr_bus_ack_sys_group <=  1'b1;
-        spr_bus_dat_sys_group <= 32'd0;
-      end
-      else begin
-        spr_sys_group_wr_r    <= 1'b0;
-        spr_bus_ack_sys_group <= 1'b1;
-        spr_bus_dat_sys_group <= spr_sys_group_dat;
-      end
+      spr_sys_group_wr_r    <=  spr_bus_we_o;
+      spr_bus_ack_sys_group <=  1'b1;
     end
   end // at clock
+  // read data (1-clock valid)
+  always @(posedge cpu_clk) begin
+    if (spr_bus_ack_sys_group)
+      spr_bus_dat_sys_group <= 32'd0;
+    else if (spr_sys_group_cs & (spr_bus_addr_o[15:10] != 6'b000001)) // and not acceess to GPR (see OR1K_SPR_GPR0_ADDR)
+      spr_bus_dat_sys_group <= spr_sys_group_dat;
+    else
+      spr_bus_dat_sys_group <= 32'd0;
+  end // at clock
+  
 
 
   // SPR access "ACK"
@@ -1131,9 +1165,7 @@ module mor1kx_ctrl_marocchino
     reg [OPTION_OPERAND_WIDTH-1:0] du_dat_r;
     // ---
     always @(posedge cpu_clk) begin
-      if (cpu_rst)
-        du_dat_r <= {OPTION_OPERAND_WIDTH{1'b0}};
-      else if (spr_bus_ack & spr_bus_mXdbg & (~spr_bus_we_o)) // DU uses non-registered SPR BUS sources
+      if (spr_bus_ack & spr_bus_mXdbg) // DU uses non-registered SPR BUS sources
         du_dat_r <= spr_bus_dat_mux; // DU uses non-registered SPR BUS sources
     end
     // ---
