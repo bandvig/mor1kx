@@ -322,13 +322,6 @@ module mor1kx_lsu_marocchino
   // Flushing from pipeline-flush-i till DBUS transaction completion //
   //-----------------------------------------------------------------//
 
-  // initial value of flush-r for simulations
- `ifndef SYNTHESIS
-  // synthesis translate_off
-  initial flush_r = 1'b0;
-  // synthesis translate_on
- `endif // !synth
-  // ----
   always @(posedge cpu_clk) begin
     if (cpu_rst)
       flush_r <= 1'b0; // on reset

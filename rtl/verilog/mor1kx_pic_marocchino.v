@@ -67,7 +67,7 @@ module mor1kx_pic_marocchino
 
 
   // SPR BUS interface
-  wire spr_pic_cs   = spr_bus_stb_i & (`SPR_BASE(spr_bus_addr_i) == `OR1K_SPR_PIC_BASE);
+  wire spr_pic_cs   = spr_bus_stb_i & (spr_bus_addr_i[14:11] == `OR1K_SPR_PIC_BASE); // `SPR_BASE
   wire spr_picmr_cs = (`SPR_OFFSET(spr_bus_addr_i) == `SPR_OFFSET(`OR1K_SPR_PICMR_ADDR));
   wire spr_picsr_cs = (`SPR_OFFSET(spr_bus_addr_i) == `SPR_OFFSET(`OR1K_SPR_PICSR_ADDR));
 
@@ -128,22 +128,22 @@ module mor1kx_pic_marocchino
     end
   end
   // ---
-  wire       cpu2pic_cs_pulse = cpu2pic_cs_r2 ^ cpu2pic_cs_r3;
-  reg        cpu2pic_cs_pulse_r;
-  reg [34:0] cpu2pic_cmd_r; // {"picmr-cs", "picsr-cs", "we", dat}
-  // --- latch SPR access parameters in Wishbone clock domain ---
+  wire cpu2pic_cs_pulse = cpu2pic_cs_r2 ^ cpu2pic_cs_r3;
+  reg  cpu2pic_cs_pulse_r;
+  // ---
   always @(posedge wb_clk) begin
-    if (wb_rst) begin
+    if (wb_rst)
       cpu2pic_cs_pulse_r <= 1'b0;
-    end
-    else begin
-      // re-clocked SPR BUS request is ready
+    else
       cpu2pic_cs_pulse_r <= cpu2pic_cs_pulse;
-      // re-clocked SPR BUS request data
-      if (cpu2pic_cs_pulse)
-        cpu2pic_cmd_r <= spr_pic_cmd_r;
-    end
-  end
+  end // at clock
+  // --- latch SPR access parameters in Wishbone clock domain ---
+  reg [34:0] cpu2pic_cmd_r; // {"picmr-cs", "picsr-cs", "we", dat}
+  // ---
+  always @(posedge wb_clk) begin
+    if (cpu2pic_cs_pulse)
+      cpu2pic_cmd_r <= spr_pic_cmd_r;
+  end // at clock
   // --- unpack SPR access parameters ---
   wire        cpu2pic_picmr_cs = cpu2pic_cmd_r[34];
   wire        cpu2pic_picsr_cs = cpu2pic_cmd_r[33];
@@ -156,20 +156,18 @@ module mor1kx_pic_marocchino
   reg  [31:0] pic_dato_r;
   // ---
   always @(posedge wb_clk) begin
-    if (wb_rst) begin
+    if (wb_rst)
       pic_ack_r <= 1'b0;
-    end
-    else begin
-      // ack is single wb-clk
+    else
       pic_ack_r <= cpu2pic_cs_pulse_r;
-      // data: latch regardless of "we"
-      if (cpu2pic_cs_pulse_r) begin
-        pic_dato_r <= cpu2pic_picmr_cs ? spr_picmr :
-                      cpu2pic_picsr_cs ? spr_picsr :
-                                         32'd0;
-      end
-    end 
-  end
+  end // at clock
+  // ---
+  always @(posedge wb_clk) begin
+    if (cpu2pic_cs_pulse_r)
+      pic_dato_r <= cpu2pic_picmr_cs ? spr_picmr :
+                    cpu2pic_picsr_cs ? spr_picsr :
+                                       32'd0;
+  end // at clock
 
 
   // PIC-ack-pulse -> CPU-ack-pulse

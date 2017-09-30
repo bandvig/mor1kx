@@ -49,10 +49,10 @@ module mor1kx_bus_if_wb32_marocchino
   input             cpu_rst,
 
   // CPU side
-  output reg        cpu_err_o,
-  output reg        cpu_ack_o,
-  output reg [31:0] cpu_dat_o,
-  output reg        cpu_burst_last_o,
+  output            cpu_err_o,
+  output            cpu_ack_o,
+  output     [31:0] cpu_dat_o,
+  output            cpu_burst_last_o,
   input      [31:0] cpu_adr_i,
   input      [31:0] cpu_dat_i,
   input             cpu_req_i,
@@ -122,10 +122,6 @@ module mor1kx_bus_if_wb32_marocchino
   // WBM access with read burst //
   //----------------------------//
 
-  // for burst control
-  reg   [(BURST_LENGTH-1):0] burst_done_r;
-  wire                [31:0] burst_next_adr;
-
   // WB-clock domain registered control signals (to interconnect)
   reg        to_wbm_stb_r;
   reg        to_wbm_cyc_r;
@@ -143,11 +139,9 @@ module mor1kx_bus_if_wb32_marocchino
   // synthesis translate_on
  `endif // !synth
 
-  // burst length is 8: 32 byte = (8 words x 32 bits/word) -> cache block length is 5
-  // burst length is 4: 16 byte = (4 words x 32 bits/word) -> cache block length is 4
-  assign burst_next_adr = (BURST_LENGTH == 8) ?
-    {to_wbm_adr_r[31:5], to_wbm_adr_r[4:0] + 5'd4} : // 32 byte = (8 words x 32 bits/word)
-    {to_wbm_adr_r[31:4], to_wbm_adr_r[3:0] + 4'd4};  // 16 byte = (4 words x 32 bits/word)
+  // for burst control
+  reg   [(BURST_LENGTH-1):0] burst_done_r;
+  wire                [31:0] burst_next_adr;
 
   // ---
   always @(posedge wb_clk) begin
@@ -175,7 +169,6 @@ module mor1kx_bus_if_wb32_marocchino
       else if (wbm_ack_i) begin
         // pay attention:
         // as DCACHE is write through, "data" and "we" are irrelevant for read burst
-        to_wbm_adr_r <= burst_next_adr;
         to_wbm_stb_r <= (to_wbm_cti_r[1] & (~burst_done_r[0]));
         to_wbm_cyc_r <= (to_wbm_cti_r[1] & (~burst_done_r[0]));
         to_wbm_sel_r <= (to_wbm_cti_r[1] & (~burst_done_r[0])) ? to_wbm_sel_r : 4'd0;
@@ -187,7 +180,6 @@ module mor1kx_bus_if_wb32_marocchino
       end
     end
     else if (cpu_req_pulse) begin // start transaction : address and controls
-      to_wbm_adr_r <= cpu_adr_i;
       to_wbm_stb_r <= 1'b1;
       to_wbm_cyc_r <= 1'b1;
       to_wbm_sel_r <= cpu_bsel_i;
@@ -198,6 +190,28 @@ module mor1kx_bus_if_wb32_marocchino
       burst_done_r <= {cpu_burst_i, {(BURST_LENGTH-1){1'b0}}};
     end
   end // @wb-clock
+
+
+  // WB-clock domain register address (to interconnect)
+  // burst length is 8: 32 byte = (8 words x 32 bits/word) -> cache block length is 5
+  // burst length is 4: 16 byte = (4 words x 32 bits/word) -> cache block length is 4
+  assign burst_next_adr = (BURST_LENGTH == 8) ?
+    {to_wbm_adr_r[31:5], to_wbm_adr_r[4:0] + 5'd4} : // 32 byte = (8 words x 32 bits/word)
+    {to_wbm_adr_r[31:4], to_wbm_adr_r[3:0] + 4'd4};  // 16 byte = (4 words x 32 bits/word)
+  // ---
+  always @(posedge wb_clk) begin
+    if (to_wbm_cyc_r) begin // wait complete transaction
+      if (wbm_ack_i) begin
+        // pay attention:
+        // as DCACHE is write through, "data" and "we" are irrelevant for read burst
+        to_wbm_adr_r <= burst_next_adr;
+      end
+    end
+    else if (cpu_req_pulse) begin // start transaction : address
+      to_wbm_adr_r <= cpu_adr_i;
+    end
+  end // @wb-clock
+
 
   // WB-clock domain register data (to interconnect)
   generate
@@ -246,10 +260,6 @@ module mor1kx_bus_if_wb32_marocchino
   // WBM-to-CPU burst queue //
   //------------------------//
 
-  // CPU-pulse -> QUEUE-pulse (declaration)
-  //  ACK: CPU has read QUEUE output data
-  wire cpu2queue_ack_pulse;
-
   // WBM-TO-CPU data layout
   localparam  WBM2CPU_DAT_LSB =  0;
   localparam  WBM2CPU_DAT_MSB = 31;
@@ -258,91 +268,26 @@ module mor1kx_bus_if_wb32_marocchino
   localparam  WBM2CPU_ERR     = WBM2CPU_ACK     + 1;
   // ---
   localparam  WBM2CPU_MSB     = WBM2CPU_ERR;
-  localparam  WBM2CPU_WIDTH   = WBM2CPU_MSB     + 1;
 
   // --- registered input data ---
   reg  [WBM2CPU_MSB:0] queue_in_r;
   // ---
   always @(posedge wb_clk) begin
-    if (to_wbm_cyc_r & (wbm_ack_i | wbm_err_i))
+    if (to_wbm_cyc_r & (wbm_err_i | wbm_ack_i))
       queue_in_r <= { wbm_err_i, wbm_ack_i,                // WBM-TO-CPU data layout
                       (to_wbm_cti_r[1] & burst_done_r[0]), // WBM-TO-CPU data layout
                       wbm_dat_i };                         // WBM-TO-CPU data layout
   end // @wb-clock
 
-  // --- output data ---
-  //  # from "EXIT" latches
-  wire [WBM2CPU_MSB:0] queue_o0;
-  wire                 queue_o0_err = queue_o0[WBM2CPU_ERR];
-  //  # from "PRE-EXIT" latches
-  wire [WBM2CPU_MSB:0] queue_o1;
-  wire                 queue_o1_ack = queue_o1[WBM2CPU_ACK];
-  wire                 queue_o1_err = queue_o1[WBM2CPU_ERR];
-
-  // --- write control (1-clock length) ---
-  reg  queue_write_r;
-  // ---
-  always @(posedge wb_clk) begin
-    if (wb_rst)
-      queue_write_r <= 1'b0;
-    else if (to_wbm_cyc_r & (wbm_ack_i | wbm_err_i))
-      queue_write_r <= wbm_ack_i | wbm_err_i;
-    else
-      queue_write_r <= 1'b0;
-  end // @wb-clock  
-  // --- read control ---
-  wire queue_read  = cpu2queue_ack_pulse;
-  // --- flushing ---
-  wire queue_flush = cpu2queue_ack_pulse & queue_o0_err;
-  // --- QUEUE status ---
-  wire queue_empty;
-
-  // WBM_TO_CPU_QUEUE instance
-  mor1kx_ocb_marocchino
-  #(
-    .NUM_TAPS   (BURST_LENGTH), // WBM_TO_CPU_QUEUE
-    .NUM_OUTS   (2), // WBM_TO_CPU_QUEUE
-    .DATA_SIZE  (WBM2CPU_WIDTH) // WBM_TO_CPU_QUEUE
-  )
-  u_wbm2cpu_queue
-  (
-    // clocks, resets
-    .clk              (wb_clk), // WBM_TO_CPU_QUEUE
-    .rst              (wb_rst), // WBM_TO_CPU_QUEUE
-    // pipe controls
-    .pipeline_flush_i (queue_flush), // WBM_TO_CPU_QUEUE
-    .write_i          (queue_write_r), // WBM_TO_CPU_QUEUE
-    .read_i           (queue_read),  // WBM_TO_CPU_QUEUE
-    // value at reset/flush
-    .default_value_i  ({WBM2CPU_WIDTH{1'b0}}), // WBM_TO_CPU_QUEUE
-    // data input
-    .ocbi_i           (queue_in_r), // WBM_TO_CPU_QUEUE
-    // "OCB is empty" flag
-    .empty_o          (queue_empty), // WBM_TO_CPU_QUEUE
-    // "OCB is full" flag
-    .full_o           (), // WBM_TO_CPU_QUEUE
-    // output layout
-    // { out[n-1], out[n-2], ... out[0] } : WB (entrance) -> CPU (exit)
-    .ocbo_o           ({queue_o1,queue_o0}) // WBM_TO_CPU_QUEUE
-  );
-
-
-  //---------------------------//
-  // QUEUE-toggle -> CPU-pulse //
-  //---------------------------//
-
-  //  Data is ready: we use toggle to overcome coupled ACKs
-  wire  queue2cpu_rdy_toggle = (queue_write_r & queue_empty)   | // QUEUE-TO-CPU-RDY-TOGGLE
-                               (queue_read    & queue_write_r) | // QUEUE-TO-CPU-RDY-TOGGLE
-                               (queue_read    & (queue_o1_ack  | queue_o1_err)); // QUEUE-TO-CPU-RDY-TOGGLE
+  // --- signaling to CPU ---
   reg   queue2cpu_rdy_toggle_r;
   // ---
   always @(posedge wb_clk) begin
     if (wb_rst)
       queue2cpu_rdy_toggle_r <= 1'b0;
-    else if (queue_o0_err)
+    else if (queue_in_r[WBM2CPU_ERR])
       queue2cpu_rdy_toggle_r <= queue2cpu_rdy_toggle_r;
-    else if (queue2cpu_rdy_toggle)
+    else if (to_wbm_cyc_r & (wbm_err_i | wbm_ack_i))
       queue2cpu_rdy_toggle_r <= ~queue2cpu_rdy_toggle_r;
   end // @wb-clock
   //  As CDC is not completely implemented (see note (c) at
@@ -366,70 +311,43 @@ module mor1kx_bus_if_wb32_marocchino
   // ---
   assign queue2cpu_rdy_pulse = queue2cpu_rdy_r2 ^ queue2cpu_rdy_r3;
 
-
-  //---------------------------//
-  // CPU-toggle -> QUEUE-pulse //
-  //---------------------------//
-
-  //  ACK: CPU has read QUEUE output data
-  //  Clock domain: WBM
-  //  As CDC is not completely implemented (see note (c) at
-  //  the begining of the file), each synchronizer
-  //  contains only one register. So register enumeration
-  //  starts from _r2 (*_r1 should be 1st in full sync. implementation).
-  reg cpu2queue_ack_r2;
-  reg cpu2queue_ack_r3;
-  // initial value for correct simulation
-  //  (prevent 'X' in cpu2queue_ack_pulse and next in queue_flush)
- `ifndef SYNTHESIS
-  // synthesis translate_off
-  initial begin
-    cpu2queue_ack_r2 = 1'b0;
-    cpu2queue_ack_r3 = 1'b0;
-  end
-  // synthesis translate_on
- `endif // !synth
+  // two stages ACK/ERR buffer
+  reg [2:0] queue_ack_err_r2;
+  reg [2:0] queue_ack_err_r3;
   // ---
-  always @(posedge wb_clk) begin
-    if (wb_rst) begin
-      cpu2queue_ack_r2 <= 1'b0;
-      cpu2queue_ack_r3 <= 1'b0;
-    end
-    else begin
-      cpu2queue_ack_r2 <= queue2cpu_rdy_r3;
-      cpu2queue_ack_r3 <= cpu2queue_ack_r2;
-    end
-  end // @wb-clock
-  // ---
-  assign cpu2queue_ack_pulse = cpu2queue_ack_r2 ^ cpu2queue_ack_r3;
-
-
-  //----------------------------------------------//
-  // CPU-clock domain registered signals (to CPU) //
-  //----------------------------------------------//
-  //
-  // We don't use cpu-rst here because IFETCH's and
-  // LSU's bus controllers don't analyze these signals
-  // just after reset, while with next posedge of
-  // cpu-clk they go to zero.
-  //
-  // --- ack/err/burst-last ---
   always @(posedge cpu_clk) begin
-    if (queue2cpu_rdy_pulse) begin
-      cpu_burst_last_o <= queue_o0[WBM2CPU_LAST];
-      cpu_ack_o        <= queue_o0[WBM2CPU_ACK];
-      cpu_err_o        <= queue_o0[WBM2CPU_ERR];
-    end
-    else begin
-      cpu_burst_last_o <= 1'b0;
-      cpu_ack_o        <= 1'b0;
-      cpu_err_o        <= 1'b0;
-    end
-  end // @cpu-clock
-  // --- read data ---
+    if (cpu_rst)
+      queue_ack_err_r2 <= 3'd0;
+    else
+      queue_ack_err_r2 <= {queue_in_r[WBM2CPU_ERR],queue_in_r[WBM2CPU_ACK],queue_in_r[WBM2CPU_LAST]};
+  end // at cpu-clock
+  // ---
+  always @(posedge cpu_clk) begin
+    if (cpu_rst)
+      queue_ack_err_r3 <= 3'd0;
+    else if (queue2cpu_rdy_pulse)
+      queue_ack_err_r3 <= queue_ack_err_r2;
+    else // 1-clock
+      queue_ack_err_r3 <= 3'd0;
+  end // at cpu-clock
+
+  // two stages DATA buffer
+  reg [31:0] queue_dat_r2;
+  reg [31:0] queue_dat_r3;
+  // ---
+  always @(posedge cpu_clk) begin
+    queue_dat_r2 <= queue_in_r[WBM2CPU_DAT_MSB:WBM2CPU_DAT_LSB];
+  end // at cpu-clock
+  // ---
   always @(posedge cpu_clk) begin
     if (queue2cpu_rdy_pulse)
-      cpu_dat_o <= queue_o0[WBM2CPU_DAT_MSB:WBM2CPU_DAT_LSB];
-  end // @cpu-clock
+      queue_dat_r3 <= queue_dat_r2;
+  end // at cpu-clock
+
+  // output assignement
+  assign cpu_burst_last_o = queue_ack_err_r3[0];
+  assign cpu_ack_o        = queue_ack_err_r3[1];
+  assign cpu_err_o        = queue_ack_err_r3[2];
+  assign cpu_dat_o        = queue_dat_r3;
 
 endmodule // mor1kx_bus_if_wb32_marocchino

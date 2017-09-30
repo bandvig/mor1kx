@@ -172,7 +172,7 @@ module mor1kx_immu_marocchino
   assign    spr_bus_ack_o = spr_immu_state_r[4];
 
   // overall IMMU "chip select"
-  assign spr_immu_cs = spr_bus_stb_i & (`SPR_BASE(spr_bus_addr_i) == `OR1K_SPR_IMMU_BASE);
+  assign spr_immu_cs = spr_bus_stb_i & (spr_bus_addr_i[14:11] == `OR1K_SPR_IMMU_BASE); // `SPR_BASE
 
   assign spr_way_idx = {spr_bus_addr_i[10], spr_bus_addr_i[8]};
 

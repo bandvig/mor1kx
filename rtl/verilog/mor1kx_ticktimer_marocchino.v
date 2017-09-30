@@ -60,7 +60,7 @@ module mor1kx_ticktimer_marocchino
 
 
   // SPR request decoders
-  wire spr_tt_cs   = spr_bus_stb_i & (`SPR_BASE(spr_bus_addr_i) == `OR1K_SPR_TT_BASE);
+  wire spr_tt_cs   = spr_bus_stb_i & (spr_bus_addr_i[14:11] == `OR1K_SPR_TT_BASE); // `SPR_BASE
   wire spr_ttmr_cs = (`SPR_OFFSET(spr_bus_addr_i) == `SPR_OFFSET(`OR1K_SPR_TTMR_ADDR));
   wire spr_ttcr_cs = (`SPR_OFFSET(spr_bus_addr_i) == `SPR_OFFSET(`OR1K_SPR_TTCR_ADDR));
 

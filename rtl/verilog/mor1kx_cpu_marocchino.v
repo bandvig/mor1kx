@@ -156,6 +156,11 @@ module mor1kx_cpu_marocchino
   wire [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfb1_adr;
   wire [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfa2_adr;
   wire [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfb2_adr;
+  //  # copy #1 of operand addresses
+  wire [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfa1_adr_cp1;
+  wire [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfb1_adr_cp1;
+  wire [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfa2_adr_cp1;
+  wire [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfb2_adr_cp1;
   //  # destiny addresses
   wire [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfd1_adr;
   wire [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfd2_adr;
@@ -271,8 +276,6 @@ module mor1kx_cpu_marocchino
 
   wire [OPTION_OPERAND_WIDTH-1:0] dcod_rfa1;
   wire [OPTION_OPERAND_WIDTH-1:0] dcod_rfb1;
-  wire [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfa1_adr;
-  wire [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfb1_adr;
   wire [OPTION_OPERAND_WIDTH-1:0] dcod_immediate;
   wire                            dcod_immediate_sel;
   // Special case for l.jr/l.jalr
@@ -280,8 +283,6 @@ module mor1kx_cpu_marocchino
   // for FPU64:
   wire [OPTION_OPERAND_WIDTH-1:0] dcod_rfa2;
   wire [OPTION_OPERAND_WIDTH-1:0] dcod_rfb2;
-  wire [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfa2_adr;
-  wire [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfb2_adr;
 
 
   wire [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfd1_adr;
@@ -668,6 +669,11 @@ module mor1kx_cpu_marocchino
     .fetch_rfb1_adr_o                 (fetch_rfb1_adr), // FETCH
     .fetch_rfa2_adr_o                 (fetch_rfa2_adr), // FETCH
     .fetch_rfb2_adr_o                 (fetch_rfb2_adr), // FETCH
+    //  # copy #1 of operand addresses
+    .fetch_rfa1_adr_cp1_o             (fetch_rfa1_adr_cp1), // FETCH
+    .fetch_rfb1_adr_cp1_o             (fetch_rfb1_adr_cp1), // FETCH
+    .fetch_rfa2_adr_cp1_o             (fetch_rfa2_adr_cp1), // FETCH
+    .fetch_rfb2_adr_cp1_o             (fetch_rfb2_adr_cp1), // FETCH
     //  # destiny addresses
     .fetch_rfd1_adr_o                 (fetch_rfd1_adr), // FETCH
     .fetch_rfd2_adr_o                 (fetch_rfd2_adr), // FETCH
@@ -711,19 +717,14 @@ module mor1kx_cpu_marocchino
     .spr_bus_ack_gpr_o                (spr_bus_ack_gpr), // RF
     .spr_bus_dat_gpr_o                (spr_bus_dat_gpr), // RF
     // from FETCH
-    .fetch_rfa1_adr_i                 (fetch_rfa1_adr), // RF
-    .fetch_rfb1_adr_i                 (fetch_rfb1_adr), // RF
+    .fetch_rfa1_adr_i                 (fetch_rfa1_adr_cp1), // RF
+    .fetch_rfb1_adr_i                 (fetch_rfb1_adr_cp1), // RF
     // for FPU64
-    .fetch_rfa2_adr_i                 (fetch_rfa2_adr), // RF
-    .fetch_rfb2_adr_i                 (fetch_rfb2_adr), // RF
+    .fetch_rfa2_adr_i                 (fetch_rfa2_adr_cp1), // RF
+    .fetch_rfb2_adr_i                 (fetch_rfb2_adr_cp1), // RF
     // from DECODE
-    .dcod_rfa1_adr_i                  (dcod_rfa1_adr), // RF
-    .dcod_rfb1_adr_i                  (dcod_rfb1_adr), // RF
     .dcod_immediate_i                 (dcod_immediate), // RF
     .dcod_immediate_sel_i             (dcod_immediate_sel), // RF
-    // for FPU64
-    .dcod_rfa2_adr_i                  (dcod_rfa2_adr), // RF
-    .dcod_rfb2_adr_i                  (dcod_rfb2_adr), // RF
     // Special WB-controls for RF
     .wb_rf_even_addr_i                (wb_rf_even_addr), // RF
     .wb_rf_even_wb_i                  (wb_rf_even_wb), // RF
@@ -789,11 +790,6 @@ module mor1kx_cpu_marocchino
     .fetch_delay_slot_i               (fetch_delay_slot), // DECODE
     //  # instruction word itsef
     .fetch_insn_i                     (fetch_insn), // DECODE
-    //  # operand addresses
-    .fetch_rfa1_adr_i                 (fetch_rfa1_adr), // DECODE
-    .fetch_rfb1_adr_i                 (fetch_rfb1_adr), // DECODE
-    .fetch_rfa2_adr_i                 (fetch_rfa2_adr), // DECODE
-    .fetch_rfb2_adr_i                 (fetch_rfb2_adr), // DECODE
     //  # destiny addresses
     .fetch_rfd1_adr_i                 (fetch_rfd1_adr), // DECODE
     .fetch_rfd2_adr_i                 (fetch_rfd2_adr), // DECODE
@@ -814,17 +810,9 @@ module mor1kx_cpu_marocchino
     // latched instruction word and it's attributes
     .dcod_insn_valid_o                (dcod_insn_valid), // DECODE
     .dcod_delay_slot_o                (dcod_delay_slot), // DECODE
-    // operand A1
-    .dcod_rfa1_adr_o                  (dcod_rfa1_adr), // DECODE
-    // operand B1
-    .dcod_rfb1_adr_o                  (dcod_rfb1_adr), // DECODE
     // destiny D1
     .dcod_rfd1_adr_o                  (dcod_rfd1_adr), // DECODE
     .dcod_rfd1_wb_o                   (dcod_rfd1_wb), // DECODE
-    // operand A2 (for FPU64)
-    .dcod_rfa2_adr_o                  (dcod_rfa2_adr), // DECODE
-    // operand B2 (for FPU64)
-    .dcod_rfb2_adr_o                  (dcod_rfb2_adr), // DECODE
     // destiny D2 (for FPU64)
     .dcod_rfd2_adr_o                  (dcod_rfd2_adr), // DECODE
     .dcod_rfd2_wb_o                   (dcod_rfd2_wb), // DECODE

@@ -58,13 +58,8 @@ module mor1kx_rf_marocchino
   input  [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfb2_adr_i,
 
   // from DECODE
-  input  [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfa1_adr_i,
-  input  [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfb1_adr_i,
   input  [OPTION_OPERAND_WIDTH-1:0] dcod_immediate_i,
   input                             dcod_immediate_sel_i,
-  // for FPU64
-  input  [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfa2_adr_i,
-  input  [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfb2_adr_i,
 
   // Special WB-controls for RF
   input  [OPTION_RF_ADDR_WIDTH-1:0] wb_rf_even_addr_i,
@@ -112,6 +107,26 @@ module mor1kx_rf_marocchino
   // short names
   localparam RF_AW = OPTION_RF_ADDR_WIDTH;
   localparam RF_DW = OPTION_OPERAND_WIDTH;
+
+  //-------------------------------//
+  // operand addresses declaration //
+  //-------------------------------//
+  reg [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfa1_adr;
+  reg [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfb1_adr;
+  reg [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfa2_adr;
+  reg [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfb2_adr;
+
+  // initial outputs for simulations
+ `ifndef SYNTHESIS
+  // synthesis translate_off
+  initial begin
+    dcod_rfa1_adr = {OPTION_RF_ADDR_WIDTH{1'b0}};
+    dcod_rfb1_adr = {OPTION_RF_ADDR_WIDTH{1'b0}};
+    dcod_rfa2_adr = {OPTION_RF_ADDR_WIDTH{1'b0}};
+    dcod_rfb2_adr = {OPTION_RF_ADDR_WIDTH{1'b0}};
+  end
+  // synthesis translate_on
+ `endif // !syhth
 
 
   //-----------//
@@ -176,8 +191,8 @@ module mor1kx_rf_marocchino
   // Controls for A-even RAM block
   //  # read/write conflict
   wire rfa_even_hazard = (write_even_req &  read_req &  (write_even_addr == fetch_rfa_even_addr)) |
-                         (write_even_req & ~read_req & ((write_even_addr == dcod_rfa1_adr_i) |
-                                                        (write_even_addr == dcod_rfa2_adr_i)));
+                         (write_even_req & ~read_req & ((write_even_addr == dcod_rfa1_adr) |
+                                                        (write_even_addr == dcod_rfa2_adr)));
   //  # signals for Read/Write port *_rwp_*
   wire               rfa_even_rwp_en   = rfa_even_hazard | read_req;
   wire               rfa_even_rwp_we   = rfa_even_hazard;
@@ -213,8 +228,8 @@ module mor1kx_rf_marocchino
   // Controls for A-odd RAM block
   //  # read/write conflict
   wire rfa_odd_hazard = (write_odd_req &  read_req &  (write_odd_addr == fetch_rfa_odd_addr)) |
-                        (write_odd_req & ~read_req & ((write_odd_addr == dcod_rfa1_adr_i) |
-                                                      (write_odd_addr == dcod_rfa2_adr_i)));
+                        (write_odd_req & ~read_req & ((write_odd_addr == dcod_rfa1_adr) |
+                                                      (write_odd_addr == dcod_rfa2_adr)));
   //  # signals for Read/Write port *_rwp_*
   wire               rfa_odd_rwp_en   = rfa_odd_hazard | read_req;
   wire               rfa_odd_rwp_we   = rfa_odd_hazard;
@@ -250,8 +265,8 @@ module mor1kx_rf_marocchino
   // Controls for B-even RAM block
   //  # read/write conflict
   wire rfb_even_hazard = (write_even_req &  read_req &  (write_even_addr == fetch_rfb_even_addr)) |
-                         (write_even_req & ~read_req & ((write_even_addr == dcod_rfb1_adr_i) |
-                                                        (write_even_addr == dcod_rfb2_adr_i)));
+                         (write_even_req & ~read_req & ((write_even_addr == dcod_rfb1_adr) |
+                                                        (write_even_addr == dcod_rfb2_adr)));
   //  # signals for Read/Write port *_rwp_*
   wire               rfb_even_rwp_en   = rfb_even_hazard | read_req;
   wire               rfb_even_rwp_we   = rfb_even_hazard;
@@ -287,8 +302,8 @@ module mor1kx_rf_marocchino
   // Controls for B-odd RAM block
   //  # read/write conflict
   wire rfb_odd_hazard = (write_odd_req &  read_req &  (write_odd_addr == fetch_rfb_odd_addr)) |
-                        (write_odd_req & ~read_req & ((write_odd_addr == dcod_rfb1_adr_i) |
-                                                      (write_odd_addr == dcod_rfb2_adr_i)));
+                        (write_odd_req & ~read_req & ((write_odd_addr == dcod_rfb1_adr) |
+                                                      (write_odd_addr == dcod_rfb2_adr)));
   //  # signals for Read/Write port *_rwp_*
   wire               rfb_odd_rwp_en   = rfb_odd_hazard | read_req;
   wire               rfb_odd_rwp_we   = rfb_odd_hazard;
@@ -477,11 +492,21 @@ module mor1kx_rf_marocchino
   // DECODE stage (dcod_*) //
   //-----------------------//
 
+  // update operand addresses
+  always @(posedge cpu_clk) begin
+    if (padv_fetch_i) begin
+      dcod_rfa1_adr <= fetch_rfa1_adr_i;
+      dcod_rfb1_adr <= fetch_rfb1_adr_i;
+      dcod_rfa2_adr <= fetch_rfa2_adr_i;
+      dcod_rfb2_adr <= fetch_rfb2_adr_i;
+    end
+  end // at clock
+
   // Muxing and forwarding RFA1-output
   assign dcod_rfa1_o = dcod_op_jal_i          ? pc_decode_i  :
                        dcod_wb2dec_d1a1_fwd_i ? wb_result1_i :
                        dcod_wb2dec_d2a1_fwd_i ? wb_result2_i :
-                       dcod_rfa1_adr_i[0]     ? rfa_odd_dout :
+                       dcod_rfa1_adr[0]       ? rfa_odd_dout :
                                                 rfa_even_dout;
 
   // Muxing and forwarding RFB1-output
@@ -489,19 +514,19 @@ module mor1kx_rf_marocchino
                        dcod_immediate_sel_i   ? dcod_immediate_i :
                        dcod_wb2dec_d1b1_fwd_i ? wb_result1_i     :
                        dcod_wb2dec_d2b1_fwd_i ? wb_result2_i     :
-                       dcod_rfb1_adr_i[0]     ? rfb_odd_dout     :
+                       dcod_rfb1_adr[0]       ? rfb_odd_dout     :
                                                 rfb_even_dout;
 
   // Muxing and forwarding RFA2-output
   assign dcod_rfa2_o = dcod_wb2dec_d1a2_fwd_i ? wb_result1_i :
                        dcod_wb2dec_d2a2_fwd_i ? wb_result2_i :
-                       dcod_rfa2_adr_i[0]     ? rfa_odd_dout :
+                       dcod_rfa2_adr[0]       ? rfa_odd_dout :
                                                 rfa_even_dout;
 
   // Muxing and forwarding RFB2-output
   assign dcod_rfb2_o = dcod_wb2dec_d1b2_fwd_i ? wb_result1_i :
                        dcod_wb2dec_d2b2_fwd_i ? wb_result2_i :
-                       dcod_rfb2_adr_i[0]     ? rfb_odd_dout :
+                       dcod_rfb2_adr[0]       ? rfb_odd_dout :
                                                 rfb_even_dout;
 
 
@@ -511,7 +536,7 @@ module mor1kx_rf_marocchino
   //   (b) the output is used next time in DECODE to form final branch target
   //   (c) in OMAN pipeline is stalled till B1 completion
   assign dcod_rfb1_jr_o = dcod_wb2dec_d1b1_fwd_i ? wb_result1_i :
-                          dcod_rfb1_adr_i[0]     ? rfb_odd_dout :
+                          dcod_rfb1_adr[0]       ? rfb_odd_dout :
                                                    rfb_even_dout;
 
 endmodule // mor1kx_rf_marocchino

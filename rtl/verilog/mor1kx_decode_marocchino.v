@@ -56,11 +56,6 @@ module mor1kx_decode_marocchino
   input                                 fetch_delay_slot_i,
   //  # instruction word itsef
   input          [`OR1K_INSN_WIDTH-1:0] fetch_insn_i,
-  //  # operand addresses
-  input      [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfa1_adr_i,
-  input      [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfb1_adr_i,
-  input      [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfa2_adr_i,
-  input      [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfb2_adr_i,
   //  # destiny addresses
   input      [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfd1_adr_i,
   input      [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfd2_adr_i,
@@ -86,17 +81,9 @@ module mor1kx_decode_marocchino
   output reg                            dcod_insn_valid_o,
   output reg                            dcod_delay_slot_o,
 
-  // operand A1
-  output reg [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfa1_adr_o,
-  // operand B1
-  output reg [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfb1_adr_o,
   // destiny D1
   output reg [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfd1_adr_o, // address of WB
   output reg                            dcod_rfd1_wb_o,  // instruction performes WB to D1
-  // operand A2 (for FPU64)
-  output reg [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfa2_adr_o,
-  // operand B2 (for FPU64)
-  output reg [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfb2_adr_o,
   // destiny D2 (for FPU64)
   output reg [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfd2_adr_o, // D2 address
   output reg                            dcod_rfd2_wb_o, // instruction performes WB to D2
@@ -817,17 +804,9 @@ module mor1kx_decode_marocchino
     if (cpu_rst | pipeline_flush_i) begin
       dcod_insn_valid_o         <= 1'b0;
       dcod_delay_slot_o         <= 1'b0;
-      // operand A1
-      dcod_rfa1_adr_o           <= {OPTION_RF_ADDR_WIDTH{1'b0}};
-      // operand B1
-      dcod_rfb1_adr_o           <= {OPTION_RF_ADDR_WIDTH{1'b0}};
       // destiny D1
       dcod_rfd1_adr_o           <= {OPTION_RF_ADDR_WIDTH{1'b0}};
       dcod_rfd1_wb_o            <= 1'b0;
-      // operand A2 (for FPU64)
-      dcod_rfa2_adr_o           <= {OPTION_RF_ADDR_WIDTH{1'b0}};
-      // operand B2 (for FPU64)
-      dcod_rfb2_adr_o           <= {OPTION_RF_ADDR_WIDTH{1'b0}};
       // destiny D2 (for FPU64)
       dcod_rfd2_adr_o           <= RST_RFD2_ADR;
       dcod_rfd2_wb_o            <= 1'b0;
@@ -905,17 +884,9 @@ module mor1kx_decode_marocchino
     else if (padv_fetch_i) begin
       dcod_insn_valid_o         <= fetch_insn_valid_i;
       dcod_delay_slot_o         <= fetch_delay_slot_i;
-      // operand A1
-      dcod_rfa1_adr_o           <= fetch_rfa1_adr_i;
-      // operand B1
-      dcod_rfb1_adr_o           <= fetch_rfb1_adr_i;
       // destiny D1
       dcod_rfd1_adr_o           <= ratin_rfd1_adr_o;
       dcod_rfd1_wb_o            <= ratin_rfd1_wb_o;
-      // operand A2 (for FPU64)
-      dcod_rfa2_adr_o           <= fetch_rfa2_adr_i;
-      // operand B2 (for FPU64)
-      dcod_rfb2_adr_o           <= fetch_rfb2_adr_i;
       // destiny D2 (for FPU64)
       dcod_rfd2_adr_o           <= ratin_rfd2_adr_o;
       dcod_rfd2_wb_o            <= ratin_rfd2_wb_o;
