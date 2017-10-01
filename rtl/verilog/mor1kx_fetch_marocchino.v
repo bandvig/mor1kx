@@ -279,37 +279,13 @@ module mor1kx_fetch_marocchino
   wire do_except = ctrl_branch_exception_i & (~fetch_exception_taken_o);
 
 
-  // store branch flag and target if stage #1 is busy
-  reg             do_branch_p;
-  reg [IFOOW-1:0] do_branch_target_p;
-  // ---
-  always @(posedge cpu_clk) begin
-    if (cpu_rst | flush_by_ctrl)
-      do_branch_p <= 1'b0;  // reset / flushing
-    else if (padv_s1s2)     // clean up / keep stored branch
-      do_branch_p <= 1'b0;  // regular advance stages #1 and #2
-    else if (~do_branch_p)
-      do_branch_p <= do_branch_i & (~fetch_jr_bc_hazard_i); // if IFETCH's stage #1 stalled
-  end // @ clock
-  // ---
-  always @(posedge cpu_clk) begin
-    if (flush_by_ctrl)                          // MAROCCHINO_TODO: ????
-      do_branch_target_p <= do_branch_target_p; // flush
-    else if (padv_s1s2)                         // MAROCCHINO_TODO: ????
-      do_branch_target_p <= do_branch_target_p; // regular advance
-    else if (~do_branch_p)
-      do_branch_target_p <= do_branch_target_i; // if IFETCH's stage #1 stalled
-  end // @ clock
-
-
   // Select the PC for next fetch:
   wire [IFOOW-1:0] virt_addr_mux;
   //                     use DU/exceptions/rfe provided address
-  assign virt_addr_mux = do_except            ? ctrl_branch_except_pc_i :
+  assign virt_addr_mux = do_except   ? ctrl_branch_except_pc_i :
   //                     regular update of IFETCH
-                         do_branch_p          ? do_branch_target_p      :
-                         do_branch_i          ? do_branch_target_i      :
-                                                s1r_virt_addr_next;
+                         do_branch_i ? do_branch_target_i      :
+                                       s1r_virt_addr_next;
 
   // register next virtual address
   always @(posedge cpu_clk) begin
@@ -319,6 +295,8 @@ module mor1kx_fetch_marocchino
       else
         s1r_virt_addr_next <= virt_addr_mux + 3'd4;
     end
+    else if (do_branch_i & (~fetch_jr_bc_hazard_i))
+      s1r_virt_addr_next <= do_branch_target_i;
   end // @ clock
   
   // IMMU match address store register
