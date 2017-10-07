@@ -45,7 +45,7 @@ module mor1kx_icache_marocchino
   input                                 padv_s1s2_i,
   input                                 flush_by_ctrl_i,
   // fetch exceptions
-  input                                 immu_an_except_i,
+  input                                 s2o_immu_an_except_i,
   input                                 ibus_err_i,
 
   // configuration
@@ -278,7 +278,7 @@ module mor1kx_icache_marocchino
         IC_READ: begin
           spr_bus_ack_o <= 1'b0; // read
           // next states
-          if (immu_an_except_i | flush_by_ctrl_i) begin // FSM: keep read
+          if (s2o_immu_an_except_i | flush_by_ctrl_i) begin // FSM: keep read
             ic_state <= IC_READ;
           end
           else if (spr_bus_ic_invalidate) begin
@@ -313,11 +313,7 @@ module mor1kx_icache_marocchino
           ic_state      <= IC_READ; // FSM: invalidate -> idling
         end
 
-        default: begin
-          spr_bus_ack_o     <= 1'b0;    // FSM: default
-          ic_refill_first_o <= 1'b0;    // FSM: default
-          ic_state          <= IC_READ; // FSM: default
-        end
+        default:;
       endcase
     end // reset / regular update
   end // @ clock
@@ -401,15 +397,15 @@ module mor1kx_icache_marocchino
 
   // Local copy of IFETCH's s2o_ic_ack, but 1-clock length
   //  to prevent extra LRU updates
-  reg ic_ack_r;
+  reg s2o_ic_ack_r;
   // ---
   always @(posedge cpu_clk) begin
     if (cpu_rst | flush_by_ctrl_i)
-      ic_ack_r <= 1'b0;
+      s2o_ic_ack_r <= 1'b0;
     else if (padv_s1s2_i)
-      ic_ack_r <= ic_ack_o;
+      s2o_ic_ack_r <= ic_ack_o;
     else
-      ic_ack_r <= 1'b0;
+      s2o_ic_ack_r <= 1'b0;
   end // @clock
 
   // LRU calculator
@@ -491,7 +487,7 @@ module mor1kx_icache_marocchino
     case (ic_state)
       IC_READ: begin
         // Update LRU data by read-hit only
-        if (ic_ack_r & (~immu_an_except_i) & (~flush_by_ctrl_i)) begin // on read-hit
+        if (s2o_ic_ack_r & (~s2o_immu_an_except_i) & (~flush_by_ctrl_i)) begin // on read-hit
           tag_we = 1'b1; // on read-hit
         end
       end

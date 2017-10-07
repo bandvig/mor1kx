@@ -269,7 +269,7 @@ module mor1kx_ctrl_marocchino
   /* DU internal control signals */
   // SPR BUS acceess to DU's control registers
   wire                              spr_bus_cs_du;  // "chip select" for DU
-  reg                               spr_bus_ack_du_r;
+  wire                              spr_bus_ack_du;
   wire                       [31:0] spr_bus_dat_du;
   wire                              du2spr_we_w;    // DU->SPR write request
   wire                       [15:0] du2spr_waddr_w; // DU->SPR write address
@@ -292,7 +292,7 @@ module mor1kx_ctrl_marocchino
   /* For SPR BUS transactions */
   reg                               spr_bus_cpu_stall_r; // stall pipe
   wire                              spr_bus_wb;          // push l.mf(t)spr to write-back stage
-  wire                              spr_bus_mXdbg;       // "move to/from Debug System"
+  wire                              spr_bus_wait_du_ack; // "move to/from Debug System"
   //  # instant ACK and data
   wire                              spr_bus_ack;
   wire   [OPTION_OPERAND_WIDTH-1:0] spr_bus_dat_mux;
@@ -713,9 +713,9 @@ module mor1kx_ctrl_marocchino
   end // @ clock
 
 
-  // NPC for SPR (write accesses implemented for Debug System only: MAROCCHINO_TODO: fix and kill spr_bus_mXdbg ??)
+  // NPC for SPR (write accesses implemented for Debug System only)
   assign du_npc_we = ((`SPR_OFFSET(spr_sys_group_wadr_r) == `SPR_OFFSET(`OR1K_SPR_NPC_ADDR)) &
-                      spr_sys_group_wr & spr_bus_mXdbg);
+                      spr_sys_group_wr & spr_bus_wait_du_ack);
   // --- Actually it is used just to restart CPU after salling by DU ---
   always @(posedge cpu_clk) begin
     if (cpu_rst)
@@ -828,7 +828,7 @@ module mor1kx_ctrl_marocchino
   wire       spr_bus_run_mxspr   = spr_bus_state[1];
   wire       spr_bus_wait_mxspr  = spr_bus_state[2];
   wire       spr_bus_run_du      = spr_bus_state[4];
-  //wire       spr_bus_wait_du_ack = spr_bus_state[5];
+  assign     spr_bus_wait_du_ack = spr_bus_state[5];
   // ---
   assign     spr_bus_wb          = spr_bus_state[3];
   // ---
@@ -890,7 +890,7 @@ module mor1kx_ctrl_marocchino
   // SPR BUS controller: flags
   always @(posedge cpu_clk) begin
     if (cpu_rst | pipeline_flush_o) begin
-      // SPR BUS "we" and "stb" 
+      // SPR BUS "we" and "stb"
       spr_bus_we_o   <=  1'b0; // on reset / flush
       spr_bus_stb_o  <=  1'b0; // on reset / flush
       // internal auxiliaries
@@ -1095,14 +1095,14 @@ module mor1kx_ctrl_marocchino
     else
       spr_bus_dat_sys_group <= 32'd0;
   end // at clock
-  
+
 
 
   // SPR access "ACK"
   assign spr_bus_ack = spr_bus_ack_sys_group | spr_bus_ack_gpr_i  |
                        spr_bus_ack_dmmu_i    | spr_bus_ack_immu_i |
                        spr_bus_ack_dc_i      | spr_bus_ack_ic_i   |
-                       spr_bus_ack_mac_i     | spr_bus_ack_du_r   |
+                       spr_bus_ack_mac_i     | spr_bus_ack_du     |
                        spr_bus_ack_pcu_i     | spr_bus_ack_pmu_i  |
                        spr_bus_ack_pic_i     | spr_bus_ack_tt_i   |
                        spr_bus_ack_fpu_i     | (~spr_access_valid_reg);
@@ -1140,6 +1140,12 @@ module mor1kx_ctrl_marocchino
   // DEBUG unit //
   //------------//
 
+  // SPR BUS interface for DEBUG UNIT
+  localparam [3:0] SPR_DU_WAIT  = 4'b0001,
+                   SPR_DU_WRITE = 4'b0010,
+                   SPR_DU_READ  = 4'b0100,
+                   SPR_DU_ACK   = 4'b1000;
+
   // "chip select" for DU from SPR BUS
   assign spr_bus_cs_du = spr_bus_stb_o & (spr_bus_addr_o[14:11] == `OR1K_SPR_DU_BASE); // `SPR_BASE
 
@@ -1169,31 +1175,12 @@ module mor1kx_ctrl_marocchino
     assign du2spr_wdat_w  = du2spr_wdat_r;  // DU enabled
 
 
-    // "move to/from Debug System"
-    reg spr_bus_mXdbg_r;
-    // Generate ack back to the debug interface bus
-    always @(posedge cpu_clk) begin
-      if (cpu_rst) begin
-        spr_bus_mXdbg_r <= 1'b0;
-      end
-      else if (spr_bus_mXdbg_r) begin
-        if (spr_bus_ack) // DU uses non-registered SPR BUS sources
-          spr_bus_mXdbg_r <= 1'b0;
-      end
-      else if (take_access_du) begin
-        spr_bus_mXdbg_r <= 1'b1;
-      end
-    end // @ clock
-    // ---
-    assign spr_bus_mXdbg = spr_bus_mXdbg_r;
-
-
     // Data back to the debug bus
     reg [OPTION_OPERAND_WIDTH-1:0] du_dat_r;
     // ---
     always @(posedge cpu_clk) begin
-      if (spr_bus_ack & spr_bus_mXdbg) // DU uses non-registered SPR BUS sources
-        du_dat_r <= spr_bus_dat_mux; // DU uses non-registered SPR BUS sources
+      if (spr_bus_ack & spr_bus_wait_du_ack) // DU uses non-registered SPR BUS sources
+        du_dat_r <= spr_bus_dat_mux;         // DU uses non-registered SPR BUS sources
     end
     // ---
     assign du_dat_o = du_dat_r; // DU enabled
@@ -1205,56 +1192,76 @@ module mor1kx_ctrl_marocchino
     reg spr_dsr_te;
     reg spr_drr_te;
 
-    wire spr_bus_cs_du_dmr1 = (`SPR_OFFSET(spr_bus_addr_o) == `SPR_OFFSET(`OR1K_SPR_DMR1_ADDR));
-    wire spr_bus_cs_du_dsr  = (`SPR_OFFSET(spr_bus_addr_o) == `SPR_OFFSET(`OR1K_SPR_DSR_ADDR));
-    wire spr_bus_cs_du_drr  = (`SPR_OFFSET(spr_bus_addr_o) == `SPR_OFFSET(`OR1K_SPR_DRR_ADDR));
-
-    reg spr_du_wr_r;
-    reg spr_bus_du_dmr1_st_r, spr_bus_du_dXr_te_r;
-
+    // ---
+    reg [3:0] spr_du_state;
+    // ---
+    wire   spr_du_wait    = spr_du_state[0];
+    wire   spr_du_wr      = spr_du_state[1];
+    wire   spr_du_re      = spr_du_state[2];
+    assign spr_bus_ack_du = spr_du_state[3];
+    // ---
     always @(posedge cpu_clk) begin
-      if (cpu_rst) begin
-        spr_du_wr_r           <= 1'b0;
-        spr_bus_ack_du_r      <= 1'b0;
-        spr_bus_du_dmr1_st_r  <= 1'b0;
-        spr_bus_du_dXr_te_r   <= 1'b0;
-      end
-      else if (spr_bus_ack_du_r) begin // end of cycle
-        spr_du_wr_r           <= 1'b0;
-        spr_bus_ack_du_r      <= 1'b0;
-        spr_bus_du_dmr1_st_r  <= 1'b0;
-        spr_bus_du_dXr_te_r   <= 1'b0;
-      end
-      else if (spr_bus_cs_du) begin
-        spr_bus_ack_du_r <= 1'b1;
-        spr_du_wr_r      <= spr_bus_we_o;
-        // data
-        if (spr_bus_we_o) begin
-          spr_bus_du_dmr1_st_r  <= 1'b0;
-          spr_bus_du_dXr_te_r   <= 1'b0;
-        end
-        else begin
-          spr_bus_du_dmr1_st_r  <= spr_bus_cs_du_dmr1 & spr_dmr1_st;
-          spr_bus_du_dXr_te_r   <= (spr_bus_cs_du_dsr & spr_dsr_te) | (spr_bus_cs_du_drr & spr_drr_te);
-       end
+      if (cpu_rst)
+        spr_du_state <= SPR_DU_WAIT;
+      else begin
+        // synthesis parallel_case full_case
+        case (spr_du_state)
+          SPR_DU_WAIT: begin
+            if (spr_bus_cs_du)
+              spr_du_state <= spr_bus_we_o ? SPR_DU_WRITE : SPR_DU_READ;
+          end
+          SPR_DU_WRITE,
+          SPR_DU_READ: begin
+            spr_du_state <= SPR_DU_ACK;
+          end
+          default: begin // uncluding SPR_DU_ACK
+            spr_du_state <= SPR_DU_WAIT;
+          end
+        endcase
       end
     end // at clock
 
-    assign spr_bus_dat_du = {
+    // --- write address and data ---
+    reg                       [15:0] spr_du_wadr_r;
+    reg [(OPTION_OPERAND_WIDTH-1):0] spr_du_wdat_r;
+    // ---
+    always @(posedge cpu_clk) begin
+      if (spr_du_wait & spr_bus_cs_du) begin
+        spr_du_wadr_r <= spr_bus_addr_o;
+        spr_du_wdat_r <= spr_bus_dat_o;
+      end
+    end // at clock
+    // ---
+    wire spr_bus_cs_du_dmr1 = (`SPR_OFFSET(spr_du_wadr_r) == `SPR_OFFSET(`OR1K_SPR_DMR1_ADDR));
+    wire spr_bus_cs_du_dsr  = (`SPR_OFFSET(spr_du_wadr_r) == `SPR_OFFSET(`OR1K_SPR_DSR_ADDR));
+    wire spr_bus_cs_du_drr  = (`SPR_OFFSET(spr_du_wadr_r) == `SPR_OFFSET(`OR1K_SPR_DRR_ADDR));
+
+    // --- read data (1-clock valid) ---
+    reg [(OPTION_OPERAND_WIDTH-1):0] spr_bus_dat_du_r;
+    // ---
+    always @(posedge cpu_clk) begin
+      if (spr_du_re)
+        spr_bus_dat_du_r <= {
                               {(OPTION_OPERAND_WIDTH - 1 - `OR1K_SPR_DMR1_ST){1'b0}}, // DU enabled: SPR BUS DAT DU
-                              spr_bus_du_dmr1_st_r,                                   // DU enabled: SPR BUS DAT DU
+                              (spr_bus_cs_du_dmr1 & spr_dmr1_st),                     // DU enabled: SPR BUS DAT DU
                               {(`OR1K_SPR_DMR1_ST - 1 - `OR1K_SPR_DSR_TE){1'b0}},     // DU enabled: SPR BUS DAT DU
-                              spr_bus_du_dXr_te_r,                                    // DU enabled: SPR BUS DAT DU
+                              ((spr_bus_cs_du_dsr & spr_dsr_te) |                     // DU enabled: SPR BUS DAT DU
+                               (spr_bus_cs_du_drr & spr_drr_te)),                     // DU enabled: SPR BUS DAT DU
                               {`OR1K_SPR_DSR_TE{1'b0}}                                // DU enabled: SPR BUS DAT DU
                             };
+      else
+        spr_bus_dat_du_r <= 32'd0;
+    end // at clock
+    // ---
+    assign spr_bus_dat_du = spr_bus_dat_du_r;
 
 
     /* DMR1 */
     always @(posedge cpu_clk) begin
       if (cpu_rst)
         spr_dmr1_st <= 1'b0;
-      else if (spr_du_wr_r & spr_bus_cs_du_dmr1)
-        spr_dmr1_st <= spr_bus_dat_o[`OR1K_SPR_DMR1_ST];
+      else if (spr_du_wr & spr_bus_cs_du_dmr1)
+        spr_dmr1_st <= spr_du_wdat_r[`OR1K_SPR_DMR1_ST];
     end // @ clock
 
 
@@ -1262,8 +1269,8 @@ module mor1kx_ctrl_marocchino
     always @(posedge cpu_clk) begin
       if (cpu_rst)
         spr_dsr_te <= 1'b0;
-      else if (spr_du_wr_r & spr_bus_cs_du_dsr)
-        spr_dsr_te <= spr_bus_dat_o[`OR1K_SPR_DSR_TE];
+      else if (spr_du_wr & spr_bus_cs_du_dsr)
+        spr_dsr_te <= spr_du_wdat_r[`OR1K_SPR_DSR_TE];
     end // @ clock
 
     // Pick the traps-cause-stall bit out of the DSR
@@ -1274,8 +1281,8 @@ module mor1kx_ctrl_marocchino
     always @(posedge cpu_clk) begin
       if (cpu_rst)
         spr_drr_te <= 1'b0;
-      else if (spr_du_wr_r & spr_bus_cs_du_drr)
-        spr_drr_te <= spr_bus_dat_o[`OR1K_SPR_DRR_TE];
+      else if (spr_du_wr & spr_bus_cs_du_drr)
+        spr_drr_te <= spr_du_wdat_r[`OR1K_SPR_DRR_TE];
       else if (wb_except_trap_i) // DU
         spr_drr_te <= 1'b1;
     end // @ clock
@@ -1443,6 +1450,8 @@ module mor1kx_ctrl_marocchino
   else begin : du_none
 
     // make ACK to SPR BUS
+    reg spr_bus_ack_du_r;
+    // ---
     always @(posedge cpu_clk) begin
       if (cpu_rst)
         spr_bus_ack_du_r <= 1'b0; // DU disabled
@@ -1451,10 +1460,10 @@ module mor1kx_ctrl_marocchino
       else if (spr_bus_cs_du)
         spr_bus_ack_du_r <= 1'b1; // DU disabled
     end
+    // ---
+    assign spr_bus_ack_du = spr_bus_ack_du_r; // DU disabled
     // data to SPR BUS
     assign spr_bus_dat_du = 32'd0; // DU disabled
-    // "move to/from Debug System"
-    assign spr_bus_mXdbg  = 1'b0; // DU disabled
 
 
     // data to Debug System

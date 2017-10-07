@@ -276,6 +276,10 @@ module pfpu_mul_marocchino
   wire  [2:0] s5t_f32_qrs = {s4o_sum39_a1b1[9:8], // f32: {q,r}
                              ((|s4o_sum39_a1b1[7:0]) | s4o_sticky)}; // f32: {s}
 
+  wire        s5t_shrx_n0 = (|s4o_shrx);
+  wire  [5:0] s5t_shrx    = s5t_shrx_n0 ? s4o_shrx : {5'd0,s5t_f32_fract25[24]};
+  wire [12:0] s5t_exp13rx = s5t_shrx_n0 ? s4o_exp13rx : (s4o_exp13c + {12'd0,s5t_f32_fract25[24]});
+
   // stage #5 outputs
   //   computation related
   reg        s5o_signc;
@@ -355,11 +359,15 @@ module pfpu_mul_marocchino
   wire  [2:0] s7t_f64_qrs     = {s6o_sum67[12:11],
                                  ((|s6o_sum67[10:0]) | s6o_sticky)};
 
+  wire        s7t_shrx_n0 = (|s6o_shrx);
+  wire  [5:0] s7t_shrx    = s7t_shrx_n0 ? s6o_shrx : {5'd0,s6o_sum67[66]};
+  wire [12:0] s7t_exp13rx = s7t_shrx_n0 ? s6o_exp13rx : (s6o_exp13c + {12'd0,s6o_sum67[66]});
+
   always @(posedge cpu_clk) begin
     if (out_adv_d | out_adv_s) begin
       mul_sign_o     <= (s6o_mul_ready ? s6o_signc   : s4o_signc);
-      mul_shr_o      <= (s6o_mul_ready ? s6o_shrx    : s4o_shrx);
-      mul_exp13shr_o <= (s6o_mul_ready ? s6o_exp13rx : s4o_exp13rx);
+      mul_shr_o      <= (s6o_mul_ready ? s7t_shrx    : s5t_shrx);
+      mul_exp13shr_o <= (s6o_mul_ready ? s7t_exp13rx : s5t_exp13rx);
       mul_exp13sh0_o <= (s6o_mul_ready ? s6o_exp13c  : s4o_exp13c);
       mul_fract57_o  <= (s6o_mul_ready ? {s7t_f64_fract54,s7t_f64_qrs} : {29'd0,s5t_f32_fract25,s5t_f32_qrs});
     end // advance pipe

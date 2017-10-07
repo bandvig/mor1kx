@@ -317,6 +317,8 @@ u_pfpu_ocb
 //   connection wires
 wire        add_sign;      // add/sub signum
 wire        add_sub_0;     // flag that actual substruction is performed and result is zero
+wire        add_shr;       // do right shift in align stage
+wire [12:0] add_exp13shr;  // exponent for right shift align
 wire  [5:0] add_shl;       // do left shift in align stage
 wire [12:0] add_exp13shl;  // exponent for left shift align
 wire [12:0] add_exp13sh0;  // exponent for no shift in align
@@ -353,6 +355,8 @@ pfpu_addsub_marocchino u_pfpu_addsub
   // outputs
   .add_sign_o             (add_sign), // PFPU_ADDSUB
   .add_sub_0_o            (add_sub_0), // PFPU_ADDSUB
+  .add_shr_o              (add_shr), // PFPU_ADDSUB
+  .add_exp13shr_o         (add_exp13shr), // PFPU_ADDSUB
   .add_shl_o              (add_shl), // PFPU_ADDSUB
   .add_exp13shl_o         (add_exp13shl), // PFPU_ADDSUB
   .add_exp13sh0_o         (add_exp13sh0), // PFPU_ADDSUB
@@ -584,6 +588,8 @@ pfpu_rnd_marocchino u_pfpu_rnd
   .add_rdy_i                (rnd_muxing_add), // PFPU_RND
   .add_sign_i               (add_sign), // PFPU_RND
   .add_sub_0_i              (add_sub_0), // PFPU_RND
+  .add_shr_i                (add_shr), // PFPU_RND
+  .add_exp13shr_i           (add_exp13shr), // PFPU_RND
   .add_shl_i                (add_shl), // PFPU_RND
   .add_exp13shl_i           (add_exp13shl), // PFPU_RND
   .add_exp13sh0_i           (add_exp13sh0), // PFPU_RND

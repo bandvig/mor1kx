@@ -184,7 +184,7 @@ module pfpu_f2i_marocchino
   // registering output
   always @(posedge cpu_clk) begin
     if (s1_adv) begin
-      f2i_sign_o  <= s0o_pending ? f2i_int53_p : f2i_sign_w;
+      f2i_sign_o  <= s0o_pending ? f2i_sign_p  : f2i_sign_w;
       f2i_int53_o <= s0o_pending ? f2i_int53_p : f2i_int53_m;
       f2i_shr_o   <= s0o_pending ? f2i_shr_p   : s1t_shr;
       f2i_shl_o   <= s0o_pending ? f2i_shl_p   : s1t_shl;

@@ -102,7 +102,7 @@ module mor1kx_fetch_marocchino
 
   // to RF read and DECODE
   //  # instruction word valid flag
-  output reg                            fetch_insn_valid_o,
+  output                                fetch_insn_valid_o,
   //  # instruction is in delay slot
   output reg                            fetch_delay_slot_o,
   //  # instruction word itsef
@@ -148,7 +148,6 @@ module mor1kx_fetch_marocchino
   // stop IFETCH stages #1 and #2 even so jump/branch target
   // is not ready. So we rise "hit" if virtual address is valid.
   reg                             s1o_fetch_req_hit;
-  reg                             s2o_fetch_req_hit;
   // IMMU's registered input(s)
   reg                 [IFOOW-1:0] s1o_virt_addr; // for comparison in IMMU
   reg                 [IFOOW-1:0] s2o_virt_addr; // i.e. pc_fetch_o
@@ -183,6 +182,8 @@ module mor1kx_fetch_marocchino
   wire                            s2t_ic_refill_req;
   reg                             s2o_ic_refill_req;
   wire                            ic_refill_first;
+  // ACK from ICACHE or IBUS without exceptions
+  reg                             s2o_imem_ack;
 
   //--- IBUS access state machine controls ---
 
@@ -389,41 +390,41 @@ module mor1kx_fetch_marocchino
   u_icache
   (
     // clock and reset
-    .cpu_clk              (cpu_clk), // ICACHE
-    .cpu_rst              (cpu_rst), // ICACHE
+    .cpu_clk                (cpu_clk), // ICACHE
+    .cpu_rst                (cpu_rst), // ICACHE
     // pipe controls
-    .padv_s1s2_i          (padv_s1s2), // ICACHE
-    .flush_by_ctrl_i      (flush_by_ctrl), // ICACHE
+    .padv_s1s2_i            (padv_s1s2), // ICACHE
+    .flush_by_ctrl_i        (flush_by_ctrl), // ICACHE
     // fetch exceptions
-    .immu_an_except_i     (s2o_immu_an_except), // ICACHE
-    .ibus_err_i           (ibus_err_i), // ICACHE: cancel re-fill
+    .s2o_immu_an_except_i   (s2o_immu_an_except), // ICACHE
+    .ibus_err_i             (ibus_err_i), // ICACHE: cancel re-fill
     // configuration
-    .ic_enable_i          (ic_enable_i), // ICACHE
+    .ic_enable_i            (ic_enable_i), // ICACHE
     // regular requests in/out
-    .virt_addr_mux_i      (virt_addr_mux), // ICACHE
-    .virt_addr_s1o_i      (s1o_virt_addr), // ICACHE
-    .phys_addr_s2t_i      (s2t_phys_addr), // ICACHE
-    .fetch_req_hit_i      (s1o_fetch_req_hit), // ICACHE: enables ICACHE's ACK
-    .immu_cache_inhibit_i (s2t_cache_inhibit), // ICACHE
-    .ic_ack_o             (s2t_ic_ack), // ICACHE
-    .ic_dat_o             (s2t_ic_dat), // ICACHE
+    .virt_addr_mux_i        (virt_addr_mux), // ICACHE
+    .virt_addr_s1o_i        (s1o_virt_addr), // ICACHE
+    .phys_addr_s2t_i        (s2t_phys_addr), // ICACHE
+    .fetch_req_hit_i        (s1o_fetch_req_hit), // ICACHE: enables ICACHE's ACK
+    .immu_cache_inhibit_i   (s2t_cache_inhibit), // ICACHE
+    .ic_ack_o               (s2t_ic_ack), // ICACHE
+    .ic_dat_o               (s2t_ic_dat), // ICACHE
     // IBUS access request
-    .ibus_read_req_o      (s2t_ibus_read_req), // ICACHE
+    .ibus_read_req_o        (s2t_ibus_read_req), // ICACHE
     // re-fill
-    .refill_req_o         (s2t_ic_refill_req), // ICACHE
-    .to_refill_i          (to_refill_state), // ICACHE
-    .ic_refill_first_o    (ic_refill_first), // ICACHE
-    .phys_addr_s2o_i      (s2o_phys_addr), // ICACHE
-    .ibus_dat_i           (ibus_dat_i), // ICACHE
-    .ibus_burst_last_i    (ibus_burst_last_i), // ICACHE
-    .ibus_ack_i           (ibus_ack_i), // ICACHE
+    .refill_req_o           (s2t_ic_refill_req), // ICACHE
+    .to_refill_i            (to_refill_state), // ICACHE
+    .ic_refill_first_o      (ic_refill_first), // ICACHE
+    .phys_addr_s2o_i        (s2o_phys_addr), // ICACHE
+    .ibus_dat_i             (ibus_dat_i), // ICACHE
+    .ibus_burst_last_i      (ibus_burst_last_i), // ICACHE
+    .ibus_ack_i             (ibus_ack_i), // ICACHE
     // SPR bus
-    .spr_bus_addr_i       (spr_bus_addr_i[15:0]), // ICACHE
-    .spr_bus_we_i         (spr_bus_we_i), // ICACHE
-    .spr_bus_stb_i        (spr_bus_stb_ifetch), // ICACHE
-    .spr_bus_dat_i        (spr_bus_dat_i), // ICACHE
-    .spr_bus_dat_o        (spr_bus_dat_ic_o), // ICACHE
-    .spr_bus_ack_o        (spr_bus_ack_ic_o) // ICACHE
+    .spr_bus_addr_i         (spr_bus_addr_i[15:0]), // ICACHE
+    .spr_bus_we_i           (spr_bus_we_i), // ICACHE
+    .spr_bus_stb_i          (spr_bus_stb_ifetch), // ICACHE
+    .spr_bus_dat_i          (spr_bus_dat_i), // ICACHE
+    .spr_bus_dat_o          (spr_bus_dat_ic_o), // ICACHE
+    .spr_bus_ack_o          (spr_bus_ack_ic_o) // ICACHE
   );
 
 
@@ -449,10 +450,8 @@ module mor1kx_fetch_marocchino
   //--------------------//
 
   // IBUS FSM is free to process next request
-  //  (1) It follows appropriate FSM condtions, but without taking into account exceptions
-  //  (2) If s2o_fetch_req_hit is rized that means either s2o_ic_ack or s2o_ic_refill_req
-  //      or s2o_ibus_read_req is rized too
-  assign ibus_fsm_free = ibus_idle_state & ((~s2o_fetch_req_hit) | s2o_ic_ack | s2o_ibus_ack);
+  // It follows appropriate FSM condtions, but without taking into account exceptions
+  assign ibus_fsm_free = ibus_idle_state & (~s2o_ic_refill_req) & (~s2o_ibus_read_req);
 
   // IBUS output ready (no bus error case)
   //  (a) read none-cached area
@@ -548,55 +547,51 @@ module mor1kx_fetch_marocchino
   // Stage #2 ICAHCE/IBUS result latches and output of IFETCH //
   //----------------------------------------------------------//
 
-  // MMU's exception with fetch request validity flag
-  wire s2t_immu_an_except = (s2t_tlb_miss | s2t_pagefault);
 
-  // instruction request is meaningfull
+  // ACK from ICACHE or IBUS without exceptions
   always @(posedge cpu_clk) begin
     if (cpu_rst | flush_by_ctrl)
-      s2o_fetch_req_hit <= 1'b0;    // reset / flush
+      s2o_imem_ack <= 1'b0;         // reset / flush
+    else if (ibus_ack)
+      s2o_imem_ack <= 1'b1;         // IBUS ack
     else if (padv_fetch_i) begin
       if (ibus_fsm_free)            // eq. padv_s1s2
-        s2o_fetch_req_hit <= s1o_fetch_req_hit | s2t_immu_an_except; // block S1/S2 advancing by an IMMU's exception
+        s2o_imem_ack <= s2t_ic_ack;
       else
-        s2o_fetch_req_hit <= 1'b0;  // no new insn/except at pipe advancing
+        s2o_imem_ack <= 1'b0;       // no new insn/except at pipe advancing
     end
-  end // @clock
+  end // @ clock
 
   // (1) output is an instruction or an exception
   // (2) miss or exception for multiplexing instruction word
-  wire s2t_insn_valid     =   s2t_ic_ack  | s2t_immu_an_except;
+  // MMU's exception with fetch request validity flag
+  wire s2t_immu_an_except = (s2t_tlb_miss | s2t_pagefault);
   wire s2t_miss_or_except = (~s2t_ic_ack) | s2t_immu_an_except;
   // ---
   always @(posedge cpu_clk) begin
     if (cpu_rst | flush_by_ctrl) begin
-      fetch_insn_valid_o     <= 1'b0; // reset / flush
       s2o_miss_or_except     <= 1'b1; // reset / flush
       s2o_miss_or_except_cp  <= 1'b1; // reset / flush
       s2o_miss_or_except_cp1 <= 1'b1; // reset / flush
     end
     else if (ibus_ack | ibus_err_i) begin
-      fetch_insn_valid_o     <= 1'b1;       // IBUS ack or error
       s2o_miss_or_except     <= ibus_err_i; // IBUS ack or error
       s2o_miss_or_except_cp  <= ibus_err_i; // IBUS ack or error
       s2o_miss_or_except_cp1 <= ibus_err_i; // IBUS ack or error
     end
     else if (padv_fetch_i) begin
       if (ibus_fsm_free) begin            // eq. padv_s1s2
-        fetch_insn_valid_o     <= s2t_insn_valid;
         s2o_miss_or_except     <= s2t_miss_or_except;
         s2o_miss_or_except_cp  <= s2t_miss_or_except;
         s2o_miss_or_except_cp1 <= s2t_miss_or_except;
       end
       else begin
-        fetch_insn_valid_o     <= 1'b0; // no new insn/except at pipe advancing
         s2o_miss_or_except     <= 1'b1; // no new insn/except at pipe advancing
         s2o_miss_or_except_cp  <= 1'b1; // no new insn/except at pipe advancing
         s2o_miss_or_except_cp1 <= 1'b1; // no new insn/except at pipe advancing
       end
     end
   end // @ clock
-
 
   // Exceptions
   always @(posedge cpu_clk) begin
@@ -611,8 +606,8 @@ module mor1kx_fetch_marocchino
       fetch_an_except_o         <= 1'b0;  // reset / flush
     end
     else if (ibus_err_i) begin
-      fetch_except_ibus_err_o   <= 1'b1;  // reset / flush
-      fetch_an_except_o         <= 1'b1;  // reset / flush
+      fetch_except_ibus_err_o   <= 1'b1;  // IBUS error
+      fetch_an_except_o         <= 1'b1;  // IBUS error
     end
     else if (padv_s1s2) begin
       // separate exceptions
@@ -625,15 +620,18 @@ module mor1kx_fetch_marocchino
     end
   end // @ clock
 
+  // ---
+  assign fetch_insn_valid_o = s2o_imem_ack | fetch_an_except_o; // (istruction or exception)
+
 
   // --- ICACHE re-fill request ---
   always @(posedge cpu_clk) begin
     if (cpu_rst | flush_by_ctrl)
       s2o_ic_refill_req <= 1'b0;  // reset / flush
+    else if (padv_s1s2)
+      s2o_ic_refill_req <= s2t_ic_refill_req;
     else if (to_refill_state)
       s2o_ic_refill_req <= 1'b0;  // IBUS FSM is going to re-fill
-    else if (padv_s1s2)
-      s2o_ic_refill_req <= s2t_ic_refill_req & (~s2t_immu_an_except);
   end // @ clock
   // --- ICACHE ack ---
   always @(posedge cpu_clk) begin
@@ -641,7 +639,7 @@ module mor1kx_fetch_marocchino
       s2o_ic_ack <= 1'b0;  // reset / flush
     else if (padv_fetch_i) begin
       if (ibus_fsm_free)    // eq. padv_s1s2
-        s2o_ic_ack <= s2t_ic_ack & (~s2t_immu_an_except);
+        s2o_ic_ack <= s2t_ic_ack;
       else
         s2o_ic_ack <= 1'b0; // no new insn/except at pipe advancing
     end
@@ -661,10 +659,10 @@ module mor1kx_fetch_marocchino
   always @(posedge cpu_clk) begin
     if (cpu_rst | flush_by_ctrl)
       s2o_ibus_read_req <= 1'b0;  // reset / flush
+    else if (padv_s1s2)
+      s2o_ibus_read_req <= s2t_ibus_read_req;
     else if (ibus_read_state)
       s2o_ibus_read_req <= 1'b0;  // IBUS-FSM is reading
-    else if (padv_s1s2)
-      s2o_ibus_read_req <= s2t_ibus_read_req & (~s2t_immu_an_except);
   end // @ clock
   // --- IBUS ack ---
   always @(posedge cpu_clk) begin

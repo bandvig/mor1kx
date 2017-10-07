@@ -409,9 +409,11 @@ module mor1kx_dcache_marocchino
           end
         end
 
-        default: begin // including DC_RST
-          dc_state <= DC_CHECK;  // on default
+        DC_RST: begin
+          dc_state <= DC_CHECK;  // on doing reset
         end
+
+        default:;
       endcase
     end
   end // at clock

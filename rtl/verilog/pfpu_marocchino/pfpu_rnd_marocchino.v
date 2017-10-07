@@ -64,6 +64,8 @@ module pfpu_rnd_marocchino
   input        add_rdy_i,       // add/sub is ready
   input        add_sign_i,      // add/sub signum
   input        add_sub_0_i,     // flag that actual substruction is performed and result is zero
+  input        add_shr_i,       // do right shift in align stage
+  input [12:0] add_exp13shr_i,  // exponent for right shift align
   input  [5:0] add_shl_i,       // do left shift in align stage
   input [12:0] add_exp13shl_i,  // exponent for left shift align
   input [12:0] add_exp13sh0_i,  // exponent for no shift in align
@@ -134,6 +136,18 @@ module pfpu_rnd_marocchino
   localparam QNAN_S = 31'b1111111110000000000000000000000;
   localparam SNAN_S = 31'b1111111101111111111111111111111;
 
+  // Bit-reverse on left shift, perform right shift,
+  // bit-reverse result on left shift.
+  function [66:0] reverse67_pfpu_rnd;
+  input [66:0] in;
+  integer      i1;
+  begin
+    for (i1 = 0; i1 < 67; i1 = i1 + 1) begin
+      reverse67_pfpu_rnd[66-i1] = in[i1];
+    end
+  end
+  endfunction
+
 
   /*
      Any stage's output is registered.
@@ -174,8 +188,6 @@ module pfpu_rnd_marocchino
   wire        s0t_snan;
   wire        s0t_qnan;
   wire        s0t_anan_sign;
-  wire  [5:0] s0t_shr;
-  wire  [5:0] s0t_shl;
 
   // multiplexer for signums and flags
   wire s0t_add_sign = add_sub_0_i ? rm_to_infm_i : add_sign_i;
@@ -194,43 +206,44 @@ module pfpu_rnd_marocchino
     ({67{f2i_rdy_i}} & {11'd0, f2i_int53_i,  3'd0}) |
     ({67{i2f_rdy_i}} & {       i2f_fract64_i,3'd0});
 
-  // overflow bit for add/mul
-  // MAROCCHINO_TODO: optimize ?
-  wire s0t_addmul_carry = (add_rdy_i & (rnd_op_fp64_arith_i ? add_fract57_i[56] : add_fract57_i[27])) |
-                          (mul_rdy_i & (rnd_op_fp64_arith_i ? mul_fract57_i[56] : mul_fract57_i[27]));
-
   // multiplexer for shift values
-  wire [5:0] s0t_shr_t;
-  assign {s0t_shr_t, s0t_shl} =
-    ({12{add_rdy_i}} & {            6'd0,        add_shl_i}) |  // MAROCCHINO_TODO: optimize right shift ?
-    ({12{mul_rdy_i}} & {       mul_shr_i,             6'd0}) |  // MAROCCHINO_TODO: optimize right shift ?
+  wire  [5:0] s0t_shr;
+  wire  [5:0] s0t_shl;
+  // ---
+  assign {s0t_shr, s0t_shl} =
+    ({12{add_rdy_i}} & {{5'd0,add_shr_i},        add_shl_i}) |
+    ({12{mul_rdy_i}} & {       mul_shr_i,             6'd0}) |
     ({12{div_rdy_i}} & {       div_shr_i, {5'd0,div_shl_i}}) |
     ({12{f2i_rdy_i}} & {       f2i_shr_i, {2'b0,f2i_shl_i}}) |
     ({12{i2f_rdy_i}} & {{2'b0,i2f_shr_i},       i2f_shl_i});
-
-  assign s0t_shr = (|s0t_shr_t) ? s0t_shr_t : {5'd0,s0t_addmul_carry};  // MAROCCHINO_TODO: optimize ?
+  // ---
+  wire s0t_is_shr = (|s0t_shr);
+  wire s0t_is_shl = (|s0t_shl);
+  // ---
+  wire [5:0] s0t_sh6 = s0t_is_shr ? s0t_shr :
+                       s0t_is_shl ? s0t_shl : 6'd0;
 
   // two stage multiplexer for exponents
   wire [12:0] s0t_exp13shr;
   wire [12:0] s0t_exp13shl;
   wire [12:0] s0t_exp13sh0;
+  // ---
   assign {s0t_exp13shr, s0t_exp13shl, s0t_exp13sh0} =
-    ({39{add_rdy_i}} & {add_exp13sh0_i, add_exp13shl_i, add_exp13sh0_i}) |
+    ({39{add_rdy_i}} & {add_exp13shr_i, add_exp13shl_i, add_exp13sh0_i}) |
     ({39{mul_rdy_i}} & {mul_exp13shr_i,          13'd0, mul_exp13sh0_i}) |
     ({39{div_rdy_i}} & {div_exp13shr_i, div_exp13shl_i, div_exp13sh0_i}) |
     ({39{f2i_rdy_i}} & {         13'd0,          13'd0,          13'd0}) |
     ({39{i2f_rdy_i}} & {{2'd0,i2f_exp11shr_i},{2'd0,i2f_exp11shl_i},{2'd0,i2f_exp11sh0_i}});
 
-  wire [12:0] s0t_exp13 =
-    (|s0t_shr_t)  ? s0t_exp13shr :
-    (~(|s0t_shl)) ? (s0t_exp13sh0 + {12'd0,s0t_addmul_carry}) :
-                    s0t_exp13shl;
+  wire [12:0] s0t_exp13 = s0t_is_shr ? s0t_exp13shr :
+                          s0t_is_shl ? s0t_exp13shl : s0t_exp13sh0;
 
   // stage #0 output registers
   reg         s0o_sign;
   reg         s0o_is_shr;
-  reg   [5:0] s0o_shr;
-  reg   [5:0] s0o_shl;
+  reg   [5:0] s0o_shr;    // for correct computation of sticky 
+  reg   [5:0] s0o_shl;    // for correct computation of sticky
+  reg   [5:0] s0o_sh6;    // for shift
   reg  [12:0] s0o_exp13;
   reg  [66:0] s0o_fract67;
   reg         s0o_op_fp64_arith;
@@ -250,11 +263,12 @@ module pfpu_rnd_marocchino
   always @(posedge cpu_clk) begin
     if (s0_adv) begin
       s0o_sign          <= s0t_sign;
-      s0o_is_shr        <= (|s0t_shr);
+      s0o_is_shr        <= s0t_is_shr;
       s0o_shr           <= s0t_shr;
       s0o_shl           <= s0t_shl;
+      s0o_sh6           <= s0t_sh6;
       s0o_exp13         <= s0t_exp13;
-      s0o_fract67       <= s0t_fract67;
+      s0o_fract67       <= s0t_is_shr ? s0t_fract67 : reverse67_pfpu_rnd(s0t_fract67);
       s0o_op_fp64_arith <= rnd_op_fp64_arith_i;
       // various flags:
       s0o_inv           <= ocb_inv_i;
@@ -285,8 +299,8 @@ module pfpu_rnd_marocchino
   /* Stage #1: common align */
 
   // align
-  wire [66:0] s1t_fract67sh = s0o_is_shr ? (s0o_fract67 >> s0o_shr) :
-                                           (s0o_fract67 << s0o_shl);
+  wire [66:0] s1t_fract67shr = (s0o_fract67 >> s0o_sh6);
+  wire [66:0] s1t_fract67sh  = s0o_is_shr ? s1t_fract67shr : reverse67_pfpu_rnd(s1t_fract67shr);
 
   // update sticky bit for right shift case.
   //  # select bits for sticky computation
@@ -360,7 +374,7 @@ module pfpu_rnd_marocchino
 
   // update sticky bit for left shift case
   //    double/single fractionals are right (by LSB) aligned
-  wire [1:0] s1t_fract2 = s0o_fract67[1:0];
+  wire [1:0] s1t_fract2 = {s0o_fract67[65],s0o_fract67[66]}; // it is reversed for left shift
   // ---
   reg s1l_sticky;
   always @(s1t_fract2 or s0o_shl) begin

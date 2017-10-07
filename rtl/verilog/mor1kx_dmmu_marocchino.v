@@ -202,8 +202,11 @@ module mor1kx_dmmu_marocchino
         SPR_DMMU_RINIT: spr_dmmu_state_r <= SPR_DMMU_RMUX; // on read strobe completion
         // latch read data
         SPR_DMMU_RMUX:  spr_dmmu_state_r <= SPR_DMMU_ACK; // on read result latching
-        // default including SPR_DMMU_ACK, SPR_DMMU_RST
-        default:        spr_dmmu_state_r <= SPR_DMMU_WAIT; // on default/ack
+        // back to waiting
+        SPR_DMMU_ACK,
+        SPR_DMMU_RST:   spr_dmmu_state_r <= SPR_DMMU_WAIT; // generate ACK / doing reset
+        // others
+        default:;    
       endcase
     end
   end // @ clock

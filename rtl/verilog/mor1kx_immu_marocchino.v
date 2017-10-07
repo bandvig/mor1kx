@@ -195,8 +195,11 @@ module mor1kx_immu_marocchino
         SPR_IMMU_RINIT: spr_immu_state_r <= SPR_IMMU_RMUX; // on read strobe completion
         // latch read data
         SPR_IMMU_RMUX:  spr_immu_state_r <= SPR_IMMU_ACK; // on read result latching
-        // default including SPR_IMMU_ACK, SPR_IMMU_RST
-        default:        spr_immu_state_r <= SPR_IMMU_WAIT; // on default/ack/rst
+        // back to waiting
+        SPR_IMMU_ACK,
+        SPR_IMMU_RST:   spr_immu_state_r <= SPR_IMMU_WAIT; // generate ACK / doing reset
+        // others
+        default:;
       endcase
     end
   end // @ clock
