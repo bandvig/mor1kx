@@ -69,7 +69,6 @@ module mor1kx_ctrl_marocchino
 
   // Inputs / Outputs for pipeline control signals
   input                                 dcod_insn_valid_i,
-  input                                 fd_an_except_i,
   input                                 dcod_valid_i,
   input                                 exec_valid_i,
   output reg                            pipeline_flush_o,
@@ -560,7 +559,7 @@ module mor1kx_ctrl_marocchino
 
 
   // Advance DECODE->EXECUTE latches
-  assign padv_decode_o = dcod_valid_i & dcod_insn_valid_i & (~spr_bus_cpu_stall_r) & (~fd_an_except_i) &
+  assign padv_decode_o = dcod_valid_i & dcod_insn_valid_i & (~spr_bus_cpu_stall_r) &
                          (~du_cpu_stall) & ((~stepping) | pstep[1]); // DU enabling/disabling DECODE
   // Pass step from DECODE to WB
   wire   pass_step_to_wb = pstep[1]; // for DU
@@ -889,7 +888,7 @@ module mor1kx_ctrl_marocchino
 
   // SPR BUS controller: flags
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_o) begin
+    if (cpu_rst) begin
       // SPR BUS "we" and "stb"
       spr_bus_we_o   <=  1'b0; // on reset / flush
       spr_bus_stb_o  <=  1'b0; // on reset / flush
@@ -904,11 +903,13 @@ module mor1kx_ctrl_marocchino
       case (spr_bus_state)
         // wait SPR BUS access request
         SPR_BUS_WAIT_REQ: begin
-          spr_bus_state <= take_op_mXspr  ? SPR_BUS_RUN_MXSPR  :
-                           take_access_du ? SPR_BUS_RUN_DU_REQ :
-                                            SPR_BUS_WAIT_REQ;
-          if (take_op_mXspr | take_access_du)
-            spr_bus_cpu_stall_r <= 1'b1;
+          if (~pipeline_flush_o) begin
+            spr_bus_state <= take_op_mXspr  ? SPR_BUS_RUN_MXSPR  :
+                             take_access_du ? SPR_BUS_RUN_DU_REQ :
+                                              SPR_BUS_WAIT_REQ;
+            if (take_op_mXspr | take_access_du)
+              spr_bus_cpu_stall_r <= 1'b1;
+          end
         end
         // run l.mf(t)spr processing
         SPR_BUS_RUN_MXSPR,
@@ -979,12 +980,15 @@ module mor1kx_ctrl_marocchino
             spr_bus_dat_r  <= spr_bus_dat_mux;// on SPR BUS ACK
           end
         end
-        // others, incliding SPR_BUS_WB_MXSPR and SPR_BUS_DU_ACK_O
-        default: begin
+         // push l.mf(t)spr instruction to write-back stage 
+        SPR_BUS_WB_MXSPR,
+        SPR_BUS_DU_ACK_O: begin
           spr_bus_addr_o <= 16'd0; // by default
           spr_bus_dat_o  <= {OPTION_OPERAND_WIDTH{1'b0}}; // by default
           spr_bus_dat_r  <= {OPTION_OPERAND_WIDTH{1'b0}}; // by default
         end
+        // others
+        default:;
       endcase
     end
   end // @clock
@@ -1075,9 +1079,10 @@ module mor1kx_ctrl_marocchino
         SPR_SYS_READ: begin
           spr_sys_state <= SPR_SYS_ACK;
         end
-        default: begin // uncluding SPR_SYS_ACK
+        SPR_SYS_ACK: begin
           spr_sys_state <= SPR_SYS_WAIT;
         end
+        default:;
       endcase
     end
   end // at clock
@@ -1163,7 +1168,7 @@ module mor1kx_ctrl_marocchino
     reg [OPTION_OPERAND_WIDTH-1:0] du2spr_wdat_r;
     // ---
     always @(posedge cpu_clk) begin
-      if (take_access_du) begin
+      if (take_access_du & (~pipeline_flush_o)) begin
         du2spr_we_r    <= du_we_i;
         du2spr_waddr_r <= du_addr_i;
         du2spr_wdat_r  <= du_dat_i;
@@ -1214,9 +1219,10 @@ module mor1kx_ctrl_marocchino
           SPR_DU_READ: begin
             spr_du_state <= SPR_DU_ACK;
           end
-          default: begin // uncluding SPR_DU_ACK
+          SPR_DU_ACK: begin
             spr_du_state <= SPR_DU_WAIT;
           end
+          default:;
         endcase
       end
     end // at clock

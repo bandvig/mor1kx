@@ -258,9 +258,6 @@ module mor1kx_oman_marocchino
   output reg                            omn2dec_hazard_dxb2_o,
   output reg  [DEST_EXT_ADDR_WIDTH-1:0] omn2dec_hazard_dxb2_adr_o,
 
-  // Stall fetch by specific type of hazards
-  output reg                            fd_an_except_o,
-
   // DECODE result could be processed by EXECUTE
   output                                dcod_valid_o,
 
@@ -1036,12 +1033,15 @@ module mor1kx_oman_marocchino
             jb_bnf_p       <= {jb_bnf_p[0],1'b0};
           end
         end
-        // by default including JB_FSM_DOING_JR and JB_FSM_DOING_BC
-        default : begin
+        // doing j/b 
+        JB_FSM_DOING_JR,
+        JB_FSM_DOING_BC : begin
           jb_fsm_state_r <= JB_FSM_CATCHING_JB;
           jb_bf_p        <= 2'b00;
           jb_bnf_p       <= 2'b00;
         end
+        // others
+        default:;
       endcase
     end
   end // @cpu-clock
@@ -1144,19 +1144,6 @@ module mor1kx_oman_marocchino
     end
   end // @clock
 
-
-  // ---
-  // Stall DECODE advancing (see also CTRL) when l.rfe or ecxeptions are in EXECUTE stage.
-  // The main purpose of this is waiting till l.rfe/exceptions propagate up to WB stage.
-  // ---
-  always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i)
-      fd_an_except_o <= 1'b0;
-    else if (padv_decode_i)
-      fd_an_except_o <= (fd_an_except   | oman_except_ibus_align  | dcod_op_rfe_i);
-    else if (jb_attr_ocb_write)
-      fd_an_except_o <= (fd_an_except_o | oman_except_ibus_align);
-  end
 
   //   Flag to enabel/disable exterlal interrupts processing
   // depending on the fact is instructions restartable or not

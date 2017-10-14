@@ -490,7 +490,7 @@ module mor1kx_dcache_marocchino
         end
       end
 
-      default: begin // including DC_RST
+      DC_RST: begin
         refill_first_o   <= 1'b0; // on default
         lru_way_refill_r <= {OPTION_DCACHE_WAYS{1'b0}}; // on default
         s2o_dc_ack_write <= 1'b0; // on default
@@ -499,6 +499,8 @@ module mor1kx_dcache_marocchino
         snoop_windex     <= {OPTION_DCACHE_SET_WIDTH{1'b0}}; // on default
         spr_bus_ack_o    <= 1'b0;    // on default
       end
+
+      default:;
     endcase
   end // @ clock
 

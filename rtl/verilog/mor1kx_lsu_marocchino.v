@@ -714,9 +714,7 @@ module mor1kx_lsu_marocchino
             dbus_state <= DBUS_IDLE; // dbus-an-except: by flush
         end
 
-        default: begin
-          dbus_state <= DBUS_IDLE; // dbus-deault
-        end
+        default:;
       endcase
     end
   end // @ clock: DBUS_FSM

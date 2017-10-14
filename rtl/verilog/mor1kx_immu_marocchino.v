@@ -228,14 +228,17 @@ module mor1kx_immu_marocchino
                          immucr_spr_cs_r     ? immucr                         :
                                                {OPTION_OPERAND_WIDTH{1'b0}};
       end
-      // default including SPR_IMMU_ACK, SPR_IMMU_RST
-      default: begin
+      // back to waiting
+      SPR_IMMU_ACK,
+      SPR_IMMU_RST: begin
         itlb_match_spr_cs_r <= 1'b0; // on default/ack/rst
         itlb_trans_spr_cs_r <= 1'b0; // on default/ack/rst
         immucr_spr_cs_r     <= 1'b0; // on default/ack/rst
         spr_way_idx_r       <= {WAYS_WIDTH{1'b0}}; // on default/ack/rst
         spr_bus_dat_o       <= {OPTION_OPERAND_WIDTH{1'b0}}; // on default/ack/rst
       end
+      // others
+      default:;
     endcase
   end // @ clock
 

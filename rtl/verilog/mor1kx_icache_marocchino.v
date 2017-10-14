@@ -395,17 +395,16 @@ module mor1kx_icache_marocchino
   // TAG-RAM controller //
   //--------------------//
 
-  // Local copy of IFETCH's s2o_ic_ack, but 1-clock length
-  //  to prevent extra LRU updates
-  reg s2o_ic_ack_r;
+  // s2o_ic_ack, 1-clock length to prevent extra LRU updates
+  reg s2o_ic_ack;
   // ---
   always @(posedge cpu_clk) begin
     if (cpu_rst | flush_by_ctrl_i)
-      s2o_ic_ack_r <= 1'b0;
+      s2o_ic_ack <= 1'b0;
     else if (padv_s1s2_i)
-      s2o_ic_ack_r <= ic_ack_o;
+      s2o_ic_ack <= ic_ack_o;
     else
-      s2o_ic_ack_r <= 1'b0;
+      s2o_ic_ack <= 1'b0;
   end // @clock
 
   // LRU calculator
@@ -487,7 +486,7 @@ module mor1kx_icache_marocchino
     case (ic_state)
       IC_READ: begin
         // Update LRU data by read-hit only
-        if (s2o_ic_ack_r & (~s2o_immu_an_except_i) & (~flush_by_ctrl_i)) begin // on read-hit
+        if (s2o_ic_ack & (~s2o_immu_an_except_i) & (~flush_by_ctrl_i)) begin // on read-hit
           tag_we = 1'b1; // on read-hit
         end
       end
@@ -529,8 +528,7 @@ module mor1kx_icache_marocchino
         tag_we = 1'b1;
       end
 
-      default: begin
-      end
+      default:;
     endcase
   end // always
 

@@ -235,14 +235,17 @@ module mor1kx_dmmu_marocchino
                                dmmucr_spr_cs_r     ? dmmucr                         :
                                                      {OPTION_OPERAND_WIDTH{1'b0}};
       end
-      // default including SPR_DMMU_ACK, SPR_DMMU_RST
-      default: begin
+      // back to waiting 
+      SPR_DMMU_ACK,
+      SPR_DMMU_RST: begin
         dtlb_match_spr_cs_r <= 1'b0; // on default/ack/rst
         dtlb_trans_spr_cs_r <= 1'b0; // on default/ack/rst
         dmmucr_spr_cs_r     <= 1'b0; // on default/ack/rst
         spr_way_idx_r       <= {WAYS_WIDTH{1'b0}}; // on default/ack/rst
         spr_bus_dat_o       <= {OPTION_OPERAND_WIDTH{1'b0}}; // on default/ack/rst
       end
+      // others
+      default:;
     endcase
   end // @ clock
 

@@ -528,10 +528,6 @@ module mor1kx_cpu_marocchino
   reg  wb_except_syscall_r;
   reg  wb_except_trap_r;
 
-  // IFETCH/DECODE exceptions flag used to slall fetching, decoding and
-  // execution new insructions till l.rfe / exception reach WRITE-BACK
-  wire fd_an_except;
-
   //  # overflow exception
   wire except_overflow_enable;
   //    ## from division
@@ -1033,9 +1029,6 @@ module mor1kx_cpu_marocchino
     .omn2dec_hazard_d2b2_o      (omn2dec_hazard_d2b2), // OMAN
     .omn2dec_hazard_dxb2_o      (omn2dec_hazard_dxb2), // OMAN
     .omn2dec_hazard_dxb2_adr_o  (omn2dec_hazard_dxb2_adr), // OMAN
-
-    // Stall fetch by specific type of hazards
-    .fd_an_except_o             (fd_an_except), // OMAN
 
     // DECODE result could be processed by EXECUTE
     .dcod_valid_o               (dcod_valid), // OMAN
@@ -2100,7 +2093,6 @@ module mor1kx_cpu_marocchino
 
     // Inputs / Outputs for pipeline control signals
     .dcod_insn_valid_i                (dcod_insn_valid), // CTRL
-    .fd_an_except_i                   (fd_an_except), // CTRL
     .dcod_valid_i                     (dcod_valid), // CTRL
     .exec_valid_i                     (exec_valid), // CTRL
     .pipeline_flush_o                 (pipeline_flush), // CTRL
