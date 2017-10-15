@@ -258,11 +258,11 @@ module mor1kx_immu_marocchino
     assign way_hit[i] = (itlb_match_dout[i][31:13] == virt_addr_tag_i[31:13]) & // address hit
                         ~(&itlb_match_huge_dout[i][1:0]) &                      // not valid huge
                         itlb_match_dout[i][0] &                                 // valid bit
-                        enable_r;                                               // mmu enabled
+                        fetch_req_hit_i & enable_r;                             // mmu enabled
     // Huge page hit
     assign way_huge_hit[i] = (itlb_match_huge_dout[i][31:24] == virt_addr_tag_i[31:24]) & // address hit
                              itlb_match_huge_dout[i][1] & itlb_match_huge_dout[i][0] &    // valid huge
-                             enable_r;                                                    // mmu enabled
+                             fetch_req_hit_i & enable_r;                                  // mmu enabled
   end
   endgenerate
 
