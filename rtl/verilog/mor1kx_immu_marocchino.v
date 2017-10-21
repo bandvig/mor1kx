@@ -219,23 +219,28 @@ module mor1kx_immu_marocchino
           spr_bus_addr_r      <= spr_bus_addr_i[OPTION_IMMU_SET_WIDTH-1:0];
         end
       end
+      // write completion
+      SPR_IMMU_WRITE: begin
+        spr_bus_addr_r <= virt_addr_tag_i[13+(OPTION_IMMU_SET_WIDTH-1):13]; // re-read after write
+      end
       // do nothing
-      SPR_IMMU_WRITE, SPR_IMMU_RINIT:;
+      SPR_IMMU_RINIT:;
       // latch read data
       SPR_IMMU_RMUX: begin
-        spr_bus_dat_o <= itlb_match_spr_cs_r ? itlb_match_dout[spr_way_idx_r] :
-                         itlb_trans_spr_cs_r ? itlb_trans_dout[spr_way_idx_r] :
-                         immucr_spr_cs_r     ? immucr                         :
-                                               {OPTION_OPERAND_WIDTH{1'b0}};
+        spr_bus_dat_o  <= itlb_match_spr_cs_r ? itlb_match_dout[spr_way_idx_r] :
+                          itlb_trans_spr_cs_r ? itlb_trans_dout[spr_way_idx_r] :
+                          immucr_spr_cs_r     ? immucr                         :
+                                                {OPTION_OPERAND_WIDTH{1'b0}};
+        spr_bus_addr_r <= virt_addr_tag_i[13+(OPTION_IMMU_SET_WIDTH-1):13]; // re-read after read
       end
       // back to waiting
       SPR_IMMU_ACK,
       SPR_IMMU_RST: begin
-        itlb_match_spr_cs_r <= 1'b0; // on default/ack/rst
-        itlb_trans_spr_cs_r <= 1'b0; // on default/ack/rst
-        immucr_spr_cs_r     <= 1'b0; // on default/ack/rst
-        spr_way_idx_r       <= {WAYS_WIDTH{1'b0}}; // on default/ack/rst
-        spr_bus_dat_o       <= {OPTION_OPERAND_WIDTH{1'b0}}; // on default/ack/rst
+        spr_bus_dat_o       <= {OPTION_OPERAND_WIDTH{1'b0}}; // on ack/rst
+        itlb_match_spr_cs_r <= 1'b0; // on ack/rst
+        itlb_trans_spr_cs_r <= 1'b0; // on ack/rst
+        immucr_spr_cs_r     <= 1'b0; // on ack/rst
+        spr_way_idx_r       <= {WAYS_WIDTH{1'b0}}; // on ack/rst
       end
       // others
       default:;
@@ -316,7 +321,6 @@ module mor1kx_immu_marocchino
   //  b) Re-read after SPR BUS read/write access
   //  c) Regular IFETCH advance
   assign itlb_match_addr = itlb_match_spr_cs_r ? spr_bus_addr_r :
-                           spr_bus_ack_o       ? virt_addr_tag_i[13+(OPTION_IMMU_SET_WIDTH-1):13] :
                                                  virt_addr_mux_i[13+(OPTION_IMMU_SET_WIDTH-1):13];
   // match huge address and write command
   assign itlb_match_huge_addr = virt_addr_mux_i[24+(OPTION_IMMU_SET_WIDTH-1):24];
@@ -330,7 +334,6 @@ module mor1kx_immu_marocchino
   //  b) Re-read after SPR BUS read/write access
   //  c) Regular IFETCH advance
   assign itlb_trans_addr = itlb_trans_spr_cs_r ? spr_bus_addr_r :
-                           spr_bus_ack_o       ? virt_addr_tag_i[13+(OPTION_IMMU_SET_WIDTH-1):13] :
                                                  virt_addr_mux_i[13+(OPTION_IMMU_SET_WIDTH-1):13];
   // translation huge address and write command
   assign itlb_trans_huge_addr = virt_addr_mux_i[24+(OPTION_IMMU_SET_WIDTH-1):24];

@@ -492,7 +492,7 @@ module mor1kx_decode_marocchino
         begin
           attr_except_illegal = 1'b0;
           attr_op_1clk        = 1'b0;
-          attr_op_pass_exec   = 1'b0;
+          attr_op_pass_exec   = op_mfspr;
           attr_rfa1_req       = 1'b1;
           attr_rfb1_req       = 1'b0;
           attr_rfd1_wb        = 1'b1;
@@ -522,7 +522,7 @@ module mor1kx_decode_marocchino
         begin
           attr_except_illegal = 1'b0;
           attr_op_1clk        = 1'b0;
-          attr_op_pass_exec   = 1'b0;
+          attr_op_pass_exec   = op_mtspr;
           attr_rfa1_req       = 1'b1;
           attr_rfb1_req       = 1'b1;
           attr_rfd1_wb        = 1'b0;

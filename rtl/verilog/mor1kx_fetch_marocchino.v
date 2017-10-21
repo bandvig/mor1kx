@@ -504,7 +504,7 @@ module mor1kx_fetch_marocchino
           if (ibus_err_i)                           // ICACHE refill
             ibus_state <= IBUS_IDLE;                // IBUS error during ICACHE refill
           else if (ibus_ack_i & ibus_burst_last_i)  // ICACHE refill
-            ibus_state <= flush_by_ctrl ? IBUS_IDLE : IBUS_IC_REREAD; // last refill
+            ibus_state <= IBUS_IC_REREAD;           // last refill
         end // ic-refill
 
         IBUS_IC_REREAD: begin

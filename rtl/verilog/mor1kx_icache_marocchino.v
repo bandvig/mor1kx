@@ -78,7 +78,7 @@ module mor1kx_icache_marocchino
   input                                 spr_bus_stb_i,
   input      [OPTION_OPERAND_WIDTH-1:0] spr_bus_dat_i,
   output     [OPTION_OPERAND_WIDTH-1:0] spr_bus_dat_o,
-  output reg                            spr_bus_ack_o
+  output                                spr_bus_ack_o
 );
 
   // Address space in bytes for a way
@@ -117,17 +117,19 @@ module mor1kx_icache_marocchino
 
 
   // States
-  localparam [3:0] IC_READ       = 4'b0001,
-                   IC_REFILL     = 4'b0010,
-                   IC_REREAD     = 4'b0100, // after re-fill
-                   IC_INVALIDATE = 4'b1000;
+  localparam [4:0] IC_READ       = 5'b00001,
+                   IC_REFILL     = 5'b00010,
+                   IC_REREAD     = 5'b00100, // after re-fill
+                   IC_INVALIDATE = 5'b01000,
+                   IC_SPR_ACK    = 5'b10000;
   // FSM state pointer
-  reg [3:0] ic_state;
+  reg [4:0] ic_state;
   // Particular state indicators
-  wire ic_read       = ic_state[0];
-  wire ic_refill     = ic_state[1];
-  wire ic_reread     = ic_state[2];
-  wire ic_invalidate = ic_state[3];
+  wire   ic_read       = ic_state[0];
+  wire   ic_refill     = ic_state[1];
+  wire   ic_reread     = ic_state[2];
+  wire   ic_invalidate = ic_state[3];
+  assign spr_bus_ack_o = ic_state[4];
 
 
   // The index we read and write from tag memory
@@ -267,7 +269,6 @@ module mor1kx_icache_marocchino
   //-----------//
   always @(posedge cpu_clk) begin
     if (cpu_rst) begin
-      spr_bus_ack_o     <= 1'b0;    // reset
       ic_refill_first_o <= 1'b0;    // reset
       ic_state          <= IC_READ; // reset
     end
@@ -276,8 +277,6 @@ module mor1kx_icache_marocchino
       // synthesis parallel_case full_case
       case (ic_state)
         IC_READ: begin
-          spr_bus_ack_o <= 1'b0; // read
-          // next states
           if (s2o_immu_an_except_i | flush_by_ctrl_i) begin // FSM: keep read
             ic_state <= IC_READ;
           end
@@ -300,7 +299,7 @@ module mor1kx_icache_marocchino
           else if (ibus_ack_i) begin    // FSM: during re-fill
             ic_refill_first_o <= 1'b0;  // FSM: IBUS ack during re-fill
             if (ibus_burst_last_i)
-              ic_state <=  flush_by_ctrl_i ? IC_READ : IC_REREAD;  // FSM: last re-fill
+              ic_state <= IC_REREAD;    // FSM: last re-fill
           end
         end // FRM-RE-FILL state
 
@@ -309,8 +308,11 @@ module mor1kx_icache_marocchino
         end
 
         IC_INVALIDATE: begin
-          spr_bus_ack_o <= 1'b1;    // FSM: invalidate -> idling
-          ic_state      <= IC_READ; // FSM: invalidate -> idling
+          ic_state <= IC_SPR_ACK; // FSM: invalidate -> ack for SPR BUS
+        end
+
+        IC_SPR_ACK: begin
+          ic_state <= IC_READ; // FSM: ack for SPR BUS -> idling
         end
 
         default:;

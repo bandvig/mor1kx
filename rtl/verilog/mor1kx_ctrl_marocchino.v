@@ -566,10 +566,10 @@ module mor1kx_ctrl_marocchino
 
 
   // Advance Write Back latches
-  assign padv_wb_o = ((exec_valid_i & (~spr_bus_cpu_stall_r)) | spr_bus_wb) &
+  assign padv_wb_o = exec_valid_i & (~spr_bus_cpu_stall_r) &
                      (~du_cpu_stall) & ((~stepping) | pstep[2]); // DU enabling/disabling WRITE-BACK
   // Complete the step
-  wire   pass_step_to_stall = (exec_valid_i | spr_bus_wb) & pstep[2]; // for DU
+  wire   pass_step_to_stall = exec_valid_i & (~spr_bus_cpu_stall_r) & pstep[2]; // for DU
 
 
   //-----------------------------------//
@@ -933,6 +933,7 @@ module mor1kx_ctrl_marocchino
             spr_bus_stb_o   <=  1'b0;
             // internal auxiliaries
             spr_access_valid_reg <= 1'b1;
+            spr_bus_cpu_stall_r  <= 1'b0;
             // next state
             spr_bus_state <= spr_bus_wait_mxspr ? SPR_BUS_WB_MXSPR : SPR_BUS_DU_ACK_O;
           end
@@ -940,9 +941,6 @@ module mor1kx_ctrl_marocchino
         // push l.mf(t)spr instruction to write-back stage
         SPR_BUS_WB_MXSPR,
         SPR_BUS_DU_ACK_O: begin
-          // internal auxiliaries
-          spr_bus_cpu_stall_r <= 1'b0;
-          // next state
           spr_bus_state <= SPR_BUS_WAIT_REQ;
         end
         // others
@@ -953,44 +951,25 @@ module mor1kx_ctrl_marocchino
 
   // SPR BUS controller: in/out address and data
   always @(posedge cpu_clk) begin
-    if (pipeline_flush_o) begin
-      spr_bus_addr_o <= 16'd0; // on reset / flush
-      spr_bus_dat_o  <= {OPTION_OPERAND_WIDTH{1'b0}}; // on reset / flush
-      spr_bus_dat_r  <= {OPTION_OPERAND_WIDTH{1'b0}}; // on reset / flush
-    end
-    else begin
-      // synthesis parallel_case full_case
-      case (spr_bus_state)
-        // wait SPR BUS access request
-        SPR_BUS_WAIT_REQ:;
-        // run l.mf(t)spr processing
-        SPR_BUS_RUN_MXSPR,
-        SPR_BUS_RUN_DU_REQ: begin
-          if (spr_access_valid_mux) begin
-            spr_bus_addr_o <= spr_addr_mux;
-            spr_bus_dat_o  <= spr_bus_run_mxspr ? ctrl_rfb1_r : du2spr_wdat_w;
-          end
+    // synthesis parallel_case full_case
+    case (spr_bus_state)
+      // run l.mf(t)spr processing
+      SPR_BUS_RUN_MXSPR,
+      SPR_BUS_RUN_DU_REQ: begin
+        if (spr_access_valid_mux) begin
+          spr_bus_addr_o <= spr_addr_mux;
+          spr_bus_dat_o  <= spr_bus_run_mxspr ? ctrl_rfb1_r : du2spr_wdat_w;
         end
-        // wait SPR BUS ACK from l.mf(t)spr processing
-        SPR_BUS_WAIT_MXSPR,
-        SPR_BUS_WAIT_DU_ACK: begin
-          if (spr_bus_ack) begin
-            spr_bus_addr_o <= 16'd0; // on SPR BUS ACK
-            spr_bus_dat_o  <= {OPTION_OPERAND_WIDTH{1'b0}}; // on SPR BUS ACK
-            spr_bus_dat_r  <= spr_bus_dat_mux;// on SPR BUS ACK
-          end
-        end
-         // push l.mf(t)spr instruction to write-back stage 
-        SPR_BUS_WB_MXSPR,
-        SPR_BUS_DU_ACK_O: begin
-          spr_bus_addr_o <= 16'd0; // by default
-          spr_bus_dat_o  <= {OPTION_OPERAND_WIDTH{1'b0}}; // by default
-          spr_bus_dat_r  <= {OPTION_OPERAND_WIDTH{1'b0}}; // by default
-        end
-        // others
-        default:;
-      endcase
-    end
+      end
+      // wait SPR BUS ACK from l.mf(t)spr processing
+      SPR_BUS_WAIT_MXSPR,
+      SPR_BUS_WAIT_DU_ACK: begin
+        if (spr_bus_ack)
+          spr_bus_dat_r <= spr_bus_dat_mux;// on SPR BUS ACK
+      end
+      // others
+      default:;
+    endcase
   end // @clock
 
   // System group (0) SPR data out

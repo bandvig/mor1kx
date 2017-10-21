@@ -99,7 +99,7 @@ module mor1kx_dcache_marocchino
   input                                 spr_bus_stb_i,
   input      [OPTION_OPERAND_WIDTH-1:0] spr_bus_dat_i,
   output     [OPTION_OPERAND_WIDTH-1:0] spr_bus_dat_o,
-  output reg                            spr_bus_ack_o
+  output                                spr_bus_ack_o
 );
 
   // Address space in bytes for a way
@@ -138,18 +138,20 @@ module mor1kx_dcache_marocchino
 
 
   // States
-  localparam  [5:0] DC_CHECK      = 6'b000001,
-                    DC_WRITE      = 6'b000010,
-                    DC_REFILL     = 6'b000100,
-                    DC_REREAD     = 6'b001000,
-                    DC_INVALIDATE = 6'b010000,
-                    DC_RST        = 6'b100000;
+  localparam  [6:0] DC_CHECK      = 7'b0000001,
+                    DC_WRITE      = 7'b0000010,
+                    DC_REFILL     = 7'b0000100,
+                    DC_REREAD     = 7'b0001000,
+                    DC_INVALIDATE = 7'b0010000,
+                    DC_RST        = 7'b0100000,
+                    DC_SPR_ACK    = 7'b1000000;
   // FSM state register
-  reg [5:0] dc_state;
+  reg [6:0] dc_state;
   // FSM state signals
-  wire dc_refill     = dc_state[2];
-  wire dc_reread     = dc_state[3];
-  wire dc_invalidate = dc_state[4];
+  wire   dc_refill     = dc_state[2];
+  wire   dc_reread     = dc_state[3];
+  wire   dc_invalidate = dc_state[4];
+  assign spr_bus_ack_o = dc_state[6];
 
 
 
@@ -355,7 +357,7 @@ module mor1kx_dcache_marocchino
   // DCACHE FSM: state switching
   always @(posedge cpu_clk) begin
     if (cpu_rst) begin
-      dc_state <= DC_RST;  // on reset
+      dc_state <= DC_RST; // on reset
     end
     else begin
       // synthesis parallel_case full_case
@@ -405,12 +407,13 @@ module mor1kx_dcache_marocchino
 
         DC_INVALIDATE: begin
           if (~snoop_hit_o) begin // wait till snoop-inv completion
-            dc_state <= DC_CHECK; // invalidate -> check
+            dc_state <= DC_SPR_ACK; // invalidate -> ack for SPR BUS
           end
         end
 
+        DC_SPR_ACK,
         DC_RST: begin
-          dc_state <= DC_CHECK;  // on doing reset
+          dc_state <= DC_CHECK;  // on doing reset or ack for SPR BUS
         end
 
         default:;
@@ -439,7 +442,6 @@ module mor1kx_dcache_marocchino
     // synthesis parallel_case full_case
     case (dc_state)
       DC_CHECK: begin
-        spr_bus_ack_o <= 1'b0; // check
         // next states
         if (dc_cancel | snoop_hit_o) begin // keep check
         end
@@ -484,11 +486,7 @@ module mor1kx_dcache_marocchino
 
       DC_REREAD:;
 
-      DC_INVALIDATE: begin
-        if (~snoop_hit_o) begin  // wait till snoop-inv completion
-          spr_bus_ack_o <= 1'b1; // invalidate -> check
-        end
-      end
+      DC_INVALIDATE:;
 
       DC_RST: begin
         refill_first_o   <= 1'b0; // on default
@@ -497,7 +495,6 @@ module mor1kx_dcache_marocchino
         snoop_check      <= 1'b0; // on default
         snoop_tag        <= {TAG_WIDTH{1'b0}}; // on default
         snoop_windex     <= {OPTION_DCACHE_SET_WIDTH{1'b0}}; // on default
-        spr_bus_ack_o    <= 1'b0;    // on default
       end
 
       default:;
