@@ -692,7 +692,7 @@ module mor1kx_lsu_marocchino
         end // dc-re-read
 
         DBUS_SBUF_READ: begin
-          dbus_state <= DBUS_INI_WRITE;  // dbus-sbuf-red
+          dbus_state <= DBUS_INI_WRITE;  // dbus-sbuf-read
         end // dbus-sbuf-red
 
         DBUS_INI_WRITE: begin
@@ -940,10 +940,12 @@ module mor1kx_lsu_marocchino
 
 
   // --- DCACHE re-fill request ---
-  wire deassert_s2o_dc_refill_req = (dbus_idle_state   & flush_by_ctrl) | // de-assert re-fill request
-                                    (dmem_req_state    & flush_by_ctrl) | // de-assert re-fill request
-                                    (dc_refill_allowed & flush_by_ctrl) | // de-assert re-fill request
-                                    dc_reread_state;                      // de-assert re-fill request
+  wire deassert_s2o_dc_refill_req = (dbus_idle_state   & flush_by_ctrl)    | // de-assert re-fill request
+                                    (dmem_req_state    & flush_by_ctrl)    | // de-assert re-fill request
+                                    (dmem_req_state    & s2o_excepts_addr) | // de-assert re-fill request 
+                                    (dc_refill_allowed & flush_by_ctrl)    | // de-assert re-fill request
+                                    (dc_refill_state   & dbus_err_i)       | // de-assert re-fill request
+                                    dc_reread_state;                         // de-assert re-fill request
   // ---
   always @(posedge cpu_clk) begin
     if (cpu_rst)
@@ -970,9 +972,10 @@ module mor1kx_lsu_marocchino
 
 
   // --- DBUS read request ---
-  wire deassert_s2o_dbus_read_req = (dbus_idle_state & flush_by_ctrl) | // de-assert dbus read request
-                                    (dmem_req_state  & flush_by_ctrl) | // de-assert dbus read request
-                                    dbus_load_ack;                      // de-assert dbus read request
+  wire deassert_s2o_dbus_read_req = (dbus_idle_state & flush_by_ctrl)    | // de-assert dbus read request
+                                    (dmem_req_state  & flush_by_ctrl)    | // de-assert dbus read request
+                                    (dmem_req_state  & s2o_excepts_addr) | // de-assert dbus read request
+                                    (dbus_read_state & (dbus_ack_i | dbus_err_i)); // de-assert dbus read request
   // ---
   always @(posedge cpu_clk) begin
     if (cpu_rst)

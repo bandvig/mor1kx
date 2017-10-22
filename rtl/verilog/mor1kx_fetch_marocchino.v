@@ -214,6 +214,7 @@ module mor1kx_fetch_marocchino
   wire              ibus_read_state = ibus_state[1];
   wire              to_refill_state = ibus_state[2];
   wire              ic_refill_state = ibus_state[3];
+  wire              ic_reread_state = ibus_state[4];
 
   // registered IBUS ack and data
   reg                             s2o_ibus_ack;
@@ -253,7 +254,7 @@ module mor1kx_fetch_marocchino
   always @(posedge cpu_clk) begin
     if (cpu_rst)
       flush_r <= 1'b0;
-    else if (ibus_fsm_free)
+    else if (flush_r & ibus_idle_state)
       flush_r <= 1'b0;
     else if (~flush_r)
       flush_r <= pipeline_flush_i;
@@ -456,10 +457,8 @@ module mor1kx_fetch_marocchino
   //--------------------//
 
   // IBUS FSM is free to process next request
-  // It follows appropriate FSM condtions
-  assign ibus_fsm_free = ibus_idle_state & (~s2o_ic_refill_req) & // IBUS FSM is free
-                                           (~s2o_ibus_read_req) & // IBUS FSM is free
-                                           (~fetch_an_except_o);  // IBUS FSM is free
+  assign ibus_fsm_free = (~s2o_ic_refill_req) & (~s2o_ibus_read_req) & // IBUS FSM is free
+                         (~fetch_an_except_o) & (~flush_r);            // IBUS FSM is free
 
   // IBUS output ready (no bus error case)
   //  (a) read none-cached area
@@ -623,12 +622,18 @@ module mor1kx_fetch_marocchino
 
 
   // --- ICACHE re-fill request ---
+  wire deassert_s2o_ic_refill_req = (ibus_idle_state & flush_by_ctrl)      | // de-assert re-fill request
+                                    (ibus_idle_state & s2o_immu_an_except) | // de-assert re-fill request
+                                    (to_refill_state & flush_by_ctrl)      | // de-assert re-fill request
+                                    (ic_refill_state & ibus_err_i)         | // de-assert re-fill request
+                                    ic_reread_state;                         // de-assert re-fill request
+  // ---
   always @(posedge cpu_clk) begin
-    if (cpu_rst | flush_by_ctrl)
+    if (cpu_rst)
       s2o_ic_refill_req <= 1'b0;  // reset / flush
     else if (padv_s1s2)
       s2o_ic_refill_req <= s2t_ic_refill_req;
-    else if (to_refill_state)
+    else if (deassert_s2o_ic_refill_req)
       s2o_ic_refill_req <= 1'b0;  // IBUS FSM is going to re-fill
   end // @ clock
   // --- ICACHE data ---
@@ -643,12 +648,16 @@ module mor1kx_fetch_marocchino
 
 
   // --- IBUS read request ---
+  wire deassert_s2o_ibus_read_req = (ibus_idle_state & flush_by_ctrl)             | // de-assert IBUS request
+                                    (ibus_idle_state & s2o_immu_an_except)        | // de-assert IBUS request
+                                    (ibus_read_state & (ibus_ack_i | ibus_err_i));  // de-assert IBUS request
+  // ---
   always @(posedge cpu_clk) begin
-    if (cpu_rst | flush_by_ctrl)
+    if (cpu_rst)
       s2o_ibus_read_req <= 1'b0;  // reset / flush
     else if (padv_s1s2)
       s2o_ibus_read_req <= s2t_ibus_read_req;
-    else if (ibus_read_state)
+    else if (deassert_s2o_ibus_read_req)
       s2o_ibus_read_req <= 1'b0;  // IBUS-FSM is reading
   end // @ clock
   // --- IBUS ack ---
