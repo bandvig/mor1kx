@@ -96,7 +96,7 @@ module mor1kx_lsu_marocchino
   input                                 snoop_en_i,
   // Pipe control output flags
   output                                lsu_taking_op_o,
-  output reg                            lsu_valid_o, // result ready or exceptions
+  output                                lsu_valid_o, // result ready or exceptions
   // Imprecise exception (with appropriate PC) came via the store buffer
   output reg [OPTION_OPERAND_WIDTH-1:0] sbuf_eear_o,
   output reg [OPTION_OPERAND_WIDTH-1:0] sbuf_epcr_o,
@@ -187,6 +187,9 @@ module mor1kx_lsu_marocchino
   //    ## combined store ACK
   wire              s3t_store_ack;
 
+  //  # combined DBUS-load/SBUFF-store ACK
+  reg               s3o_ls_ack;
+
   //    ## registers for store buffer EPCR computation
   reg  [LSUOOW-1:0] s2o_epcr;
 
@@ -194,7 +197,7 @@ module mor1kx_lsu_marocchino
   reg  [LSUOOW-1:0] s2o_virt_addr;
   reg  [LSUOOW-1:0] s2o_phys_addr;
 
-  reg               lsu_s2_rdy;   // operation complete or an exception
+  wire              lsu_s2_rdy;   // operation complete or an exception
   reg               lsu_wb_miss;  // pending registers are busy
 
 
@@ -985,6 +988,15 @@ module mor1kx_lsu_marocchino
     else if (deassert_s2o_dbus_read_req)
       s2o_dbus_read_req <= 1'b0;          // dbus read done or canceled
   end // @ clock
+  // --- combined DBUS-load/SBUFF-store ACK ---
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | flush_by_ctrl)
+      s3o_ls_ack <= 1'b0;                     // reset / flush
+    else if (dbus_load_ack | s3t_store_ack)   // rise combined DBUS-load/SBUFF-store ACK
+      s3o_ls_ack <= 1'b1;                     // dbus-load-ack OR s3t-store-ack
+    else if (lsu_s3_adv)                      // drop combined DBUS-load/SBUFF-store ACK
+      s3o_ls_ack <= 1'b0;                     // WriteBack/Pending is taking result
+  end // @ clock
   // --- DBUS load data ---
   always @(posedge cpu_clk) begin
     if (dbus_load_ack)            // latch DBUS read data
@@ -1022,28 +1034,9 @@ module mor1kx_lsu_marocchino
 
 
   // --- "operation complete" and "LSU valid" ---
-  always @(posedge cpu_clk) begin
-    if (cpu_rst | flush_by_ctrl)
-      lsu_s2_rdy <= 1'b0;
-    else if (lsu_s2_adv)
-      lsu_s2_rdy <= s2t_dc_ack_read | s2t_excepts_addr;          // by stage #2 advancing (same to valid)
-    else if (dbus_load_ack | s3t_store_ack | s3t_dbus_err_nsbuf) // rise stage #2 ready by various events (same to valid)
-      lsu_s2_rdy <= 1'b1;
-    else if (lsu_s3_adv)                                         // drop lsu-s2-rdy
-      lsu_s2_rdy <= 1'b0;
-  end // @ clock
+  assign lsu_s2_rdy  = s2o_dc_ack_read | s3o_ls_ack | s2o_excepts_any;
   // --- "operation complete" and "LSU valid" ---
-  always @(posedge cpu_clk) begin
-    if (cpu_rst | flush_by_ctrl)
-      lsu_valid_o <= 1'b0;
-    else if (lsu_s2_adv) // update lsu-valid-o
-      lsu_valid_o <= s2t_dc_ack_read | s2t_excepts_addr |                // by stage #2 advancing (same to ready)
-                    ((lsu_wb_miss | lsu_s2_rdy) & (~grant_wb_to_lsu_i)); // lsu-valid-o by stage #2 advancing (same to ready)
-    else if (dbus_load_ack | s3t_store_ack | s3t_dbus_err_nsbuf) // rise valid by various events
-      lsu_valid_o <= 1'b1;
-    else if (padv_wb_i & grant_wb_to_lsu_i)
-      lsu_valid_o <= lsu_wb_miss & lsu_s2_rdy;
-  end // @ clock
+  assign lsu_valid_o = lsu_s2_rdy | lsu_wb_miss;
   //--- "WriteBack miss" flag ---
   always @(posedge cpu_clk) begin
     if (cpu_rst | flush_by_ctrl)
