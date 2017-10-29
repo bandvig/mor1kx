@@ -46,7 +46,8 @@ module mor1kx_decode_marocchino
   input                                 cpu_rst,
 
   // pipeline controls
-  input                                 padv_fetch_i,
+  input                                 padv_dcod_i,
+  input                                 padv_exec_i,
   input                                 pipeline_flush_i,
 
   // from IFETCH
@@ -807,10 +808,10 @@ module mor1kx_decode_marocchino
       dcod_op_1clk_o      <= 1'b0;
       dcod_op_muldiv_o    <= 1'b0;
       dcod_op_fpxx_any_o  <= 1'b0;
-      dcod_op_lsu_any_o   <= 1'b0; // (load | store | l.msync)
+      dcod_op_lsu_any_o   <= 1'b0;
       dcod_op_mXspr_o     <= 1'b0;
     end
-    else if (padv_fetch_i) begin
+    else if (padv_dcod_i) begin
       dcod_insn_valid_o   <= fetch_insn_valid_i;
       dcod_op_1clk_o      <= attr_op_1clk;
       dcod_op_muldiv_o    <= op_mul | op_div;
@@ -818,11 +819,19 @@ module mor1kx_decode_marocchino
       dcod_op_lsu_any_o   <= op_lsu_load | op_lsu_store | op_msync;
       dcod_op_mXspr_o     <= op_mfspr | op_mtspr;
     end
+    else if (padv_exec_i) begin
+      dcod_insn_valid_o   <= 1'b0;
+      dcod_op_1clk_o      <= 1'b0;
+      dcod_op_muldiv_o    <= 1'b0;
+      dcod_op_fpxx_any_o  <= 1'b0;
+      dcod_op_lsu_any_o   <= 1'b0;
+      dcod_op_mXspr_o     <= 1'b0;
+    end
   end // at clock
 
   // signals which don't affect pipeline control
   always @(posedge cpu_clk) begin
-    if (padv_fetch_i) begin
+    if (padv_dcod_i) begin
       dcod_delay_slot_o         <= fetch_delay_slot_i;
       // destiny D1
       dcod_rfd1_adr_o           <= ratin_rfd1_adr_o;

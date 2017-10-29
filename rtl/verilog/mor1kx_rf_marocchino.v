@@ -40,7 +40,7 @@ module mor1kx_rf_marocchino
 
   // pipeline control signals
   input                             pipeline_flush_i,
-  input                             padv_fetch_i,
+  input                             padv_dcod_i,
 
   // SPR bus
   input                          [15:0] spr_bus_addr_i,
@@ -148,7 +148,7 @@ module mor1kx_rf_marocchino
 
 
   // short name for read request
-  wire read_req = padv_fetch_i;
+  wire read_req = padv_dcod_i;
 
 
   // 1-clock witting strobes for GPR write
@@ -494,7 +494,7 @@ module mor1kx_rf_marocchino
 
   // update operand addresses
   always @(posedge cpu_clk) begin
-    if (padv_fetch_i) begin
+    if (padv_dcod_i) begin
       dcod_rfa1_adr <= fetch_rfa1_adr_i;
       dcod_rfb1_adr <= fetch_rfb1_adr_i;
       dcod_rfa2_adr <= fetch_rfa2_adr_i;
