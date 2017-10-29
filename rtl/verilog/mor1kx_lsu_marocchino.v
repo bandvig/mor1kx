@@ -203,18 +203,17 @@ module mor1kx_lsu_marocchino
 
   // DBUS FSM
   //  # DBUS FSM states
-  localparam [9:0] DBUS_IDLE      = 10'b0000000001, /*  0 */
-                   DMEM_REQ       = 10'b0000000010, /*  1 */
-                   DBUS_READ      = 10'b0000000100, /*  2 */
-                   DBUS_TO_REFILL = 10'b0000001000, /*  3 */
-                   DBUS_DC_REFILL = 10'b0000010000, /*  4 */
-                   DBUS_DC_REREAD = 10'b0000100000, /*  5 */
-                   DBUS_SBUF_READ = 10'b0001000000, /*  6 */
-                   DBUS_INI_WRITE = 10'b0010000000, /*  7 */
-                   DBUS_WRITE     = 10'b0100000000, /*  8 */
-                   DBUS_AN_EXCEPT = 10'b1000000000; /*  9 */
+  localparam [8:0] DBUS_IDLE      = 9'b000000001, /*  0 */
+                   DMEM_REQ       = 9'b000000010, /*  1 */
+                   DBUS_READ      = 9'b000000100, /*  2 */
+                   DBUS_TO_REFILL = 9'b000001000, /*  3 */
+                   DBUS_DC_REFILL = 9'b000010000, /*  4 */
+                   DBUS_DC_REREAD = 9'b000100000, /*  5 */
+                   DBUS_SBUF_READ = 9'b001000000, /*  6 */
+                   DBUS_INI_WRITE = 9'b010000000, /*  7 */
+                   DBUS_WRITE     = 9'b100000000; /*  8 */
   //  # DBUS FSM state indicator
-  reg        [9:0] dbus_state;
+  reg        [8:0] dbus_state;
   //  # particular states
   wire             dbus_idle_state    = dbus_state[0];
   wire             dmem_req_state     = dbus_state[1];
@@ -638,14 +637,14 @@ module mor1kx_lsu_marocchino
         end // idle
 
         DMEM_REQ: begin
-          if (flush_by_ctrl) begin    // dmem req
-            dbus_state <= DBUS_IDLE;  // dmem req: pipe flush
+          if (flush_by_ctrl) begin          // dmem req
+            dbus_state <= DBUS_IDLE;        // dmem req: pipe flush
           end
-          else if (~sbuf_empty) begin     // dmem req
-            dbus_state <= DBUS_SBUF_READ; // dmem req -> dbus-sbuf-read
+          else if (~sbuf_empty) begin       // dmem req
+            dbus_state <= DBUS_SBUF_READ;   // dmem req -> dbus-sbuf-read
           end
           else if (s2o_excepts_addr) begin  // dmem req
-            dbus_state <= DBUS_AN_EXCEPT;   // dmem req: address conversion an exception
+            dbus_state <= DBUS_IDLE;        // dmem req: address conversion an exception
           end
           else if (s2o_swa) begin
             if (~snoop_hit) begin
@@ -666,10 +665,8 @@ module mor1kx_lsu_marocchino
         end // dmem-req
 
         DBUS_READ: begin
-          if (dbus_err_i)                 // dbus-read
-            dbus_state <= DBUS_AN_EXCEPT; // dbus-read: DBUS error
-          else if (dbus_ack_i)            // dbus-read
-            dbus_state <= DBUS_IDLE;      // dbus-read: complete
+          if (dbus_err_i | dbus_ack_i)      // dbus-read
+            dbus_state <= DBUS_IDLE;        // dbus-read: complete
         end // dbus-read
 
         DBUS_TO_REFILL: begin
@@ -682,12 +679,12 @@ module mor1kx_lsu_marocchino
         end // to-re-fill
 
         DBUS_DC_REFILL: begin
-          if (dbus_err_i)                                             // dcache-re-fill
-            dbus_state <= DBUS_AN_EXCEPT;                             // dcache-re-fill: DBUS error
-          else if (snoop_hit)                                         // dcache-re-fill
-            dbus_state <= flush_by_ctrl ? DBUS_IDLE : DMEM_REQ;       // dcache-re-fill: snoop-hit
-          else if (dbus_ack_i & dbus_burst_last_i)                    // dcache-re-fill
-            dbus_state <= flush_by_ctrl ? DBUS_IDLE : DBUS_DC_REREAD; // dcache-re-fill: last-ack
+          if (dbus_err_i)                                       // dcache-re-fill
+            dbus_state <= DBUS_IDLE;                            // dcache-re-fill: DBUS error
+          else if (snoop_hit)                                   // dcache-re-fill
+            dbus_state <= flush_by_ctrl ? DBUS_IDLE : DMEM_REQ; // dcache-re-fill: snoop-hit
+          else if (dbus_ack_i & dbus_burst_last_i)              // dcache-re-fill
+            dbus_state <= DBUS_DC_REREAD;                       // dcache-re-fill: last-ack
         end // dc-refill
 
         DBUS_DC_REREAD: begin       // dc-re-read
@@ -704,18 +701,13 @@ module mor1kx_lsu_marocchino
         end // dbus-ini-write
 
         DBUS_WRITE: begin
-          if (dbus_err_i) begin           // dbus-write
-            dbus_state <= DBUS_AN_EXCEPT; // dbus-write: DBUS error
+          if (dbus_err_i) begin         // dbus-write
+            dbus_state <= DBUS_IDLE;    // dbus-write: DBUS error
           end
           else if (dbus_ack_i) begin
             dbus_state <= sbuf_empty ? DMEM_REQ : DBUS_SBUF_READ; // DBUS: write complete
           end
         end // dbus-write
-
-        DBUS_AN_EXCEPT: begin
-          if (flush_by_ctrl)         // dbus-an-except:
-            dbus_state <= DBUS_IDLE; // dbus-an-except: by flush
-        end
 
         default:;
       endcase
@@ -945,7 +937,7 @@ module mor1kx_lsu_marocchino
   // --- DCACHE re-fill request ---
   wire deassert_s2o_dc_refill_req = (dbus_idle_state   & flush_by_ctrl)    | // de-assert re-fill request
                                     (dmem_req_state    & flush_by_ctrl)    | // de-assert re-fill request
-                                    (dmem_req_state    & s2o_excepts_addr) | // de-assert re-fill request 
+                                    (dmem_req_state    & s2o_excepts_addr) | // de-assert re-fill request
                                     (dc_refill_allowed & flush_by_ctrl)    | // de-assert re-fill request
                                     (dc_refill_state   & dbus_err_i)       | // de-assert re-fill request
                                     dc_reread_state;                         // de-assert re-fill request

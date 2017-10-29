@@ -392,12 +392,10 @@ module mor1kx_dcache_marocchino
             dc_state <= DC_CHECK;  // on snoop-hit during re-fill
           end
           else if (dbus_err_i) begin  // abort re-fill
-            dc_state <= DC_CHECK;  // on dbus error during re-fill
+            dc_state <= DC_CHECK;     // on dbus error during re-fill
           end
-          else if (dbus_ack_i) begin
-            if (dbus_burst_last_i) begin
-              dc_state <= (flush_by_ctrl_i ? DC_CHECK : DC_REREAD);  // on last re-fill
-            end
+          else if (dbus_ack_i & dbus_burst_last_i) begin
+            dc_state <= DC_REREAD;  // on last re-fill
           end // snoop-hit / dbus-ack
         end // re-fill
 

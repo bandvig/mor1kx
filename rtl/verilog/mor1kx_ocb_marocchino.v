@@ -426,7 +426,7 @@ module mor1kx_rsrvs_marocchino
 
   // pipeline control signals
   input                                     pipeline_flush_i,
-  input                                     padv_decode_i,
+  input                                     padv_exec_i,
   input                                     taking_op_i,      // a unit is taking input for execution
 
   // input data from DECODE
@@ -536,11 +536,11 @@ module mor1kx_rsrvs_marocchino
 
 
   // DECODE->BUSY transfer
-  wire dcod_pushing_busy = padv_decode_i & dcod_op_any_i  & // DECODE pushing BUSY: Latch DECODE output ...
+  wire dcod_pushing_busy = padv_exec_i & dcod_op_any_i  &   // DECODE pushing BUSY: Latch DECODE output ...
                            exec_op_any_r & (~taking_op_l);  // DECODE pushing BUSY: ... if EXECUTE is busy.
 
   // DECODE->EXECUTE transfer
-  wire dcod_pushing_exec = padv_decode_i & dcod_op_any_i &  // DECODE pushing EXECUTE: New command ...
+  wire dcod_pushing_exec = padv_exec_i & dcod_op_any_i &    // DECODE pushing EXECUTE: New command ...
                            (~exec_op_any_r | taking_op_l);  // DECODE pushing EXECUTE: ... and unit is free.
 
   // BUSY->EXECUTE transfer

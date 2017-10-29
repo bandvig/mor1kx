@@ -138,7 +138,7 @@ module mor1kx_oman_marocchino
 
   // pipeline control
   input                                 padv_fetch_i,
-  input                                 padv_decode_i,
+  input                                 padv_exec_i,
   input                                 padv_wb_i,
   input                                 pipeline_flush_i,
 
@@ -501,7 +501,7 @@ module mor1kx_oman_marocchino
     .rst              (cpu_rst), // INSN_OCB
     // pipe controls
     .pipeline_flush_i (pipeline_flush_i), // INSN_OCB
-    .write_i          (padv_decode_i), // INSN_OCB
+    .write_i          (padv_exec_i), // INSN_OCB
     .read_i           (padv_wb_i), // INSN_OCB
     // value at reset/flush
     .default_value_i  ({OCBT_WIDTH{1'b0}}), // INSN_OCB
@@ -1033,7 +1033,7 @@ module mor1kx_oman_marocchino
             jb_bnf_p       <= {jb_bnf_p[0],1'b0};
           end
         end
-        // doing j/b 
+        // doing j/b
         JB_FSM_DOING_JR,
         JB_FSM_DOING_BC : begin
           jb_fsm_state_r <= JB_FSM_CATCHING_JB;

@@ -73,7 +73,7 @@ module mor1kx_ctrl_marocchino
   input                                 exec_valid_i,
   output reg                            pipeline_flush_o,
   output                                padv_fetch_o,
-  output                                padv_decode_o,
+  output                                padv_exec_o,
   output                                padv_wb_o,
 
   // MF(T)SPR coomand processing
@@ -365,7 +365,7 @@ module mor1kx_ctrl_marocchino
   reg [OPTION_OPERAND_WIDTH-1:0] last_jump_or_branch_pc;
   // ---
   always @(posedge cpu_clk) begin
-    if (pipeline_flush_o)
+    if (wb_an_except_i)
       last_jump_or_branch_pc <= {OPTION_OPERAND_WIDTH{1'b0}};
     else if (wb_jump_or_branch_i)
       last_jump_or_branch_pc <= pc_wb_i;
@@ -559,8 +559,8 @@ module mor1kx_ctrl_marocchino
 
 
   // Advance DECODE->EXECUTE latches
-  assign padv_decode_o = dcod_valid_i & dcod_insn_valid_i & (~spr_bus_cpu_stall_r) &
-                         (~du_cpu_stall) & ((~stepping) | pstep[1]); // DU enabling/disabling DECODE
+  assign padv_exec_o = dcod_valid_i & dcod_insn_valid_i & (~spr_bus_cpu_stall_r) &
+                       (~du_cpu_stall) & ((~stepping) | pstep[1]); // DU enabling/disabling DECODE
   // Pass step from DECODE to WB
   wire   pass_step_to_wb = pstep[1]; // for DU
 
@@ -824,6 +824,7 @@ module mor1kx_ctrl_marocchino
                    SPR_BUS_DU_ACK_O    = 7'b1000000;
 
   reg  [6:0] spr_bus_state;
+  wire       spr_bus_wait_req    = spr_bus_state[0]; // for DU
   wire       spr_bus_run_mxspr   = spr_bus_state[1];
   wire       spr_bus_wait_mxspr  = spr_bus_state[2];
   wire       spr_bus_run_du      = spr_bus_state[4];
@@ -834,7 +835,7 @@ module mor1kx_ctrl_marocchino
   assign     du_ack_o            = spr_bus_state[6];
 
   // Accees to SPR BUS from l.mf(t)spr command or debug unit
-  wire take_op_mXspr = padv_decode_o & dcod_op_mXspr_i;
+  wire take_op_mXspr = padv_exec_o & dcod_op_mXspr_i;
 
   // Access to SPR BUS from Debug System
   wire take_access_du = (~dcod_op_mXspr_i) & (~spr_bus_cpu_stall_r) & du_stb_i;
@@ -1147,7 +1148,7 @@ module mor1kx_ctrl_marocchino
     reg [OPTION_OPERAND_WIDTH-1:0] du2spr_wdat_r;
     // ---
     always @(posedge cpu_clk) begin
-      if (take_access_du & (~pipeline_flush_o)) begin
+      if (take_access_du & spr_bus_wait_req) begin
         du2spr_we_r    <= du_we_i;
         du2spr_waddr_r <= du_addr_i;
         du2spr_wdat_r  <= du_dat_i;

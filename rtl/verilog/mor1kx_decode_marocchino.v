@@ -800,89 +800,29 @@ module mor1kx_decode_marocchino
   // IFETCH -> DECODE latches //
   //--------------------------//
 
+  // signals which affect pipeline control (see OMAN)
   always @(posedge cpu_clk) begin
     if (cpu_rst | pipeline_flush_i) begin
-      dcod_insn_valid_o         <= 1'b0;
-      dcod_delay_slot_o         <= 1'b0;
-      // destiny D1
-      dcod_rfd1_adr_o           <= {OPTION_RF_ADDR_WIDTH{1'b0}};
-      dcod_rfd1_wb_o            <= 1'b0;
-      // destiny D2 (for FPU64)
-      dcod_rfd2_adr_o           <= RST_RFD2_ADR;
-      dcod_rfd2_wb_o            <= 1'b0;
-      // IMM
-      dcod_immediate_o          <= {OPTION_OPERAND_WIDTH{1'b0}};
-      dcod_immediate_sel_o      <= 1'b0;
-      // LSU related
-      dcod_imm16_o              <= {`OR1K_IMM_WIDTH{1'b0}};
-      dcod_op_lsu_load_o        <= 1'b0;
-      dcod_op_lsu_store_o       <= 1'b0;
-      dcod_op_lsu_atomic_o      <= 1'b0;
-      dcod_lsu_length_o         <= 2'd0;
-      dcod_lsu_zext_o           <= 1'b0;
-      dcod_op_msync_o           <= 1'b0;
-      dcod_op_lsu_any_o         <= 1'b0; // (load | store | l.msync)
-      // ALU related opc
-      dcod_opc_alu_secondary_o  <= {`OR1K_ALU_OPC_WIDTH{1'b0}};
-      // Adder related
-      dcod_op_add_o             <= 1'b0;
-      dcod_adder_do_sub_o       <= 1'b0;
-      dcod_adder_do_carry_o     <= 1'b0;
-      // Various 1-clock related
-      dcod_op_shift_o           <= 1'b0;
-      dcod_op_ffl1_o            <= 1'b0;
-      dcod_op_movhi_o           <= 1'b0;
-      dcod_op_cmov_o            <= 1'b0;
-      // Logic
-      dcod_op_logic_o           <= 1'b0;
-      dcod_opc_logic_o          <= {`OR1K_ALU_OPC_WIDTH{1'b0}};
-      // Jump & Link
-      dcod_op_jal_o             <= 1'b0;
-      // Set flag related
-      dcod_op_setflag_o         <= 1'b0;
-      // Multiplier related
-      dcod_op_mul_o             <= 1'b0;
-      // Divider related
-      dcod_op_div_o             <= 1'b0;
-      dcod_op_div_signed_o      <= 1'b0;
-      dcod_op_div_unsigned_o    <= 1'b0;
-      // Combined for MULDIV_RSRVS
-      dcod_op_muldiv_o          <= 1'b0;
-      // FPU3264 arithmetic part
-      dcod_op_fpxx_arith_o      <= 1'b0;
-      dcod_op_fp64_arith_o      <= 1'b0;
-      dcod_op_fpxx_add_o        <= 1'b0;
-      dcod_op_fpxx_sub_o        <= 1'b0;
-      dcod_op_fpxx_mul_o        <= 1'b0;
-      dcod_op_fpxx_div_o        <= 1'b0;
-      dcod_op_fpxx_i2f_o        <= 1'b0;
-      dcod_op_fpxx_f2i_o        <= 1'b0;
-      // FPU-64 comparison part
-      dcod_op_fp64_cmp_o        <= 1'b0;
-      dcod_opc_fp64_cmp_o       <= 3'd0;
-      // Combined for FPXX_RSRVS
-      dcod_op_fpxx_any_o        <= 1'b0;
-      // MTSPR / MFSPR
-      dcod_op_mtspr_o           <= 1'b0;
-      dcod_op_mXspr_o           <= 1'b0;
-      // outcome exception flags
-      dcod_except_syscall_o     <= 1'b0;
-      dcod_except_trap_o        <= 1'b0;
-      // RFE
-      dcod_op_rfe_o             <= 1'b0;
-      // various attributes
-      dcod_except_illegal_o     <= 1'b0;
-      dcod_op_1clk_o            <= 1'b0;
-      dcod_op_pass_exec_o       <= 1'b0;
-      // Which instructions writes comparison flag?
-      dcod_flag_wb_o            <= 1'b0;
-      // Which instruction writes carry flag?
-      dcod_carry_wb_o           <= 1'b0;
-      // INSN PC
-      pc_decode_o               <= {OPTION_OPERAND_WIDTH{1'b0}};
+      dcod_insn_valid_o   <= 1'b0;
+      dcod_op_1clk_o      <= 1'b0;
+      dcod_op_muldiv_o    <= 1'b0;
+      dcod_op_fpxx_any_o  <= 1'b0;
+      dcod_op_lsu_any_o   <= 1'b0; // (load | store | l.msync)
+      dcod_op_mXspr_o     <= 1'b0;
     end
     else if (padv_fetch_i) begin
-      dcod_insn_valid_o         <= fetch_insn_valid_i;
+      dcod_insn_valid_o   <= fetch_insn_valid_i;
+      dcod_op_1clk_o      <= attr_op_1clk;
+      dcod_op_muldiv_o    <= op_mul | op_div;
+      dcod_op_fpxx_any_o  <= op_fpxx_arith | op_fp64_cmp;
+      dcod_op_lsu_any_o   <= op_lsu_load | op_lsu_store | op_msync;
+      dcod_op_mXspr_o     <= op_mfspr | op_mtspr;
+    end
+  end // at clock
+
+  // signals which don't affect pipeline control
+  always @(posedge cpu_clk) begin
+    if (padv_fetch_i) begin
       dcod_delay_slot_o         <= fetch_delay_slot_i;
       // destiny D1
       dcod_rfd1_adr_o           <= ratin_rfd1_adr_o;
@@ -901,7 +841,6 @@ module mor1kx_decode_marocchino
       dcod_lsu_length_o         <= lsu_length;
       dcod_lsu_zext_o           <= lsu_zext;
       dcod_op_msync_o           <= op_msync;
-      dcod_op_lsu_any_o         <= op_lsu_load | op_lsu_store | op_msync;
       // EPCR for store buffer. delay-slot ? (pc-4) : pc
       dcod_sbuf_epcr_o          <= pc_fetch_i - {{(OPTION_OPERAND_WIDTH-3){1'b0}},fetch_delay_slot_i,2'b00};
       // ALU related opc
@@ -928,8 +867,6 @@ module mor1kx_decode_marocchino
       dcod_op_div_o             <= op_div;
       dcod_op_div_signed_o      <= op_div_signed;
       dcod_op_div_unsigned_o    <= op_div_unsigned;
-      // Combined for MULDIV_RSRVS
-      dcod_op_muldiv_o          <= op_mul | op_div;
       // FPU3264 arithmetic part
       dcod_op_fpxx_arith_o      <= op_fpxx_arith;
       dcod_op_fp64_arith_o      <= op_fp64_arith;
@@ -942,11 +879,8 @@ module mor1kx_decode_marocchino
       // FPU-64 comparison part
       dcod_op_fp64_cmp_o        <= op_fp64_cmp;
       dcod_opc_fp64_cmp_o       <= opc_fp64_cmp;
-      // Combined for FPXX_RSRVS
-      dcod_op_fpxx_any_o        <= op_fpxx_arith | op_fp64_cmp;
       // MTSPR / MFSPR
       dcod_op_mtspr_o           <= op_mtspr;
-      dcod_op_mXspr_o           <= op_mfspr | op_mtspr;
       // outcome exception flags
       dcod_except_syscall_o     <= except_syscall;
       dcod_except_trap_o        <= except_trap;
@@ -954,7 +888,6 @@ module mor1kx_decode_marocchino
       dcod_op_rfe_o             <= op_rfe;
       // various attributes
       dcod_except_illegal_o     <= attr_except_illegal;
-      dcod_op_1clk_o            <= attr_op_1clk;
       dcod_op_pass_exec_o       <= attr_op_pass_exec;
       // Which instructions writes comparison flag?
       dcod_flag_wb_o            <= fetch_flag_wb_o;

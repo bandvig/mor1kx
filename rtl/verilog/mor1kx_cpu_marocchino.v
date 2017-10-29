@@ -479,7 +479,8 @@ module mor1kx_cpu_marocchino
 
   // pipeline controls from CTRL to units
   wire padv_fetch;
-  wire padv_decode;
+  //wire padv_decode;
+  wire padv_exec;
   wire padv_wb;
   wire pipeline_flush;
 
@@ -910,7 +911,7 @@ module mor1kx_cpu_marocchino
 
     // pipeline control
     .padv_fetch_i               (padv_fetch), // OMAN
-    .padv_decode_i              (padv_decode), // OMAN
+    .padv_exec_i                (padv_exec), // OMAN
     .padv_wb_i                  (padv_wb), // OMAN
     .pipeline_flush_i           (pipeline_flush), // OMAN
 
@@ -1185,7 +1186,7 @@ module mor1kx_cpu_marocchino
     .cpu_rst                    (cpu_rst), // 1CLK_RSVRS
     // pipeline control signals in
     .pipeline_flush_i           (pipeline_flush), // 1CLK_RSVRS
-    .padv_decode_i              (padv_decode), // 1CLK_RSVRS
+    .padv_exec_i                (padv_exec), // 1CLK_RSVRS
     .taking_op_i                (taking_1clk_op), // 1CLK_RSVRS
     // input data from DECODE
     .dcod_rfxx_i                ({dcod_rfb1, dcod_rfa1}), // 1CLK_RSVRS
@@ -1364,7 +1365,7 @@ module mor1kx_cpu_marocchino
     .cpu_rst                    (cpu_rst), // MULDIV_RSRVS
     // pipeline control signals in
     .pipeline_flush_i           (pipeline_flush), // MULDIV_RSRVS
-    .padv_decode_i              (padv_decode), // MULDIV_RSRVS
+    .padv_exec_i                (padv_exec), // MULDIV_RSRVS
     .taking_op_i                (muldiv_taking_op), // MULDIV_RSRVS
     // input data from DECODE
     .dcod_rfxx_i                ({dcod_rfb1, dcod_rfa1}), // MULDIV_RSRVS
@@ -1564,7 +1565,7 @@ module mor1kx_cpu_marocchino
     .cpu_rst                    (cpu_rst), // FPU_RSRVS
     // pipeline control signals in
     .pipeline_flush_i           (pipeline_flush), // FPU_RSRVS
-    .padv_decode_i              (padv_decode), // FPU_RSRVS
+    .padv_exec_i                (padv_exec), // FPU_RSRVS
     .taking_op_i                (fpxx_taking_op), // FPU_RSRVS
     // input data from DECODE
     .dcod_rfxx_i                ({dcod_rfb2, dcod_rfa2, dcod_rfb1, dcod_rfa1}), // FPU_RSRVS
@@ -1764,7 +1765,7 @@ module mor1kx_cpu_marocchino
     .cpu_rst                    (cpu_rst), // LSU_RSVRS
     // pipeline control signals in
     .pipeline_flush_i           (pipeline_flush), // LSU_RSVRS
-    .padv_decode_i              (padv_decode), // LSU_RSVRS
+    .padv_exec_i                (padv_exec), // LSU_RSVRS
     .taking_op_i                (lsu_taking_op), // LSU_RSVRS
     // input data from DECODE
     .dcod_rfxx_i                ({dcod_rfb1, dcod_rfa1}), // LSU_RSVRS
@@ -2097,7 +2098,7 @@ module mor1kx_cpu_marocchino
     .exec_valid_i                     (exec_valid), // CTRL
     .pipeline_flush_o                 (pipeline_flush), // CTRL
     .padv_fetch_o                     (padv_fetch), // CTRL
-    .padv_decode_o                    (padv_decode), // CTRL
+    .padv_exec_o                      (padv_exec), // CTRL
     .padv_wb_o                        (padv_wb), // CTRL
 
     // MF(T)SPR coomand processing
@@ -2274,7 +2275,7 @@ module mor1kx_cpu_marocchino
    if (cpu_rst) begin
       traceport_waitexec <= 0;
    end else begin
-      if (padv_decode) begin
+      if (padv_exec) begin
          traceport_stage_dcod_insn <= dcod_insn;
       end
 
