@@ -33,14 +33,13 @@ module ocb_tap
   parameter DATA_SIZE = 2
 )
 (
-  // clocks, resets and other controls
-  input                      clk, // either cpu- or wb-
-  input                      rst, // either cpu- or wb-
-  input                      flush_i,
-  input                      push_i,
+  // clock
+  input                      clk,
   // value at reset/flush
+  input                      reset, // to default value; synchronous
   input      [DATA_SIZE-1:0] default_value_i,
-  // data inputs
+  // input controls and data
+  input                      push_i,
   input      [DATA_SIZE-1:0] prev_tap_out_i,
   input      [DATA_SIZE-1:0] forwarded_value_i,
   input                      use_forwarded_value_i,
@@ -49,7 +48,7 @@ module ocb_tap
 );
 
   always @(posedge clk) begin
-    if (rst | flush_i)
+    if (reset)
       out_o <= default_value_i;
     else if (push_i)
       out_o <= use_forwarded_value_i ? forwarded_value_i :
@@ -74,13 +73,14 @@ module mor1kx_ocb_marocchino
 )
 (
   // clocks, resets
-  input                  clk, // either cpu- or wb-
-  input                  rst, // either cpu- or wb-
+  input                  clk,
+  input                  rst,
   // pipe controls
   input                  pipeline_flush_i, // flush pipe
   input                  write_i,
   input                  read_i,
   // value at reset/flush
+  input                  reset_taps, // to default value; synchronous
   input  [DATA_SIZE-1:0] default_value_i,
   // data input
   input  [DATA_SIZE-1:0] ocbi_i,
@@ -173,11 +173,10 @@ module mor1kx_ocb_marocchino
     )
     u_tap_k
     (
-      .clk                    (clk), // either cpu- or wb-
-      .rst                    (rst), // either cpu- or wb-
-      .flush_i                (pipeline_flush_i),
-      .push_i                 (push_taps[k]),
+      .clk                    (clk),
+      .reset                  (reset_taps),
       .default_value_i        (default_value_i),
+      .push_i                 (push_taps[k]),
       .prev_tap_out_i         (ocb_bus[k+1]),
       .forwarded_value_i      (ocbi_i),
       .use_forwarded_value_i  (use_forwarded_value[k]),
@@ -220,13 +219,14 @@ module mor1kx_ocb_miss_marocchino
 )
 (
   // clocks, resets and other input controls
-  input                  clk, // either cpu- or wb-
-  input                  rst, // either cpu- or wb-
+  input                  clk,
+  input                  rst,
   // pipe controls
   input                  pipeline_flush_i, // flush pipe
   input                  write_i,
   input                  read_i,
   // value at reset/flush
+  input                  reset_taps, // to default value; synchronous
   input  [DATA_SIZE-1:0] default_value_i,
   // data input
   input                  is_miss_i,
@@ -350,11 +350,10 @@ module mor1kx_ocb_miss_marocchino
     )
     u_tap_k
     (
-      .clk                    (clk), // either cpu- or wb-
-      .rst                    (rst), // either cpu- or wb-
-      .flush_i                (pipeline_flush_i),
-      .push_i                 (push_taps[k]),
+      .clk                    (clk),
+      .reset                  (reset_taps),
       .default_value_i        (default_value_i),
+      .push_i                 (push_taps[k]),
       .prev_tap_out_i         (ocb_bus[k+1]),
       .forwarded_value_i      (ocbi_i),
       .use_forwarded_value_i  (use_forwarded_value[k]),
@@ -462,7 +461,7 @@ module mor1kx_rsrvs_marocchino
   output       [(OPTION_OPERAND_WIDTH-1):0] exec_rfa2_o,
   output       [(OPTION_OPERAND_WIDTH-1):0] exec_rfb2_o,
   //   unit-is-busy flag
-  output                                    unit_busy_o
+  output                                    unit_free_o
 );
 
   /**** parameters for fields extruction ****/
@@ -577,7 +576,7 @@ module mor1kx_rsrvs_marocchino
 
   // output from busy stage
   //  ## unit-is-busy flag
-  assign unit_busy_o = busy_op_any_r;
+  assign unit_free_o = (~busy_op_any_r);
 
 
   // busy: processing hazards wires (and regs) used across whole module

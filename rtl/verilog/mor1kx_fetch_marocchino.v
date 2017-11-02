@@ -102,7 +102,7 @@ module mor1kx_fetch_marocchino
 
   // to RF read and DECODE
   //  # instruction word valid flag
-  output                                fetch_insn_valid_o,
+  output                                fetch_valid_o,
   //  # instruction is in delay slot
   output reg                            fetch_delay_slot_o,
   //  # instruction word itsef
@@ -618,7 +618,7 @@ module mor1kx_fetch_marocchino
 
 
   // IFETCH output valid: istruction or exception
-  assign fetch_insn_valid_o = s2o_imem_ack | fetch_an_except_o;
+  assign fetch_valid_o = s2o_imem_ack | fetch_an_except_o;
 
 
   // --- ICACHE re-fill request ---
@@ -692,7 +692,7 @@ module mor1kx_fetch_marocchino
   // insrtuction word mux
   wire s3t_miss_or_except = (~s2o_imem_ack) | fetch_an_except_o;
   // ---
-  assign fetch_insn_o = s3t_miss_or_except ? {`OR1K_OPCODE_NOP,26'd0} :
+  assign fetch_insn_o = s3t_miss_or_except ? {`OR1K_OPCODE_CUST8,26'd0} :
                           (s2o_ibus_ack ? s2o_ibus_dat : s2o_ic_dat);
   // operand addresses
   assign fetch_rfa1_adr_o = fetch_insn_o[`OR1K_RA_SELECT];
@@ -709,7 +709,7 @@ module mor1kx_fetch_marocchino
   // ---
   wire s3t_miss_or_except_cp = (~s2o_imem_ack_cp) | fetch_an_except_cp;
   // ---
-  assign fetch_insn_cp = s3t_miss_or_except_cp ? {`OR1K_OPCODE_NOP,26'd0} :
+  assign fetch_insn_cp = s3t_miss_or_except_cp ? {`OR1K_OPCODE_CUST8,26'd0} :
                            (s2o_ibus_ack_cp ? s2o_ibus_dat_cp : s2o_ic_dat_cp);
   // Jump/Branch processing
   wire [`OR1K_OPCODE_WIDTH-1:0] opc_insn = fetch_insn_cp[`OR1K_OPCODE_SELECT];
@@ -740,7 +740,7 @@ module mor1kx_fetch_marocchino
     if (cpu_rst | flush_by_ctrl)
       fetch_delay_slot_o <= 1'b0; // reset / flush
     else if (padv_fetch_i)
-      fetch_delay_slot_o <= fetch_insn_valid_o ? fetch_op_jb_o : fetch_delay_slot_o;
+      fetch_delay_slot_o <= fetch_valid_o ? fetch_op_jb_o : fetch_delay_slot_o;
   end // @ clock
 
 

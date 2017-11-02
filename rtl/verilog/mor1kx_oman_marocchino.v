@@ -143,7 +143,7 @@ module mor1kx_oman_marocchino
   input                                 pipeline_flush_i,
 
   // fetched instruction is valid
-  input                                 fetch_insn_valid_i,
+  input                                 fetch_valid_i,
   input                                 fetch_delay_slot_i,
 
   // for RAT
@@ -171,7 +171,8 @@ module mor1kx_oman_marocchino
 
   // DECODE flags to indicate next required unit
   // (The information is stored in order control buffer)
-  input                                 dcod_op_pass_exec_i,
+  input                                 dcod_op_push_exec_i,
+  input                                 dcod_op_push_wb_i,
   input                                 fetch_op_jb_i,
   input                                 dcod_op_1clk_i,
   input                                 dcod_op_div_i,
@@ -199,13 +200,13 @@ module mor1kx_oman_marocchino
   input                                 dcod_op_mXspr_i,
 
   // for unit hazard detection
-  input                                 op_1clk_busy_i,
+  input                                 op_1clk_free_i,
   input                                 dcod_op_muldiv_i,
-  input                                 muldiv_busy_i,
+  input                                 muldiv_free_i,
   input                                 dcod_op_fpxx_any_i,
-  input                                 fpxx_busy_i,
+  input                                 fpxx_free_i,
   input                                 dcod_op_lsu_any_i, // (load | store | l.msync)
-  input                                 lsu_busy_i,
+  input                                 lsu_free_i,
 
   // collect valid flags from execution modules
   input                                 div_valid_i,
@@ -218,7 +219,6 @@ module mor1kx_oman_marocchino
   input                                 fetch_except_ibus_err_i,
   input                                 fetch_except_ipagefault_i,
   input                                 fetch_except_itlb_miss_i,
-  input                                 fetch_an_except_i,
   input                                 dcod_except_illegal_i,
   input                                 dcod_except_syscall_i,
   input                                 dcod_except_trap_i,
@@ -343,8 +343,8 @@ module mor1kx_oman_marocchino
   //  [6] Flag that external interrupt is enabled (instruction is re-startable)
   localparam  OCBT_INTERRUPTS_EN_POS  = 6;
   //  Unit wise requested/ready
-  localparam  OCBT_OP_PASS_EXEC_POS   = OCBT_INTERRUPTS_EN_POS  + 1;
-  localparam  OCBT_JUMP_OR_BRANCH_POS = OCBT_OP_PASS_EXEC_POS   + 1;
+  localparam  OCBT_OP_PUSH_WB_POS     = OCBT_INTERRUPTS_EN_POS  + 1;
+  localparam  OCBT_JUMP_OR_BRANCH_POS = OCBT_OP_PUSH_WB_POS     + 1;
   localparam  OCBT_OP_1CLK_POS        = OCBT_JUMP_OR_BRANCH_POS + 1;
   localparam  OCBT_OP_DIV_POS         = OCBT_OP_1CLK_POS        + 1;
   localparam  OCBT_OP_MUL_POS         = OCBT_OP_DIV_POS         + 1;
@@ -352,7 +352,7 @@ module mor1kx_oman_marocchino
   localparam  OCBT_RFD2_WB_POS        = OCBT_OP_FPXX_ARITH_POS  + 1;
   localparam  OCBT_OP_FP64_CMP_POS    = OCBT_RFD2_WB_POS        + 1; // source for granting write back to fpxx comparison
   localparam  OCBT_OP_LS_POS          = OCBT_OP_FP64_CMP_POS    + 1; // load / store (we need it for pushing LSU exceptions)
-  localparam  OCBT_OP_RFE_POS         = OCBT_OP_LS_POS          + 1; // l.rfe
+  localparam  OCBT_OP_RFE_POS         = OCBT_OP_LS_POS          + 1;
   //  Instruction is in delay slot
   localparam  OCBT_DELAY_SLOT_POS     = OCBT_OP_RFE_POS         + 1;
   //  Instruction writting comparison flag
@@ -379,32 +379,32 @@ module mor1kx_oman_marocchino
 
   // a jump/branch instruction in DECODE
   reg dcod_op_jb_r;
+  // ---
+  always @(posedge cpu_clk) begin
+    if (padv_dcod_i)
+      dcod_op_jb_r <= fetch_op_jb_i;
+  end // at clock
+
+  // IFETCH exceptions in DECODE
   reg dcod_fetch_except_ibus_err_r;
   reg dcod_fetch_except_ipagefault_r;
   reg dcod_fetch_except_itlb_miss_r;
-  reg dcod_fetch_an_except_r;
   // ---
   always @(posedge cpu_clk) begin
     if (cpu_rst | pipeline_flush_i) begin
-      dcod_op_jb_r                    <= 1'b0;
-      dcod_fetch_except_ibus_err_r    <= 1'b0;
-      dcod_fetch_except_ipagefault_r  <= 1'b0;
-      dcod_fetch_except_itlb_miss_r   <= 1'b0;
-      dcod_fetch_an_except_r          <= 1'b0;
+      dcod_fetch_except_ibus_err_r   <= 1'b0;
+      dcod_fetch_except_ipagefault_r <= 1'b0;
+      dcod_fetch_except_itlb_miss_r  <= 1'b0;
     end
     else if (padv_dcod_i) begin
-      dcod_op_jb_r                    <= fetch_op_jb_i;
-      dcod_fetch_except_ibus_err_r    <= fetch_except_ibus_err_i;
-      dcod_fetch_except_ipagefault_r  <= fetch_except_ipagefault_i;
-      dcod_fetch_except_itlb_miss_r   <= fetch_except_itlb_miss_i;
-      dcod_fetch_an_except_r          <= fetch_an_except_i;
+      dcod_fetch_except_ibus_err_r   <= fetch_except_ibus_err_i;
+      dcod_fetch_except_ipagefault_r <= fetch_except_ipagefault_i;
+      dcod_fetch_except_itlb_miss_r  <= fetch_except_itlb_miss_i;
     end
     else if (padv_exec_i) begin
-      dcod_op_jb_r                    <= 1'b0;
-      dcod_fetch_except_ibus_err_r    <= 1'b0;
-      dcod_fetch_except_ipagefault_r  <= 1'b0;
-      dcod_fetch_except_itlb_miss_r   <= 1'b0;
-      dcod_fetch_an_except_r          <= 1'b0;
+      dcod_fetch_except_ibus_err_r   <= 1'b0;
+      dcod_fetch_except_ipagefault_r <= 1'b0;
+      dcod_fetch_except_itlb_miss_r  <= 1'b0;
     end
   end // at clock
 
@@ -426,8 +426,8 @@ module mor1kx_oman_marocchino
       next_ext_bits_r <= EXT_BITS_MIN;
     end
     else if (padv_dcod_i) begin
-      dcod_ext_bits_r <= fetch_insn_valid_i ? next_ext_bits_r : dcod_ext_bits_r;
-      next_ext_bits_r <= fetch_insn_valid_i ? next_ext_bits_w : next_ext_bits_r;
+      dcod_ext_bits_r <= fetch_valid_i ? next_ext_bits_r : dcod_ext_bits_r;
+      next_ext_bits_r <= fetch_valid_i ? next_ext_bits_w : next_ext_bits_r;
     end
   end // @clock
 
@@ -450,11 +450,6 @@ module mor1kx_oman_marocchino
   // pipeline_flush_i that the rfe will generate.
   wire interrupts_en = ~(dcod_op_lsu_store_i | dcod_op_msync_i | dcod_op_mXspr_i | dcod_op_rfe_i);
 
-  // Combine DECODE related exceptions
-  wire fd_an_except = dcod_fetch_an_except_r  |                     // IFETCH an exception
-                      dcod_except_illegal_i   |                     // DECODE an exception
-                      dcod_except_syscall_i   | dcod_except_trap_i; // DECODE an exception
-
   // input pack
   wire  [OCBT_MSB:0] ocbi;
   assign ocbi = { // various instruction related information
@@ -467,7 +462,7 @@ module mor1kx_oman_marocchino
                   dcod_flag_wb_i,         // any instruction which affects comparison flag
                   dcod_delay_slot_i,      // istruction is in delay slot
                   // unit that must be granted for WB
-                  dcod_op_rfe_i,     // l.rfe
+                  dcod_op_rfe_i,
                   dcod_op_ls_i,      // load / store (we need it for pushing LSU exceptions)
                   dcod_op_fp64_cmp_i,
                   dcod_rfd2_wb_i, // MAROCCHINO_TODO: move it near to D2 adr
@@ -476,7 +471,7 @@ module mor1kx_oman_marocchino
                   dcod_op_div_i,
                   dcod_op_1clk_i,
                   dcod_op_jb_r,
-                  (fd_an_except | dcod_op_pass_exec_i), // OMAN entrance: !!! l.rfe is in "pass exec" !!!
+                  dcod_op_push_wb_i, // OMAN entrance
                   // Flag that istruction is restartable
                   interrupts_en,
                   // FETCH & DECODE exceptions
@@ -513,6 +508,7 @@ module mor1kx_oman_marocchino
     .write_i          (padv_exec_i), // INSN_OCB
     .read_i           (padv_wb_i), // INSN_OCB
     // value at reset/flush
+    .reset_taps       (cpu_rst | pipeline_flush_i), // INSN_OCB
     .default_value_i  ({OCBT_WIDTH{1'b0}}), // INSN_OCB
     // data input
     .ocbi_i           (ocbi), // INSN_OCB
@@ -846,32 +842,22 @@ module mor1kx_oman_marocchino
   // so for the cases we additionally wait "jump/branch attributes".
   assign exec_valid_o =
     (ocbo00[OCBT_OP_1CLK_POS] & ~ocbo00[OCBT_JUMP_OR_BRANCH_POS]) | // EXEC VALID: but wait attributes for l.jal/ljalr
-    (exec_jb_attr_valid       &  ocbo00[OCBT_JUMP_OR_BRANCH_POS]) | // EXEC VALID:
+    (exec_jb_attr_valid       &  ocbo00[OCBT_JUMP_OR_BRANCH_POS]) | // EXEC VALID
     (div_valid_i              &  ocbo00[OCBT_OP_DIV_POS])         | // EXEC VALID
     (mul_valid_i              &  ocbo00[OCBT_OP_MUL_POS])         | // EXEC VALID
     (fpxx_arith_valid_i       &  ocbo00[OCBT_OP_FPXX_ARITH_POS])  | // EXEC VALID
     (fp64_cmp_valid_i         &  ocbo00[OCBT_OP_FP64_CMP_POS])    | // EXEC VALID
     (lsu_valid_i              &  ocbo00[OCBT_OP_LS_POS])          | // EXEC VALID
-                                 ocbo00[OCBT_OP_PASS_EXEC_POS];     // EXEC VALID: l.rfe and FETCH/DECODE exceptions, etc
+                                 ocbo00[OCBT_OP_PUSH_WB_POS];       // EXEC VALID
 
-  // DECODE stall components
-  //  stall by unit usage hazard
-  //     (unit could be either busy or waiting for WB access)
-  wire stall_by_hazard_u = (dcod_op_1clk_i     & op_1clk_busy_i) |  // hazard by unit
-                           (dcod_op_muldiv_i   & muldiv_busy_i)  |  // hazard by unit
-                           (dcod_op_fpxx_any_i & fpxx_busy_i)    |  // hazard by unit
-                           (dcod_op_lsu_any_i  & lsu_busy_i);       // hazard by unit
-
-  //  stall by:
-  //    a) MF(T)SPR in decode till and OCB become empty (see here)
-  //    b) till completion MF(T)SPR (see CTRL)
-  //       this completion generates padv-wb,
-  //       in next turn padv-wb cleans up OCB and restores
-  //       instructions issue
-  wire stall_by_mXspr = dcod_op_mXspr_i & (~ocb_empty);
-
-  // combine stalls to decode-valid flag
-  assign dcod_valid_o = (~stall_by_hazard_u) & (~ocb_full) & (~stall_by_mXspr);
+  // DECODE valid
+  assign dcod_valid_o = (~ocb_full) &                            // DECODE VALID
+                        ((dcod_op_1clk_i     & op_1clk_free_i) | // DECODE VALID
+                         (dcod_op_muldiv_i   & muldiv_free_i)  | // DECODE VALID
+                         (dcod_op_fpxx_any_i & fpxx_free_i)    | // DECODE VALID
+                         (dcod_op_lsu_any_i  & lsu_free_i)     | // DECODE VALID
+                         (dcod_op_mXspr_i    & ocb_empty)      | // DECODE VALID
+                         dcod_op_push_exec_i);                   // DECODE VALID
 
 
   //---------------------------------------//
@@ -1132,12 +1118,12 @@ module mor1kx_oman_marocchino
         dcod_locked_r <= (~ocbo00[OCBT_JUMP_OR_BRANCH_POS]); // Pushing Jumb/Branch to WB unlocks DECODE
     end
     else if (padv_dcod_i)
-      dcod_locked_r <= fetch_insn_valid_i & fetch_delay_slot_i &
+      dcod_locked_r <= fetch_valid_i & fetch_delay_slot_i &
                        jb_attr_flags_r[JB_ATTR_INSN] & ((~exec_jb_attr_valid) | (~ocbo00[OCBT_JUMP_OR_BRANCH_POS]));
   end // at clock
   // ---
   assign dcod_free_o = (~dcod_locked_r);
-  
+
 
   // WB JUMP or BRANCH attributes
   //  # flags

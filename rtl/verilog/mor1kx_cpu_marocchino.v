@@ -146,7 +146,7 @@ module mor1kx_cpu_marocchino
 
   // IFETCH outputs for RF reading and DECODE
   //  # instruction word valid flag
-  wire                            fetch_insn_valid;
+  wire                            fetch_valid;
   //  # instruction is in delay slot
   wire                            fetch_delay_slot;
   //  # instruction word itsef
@@ -182,7 +182,7 @@ module mor1kx_cpu_marocchino
   wire                            ratin_rfb2_req;
 
 
-  wire                            dcod_insn_valid;
+  wire                            dcod_empty;
 
 
   wire                            wb_atomic_flag_set;
@@ -371,17 +371,19 @@ module mor1kx_cpu_marocchino
   wire                            dcod_op_msync;
   wire                            dcod_op_lsu_any;
   wire [OPTION_OPERAND_WIDTH-1:0] dcod_sbuf_epcr; // EPCR for STORE_BUFFER exception
-  wire                            lsu_busy;
+  wire                            lsu_free;
   wire                            grant_wb_to_lsu;
 
 
-  // Instruction which passes EXECUTION through
-  wire                            dcod_op_pass_exec;
+  // Instructions which push EXECUTION without extra conditions
+  wire                            dcod_op_push_exec;
+  // Instructions which push WRITE-BACK without extra conditions
+  wire                            dcod_op_push_wb;
 
 
   // Reservation station for 1-clock execution units
   wire                            dcod_op_1clk;
-  wire                            op_1clk_busy;
+  wire                            op_1clk_free;
   wire  [`OR1K_ALU_OPC_WIDTH-1:0] dcod_opc_alu_secondary;
 
   wire                            dcod_op_add;
@@ -416,7 +418,7 @@ module mor1kx_cpu_marocchino
   wire                            grant_wb_to_mul;
   // Reservation station for integer MUL/DIV
   wire                            dcod_op_muldiv;
-  wire                            muldiv_busy;
+  wire                            muldiv_free;
 
 
   // FPU3264 arithmetic part
@@ -451,7 +453,7 @@ module mor1kx_cpu_marocchino
   // FPU3264 reservationstation controls
   wire                              dcod_op_fpxx_any;
   wire                              exec_op_fpxx_any;
-  wire                              fpxx_busy;
+  wire                              fpxx_free;
   wire                              fpxx_taking_op;
 
 
@@ -657,7 +659,7 @@ module mor1kx_cpu_marocchino
 
     // to RF read
     //  # instruction word valid flag
-    .fetch_insn_valid_o               (fetch_insn_valid), // FETCH
+    .fetch_valid_o                    (fetch_valid), // FETCH
     //  # instruction is in delay slot
     .fetch_delay_slot_o               (fetch_delay_slot), // FETCH
     //  # instruction word itsef
@@ -784,7 +786,9 @@ module mor1kx_cpu_marocchino
     .pipeline_flush_i                 (pipeline_flush), // DECODE
     // from IFETCH
     //  # instruction word valid flag
-    .fetch_insn_valid_i               (fetch_insn_valid), // DECODE
+    .fetch_valid_i                    (fetch_valid), // DECODE
+    //  # an exception
+    .fetch_an_except_i                (fetch_an_except), // DECODE
     //  # instruction is in delay slot
     .fetch_delay_slot_i               (fetch_delay_slot), // DECODE
     //  # instruction word itsef
@@ -807,7 +811,7 @@ module mor1kx_cpu_marocchino
     .ratin_rfa2_req_o                 (ratin_rfa2_req), // DECODE
     .ratin_rfb2_req_o                 (ratin_rfb2_req), // DECODE
     // latched instruction word and it's attributes
-    .dcod_insn_valid_o                (dcod_insn_valid), // DECODE
+    .dcod_empty_o                     (dcod_empty), // DECODE
     .dcod_delay_slot_o                (dcod_delay_slot), // DECODE
     // destiny D1
     .dcod_rfd1_adr_o                  (dcod_rfd1_adr), // DECODE
@@ -836,8 +840,10 @@ module mor1kx_cpu_marocchino
     .dcod_op_lsu_any_o                (dcod_op_lsu_any), // DECODE
     // EPCR for store buffer. delay-slot ? (pc-4) : pc
     .dcod_sbuf_epcr_o                 (dcod_sbuf_epcr), // DECODE
-    // Instruction which passes EXECUTION through
-    .dcod_op_pass_exec_o              (dcod_op_pass_exec), // DECODE
+    // Instructions which push EXECUTION without extra conditions
+    .dcod_op_push_exec_o              (dcod_op_push_exec), // DECODE
+    // Instructions which push WRITE-BACK without extra conditions
+    .dcod_op_push_wb_o                (dcod_op_push_wb), // DECODE
     // 1-clock instruction
     .dcod_op_1clk_o                   (dcod_op_1clk), // DECODE
     // ALU related opc
@@ -918,7 +924,7 @@ module mor1kx_cpu_marocchino
     .pipeline_flush_i           (pipeline_flush), // OMAN
 
     // fetched instruction is valid
-    .fetch_insn_valid_i         (fetch_insn_valid), // OMAN
+    .fetch_valid_i              (fetch_valid), // OMAN
     .fetch_delay_slot_i         (fetch_delay_slot), // OMAN
 
     // for RAT
@@ -946,7 +952,8 @@ module mor1kx_cpu_marocchino
 
     // DECODE non-latched flags to indicate next required unit
     // (The information is stored in order control buffer)
-    .dcod_op_pass_exec_i        (dcod_op_pass_exec), // OMAN
+    .dcod_op_push_exec_i        (dcod_op_push_exec), // OMAN
+    .dcod_op_push_wb_i          (dcod_op_push_wb), // OMAN
     .fetch_op_jb_i              (fetch_op_jb), // OMAN
     .dcod_op_1clk_i             (dcod_op_1clk), // OMAN
     .dcod_op_div_i              (dcod_op_div), // OMAN
@@ -974,13 +981,13 @@ module mor1kx_cpu_marocchino
     .dcod_op_mXspr_i            (dcod_op_mXspr), // OMAN
 
     // for unit hazard detection
-    .op_1clk_busy_i             (op_1clk_busy), // OMAN
+    .op_1clk_free_i             (op_1clk_free), // OMAN
     .dcod_op_muldiv_i           (dcod_op_muldiv), // OMAN
-    .muldiv_busy_i              (muldiv_busy), // OMAN
+    .muldiv_free_i              (muldiv_free), // OMAN
     .dcod_op_fpxx_any_i         (dcod_op_fpxx_any), // OMAN
-    .fpxx_busy_i                (fpxx_busy), // OMAN
+    .fpxx_free_i                (fpxx_free), // OMAN
     .dcod_op_lsu_any_i          (dcod_op_lsu_any), // OMAN (load | store | l.msync)
-    .lsu_busy_i                 (lsu_busy), // OMAN
+    .lsu_free_i                 (lsu_free), // OMAN
 
     // collect valid flags from execution modules
     .div_valid_i                (div_valid), // OMAN
@@ -993,7 +1000,6 @@ module mor1kx_cpu_marocchino
     .fetch_except_ibus_err_i    (fetch_except_ibus_err), // OMAN
     .fetch_except_ipagefault_i  (fetch_except_ipagefault), // OMAN
     .fetch_except_itlb_miss_i   (fetch_except_itlb_miss), // OMAN
-    .fetch_an_except_i          (fetch_an_except), // OMAN
     .dcod_except_illegal_i      (dcod_except_illegal), // OMAN
     .dcod_except_syscall_i      (dcod_except_syscall), // OMAN
     .dcod_except_trap_i         (dcod_except_trap), // OMAN
@@ -1226,7 +1232,7 @@ module mor1kx_cpu_marocchino
     .exec_rfa2_o                (), // 1CLK_RSVRS
     .exec_rfb2_o                (), // 1CLK_RSVRS
     //   unit-is-busy flag
-    .unit_busy_o                (op_1clk_busy) // 1CLK_RSVRS
+    .unit_free_o                (op_1clk_free) // 1CLK_RSVRS
   );
 
 
@@ -1402,7 +1408,7 @@ module mor1kx_cpu_marocchino
     .exec_rfa2_o                (), // MULDIV_RSRVS
     .exec_rfb2_o                (), // MULDIV_RSRVS
     //   unit-is-busy flag
-    .unit_busy_o                (muldiv_busy) // MULDIV_RSRVS
+    .unit_free_o                (muldiv_free) // MULDIV_RSRVS
   );
 
 
@@ -1607,7 +1613,7 @@ module mor1kx_cpu_marocchino
     .exec_rfa2_o                (exec_fpxx_a2), // FPU_RSRVS
     .exec_rfb2_o                (exec_fpxx_b2), // FPU_RSRVS
     //   unit-is-busy flag
-    .unit_busy_o                (fpxx_busy) // FPU_RSRVS
+    .unit_free_o                (fpxx_free) // FPU_RSRVS
   );
 
 
@@ -1805,7 +1811,7 @@ module mor1kx_cpu_marocchino
     .exec_rfa2_o                (), // LSU_RSVRS
     .exec_rfb2_o                (), // LSU_RSVRS
     //   unit-is-busy flag
-    .unit_busy_o                (lsu_busy) // LSU_RSVRS
+    .unit_free_o                (lsu_free) // LSU_RSVRS
   );
 
 
@@ -2097,8 +2103,8 @@ module mor1kx_cpu_marocchino
     .cpu_rst                          (cpu_rst), // CTRL
 
     // Inputs / Outputs for pipeline control signals
-    .fetch_insn_valid_i               (fetch_insn_valid), // CTRL
-    .dcod_insn_valid_i                (dcod_insn_valid), // CTRL
+    .fetch_valid_i                    (fetch_valid), // CTRL
+    .dcod_empty_i                     (dcod_empty), // CTRL
     .dcod_free_i                      (dcod_free), // CTRL
     .dcod_valid_i                     (dcod_valid), // CTRL
     .exec_valid_i                     (exec_valid), // CTRL
