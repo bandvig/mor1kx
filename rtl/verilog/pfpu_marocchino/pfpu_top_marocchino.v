@@ -298,6 +298,7 @@ u_pfpu_ocb
   .write_i            (taking_op_fpxx_arith), // PFPU_OCB
   .read_i             (rnd_taking_op), // PFPU_OCB
   // value at reset/flush
+  .reset_taps         (cpu_rst | pipeline_flush_i), // PFPU_OCB
   .default_value_i    (11'd0), // PFPU_OCB
   // data input
   .is_miss_i          (~exec_op_fpxx_any_i),
