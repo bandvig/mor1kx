@@ -38,7 +38,7 @@ module rat_cell
   input                                cpu_rst,
 
   // pipeline control
-  input                                padv_dcod_i,
+  input                                padv_fetch_i,
   input                                padv_wb_i,
   input                                pipeline_flush_i,
 
@@ -85,7 +85,7 @@ module rat_cell
     end
     else begin
       // synthesis parallel_case full_case
-      case ({padv_wb_i,padv_dcod_i})
+      case ({padv_wb_i,padv_fetch_i})
         // FETCH->DECODE
         2'b01: begin
           rat_rd1_alloc_o <= set_rdx_alloc ? set_rd1_alloc : rat_rd1_alloc_o;
@@ -114,7 +114,7 @@ module rat_cell
   always @(posedge cpu_clk) begin
     if (cpu_rst)
       rat_ext_bits_o <= {DEST_EXT_ADDR_WIDTH{1'b0}};
-    else if (padv_dcod_i)
+    else if (padv_fetch_i)
       rat_ext_bits_o <= set_rdx_alloc ? next_ext_bits_i : rat_ext_bits_o;
   end
 
@@ -137,14 +137,14 @@ module mor1kx_oman_marocchino
   input                                 cpu_rst,
 
   // pipeline control
-  input                                 padv_dcod_i,
+  input                                 padv_fetch_i,
   input                                 padv_exec_i,
   input                                 padv_wb_i,
   input                                 pipeline_flush_i,
 
   // fetched instruction is valid
   input                                 fetch_valid_i,
-  input                                 fetch_delay_slot_i,
+
 
   // for RAT
   //  # allocation SR[F]
@@ -260,7 +260,6 @@ module mor1kx_oman_marocchino
   output reg  [DEST_EXT_ADDR_WIDTH-1:0] omn2dec_hazard_dxb2_adr_o,
 
   // DECODE result could be processed by EXECUTE
-  output                                dcod_free_o,
   output                                dcod_valid_o,
 
   // EXECUTE completed (desired unit is ready)
@@ -393,7 +392,7 @@ module mor1kx_oman_marocchino
   reg dcod_op_jb_r;
   // ---
   always @(posedge cpu_clk) begin
-    if (padv_dcod_i)
+    if (padv_fetch_i)
       dcod_op_jb_r <= fetch_op_jb_i;
   end // at clock
 
@@ -408,15 +407,10 @@ module mor1kx_oman_marocchino
       dcod_fetch_except_ipagefault_r <= 1'b0;
       dcod_fetch_except_itlb_miss_r  <= 1'b0;
     end
-    else if (padv_dcod_i) begin
+    else if (padv_fetch_i) begin
       dcod_fetch_except_ibus_err_r   <= fetch_except_ibus_err_i;
       dcod_fetch_except_ipagefault_r <= fetch_except_ipagefault_i;
       dcod_fetch_except_itlb_miss_r  <= fetch_except_itlb_miss_i;
-    end
-    else if (padv_exec_i) begin
-      dcod_fetch_except_ibus_err_r   <= 1'b0;
-      dcod_fetch_except_ipagefault_r <= 1'b0;
-      dcod_fetch_except_itlb_miss_r  <= 1'b0;
     end
   end // at clock
 
@@ -437,7 +431,7 @@ module mor1kx_oman_marocchino
       dcod_ext_bits_r <= {DEST_EXT_ADDR_WIDTH{1'b0}};
       next_ext_bits_r <= EXT_BITS_MIN;
     end
-    else if (padv_dcod_i) begin
+    else if (padv_fetch_i) begin
       dcod_ext_bits_r <= fetch_valid_i ? next_ext_bits_r : dcod_ext_bits_r;
       next_ext_bits_r <= fetch_valid_i ? next_ext_bits_w : next_ext_bits_r;
     end
@@ -635,7 +629,7 @@ module mor1kx_oman_marocchino
       .cpu_clk                (cpu_clk), // RAT-CELL
       .cpu_rst                (cpu_rst), // RAT-CELL
       // pipeline control
-      .padv_dcod_i            (padv_dcod_i), // RAT-CELL
+      .padv_fetch_i           (padv_fetch_i), // RAT-CELL
       .padv_wb_i              (padv_wb_i), // RAT-CELL
       .pipeline_flush_i       (pipeline_flush_i), // RAT-CELL
       // input allocation information
@@ -723,7 +717,7 @@ module mor1kx_oman_marocchino
     end
     else begin
       // synthesis parallel_case full_case
-      case({padv_wb_i,padv_dcod_i})
+      case({padv_wb_i,padv_fetch_i})
         // only FETCH->DECODE
         2'b01: begin
           //  # relative operand A1
@@ -795,7 +789,7 @@ module mor1kx_oman_marocchino
       omn2dec_hazard_dxa2_adr_o <= {DEST_EXT_ADDR_WIDTH{1'b0}};
       omn2dec_hazard_dxb2_adr_o <= {DEST_EXT_ADDR_WIDTH{1'b0}};
     end
-    else if (padv_dcod_i) begin
+    else if (padv_fetch_i) begin
       omn2dec_hazard_dxa1_adr_o <= hazard_dxa1_adr;
       omn2dec_hazard_dxb1_adr_o <= hazard_dxb1_adr;
       omn2dec_hazard_dxa2_adr_o <= hazard_dxa2_adr;
@@ -835,7 +829,7 @@ module mor1kx_oman_marocchino
     end
     else begin
       // synthesis parallel_case full_case
-      case ({padv_wb_i,padv_dcod_i})
+      case ({padv_wb_i,padv_fetch_i})
         // when write-back only
         2'b10: begin
           //  # relative operand A1
@@ -949,7 +943,7 @@ module mor1kx_oman_marocchino
       jr_hazard_d1b1_r <= 1'b0;
     else begin
       // synthesis parallel_case full_case
-      case({padv_wb_i,padv_dcod_i})
+      case({padv_wb_i,padv_fetch_i})
         // only FETCH->DECODE
         2'b01:   jr_hazard_d1b1_r <= jr_hazard_d1b1_set;
         // write-back overlapping FETCH->DECODE
@@ -974,7 +968,7 @@ module mor1kx_oman_marocchino
       flag_alloc_r <= 1'b0;
     else begin
       // synthesis parallel_case full_case
-      case ({wb_flag_wb_o,padv_dcod_i})
+      case ({wb_flag_wb_o,padv_fetch_i})
         // FETCH->DECODE
         2'b01: flag_alloc_r <= fetch_flag_wb_i | flag_alloc_r;
         // WB-only
@@ -990,7 +984,7 @@ module mor1kx_oman_marocchino
   always @(posedge cpu_clk) begin
     if (cpu_rst)
       flag_alloc_ext_r <= {DEST_EXT_ADDR_WIDTH{1'b0}};
-    else if (padv_dcod_i)
+    else if (padv_fetch_i)
       flag_alloc_ext_r <= fetch_flag_wb_i ? next_ext_bits_r : flag_alloc_ext_r;
   end // at cpu-clock
 
@@ -1019,13 +1013,14 @@ module mor1kx_oman_marocchino
       jb_bnf_p        <= 2'b00;
       // other attributes
       jb_hazard_ext_p <= {DEST_EXT_ADDR_WIDTH{1'b0}};
+      jb_target_p     <= {OPTION_OPERAND_WIDTH{1'b0}};
     end
     else begin
       // synthesis parallel_case full_case
       case (jb_fsm_state_r)
         // catching j/b on IFETCH output
         JB_FSM_CATCHING_JB : begin
-          if (padv_dcod_i) begin
+          if (padv_fetch_i) begin
             // store "to immediate" target permanently to simplify logic
             jb_target_p <= fetch_to_imm_target_i;
             // next state ?
@@ -1132,61 +1127,59 @@ module mor1kx_oman_marocchino
                      jb_fsm_doing_bc_state;             // l.bf/l.bnf hazards are resolved
 
 
-  // JUMP/BRANCH attribute flags
-  localparam  JB_ATTR_DO_BRANCH_POS         = 0; // if "do" the "target" makes sence
+  // JUMP/BRANCH attributes [O]rder [C]ontrol [B]uffer (JB_ATTR_OCB)
+  localparam  JB_ATTR_TARGET_LSB            = 0;
+  localparam  JB_ATTR_TARGET_MSB            = OPTION_OPERAND_WIDTH          - 1;
+  localparam  JB_ATTR_DO_BRANCH_POS         = JB_ATTR_TARGET_MSB            + 1; // if "do" the "target" makes sence
   localparam  JB_ATTR_EXCEPT_IBUS_ALIGN_POS = JB_ATTR_DO_BRANCH_POS         + 1;
   localparam  JB_ATTR_VALID_POS             = JB_ATTR_EXCEPT_IBUS_ALIGN_POS + 1;
-  localparam  JB_ATTR_INSN                  = JB_ATTR_VALID_POS             + 1;
   //---
-  localparam  JB_ATTR_FLAGS_MSB             = JB_ATTR_INSN;
-  localparam  JB_ATTR_FLAGS_WIDTH           = JB_ATTR_FLAGS_MSB + 1;
-  //---
-  reg  [JB_ATTR_FLAGS_MSB:0]        jb_attr_flags_r;
-  reg  [(OPTION_OPERAND_WIDTH-1):0] jb_attr_target_r;
-  // --- JB attributes register controls ---
-  wire jb_attr_miss  = jb_attr_flags_r[JB_ATTR_INSN] & (~jb_attr_flags_r[JB_ATTR_VALID_POS]);
-  wire jb_attr_write = (padv_dcod_i & fetch_op_jb_i) | jb_attr_miss;
-  wire jb_attr_read  = padv_wb_i & ocbco[OCBTC_JUMP_OR_BRANCH_POS];
-  // ---
-  always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i)
-      jb_attr_flags_r <= {JB_ATTR_FLAGS_WIDTH{1'b0}};
-    else if (jb_attr_write) // waiting for resolving j/b hazards
-      jb_attr_flags_r <= {1'b1,jr_bc_valid,oman_except_ibus_align,do_branch_o};
-    else if (jb_attr_read)
-      jb_attr_flags_r <= {JB_ATTR_FLAGS_WIDTH{1'b0}};
-  end
-  // ---
-  always @(posedge cpu_clk) begin
-    if (jb_attr_write) // waiting for resolving j/b hazards
-      jb_attr_target_r <= do_branch_target_o;
-  end
+  localparam  JB_ATTR_MSB   = JB_ATTR_VALID_POS;
+  localparam  JB_ATTR_WIDTH = JB_ATTR_MSB + 1;
+  // --- input data fields for JB_ATTR_OCB ---
+  wire [JB_ATTR_MSB:0] jb_attr_ocbi =
+  {
+    jr_bc_valid,            // JB_ATTR_OCB input fields
+    oman_except_ibus_align, // JB_ATTR_OCB input fields: align exception
+    do_branch_o,            // JB_ATTR_OCB input fields: jump or taken branch
+    do_branch_target_o      // JB_ATTR_OCB input fields
+  };
+  // --- output data fields for JB_ATTR_OCB ---
+  wire [JB_ATTR_MSB:0] jb_attr_ocbo;
+  // --- JB_ATTR_OCB controls ---
+  // MAROCCHINO_TODO : register all "jimm" atributes till DECODE ????
+  wire jb_attr_ocb_write = padv_fetch_i & fetch_op_jb_i;
+  wire jb_attr_ocb_read  = padv_wb_i & exec_jb_attr_valid & ocbco[OCBTC_JUMP_OR_BRANCH_POS];
+  // --- JB_ATTR_OCB instance ---
+  mor1kx_ocb_miss_marocchino
+  #(
+    .NUM_TAPS   (4), // half of regular OCB (second half is delay slots)
+    .NUM_OUTS   (1), // only "EXECUTE" level is intresting
+    .DATA_SIZE  (JB_ATTR_WIDTH),
+    .FULL_FLAG  ("NONE")
+  )
+  u_jb_attr_ocb
+  (
+    // clocks and resets
+    .clk                (cpu_clk), // JB_ATTR_OCB
+    .rst                (cpu_rst), // JB_ATTR_OCB
+    // pipe controls
+    .pipeline_flush_i   (pipeline_flush_i), // JB_ATTR_OCB
+    .write_i            (jb_attr_ocb_write), // JB_ATTR_OCB
+    .read_i             (jb_attr_ocb_read), // JB_ATTR_OCB
+    // value at reset/flush
+    .reset_taps         (cpu_rst | pipeline_flush_i), // JB_ATTR_OCB
+    .default_value_i    ({JB_ATTR_WIDTH{1'b0}}), // JB_ATTR_OCB
+    // data input
+    .is_miss_i          (fetch_jr_bc_hazard_o), // JB_ATTR_OCB
+    .ocbi_i             (jb_attr_ocbi), // JB_ATTR_OCB
+    // full flags is not used
+    .full_o             (), // JB_ATTR_OCB
+    // data ouputs
+    .ocbo_o             (jb_attr_ocbo) // JB_ATTR_OCB
+  );
   // --- JB_ATTR_OCB output unpack ---
-  assign exec_jb_attr_valid = jb_attr_flags_r[JB_ATTR_VALID_POS];
-
-  // DECODE is "locked" flag.
-  // We set the flag after delay slot has passed into EXEC
-  // and till pushing Jump/Branch attributes into WB.
-  // This prevents possible overriding of Jump/Branch
-  // attributes register with possible Jump/Brunch instruction
-  // followed by delay slot.
-  // ---
-  reg  dcod_locked_r;
-  // ---
-  always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i)
-      dcod_locked_r <= 1'b0;
-    else if (dcod_locked_r) begin
-      if (padv_wb_i) // MAROCCHINO_TODO: sync to JB attribute register update?
-        dcod_locked_r <= (~ocbco[OCBTC_JUMP_OR_BRANCH_POS]); // Pushing Jumb/Branch to WB unlocks DECODE
-    end
-    else if (padv_dcod_i)
-      dcod_locked_r <= fetch_valid_i & fetch_delay_slot_i &
-                       jb_attr_flags_r[JB_ATTR_INSN] & ((~exec_jb_attr_valid) | (~ocbco[OCBTC_JUMP_OR_BRANCH_POS]));
-  end // at clock
-  // ---
-  assign dcod_free_o = (~dcod_locked_r);
-
+  assign exec_jb_attr_valid = jb_attr_ocbo[JB_ATTR_VALID_POS];
 
   // WB JUMP or BRANCH attributes
   //  # flags
@@ -1197,7 +1190,7 @@ module mor1kx_oman_marocchino
     end
     else if (padv_wb_i) begin
       wb_jump_or_branch_o <= ocbco[OCBTC_JUMP_OR_BRANCH_POS];
-      wb_do_branch_o      <= jb_attr_flags_r[JB_ATTR_DO_BRANCH_POS];
+      wb_do_branch_o      <= jb_attr_ocbo[JB_ATTR_DO_BRANCH_POS];
     end
     else begin
       wb_jump_or_branch_o <= 1'b0; // 1-clock length
@@ -1207,7 +1200,7 @@ module mor1kx_oman_marocchino
   //  # target
   always @(posedge cpu_clk) begin
     if (padv_wb_i)
-      wb_do_branch_target_o <= jb_attr_target_r;
+      wb_do_branch_target_o <= jb_attr_ocbo[JB_ATTR_TARGET_MSB:JB_ATTR_TARGET_LSB];
   end // @clock
 
 
@@ -1222,7 +1215,7 @@ module mor1kx_oman_marocchino
   assign exec_except_ibus_err_o   = ocbao[5];
   assign exec_except_ipagefault_o = ocbao[4];
   assign exec_except_itlb_miss_o  = ocbao[3];
-  assign exec_except_ibus_align_o = jb_attr_flags_r[JB_ATTR_EXCEPT_IBUS_ALIGN_POS];
+  assign exec_except_ibus_align_o = jb_attr_ocbo[JB_ATTR_EXCEPT_IBUS_ALIGN_POS];
   // DECODE exceptions
   assign exec_except_illegal_o    = ocbao[2];
   assign exec_except_syscall_o    = ocbao[1];

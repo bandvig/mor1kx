@@ -68,14 +68,11 @@ module mor1kx_ctrl_marocchino
   input                                 cpu_rst,
 
   // Inputs / Outputs for pipeline control signals
-  input                                 fetch_valid_i,
   input                                 dcod_empty_i,
-  input                                 dcod_free_i,
   input                                 dcod_valid_i,
   input                                 exec_valid_i,
   output reg                            pipeline_flush_o,
   output                                padv_fetch_o,
-  output                                padv_dcod_o,
   output                                padv_exec_o,
   output                                padv_wb_o,
 
@@ -555,16 +552,10 @@ module mor1kx_ctrl_marocchino
 
 
   // Advance IFETCH
-  assign padv_fetch_o = ((~fetch_valid_i) | (dcod_free_i & (dcod_empty_i | dcod_valid_i))) & (~spr_bus_cpu_stall_r) &
+  assign padv_fetch_o = (dcod_empty_i | dcod_valid_i) & (~spr_bus_cpu_stall_r) &
                         (~du_cpu_stall) & ((~stepping) | pstep[0]); // DU enabling/disabling IFETCH
   // Pass step from IFETCH to DECODE
-  wire   pass_step_to_decode = fetch_valid_i & pstep[0]; // for DU
-
-
-  // Advance DECODE
-  assign padv_dcod_o = dcod_free_i & (dcod_empty_i | dcod_valid_i) & (~spr_bus_cpu_stall_r) &
-                       (~du_cpu_stall); // MAROCCHINO_TODO: step
-  // Pass step MAROCCHINO_TODO
+  wire   pass_step_to_decode = dcod_valid_i & pstep[0]; // for DU
 
 
   // Advance DECODE->EXECUTE latches

@@ -254,7 +254,6 @@ module mor1kx_cpu_marocchino
   wire [OPTION_OPERAND_WIDTH-1:0] wb_result2_cp3; // copy #3
 
 
-  wire                            dcod_free;
   wire                            dcod_valid;
   wire                            exec_valid;
   wire                            lsu_valid;   // result ready or exceptions
@@ -482,7 +481,7 @@ module mor1kx_cpu_marocchino
 
   // pipeline controls from CTRL to units
   wire padv_fetch;
-  wire padv_dcod;
+  //wire padv_dcod;
   wire padv_exec;
   wire padv_wb;
   wire pipeline_flush;
@@ -708,7 +707,7 @@ module mor1kx_cpu_marocchino
     .cpu_rst                          (cpu_rst), // RF
     // pipeline control signals
     .pipeline_flush_i                 (pipeline_flush), // RF
-    .padv_dcod_i                      (padv_dcod), // RF
+    .padv_fetch_i                     (padv_fetch), // RF
     // SPR bus
     .spr_bus_addr_i                   (spr_bus_addr_o), // RF
     .spr_bus_stb_i                    (spr_bus_stb_o), // RF
@@ -781,8 +780,7 @@ module mor1kx_cpu_marocchino
     .cpu_clk                          (cpu_clk), // DECODE
     .cpu_rst                          (cpu_rst), // DECODE
     // pipeline controls
-    .padv_dcod_i                      (padv_dcod), // DECODE
-    .padv_exec_i                      (padv_exec), // DECODE
+    .padv_fetch_i                     (padv_fetch), // DECODE
     .pipeline_flush_i                 (pipeline_flush), // DECODE
     // from IFETCH
     //  # instruction word valid flag
@@ -918,14 +916,14 @@ module mor1kx_cpu_marocchino
     .cpu_rst                    (cpu_rst), // OMAN
 
     // pipeline control
-    .padv_dcod_i                (padv_dcod), // OMAN
+    .padv_fetch_i               (padv_fetch), // OMAN
     .padv_exec_i                (padv_exec), // OMAN
     .padv_wb_i                  (padv_wb), // OMAN
     .pipeline_flush_i           (pipeline_flush), // OMAN
 
     // fetched instruction is valid
     .fetch_valid_i              (fetch_valid), // OMAN
-    .fetch_delay_slot_i         (fetch_delay_slot), // OMAN
+
 
     // for RAT
     //  # allocation SR[F]
@@ -1041,7 +1039,6 @@ module mor1kx_cpu_marocchino
     .omn2dec_hazard_dxb2_adr_o  (omn2dec_hazard_dxb2_adr), // OMAN
 
     // DECODE result could be processed by EXECUTE
-    .dcod_free_o                (dcod_free), // OMAN
     .dcod_valid_o               (dcod_valid), // OMAN
 
     // EXECUTE completed (desired unit is ready)
@@ -2103,14 +2100,12 @@ module mor1kx_cpu_marocchino
     .cpu_rst                          (cpu_rst), // CTRL
 
     // Inputs / Outputs for pipeline control signals
-    .fetch_valid_i                    (fetch_valid), // CTRL
     .dcod_empty_i                     (dcod_empty), // CTRL
-    .dcod_free_i                      (dcod_free), // CTRL
+
     .dcod_valid_i                     (dcod_valid), // CTRL
     .exec_valid_i                     (exec_valid), // CTRL
     .pipeline_flush_o                 (pipeline_flush), // CTRL
     .padv_fetch_o                     (padv_fetch), // CTRL
-    .padv_dcod_o                      (padv_dcod), // CTRL
     .padv_exec_o                      (padv_exec), // CTRL
     .padv_wb_o                        (padv_wb), // CTRL
 
