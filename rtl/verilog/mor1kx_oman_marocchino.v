@@ -1014,8 +1014,7 @@ module mor1kx_oman_marocchino
 
   // --- prediction related registers ---
   reg                            predict_bc_taken_r;    // 0 if not taken
-  reg                            predict_bf_r;          // prediction was made by l.bf
-  reg                            predict_bnf_r;         // prediction was made by l.bnf
+  reg                            predict_flag_value_r;
   reg                            predict_flag_alloc_r;
   reg [OPTION_OPERAND_WIDTH-1:0] predict_hit_target_r;
   reg [OPTION_OPERAND_WIDTH-1:0] predict_miss_target_r;
@@ -1023,21 +1022,12 @@ module mor1kx_oman_marocchino
   wire use_bc_predict    = fetch_op_bf_i | fetch_op_bnf_i;
   wire do_bc_predict_raw = bc_cnt_value_i[1];
   wire do_bc_predict     = use_bc_predict & do_bc_predict_raw;
-  // --- compute raw flags for branch taken/not in reality ---
-  // --- they are used only inside J/B FSM ---
-  // MAROCCHINO_TODO: could be simplified by stored a kind of predicted flag?
-  wire bc_taken_raw     = (predict_bf_r &   ctrl_flag_sr_i ) | (predict_bnf_r & (~ctrl_flag_sr_i));
-  wire bc_not_taken_raw = (predict_bf_r & (~ctrl_flag_sr_i)) | (predict_bnf_r &   ctrl_flag_sr_i );
   // --- wait completion writting to SR[F] ---
   wire keep_predict_flag_alloc = predict_flag_alloc_r & (jb_hazard_ext_p != wb_ext_bits_o);
   // --- compute raw hit/miss for prediction ---
   // --- they are used only inside J/B FSM ---
-  wire predict_hit_raw  = (~predict_flag_alloc_r) &                      // PREDICTION HIT RAW
-                          ((  predict_bc_taken_r  & bc_taken_raw) |      // PREDICTION HIT RAW
-                           ((~predict_bc_taken_r) & bc_not_taken_raw));  // PREDICTION HIT RAW
-  wire predict_miss_raw = (~predict_flag_alloc_r) &                      // PREDICTION MISS RAW
-                          ((  predict_bc_taken_r  & bc_not_taken_raw) |  // PREDICTION MISS RAW
-                           ((~predict_bc_taken_r) & bc_taken_raw));      // PREDICTION MISS RAW
+  wire predict_hit_raw  = (~predict_flag_alloc_r) &  (~(predict_flag_value_r ^ ctrl_flag_sr_i));
+  wire predict_miss_raw = (~predict_flag_alloc_r) &    (predict_flag_value_r ^ ctrl_flag_sr_i);
   // --- complete prediction hit ---
   wire predict_hit = (jb_fsm_predict_catching_ds_state | jb_fsm_predict_waiting_flag_state) & predict_hit_raw;
 
@@ -1047,8 +1037,7 @@ module mor1kx_oman_marocchino
       jb_fsm_state_r  <= JB_FSM_CATCHING_JB;
       // for prediction processing
       predict_bc_taken_r   <= 1'b0;
-      predict_bf_r         <= 1'b0;
-      predict_bnf_r        <= 1'b0;
+      predict_flag_value_r <= 1'b0;
       predict_flag_alloc_r <= 1'b0;
       // other attributes
       jb_hazard_ext_p <= {DEST_EXT_ADDR_WIDTH{1'b0}};
@@ -1071,8 +1060,8 @@ module mor1kx_oman_marocchino
             else if (use_bc_predict) begin
               jb_fsm_state_r        <= JB_FSM_PREDICT_CATCHING_DS;
               predict_bc_taken_r    <= do_bc_predict_raw;
-              predict_bf_r          <= fetch_op_bf_i;
-              predict_bnf_r         <= fetch_op_bnf_i;
+              predict_flag_value_r  <= (fetch_op_bf_i  &   do_bc_predict_raw) | // PREDICTED FLAG
+                                       (fetch_op_bnf_i & (~do_bc_predict_raw)); // PREDICTED FLAG
               predict_flag_alloc_r  <= keep_flag_alloc_at_wb;
               jb_hazard_ext_p       <= flag_alloc_ext_r;
             end
@@ -1098,8 +1087,6 @@ module mor1kx_oman_marocchino
         JB_FSM_PREDICT_CATCHING_DS: begin
           if (predict_hit_raw) begin
             jb_fsm_state_r <= JB_FSM_CATCHING_JB;
-            predict_bf_r   <= 1'b0;
-            predict_bnf_r  <= 1'b0;
           end
           else if (padv_dcod_i) begin
             if (fetch_valid_i & fetch_delay_slot_i)
@@ -1111,13 +1098,9 @@ module mor1kx_oman_marocchino
         JB_FSM_PREDICT_WAITING_FLAG: begin
           if (predict_hit_raw) begin
             jb_fsm_state_r <= JB_FSM_CATCHING_JB;
-            predict_bf_r   <= 1'b0;
-            predict_bnf_r  <= 1'b0;
           end
           else if (predict_miss_raw) begin
             jb_fsm_state_r <= JB_FSM_PREDICT_MISS;
-            predict_bf_r   <= 1'b0;
-            predict_bnf_r  <= 1'b0;
           end
           predict_flag_alloc_r <= keep_predict_flag_alloc;
         end
@@ -1387,7 +1370,7 @@ module mor1kx_oman_marocchino
   //     !!! resolving events (from prev. l.bf/l.bnf) because
   //     !!! DECODE is locked till prediction resolving
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i)
+    if (cpu_rst)
       bc_cnt_we_o <= 1'b0;
     else if (predict_hit | jb_fsm_predict_miss_state)
       bc_cnt_we_o <= 1'b1;
