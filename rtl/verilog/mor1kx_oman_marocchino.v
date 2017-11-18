@@ -1017,17 +1017,12 @@ module mor1kx_oman_marocchino
   reg                            predict_bf_r;          // prediction was made by l.bf
   reg                            predict_bnf_r;         // prediction was made by l.bnf
   reg                            predict_flag_alloc_r;
-  reg [OPTION_OPERAND_WIDTH-1:0] predict_hit_target_r;  // MAROCCHINO_TODO: reuse jr-target-p ?
-  reg [OPTION_OPERAND_WIDTH-1:0] predict_miss_target_r; // MAROCCHINO_TODO: reuse jr-target-p ?
-  // --- flags to use preticted or instant conditional branch (bc) ---
-  wire use_bc_predict = (fetch_op_bf_i | fetch_op_bnf_i) &   flag_alloc_r;
-  wire use_bc_instant = (fetch_op_bf_i | fetch_op_bnf_i) & (~flag_alloc_r);
-  // --- do preticted conditional branch (bc) ---
+  reg [OPTION_OPERAND_WIDTH-1:0] predict_hit_target_r;
+  reg [OPTION_OPERAND_WIDTH-1:0] predict_miss_target_r;
+  // --- use / do  preticted or instant conditional branch (bc) ---
+  wire use_bc_predict    = fetch_op_bf_i | fetch_op_bnf_i;
   wire do_bc_predict_raw = bc_cnt_value_i[1];
   wire do_bc_predict     = use_bc_predict & do_bc_predict_raw;
-  // --- do instant conditional branch (bc) ---
-  wire do_bc_instant     = (~flag_alloc_r) & ((fetch_op_bf_i  &   ctrl_flag_sr_i) |   // DO INSTANT COND. BRANCH
-                                              (fetch_op_bnf_i & (~ctrl_flag_sr_i)));  // DO INSTANT COND. BRANCH
   // --- compute raw flags for branch taken/not in reality ---
   // --- they are used only inside J/B FSM ---
   // MAROCCHINO_TODO: could be simplified by stored a kind of predicted flag?
@@ -1057,7 +1052,6 @@ module mor1kx_oman_marocchino
       predict_flag_alloc_r <= 1'b0;
       // other attributes
       jb_hazard_ext_p <= {DEST_EXT_ADDR_WIDTH{1'b0}};
-      jr_target_p     <= {OPTION_OPERAND_WIDTH{1'b0}}; // MAROCCHINO_TODO: move out cpu-reset and flush
     end
     else begin
       // synthesis parallel_case full_case
@@ -1085,16 +1079,14 @@ module mor1kx_oman_marocchino
           end
         end
 
-        // checking j/b related hazards in DECODE
+        // gathering target for l.jr/l.jalr
         JB_FSM_GET_B1: begin
           jb_fsm_state_r <= JB_FSM_DOING_JR;
-          jr_target_p    <= dcod_rfb1_jr_i;
         end
-        // waiting address for jump
+        // waiting target for l.jr/l.jalr
         JB_FSM_WAITING_B1: begin
           if (jb_hazard_ext_p == wb_ext_bits_o) begin
             jb_fsm_state_r <= JB_FSM_DOING_JR;
-            jr_target_p    <= wb_result1_i;
           end
         end
         // doing l.jr/l.jalr
@@ -1139,6 +1131,25 @@ module mor1kx_oman_marocchino
     end
   end // @cpu-clock
 
+  // store target for l.jr/l.jalr
+  always @(posedge cpu_clk) begin
+    // synthesis parallel_case full_case
+    case (jb_fsm_state_r)
+      // gathering l.jr/l.jalr target if no B1 hazards
+      JB_FSM_GET_B1: begin
+        jr_target_p <= dcod_rfb1_jr_i;
+      end
+      // waiting target for l.jr/l.jalr
+      // (continuously as rigth result is latched
+      //  automatically at hazard resolution)
+      JB_FSM_WAITING_B1: begin
+        jr_target_p <= wb_result1_i;
+      end
+      // others
+      default:;
+    endcase
+  end // @cpu-clock
+
   // store targets for miss and hit predictions
   //  !!! minimal set of conditions is used for storing
   //  !!! because we use the values with appropiate
@@ -1180,9 +1191,9 @@ module mor1kx_oman_marocchino
 
 
   // do_branch_o is meaningless if fetch_jr_bc_hazard_o is rised
-  assign do_branch_o = fetch_op_jimm_i |                 // do jump to immediate
-                       do_bc_instant   | do_bc_predict | // do branch conditional
-                       jb_fsm_doing_jr_state;            // do jump to register (B1)
+  assign do_branch_o = fetch_op_jimm_i       |  // do jump to immediate
+                       do_bc_predict         |  // do branch conditional
+                       jb_fsm_doing_jr_state;   // do jump to register (B1)
   // branch target
   assign do_branch_target_o = jb_fsm_doing_jr_state ? jr_target_p :          // branch target selection
                                                       fetch_to_imm_target_i; // branch target selection
@@ -1212,14 +1223,14 @@ module mor1kx_oman_marocchino
 
 
   // Jump/Branch attributes valid instantly
-  wire jb_attr_valid_instant = fetch_op_jimm_i | use_bc_instant;
+  wire jb_attr_valid_instant = fetch_op_jimm_i;
 
   // Jump/Branch valid after miss by various reasons
   // !!! each case is 1-clock length
   wire jb_attr_valid_after_miss = predict_hit | jb_fsm_predict_miss_state | jb_fsm_doing_jr_state;
 
   // Jump/Branch : do branch flag
-  wire jb_attr_do_branch = fetch_op_jimm_i | use_bc_instant |                   // JB ATTR DO BRANCH FLAG
+  wire jb_attr_do_branch = fetch_op_jimm_i |                                    // JB ATTR DO BRANCH FLAG
                            (predict_hit               ?   predict_bc_taken_r  : // JB ATTR DO BRANCH FLAG
                             jb_fsm_predict_miss_state ? (~predict_bc_taken_r) : // JB ATTR DO BRANCH FLAG
                                                         jb_fsm_doing_jr_state); // JB ATTR DO BRANCH FLAG
@@ -1355,31 +1366,16 @@ module mor1kx_oman_marocchino
   //  (b) They are 1-clock length to prevent multiple
   //      updates of counter
 
-  // MAROCCHINO_TODO: fast forward to update regs. in case of bc-instant
-  //                  with possible colision resolving ?
-
   // --- pending values for update saturation counters and branch history ---
-  reg                          use_bc_instant_p;     // 1-clock length
-  reg                          do_bc_instant_p;
   reg                    [1:0] bc_cnt_value_up_p;
   reg                    [1:0] bc_cnt_value_dn_p;
   reg  [(GSHARE_BITS_NUM-1):0] bc_cnt_radr_p;
   // --- pre-computed up and down next values of saturation counter ---
   wire [1:0] bc_cnt_value_up = (bc_cnt_value_i == 2'b11) ? bc_cnt_value_i : (bc_cnt_value_i + 1'b1);
   wire [1:0] bc_cnt_value_dn = (bc_cnt_value_i == 2'b00) ? bc_cnt_value_i : (bc_cnt_value_i - 1'b1);
-  // --- controls for update saturation counters and branch history ---
-  always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i)
-      use_bc_instant_p <= 1'b0;
-    else if (padv_dcod_i)
-      use_bc_instant_p <= use_bc_instant;
-    else
-      use_bc_instant_p <= 1'b0;
-  end // at clock
   // --- data for update saturation counters and branch history ---
   always @(posedge cpu_clk) begin
     if (padv_dcod_i & (fetch_op_bf_i | fetch_op_bnf_i)) begin // PENDING FOR SATURATION COUNTERS
-      do_bc_instant_p   <= do_bc_instant;   // PENDING FOR SATURATION COUNTERS
       bc_cnt_value_up_p <= bc_cnt_value_up; // PENDING FOR SATURATION COUNTERS
       bc_cnt_value_dn_p <= bc_cnt_value_dn; // PENDING FOR SATURATION COUNTERS
       bc_cnt_radr_p     <= bc_cnt_radr_i;   // PENDING FOR SATURATION COUNTERS
@@ -1393,23 +1389,19 @@ module mor1kx_oman_marocchino
   always @(posedge cpu_clk) begin
     if (cpu_rst | pipeline_flush_i)
       bc_cnt_we_o <= 1'b0;
-    else if (use_bc_instant_p | predict_hit | jb_fsm_predict_miss_state)
+    else if (predict_hit | jb_fsm_predict_miss_state)
       bc_cnt_we_o <= 1'b1;
     else
       bc_cnt_we_o <= 1'b0;
   end // at clock
   // --- saturation counter update address ---
   always @(posedge cpu_clk) begin
-    if (use_bc_instant_p | predict_hit | jb_fsm_predict_miss_state)
+    if (predict_hit | jb_fsm_predict_miss_state)
       bc_cnt_wadr_o <= bc_cnt_radr_p;
   end // at clock
   // --- data for saturation counters and branch history ---
   always @(posedge cpu_clk) begin
-    if (use_bc_instant_p) begin
-      bc_hist_taken_o <= do_bc_instant_p;
-      bc_cnt_wdat_o   <= do_bc_instant_p ? bc_cnt_value_up_p : bc_cnt_value_dn_p;
-    end
-    else if (predict_hit) begin
+    if (predict_hit) begin
       bc_hist_taken_o <= predict_bc_taken_r;
       bc_cnt_wdat_o   <= predict_bc_taken_r ? bc_cnt_value_up_p : bc_cnt_value_dn_p;
     end
