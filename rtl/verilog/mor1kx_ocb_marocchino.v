@@ -69,7 +69,9 @@ module mor1kx_ocb_marocchino
 #(
   parameter NUM_TAPS    = 8,
   parameter NUM_OUTS    = 1,
-  parameter DATA_SIZE   = 2
+  parameter DATA_SIZE   = 2,
+  parameter FULL_FLAG   = "NONE", // "ENABLED" / "NONE"
+  parameter EMPTY_FLAG  = "NONE"  // "ENABLED" / "NONE"
 )
 (
   // clocks, resets
@@ -102,11 +104,29 @@ module mor1kx_ocb_marocchino
   reg [NUM_TAPS-1:0] ptr_prev; // on previous active tap
 
   // "OCB is empty" flag
-  assign empty_o = ptr_curr[0];
+  generate
+  /* verilator lint_off WIDTH */
+  if (EMPTY_FLAG != "NONE") begin : ocb_empty_flag_enabled
+  /* verilator lint_on WIDTH */
+    assign empty_o = ptr_curr[0];
+  end
+  else begin : ocb_empty_flag_disabled
+    assign empty_o = 1'b0;
+  end
+  endgenerate
 
   // "OCB is full" flag
   //  # no more availaible taps, pointer is out of range
-  assign full_o = ptr_curr[NUM_TAPS];
+  generate
+  /* verilator lint_off WIDTH */
+  if (FULL_FLAG != "NONE") begin : ocb_full_flag_enabled
+  /* verilator lint_on WIDTH */
+    assign full_o = ptr_curr[NUM_TAPS];
+  end
+  else begin : ocb_full_flag_disabled
+    assign full_o = 1'b0;
+  end
+  endgenerate
 
   // control to increment/decrement pointers
   wire rd_only = ~write_i &  read_i;
@@ -284,7 +304,7 @@ module mor1kx_ocb_miss_marocchino
   //  # no more availaible taps, pointer is out of range
   generate
   /* verilator lint_off WIDTH */
-  if (FULL_FLAG != "NONE") begin : full_flag_enabled
+  if (FULL_FLAG != "NONE") begin : ocb_miss_full_flag_enabled
   /* verilator lint_on WIDTH */
     reg full_r;
     // ---
@@ -299,7 +319,7 @@ module mor1kx_ocb_miss_marocchino
     // ---
     assign full_o = full_r;
   end
-  else begin : full_flag_disabled
+  else begin : ocb_miss_full_flag_disabled
     assign full_o = 1'b0;
   end
   endgenerate

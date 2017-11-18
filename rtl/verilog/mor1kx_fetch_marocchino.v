@@ -33,6 +33,8 @@ module mor1kx_fetch_marocchino
 #(
   parameter OPTION_OPERAND_WIDTH        = 32,
   parameter OPTION_RF_ADDR_WIDTH        =  5,
+  // branch predictor parameters
+  parameter GSHARE_BITS_NUM             = 10,
   // cache configuration
   parameter OPTION_ICACHE_BLOCK_WIDTH   =  5,
   parameter OPTION_ICACHE_SET_WIDTH     =  9,
@@ -91,10 +93,20 @@ module mor1kx_fetch_marocchino
   output                                fetch_op_jb_o,
   //  # "to immediate driven target"
   output     [OPTION_OPERAND_WIDTH-1:0] fetch_to_imm_target_o,
-  //  ## do branch (pedicted or unconditional)
+  //  # do branch (predicted or unconditional)
   input                                 do_branch_i,
   input      [OPTION_OPERAND_WIDTH-1:0] do_branch_target_i,
   input                                 fetch_jr_bc_hazard_i,
+  //  # branch prediction support
+  output     [OPTION_OPERAND_WIDTH-1:0] after_ds_target_o,
+  input                                 predict_miss_i,
+  input      [OPTION_OPERAND_WIDTH-1:0] predict_miss_target_i,
+  output                          [1:0] bc_cnt_value_o,  // current value of saturation counter
+  output          [GSHARE_BITS_NUM-1:0] bc_cnt_radr_o,   // saturation counter ID
+  input                                 bc_cnt_we_i,     // update saturation counter
+  input                           [1:0] bc_cnt_wdat_i,   // new saturation counter value
+  input           [GSHARE_BITS_NUM-1:0] bc_cnt_wadr_i,   // saturation counter id
+  input                                 bc_hist_taken_i, // conditional branch really taken
 
   // DU/exception/rfe control transfer
   input                                 ctrl_branch_exception_i,
@@ -263,6 +275,19 @@ module mor1kx_fetch_marocchino
   wire flush_by_ctrl = pipeline_flush_i | flush_r;
 
 
+  //------------------------------------------------//
+  // Mispredict logic                               //
+  // - flush registers from prediction miss command //
+  //   till IBUS transaction completion             //
+  //------------------------------------------------//
+
+  // store prediction miss command till complete IBUS transactions
+  // we manipulate this register in IBUS FSM
+  reg  predict_miss_r;
+  // --- combination of pipeline-flush and flush-r ---
+  wire flush_by_predict_miss = predict_miss_i | predict_miss_r;
+
+
   /************************************************/
   /* Stage #1: PC update and IMMU / ICACHE access */
   /************************************************/
@@ -291,14 +316,18 @@ module mor1kx_fetch_marocchino
 
   // register next virtual address
   always @(posedge cpu_clk) begin
-    if (padv_s1s2) begin
+    if (flush_by_predict_miss) begin // next address to fetch
+      s1r_virt_addr_next <= predict_miss_target_i;
+    end
+    else if (padv_s1s2) begin // next address to fetch
       if (fetch_jr_bc_hazard_i)
         s1r_virt_addr_next <= s1r_virt_addr_next;
       else
         s1r_virt_addr_next <= virt_addr_mux + 3'd4;
     end
-    else if (do_branch_i & (~fetch_jr_bc_hazard_i))
+    else if (do_branch_i & (~fetch_jr_bc_hazard_i)) begin // next address to fetch
       s1r_virt_addr_next <= do_branch_target_i;
+    end
   end // @ clock
 
   // IMMU match address store register
@@ -312,7 +341,7 @@ module mor1kx_fetch_marocchino
   wire s1t_fetch_req_hit = ~fetch_jr_bc_hazard_i;
   // ---
   always @(posedge cpu_clk) begin
-    if (cpu_rst | flush_by_ctrl) begin
+    if (cpu_rst | flush_by_ctrl | predict_miss_i) begin // drop "s1o-fetch-req-hit"
       s1o_fetch_req_hit    <= 1'b0;
       s1o_fetch_req_hit_cp <= 1'b0;
     end
@@ -397,41 +426,43 @@ module mor1kx_fetch_marocchino
   u_icache
   (
     // clock and reset
-    .cpu_clk                (cpu_clk), // ICACHE
-    .cpu_rst                (cpu_rst), // ICACHE
+    .cpu_clk                  (cpu_clk), // ICACHE
+    .cpu_rst                  (cpu_rst), // ICACHE
     // pipe controls
-    .padv_s1s2_i            (padv_s1s2), // ICACHE
-    .flush_by_ctrl_i        (flush_by_ctrl), // ICACHE
+    .padv_s1s2_i              (padv_s1s2), // ICACHE
+    // MAROCCHINO_TODO : use pipeline-flush/predict-miss instead of flush-by-* ?
+    .flush_by_ctrl_i          (flush_by_ctrl), // ICACHE
+    .flush_by_predict_miss_i  (flush_by_predict_miss), // ICACHE
     // fetch exceptions
-    .s2o_immu_an_except_i   (s2o_immu_an_except), // ICACHE
-    .ibus_err_i             (ibus_err_i), // ICACHE: cancel re-fill
+    .s2o_immu_an_except_i     (s2o_immu_an_except), // ICACHE
+    .ibus_err_i               (ibus_err_i), // ICACHE: cancel re-fill
     // configuration
-    .ic_enable_i            (ic_enable_i), // ICACHE
+    .ic_enable_i              (ic_enable_i), // ICACHE
     // regular requests in/out
-    .virt_addr_mux_i        (virt_addr_mux), // ICACHE
-    .virt_addr_s1o_i        (s1o_virt_addr), // ICACHE
-    .phys_addr_s2t_i        (s2t_phys_addr), // ICACHE
-    .fetch_req_hit_i        (s1o_fetch_req_hit_cp), // ICACHE: enables ICACHE's ACK
-    .immu_cache_inhibit_i   (s2t_cache_inhibit), // ICACHE
-    .ic_ack_o               (s2t_ic_ack), // ICACHE
-    .ic_dat_o               (s2t_ic_dat), // ICACHE
+    .virt_addr_mux_i          (virt_addr_mux), // ICACHE
+    .virt_addr_s1o_i          (s1o_virt_addr), // ICACHE
+    .phys_addr_s2t_i          (s2t_phys_addr), // ICACHE
+    .fetch_req_hit_i          (s1o_fetch_req_hit_cp), // ICACHE: enables ICACHE's ACK
+    .immu_cache_inhibit_i     (s2t_cache_inhibit), // ICACHE
+    .ic_ack_o                 (s2t_ic_ack), // ICACHE
+    .ic_dat_o                 (s2t_ic_dat), // ICACHE
     // IBUS access request
-    .ibus_read_req_o        (s2t_ibus_read_req), // ICACHE
+    .ibus_read_req_o          (s2t_ibus_read_req), // ICACHE
     // re-fill
-    .refill_req_o           (s2t_ic_refill_req), // ICACHE
-    .to_refill_i            (to_refill_state), // ICACHE
-    .ic_refill_first_o      (ic_refill_first), // ICACHE
-    .phys_addr_s2o_i        (s2o_phys_addr), // ICACHE
-    .ibus_dat_i             (ibus_dat_i), // ICACHE
-    .ibus_burst_last_i      (ibus_burst_last_i), // ICACHE
-    .ibus_ack_i             (ibus_ack_i), // ICACHE
+    .refill_req_o             (s2t_ic_refill_req), // ICACHE
+    .to_refill_i              (to_refill_state), // ICACHE
+    .ic_refill_first_o        (ic_refill_first), // ICACHE
+    .phys_addr_s2o_i          (s2o_phys_addr), // ICACHE
+    .ibus_dat_i               (ibus_dat_i), // ICACHE
+    .ibus_burst_last_i        (ibus_burst_last_i), // ICACHE
+    .ibus_ack_i               (ibus_ack_i), // ICACHE
     // SPR bus
-    .spr_bus_addr_i         (spr_bus_addr_i[15:0]), // ICACHE
-    .spr_bus_we_i           (spr_bus_we_i), // ICACHE
-    .spr_bus_stb_i          (spr_bus_stb_ifetch), // ICACHE
-    .spr_bus_dat_i          (spr_bus_dat_i), // ICACHE
-    .spr_bus_dat_o          (spr_bus_dat_ic_o), // ICACHE
-    .spr_bus_ack_o          (spr_bus_ack_ic_o) // ICACHE
+    .spr_bus_addr_i           (spr_bus_addr_i[15:0]), // ICACHE
+    .spr_bus_we_i             (spr_bus_we_i), // ICACHE
+    .spr_bus_stb_i            (spr_bus_stb_ifetch), // ICACHE
+    .spr_bus_dat_i            (spr_bus_dat_i), // ICACHE
+    .spr_bus_dat_o            (spr_bus_dat_ic_o), // ICACHE
+    .spr_bus_ack_o            (spr_bus_ack_ic_o) // ICACHE
   );
 
 
@@ -468,15 +499,16 @@ module mor1kx_fetch_marocchino
   // state machine itself
   always @(posedge cpu_clk) begin
     if (cpu_rst) begin
-      ibus_req_o <= 1'b0;           // by reset
-      ibus_state <= IBUS_IDLE;      // by reset
+      predict_miss_r <= 1'b0;       // by reset
+      ibus_req_o     <= 1'b0;       // by reset
+      ibus_state     <= IBUS_IDLE;  // by reset
     end
     else begin
       // synthesis parallel_case full_case
       case (ibus_state)
         IBUS_IDLE: begin
-          if (spr_bus_stb_i | flush_by_ctrl | fetch_an_except_o)
-            ibus_state <= IBUS_IDLE;         // IBUS-IDLE -> keep by flushing
+          if (spr_bus_stb_i | flush_by_ctrl | predict_miss_i | fetch_an_except_o) // IBUS-IDLE
+            ibus_state <= IBUS_IDLE;         // IBUS-IDLE -> flushing / exceptions / etc
           else if (s2o_ic_refill_req)
             ibus_state <= IBUS_TO_IC_REFILL; // IBUS-IDLE -> IBUS-TO-IC-REFILL
           else if (s2o_ibus_read_req) begin
@@ -486,28 +518,44 @@ module mor1kx_fetch_marocchino
         end
 
         IBUS_READ: begin
-          if (ibus_ack_i | ibus_err_i)       // IBUS read
-            ibus_state <= IBUS_IDLE;         // IBUS read complete
+          if (ibus_ack_i | ibus_err_i) begin  // IBUS read
+            predict_miss_r <= 1'b0;           // IBUS read complete
+            ibus_state     <= IBUS_IDLE;      // IBUS read complete
+          end
+          else begin
+            if (~predict_miss_r) begin          // IBUS read waiting ACK/ERR
+              predict_miss_r <= predict_miss_i; // IBUS read waiting ACK/ERR
+            end
+          end
         end // read
 
-        IBUS_TO_IC_REFILL: begin          // to_refill_state
-          if (flush_by_ctrl)
-            ibus_state <= IBUS_IDLE;      // IBUS-TO-IC-REFILL -> IDLE by flush
+        IBUS_TO_IC_REFILL: begin
+          if (flush_by_ctrl | predict_miss_i) // IBUS-TO-IC-REFILL: break
+            ibus_state <= IBUS_IDLE;          // IBUS-TO-IC-REFILL -> IDLE by flush
           else begin
-            ibus_req_o <= ~ibus_req_o;    // IBUS-TO-IC-REFILL -> ICACHE refill
-            ibus_state <= IBUS_IC_REFILL; // IBUS-TO-IC-REFILL -> ICACHE refill
+            ibus_req_o <= ~ibus_req_o;        // IBUS-TO-IC-REFILL -> ICACHE refill
+            ibus_state <= IBUS_IC_REFILL;     // IBUS-TO-IC-REFILL -> ICACHE refill
           end
         end
 
         IBUS_IC_REFILL: begin
-          if (ibus_err_i)                           // ICACHE refill
-            ibus_state <= IBUS_IDLE;                // IBUS error during ICACHE refill
-          else if (ibus_ack_i & ibus_burst_last_i)  // ICACHE refill
-            ibus_state <= IBUS_IC_REREAD;           // last refill
+          if (ibus_err_i) begin           // ICACHE refill
+            predict_miss_r <= 1'b0;       // IBUS error during ICACHE refill
+            ibus_state     <= IBUS_IDLE;  // IBUS error during ICACHE refill
+          end
+          else begin
+            if (ibus_ack_i & ibus_burst_last_i) begin  // ICACHE refill
+              ibus_state <= IBUS_IC_REREAD;            // last refill
+            end
+            if (~predict_miss_r) begin          // IBUS doing ICACHE refill
+              predict_miss_r <= predict_miss_i; // IBUS doing ICACHE refill
+            end
+          end
         end // ic-refill
 
         IBUS_IC_REREAD: begin
-          ibus_state <= IBUS_IDLE; // re-read after re-fill
+          predict_miss_r <= 1'b0;       // re-read after re-fill
+          ibus_state     <= IBUS_IDLE;  // re-read after re-fill
         end
 
         default:;
@@ -521,13 +569,13 @@ module mor1kx_fetch_marocchino
     case (ibus_state)
       // to IBUS read
       IBUS_IDLE: begin
-        if ((~spr_bus_stb_i) & (~flush_by_ctrl) &
+        if ((~spr_bus_stb_i) & (~flush_by_ctrl) & (~predict_miss_i) &
             (~fetch_an_except_o) & s2o_ibus_read_req)
           ibus_adr_o <= s2o_phys_addr; // IBUS-IDLE -> IBUS read
       end
       // to ICACHE re-fill
       IBUS_TO_IC_REFILL: begin
-        if (~flush_by_ctrl)
+        if ((~flush_by_ctrl) & (~predict_miss_i))
           ibus_adr_o <= s2o_phys_addr;  // IBUS-TO-IC-REFILL -> ICACHE refill
       end
       // do nothing
@@ -546,7 +594,7 @@ module mor1kx_fetch_marocchino
 
   // ACK from ICACHE or IBUS without exceptions
   always @(posedge cpu_clk) begin
-    if (cpu_rst | flush_by_ctrl) begin
+    if (cpu_rst | flush_by_ctrl | flush_by_predict_miss) begin // drop "s2o-imem-ack"
       s2o_imem_ack     <= 1'b0;         // reset / flush
       s2o_imem_ack_cp  <= 1'b0;         // reset / flush
       s2o_imem_ack_cp1 <= 1'b0;         // reset / flush
@@ -560,7 +608,7 @@ module mor1kx_fetch_marocchino
       if (ibus_fsm_free) begin           // eq. padv_s1s2, latch IMEM ACK
         s2o_imem_ack     <= s2t_ic_ack;
         s2o_imem_ack_cp  <= s2t_ic_ack;
-        s2o_imem_ack_cp1 <= s2t_ic_ack; 
+        s2o_imem_ack_cp1 <= s2t_ic_ack;
       end
       else begin
         s2o_imem_ack     <= 1'b0;       // no new insn/except at pipe advancing
@@ -577,7 +625,7 @@ module mor1kx_fetch_marocchino
 
   // Exceptions: IBUS error and combined
   always @(posedge cpu_clk) begin
-    if (cpu_rst | flush_by_ctrl) begin
+    if (cpu_rst | flush_by_ctrl | flush_by_predict_miss) begin // drop "IBUS error" and "fetch-an-except"
       fetch_except_ibus_err_o <= 1'b0;  // reset / flush
       fetch_an_except_o       <= 1'b0;  // reset / flush
       fetch_an_except_cp      <= 1'b0;  // reset / flush
@@ -600,7 +648,7 @@ module mor1kx_fetch_marocchino
 
   // Exceptions: IMMU related
   always @(posedge cpu_clk) begin
-    if (cpu_rst | flush_by_ctrl) begin
+    if (cpu_rst | flush_by_ctrl | flush_by_predict_miss) begin // drop "IMMU" exceptions
       // separate exceptions
       fetch_except_itlb_miss_o  <= 1'b0;  // reset / flush
       fetch_except_ipagefault_o <= 1'b0;  // reset / flush
@@ -622,19 +670,22 @@ module mor1kx_fetch_marocchino
 
 
   // --- ICACHE re-fill request ---
-  wire deassert_s2o_ic_refill_req = (ibus_idle_state & flush_by_ctrl)      | // de-assert re-fill request
-                                    (ibus_idle_state & s2o_immu_an_except) | // de-assert re-fill request
-                                    (to_refill_state & flush_by_ctrl)      | // de-assert re-fill request
-                                    (ic_refill_state & ibus_err_i)         | // de-assert re-fill request
-                                    ic_reread_state;                         // de-assert re-fill request
+  // MAROCCHINO_TODO : use pipeline-flush/predict-miss instead of flush-by-* ?
+  wire deassert_s2o_ic_refill_req = (ibus_idle_state & flush_by_ctrl)       | // de-assert re-fill request
+                                    (ibus_idle_state & predict_miss_i)      | // de-assert re-fill request
+                                    (ibus_idle_state & s2o_immu_an_except)  | // de-assert re-fill request
+                                    (to_refill_state & flush_by_ctrl)       | // de-assert re-fill request
+                                    (to_refill_state & predict_miss_i)      | // de-assert re-fill request
+                                    (ic_refill_state & ibus_err_i)          | // de-assert re-fill request
+                                    ic_reread_state;                          // de-assert re-fill request
   // ---
   always @(posedge cpu_clk) begin
     if (cpu_rst)
       s2o_ic_refill_req <= 1'b0;  // reset / flush
+    else if (deassert_s2o_ic_refill_req)
+      s2o_ic_refill_req <= 1'b0;  // de-assert
     else if (padv_s1s2)
       s2o_ic_refill_req <= s2t_ic_refill_req;
-    else if (deassert_s2o_ic_refill_req)
-      s2o_ic_refill_req <= 1'b0;  // IBUS FSM is going to re-fill
   end // @ clock
   // --- ICACHE data ---
   always @(posedge cpu_clk) begin
@@ -648,21 +699,23 @@ module mor1kx_fetch_marocchino
 
 
   // --- IBUS read request ---
+  // MAROCCHINO_TODO : use pipeline-flush/predict-miss instead of flush-by-* ?
   wire deassert_s2o_ibus_read_req = (ibus_idle_state & flush_by_ctrl)             | // de-assert IBUS request
+                                    (ibus_idle_state & predict_miss_i)            | // de-assert IBUS request
                                     (ibus_idle_state & s2o_immu_an_except)        | // de-assert IBUS request
                                     (ibus_read_state & (ibus_ack_i | ibus_err_i));  // de-assert IBUS request
   // ---
   always @(posedge cpu_clk) begin
     if (cpu_rst)
       s2o_ibus_read_req <= 1'b0;  // reset / flush
+    else if (deassert_s2o_ibus_read_req)
+      s2o_ibus_read_req <= 1'b0;  // de-assert
     else if (padv_s1s2)
       s2o_ibus_read_req <= s2t_ibus_read_req;
-    else if (deassert_s2o_ibus_read_req)
-      s2o_ibus_read_req <= 1'b0;  // IBUS-FSM is reading
   end // @ clock
   // --- IBUS ack ---
   always @(posedge cpu_clk) begin
-    if (cpu_rst | flush_by_ctrl) begin
+    if (cpu_rst | flush_by_ctrl | flush_by_predict_miss) begin // drop "s2o-ibus-ack"
       s2o_ibus_ack     <= 1'b0; // reset / flush
       s2o_ibus_ack_cp  <= 1'b0; // reset / flush
       s2o_ibus_ack_cp1 <= 1'b0; // reset / flush
@@ -737,7 +790,7 @@ module mor1kx_fetch_marocchino
 
   // delay slot flag
   always @(posedge cpu_clk) begin
-    if (cpu_rst | flush_by_ctrl)
+    if (cpu_rst | flush_by_ctrl | flush_by_predict_miss) // drop "fetch-delay-slot"
       fetch_delay_slot_o <= 1'b0; // reset / flush
     else if (padv_fetch_i)
       fetch_delay_slot_o <= fetch_valid_o ? fetch_op_jb_o : fetch_delay_slot_o;
@@ -746,5 +799,107 @@ module mor1kx_fetch_marocchino
 
   // PC
   assign pc_fetch_o = s2o_virt_addr;
+
+  // Address after delay slot (valid if fetch_op_jb_o)
+  assign after_ds_target_o = s2o_virt_addr + 4'd8; // (FEATURE_DSX == "ENABLED")
+
+
+  //-----------------------------------//
+  // Slobal set of saturation counters //
+  //-----------------------------------//
+
+  // --- stage #1 read current counter ---
+
+  wire [GSHARE_BITS_NUM-1:0] s1t_bc_cnt_radr;
+  reg  [GSHARE_BITS_NUM-1:0] s1o_bc_cnt_radr;
+
+  // Global history buffer
+  reg  [GSHARE_BITS_NUM-1:0] bc_hist_taken_r;
+  // ---
+  always @(posedge cpu_clk) begin
+    if (cpu_rst)
+      bc_hist_taken_r <= {GSHARE_BITS_NUM{1'b0}};
+    else if (bc_cnt_we_i)
+      bc_hist_taken_r <= {bc_hist_taken_r[GSHARE_BITS_NUM-2:0], bc_hist_taken_i};
+  end // at clock
+
+
+  // current read address
+  assign s1t_bc_cnt_radr = virt_addr_mux[GSHARE_BITS_NUM+1:2] ^ bc_hist_taken_r;
+  // ---
+  always @(posedge cpu_clk) begin
+    if (padv_s1s2)
+      s1o_bc_cnt_radr <= s1t_bc_cnt_radr;
+  end // at clock
+  
+  // Read/Write port (*_rwp_*) write
+  // !!! In short loop it is possible simultaneous
+  // !!! update and reading the same counter
+  wire [GSHARE_BITS_NUM-1:0] bc_cnt_radr_rwp;
+  assign bc_cnt_radr_rwp = (padv_s1s2 ? s1t_bc_cnt_radr : bc_cnt_wadr_i);
+  // ---
+  wire bc_cnt_rwp_we = bc_cnt_we_i &                                     // BC-CNT-RWP-WE
+                       (padv_s1s2 ? (bc_cnt_wadr_i == s1t_bc_cnt_radr) : // BC-CNT-RWP-WE
+                                    (bc_cnt_wadr_i == s1o_bc_cnt_radr)); // BC-CNT-RWP-WE
+  // ---
+  wire bc_cnt_rwp_en = padv_s1s2 | bc_cnt_rwp_we;
+
+  // Write-only port (*_wp_*) enable
+  wire bc_cnt_wp_en = bc_cnt_we_i &                                     // BC-CNT-WP-WE
+                      (padv_s1s2 ? (bc_cnt_wadr_i != s1t_bc_cnt_radr) : // BC-CNT-WP-WE
+                                   (bc_cnt_wadr_i != s1o_bc_cnt_radr)); // BC-CNT-WP-WE
+
+  // saturation counter read result
+  wire [1:0] s2t_bc_cnt_value;
+  
+  // Saturation counters RAM
+  mor1kx_dpram_en_w1st_sclk
+  #(
+    .ADDR_WIDTH     (GSHARE_BITS_NUM),
+    .DATA_WIDTH     (2),
+    .CLEAR_ON_INIT  (1)
+  )
+  u_bc_cnt_ram
+  (
+    // common clock
+    .clk    (cpu_clk),
+    // port "a"
+    .en_a   (bc_cnt_rwp_en),
+    .we_a   (bc_cnt_rwp_we),
+    .addr_a (bc_cnt_radr_rwp),
+    .din_a  (bc_cnt_wdat_i),
+    .dout_a (s2t_bc_cnt_value),
+    // port "b"
+    .en_b   (bc_cnt_wp_en), 
+    .we_b   (bc_cnt_we_i),
+    .addr_b (bc_cnt_wadr_i),
+    .din_b  (bc_cnt_wdat_i),
+    .dout_b ()
+  );
+
+
+  // --- stage #2 latch current counter ---
+
+  // output saturation counter value
+  reg  [1:0] s2o_bc_cnt_value;
+  // ---
+  always @(posedge cpu_clk) begin
+    if (cpu_rst)
+      s2o_bc_cnt_value <= 2'd0;
+    else if (padv_s1s2)
+      s2o_bc_cnt_value <= s2t_bc_cnt_value;
+  end
+  // ---
+  assign bc_cnt_value_o = s2o_bc_cnt_value;
+
+  // output saturation counter ID
+  reg  [GSHARE_BITS_NUM-1:0] s2o_bc_cnt_radr;
+  // ---
+  always @(posedge cpu_clk) begin
+    if (padv_s1s2)
+      s2o_bc_cnt_radr <= s1o_bc_cnt_radr;
+  end // at clock
+  // ---
+  assign bc_cnt_radr_o = s2o_bc_cnt_radr;
 
 endmodule // mor1kx_fetch_marocchino

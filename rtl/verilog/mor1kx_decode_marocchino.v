@@ -46,7 +46,8 @@ module mor1kx_decode_marocchino
   input                                 cpu_rst,
 
   // pipeline controls
-  input                                 padv_fetch_i,
+  input                                 padv_dcod_i,
+  input                                 padv_exec_i,
   input                                 pipeline_flush_i,
 
   // from IFETCH
@@ -61,8 +62,6 @@ module mor1kx_decode_marocchino
   //  # destiny addresses
   input      [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfd1_adr_i,
   input      [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfd2_adr_i,
-  //  # instruction PC
-  input      [OPTION_OPERAND_WIDTH-1:0] pc_fetch_i,
 
   // for RAT
   //  # allocation SR[F]
@@ -90,7 +89,8 @@ module mor1kx_decode_marocchino
   output reg [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfd2_adr_o, // D2 address
   output reg                            dcod_rfd2_wb_o, // instruction performes WB to D2
 
-  // PC
+  // instruction PC
+  input      [OPTION_OPERAND_WIDTH-1:0] pc_fetch_i,
   output reg [OPTION_OPERAND_WIDTH-1:0] pc_decode_o,
 
   // IMM
@@ -779,7 +779,7 @@ module mor1kx_decode_marocchino
       dcod_op_push_exec_o <= 1'b0;
       dcod_op_push_wb_o   <= 1'b0;
     end
-    else if (padv_fetch_i) begin
+    else if (padv_dcod_i) begin
       dcod_empty_o        <= (~fetch_valid_i);
       dcod_op_1clk_o      <= attr_op_1clk;
       dcod_op_muldiv_o    <= op_mul | op_div;
@@ -793,11 +793,21 @@ module mor1kx_decode_marocchino
                              attr_except_illegal | except_syscall | except_trap | // PUSH WRITE-BACK
                              op_nop | op_rfe | op_msync | op_mfspr | op_mtspr;    // PUSH WRITE-BACK
     end
+    else if (padv_exec_i) begin
+      dcod_empty_o        <= 1'b1;
+      dcod_op_1clk_o      <= 1'b0;
+      dcod_op_muldiv_o    <= 1'b0;
+      dcod_op_fpxx_any_o  <= 1'b0;
+      dcod_op_lsu_any_o   <= 1'b0;
+      dcod_op_mXspr_o     <= 1'b0;
+      dcod_op_push_exec_o <= 1'b0;
+      dcod_op_push_wb_o   <= 1'b0;
+    end
   end // at clock
 
   // signals which don't affect pipeline control
   always @(posedge cpu_clk) begin
-    if (padv_fetch_i) begin
+    if (padv_dcod_i) begin
       dcod_delay_slot_o         <= fetch_delay_slot_i;
       // destiny D1
       dcod_rfd1_adr_o           <= ratin_rfd1_adr_o;

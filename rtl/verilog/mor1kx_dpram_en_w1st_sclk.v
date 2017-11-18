@@ -51,6 +51,9 @@ module mor1kx_dpram_en_w1st_sclk
 
   reg [DATA_WIDTH-1:0] mem[0:((1<<ADDR_WIDTH)-1)];
 
+  // initial values for simulation
+ `ifndef SYNTHESIS
+  // synthesis translate_off
   generate
   if (CLEAR_ON_INIT) begin : clear_ram
     integer idx;
@@ -64,6 +67,8 @@ module mor1kx_dpram_en_w1st_sclk
     end
   end
   endgenerate
+  // synthesis translate_on
+ `endif // !synth
 
   always @(posedge clk) begin
     if(en_a) begin

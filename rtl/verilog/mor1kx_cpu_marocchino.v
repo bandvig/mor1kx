@@ -137,6 +137,9 @@ module mor1kx_cpu_marocchino
 
   localparam DEST_EXT_ADDR_WIDTH  = 3; // log2(Order Control Buffer depth)
 
+  // branch predictor parameters
+  localparam GSHARE_BITS_NUM      = 12;
+
 
   // Instruction PC
   wire [OPTION_OPERAND_WIDTH-1:0] pc_fetch;
@@ -254,6 +257,7 @@ module mor1kx_cpu_marocchino
   wire [OPTION_OPERAND_WIDTH-1:0] wb_result2_cp3; // copy #3
 
 
+  wire                            dcod_free;
   wire                            dcod_valid;
   wire                            exec_valid;
   wire                            lsu_valid;   // result ready or exceptions
@@ -351,6 +355,16 @@ module mor1kx_cpu_marocchino
   //  ## do branch (pedicted or unconditional)
   wire                            do_branch;
   wire [OPTION_OPERAND_WIDTH-1:0] do_branch_target;
+  //  ## branch prediction support
+  wire [OPTION_OPERAND_WIDTH-1:0] after_ds_target;
+  wire                            predict_miss;
+  wire [OPTION_OPERAND_WIDTH-1:0] predict_miss_target;
+  wire                      [1:0] bc_cnt_value;  // current value of saturation counter
+  wire      [GSHARE_BITS_NUM-1:0] bc_cnt_radr;   // saturation counter ID
+  wire                            bc_cnt_we;     // update saturation counter
+  wire                      [1:0] bc_cnt_wdat;   // new saturation counter value
+  wire      [GSHARE_BITS_NUM-1:0] bc_cnt_wadr;   // saturation counter id
+  wire                            bc_hist_taken; // conditional branch really taken
   //  ## support NPC handling in CTRL
   wire                            wb_do_branch;
   wire [OPTION_OPERAND_WIDTH-1:0] wb_do_branch_target;
@@ -481,7 +495,7 @@ module mor1kx_cpu_marocchino
 
   // pipeline controls from CTRL to units
   wire padv_fetch;
-  //wire padv_dcod;
+  wire padv_dcod;
   wire padv_exec;
   wire padv_wb;
   wire pipeline_flush;
@@ -588,6 +602,9 @@ module mor1kx_cpu_marocchino
   mor1kx_fetch_marocchino
   #(
     .OPTION_OPERAND_WIDTH             (OPTION_OPERAND_WIDTH), // FETCH
+    .OPTION_RF_ADDR_WIDTH             (OPTION_RF_ADDR_WIDTH), // FETCH
+    // branch predictor parameters
+    .GSHARE_BITS_NUM                  (GSHARE_BITS_NUM), // FETCH
     // ICACHE configuration
     .OPTION_ICACHE_BLOCK_WIDTH        (OPTION_ICACHE_BLOCK_WIDTH), // FETCH
     .OPTION_ICACHE_SET_WIDTH          (OPTION_ICACHE_SET_WIDTH), // FETCH
@@ -651,6 +668,16 @@ module mor1kx_cpu_marocchino
     .do_branch_i                      (do_branch), // FETCH
     .do_branch_target_i               (do_branch_target), // FETCH
     .fetch_jr_bc_hazard_i             (fetch_jr_bc_hazard), // FETCH
+    //  # branch prediction support
+    .after_ds_target_o                (after_ds_target), // FETCH
+    .predict_miss_i                   (predict_miss), // FETCH
+    .predict_miss_target_i            (predict_miss_target), // FETCH
+    .bc_cnt_value_o                   (bc_cnt_value), // FETCH
+    .bc_cnt_radr_o                    (bc_cnt_radr), // FETCH
+    .bc_cnt_we_i                      (bc_cnt_we), // FETCH
+    .bc_cnt_wdat_i                    (bc_cnt_wdat), // FETCH
+    .bc_cnt_wadr_i                    (bc_cnt_wadr), // FETCH
+    .bc_hist_taken_i                  (bc_hist_taken), // FETCH
 
     // DU/exception/rfe control transfer
     .ctrl_branch_exception_i          (ctrl_branch_exception), // FETCH
@@ -707,7 +734,7 @@ module mor1kx_cpu_marocchino
     .cpu_rst                          (cpu_rst), // RF
     // pipeline control signals
     .pipeline_flush_i                 (pipeline_flush), // RF
-    .padv_fetch_i                     (padv_fetch), // RF
+    .padv_dcod_i                      (padv_dcod), // RF
     // SPR bus
     .spr_bus_addr_i                   (spr_bus_addr_o), // RF
     .spr_bus_stb_i                    (spr_bus_stb_o), // RF
@@ -780,7 +807,8 @@ module mor1kx_cpu_marocchino
     .cpu_clk                          (cpu_clk), // DECODE
     .cpu_rst                          (cpu_rst), // DECODE
     // pipeline controls
-    .padv_fetch_i                     (padv_fetch), // DECODE
+    .padv_dcod_i                      (padv_dcod), // DECODE
+    .padv_exec_i                      (padv_exec), // DECODE
     .pipeline_flush_i                 (pipeline_flush), // DECODE
     // from IFETCH
     //  # instruction word valid flag
@@ -817,9 +845,8 @@ module mor1kx_cpu_marocchino
     // destiny D2 (for FPU64)
     .dcod_rfd2_adr_o                  (dcod_rfd2_adr), // DECODE
     .dcod_rfd2_wb_o                   (dcod_rfd2_wb), // DECODE
-    //  # instruction PC
+    // instruction PC
     .pc_fetch_i                       (pc_fetch), // DECODE
-    // PC
     .pc_decode_o                      (pc_decode), // DECODE
     // IMM
     .dcod_immediate_o                 (dcod_immediate), // DECODE
@@ -907,7 +934,9 @@ module mor1kx_cpu_marocchino
   #(
     .OPTION_OPERAND_WIDTH       (OPTION_OPERAND_WIDTH), // OMAN
     .OPTION_RF_ADDR_WIDTH       (OPTION_RF_ADDR_WIDTH), // OMAN
-    .DEST_EXT_ADDR_WIDTH        (DEST_EXT_ADDR_WIDTH) // OMAN
+    .DEST_EXT_ADDR_WIDTH        (DEST_EXT_ADDR_WIDTH), // OMAN
+    // branch predictor parameters
+    .GSHARE_BITS_NUM            (GSHARE_BITS_NUM) // OMAN
   )
   u_oman
   (
@@ -916,14 +945,14 @@ module mor1kx_cpu_marocchino
     .cpu_rst                    (cpu_rst), // OMAN
 
     // pipeline control
-    .padv_fetch_i               (padv_fetch), // OMAN
+    .padv_dcod_i                (padv_dcod), // OMAN
     .padv_exec_i                (padv_exec), // OMAN
     .padv_wb_i                  (padv_wb), // OMAN
     .pipeline_flush_i           (pipeline_flush), // OMAN
 
     // fetched instruction is valid
     .fetch_valid_i              (fetch_valid), // OMAN
-
+    .fetch_delay_slot_i         (fetch_delay_slot), // OMAN
 
     // for RAT
     //  # allocation SR[F]
@@ -1039,6 +1068,7 @@ module mor1kx_cpu_marocchino
     .omn2dec_hazard_dxb2_adr_o  (omn2dec_hazard_dxb2_adr), // OMAN
 
     // DECODE result could be processed by EXECUTE
+    .dcod_free_o                (dcod_free), // OMAN
     .dcod_valid_o               (dcod_valid), // OMAN
 
     // EXECUTE completed (desired unit is ready)
@@ -1070,6 +1100,16 @@ module mor1kx_cpu_marocchino
     .do_branch_o                (do_branch), // OMAN
     .do_branch_target_o         (do_branch_target), // OMAN
     .fetch_jr_bc_hazard_o       (fetch_jr_bc_hazard), // OMAN
+    //  # branch prediction support
+    .after_ds_target_i          (after_ds_target), // OMAN
+    .predict_miss_o             (predict_miss), // OMAN
+    .predict_miss_target_o      (predict_miss_target), // OMAN
+    .bc_cnt_value_i             (bc_cnt_value), // OMAN
+    .bc_cnt_radr_i              (bc_cnt_radr), // OMAN
+    .bc_cnt_we_o                (bc_cnt_we), // OMAN
+    .bc_cnt_wdat_o              (bc_cnt_wdat), // OMAN
+    .bc_cnt_wadr_o              (bc_cnt_wadr), // OMAN
+    .bc_hist_taken_o            (bc_hist_taken), // OMAN
     // Support IBUS error handling in CTRL
     .wb_jump_or_branch_o        (wb_jump_or_branch), // OMAN
     .wb_do_branch_o             (wb_do_branch), // OMAN
@@ -2100,12 +2140,14 @@ module mor1kx_cpu_marocchino
     .cpu_rst                          (cpu_rst), // CTRL
 
     // Inputs / Outputs for pipeline control signals
+    .fetch_valid_i                    (fetch_valid), // CTRL
     .dcod_empty_i                     (dcod_empty), // CTRL
-
+    .dcod_free_i                      (dcod_free), // CTRL
     .dcod_valid_i                     (dcod_valid), // CTRL
     .exec_valid_i                     (exec_valid), // CTRL
     .pipeline_flush_o                 (pipeline_flush), // CTRL
     .padv_fetch_o                     (padv_fetch), // CTRL
+    .padv_dcod_o                      (padv_dcod), // CTRL
     .padv_exec_o                      (padv_exec), // CTRL
     .padv_wb_o                        (padv_wb), // CTRL
 

@@ -40,7 +40,7 @@ module mor1kx_rf_marocchino
 
   // pipeline control signals
   input                             pipeline_flush_i,
-  input                             padv_fetch_i,
+  input                             padv_dcod_i,
 
   // SPR bus
   input                          [15:0] spr_bus_addr_i,
@@ -148,7 +148,7 @@ module mor1kx_rf_marocchino
 
 
   // short name for read request
-  wire read_req = padv_fetch_i;
+  wire read_req = padv_dcod_i;
 
 
   // 1-clock witting strobes for GPR write
@@ -494,7 +494,7 @@ module mor1kx_rf_marocchino
 
   // update operand addresses
   always @(posedge cpu_clk) begin
-    if (padv_fetch_i) begin
+    if (padv_dcod_i) begin
       dcod_rfa1_adr <= fetch_rfa1_adr_i;
       dcod_rfb1_adr <= fetch_rfb1_adr_i;
       dcod_rfa2_adr <= fetch_rfa2_adr_i;
@@ -531,12 +531,11 @@ module mor1kx_rf_marocchino
 
 
   // Special case for l.jr/l.jalr
-  //   (a) by default these instructions require B1 operand, so we implemented
-  //       simlified multiplexor here.
-  //   (b) the output is used next time in DECODE to form final branch target
-  //   (c) in OMAN pipeline is stalled till B1 completion
-  assign dcod_rfb1_jr_o = dcod_wb2dec_d1b1_fwd_i ? wb_result1_i :
-                          dcod_rfb1_adr[0]       ? rfb_odd_dout :
-                                                   rfb_even_dout;
+  //   (a) By default these instructions require B1 operand,
+  //       so we implemented simlified multiplexor here
+  //   (b) The output is used next clock to DECODE to form
+  //       registered l.jr/l.jalr target
+  //   (c) IFETCH generates bubbles till B1 completion
+  assign dcod_rfb1_jr_o = dcod_rfb1_adr[0] ? rfb_odd_dout : rfb_even_dout;
 
 endmodule // mor1kx_rf_marocchino
