@@ -55,6 +55,7 @@ module mor1kx_icache_marocchino
   // regular requests in/out
   input      [OPTION_OPERAND_WIDTH-1:0] virt_addr_mux_i,
   input      [OPTION_OPERAND_WIDTH-1:0] virt_addr_s1o_i,
+  input      [OPTION_OPERAND_WIDTH-1:0] virt_addr_s2o_i,
   input      [OPTION_OPERAND_WIDTH-1:0] phys_addr_s2t_i,
   input                                 fetch_req_hit_i,
   input                                 immu_cache_inhibit_i,
@@ -134,8 +135,6 @@ module mor1kx_icache_marocchino
   // The index we read and write from tag memory
   wire [OPTION_ICACHE_SET_WIDTH-1:0] tag_rindex;
   wire [OPTION_ICACHE_SET_WIDTH-1:0] tag_windex;
-  //  Latch for invalidate index to simplify routing of SPR BUS
-  reg  [OPTION_ICACHE_SET_WIDTH-1:0] tag_invdex;
 
   // The data from the tag memory
   wire       [TAGMEM_WIDTH-1:0] tag_dout;
@@ -315,14 +314,6 @@ module mor1kx_icache_marocchino
   end // @ clock
 
 
-  // Invalidate address registering.
-  // It makes sence in invalidation state only
-  always @(posedge cpu_clk) begin
-    if (ic_read & spr_bus_ic_invalidate)
-      tag_invdex <= spr_bus_dat_i[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH]; // FSM: read -> invalidate
-  end // at clock
-
-
   //   In fact we don't need different addresses per way
   // because we access WAY-RAM either for read or for re-fill, but
   // we don't do these simultaneously
@@ -341,10 +332,20 @@ module mor1kx_icache_marocchino
     {virt_addr_rfl_r[31:4], virt_addr_rfl_r[3:0] + 4'd4};  // 16 byte = (4 words x 32 bits/word)
   // ---
   always @(posedge cpu_clk) begin
-    if (padv_s1s2_i)
+    if (padv_s1s2_i) begin
       virt_addr_rfl_r <= virt_addr_s1o_i;    // before re-fill it is copy of IFETCH::s2o_virt_addr
-    else if (ic_refill & ibus_ack_i)
-      virt_addr_rfl_r <= virt_addr_rfl_next;
+    end
+    else if (ic_refill) begin
+      if (ibus_ack_i)
+        virt_addr_rfl_r <= virt_addr_rfl_next;
+    end
+    else if (ic_read) begin
+      if (spr_bus_ic_invalidate)
+        virt_addr_rfl_r <= spr_bus_dat_i;    // FSM-read -> invalidate
+    end
+    else if (ic_invalidate) begin
+      virt_addr_rfl_r <= virt_addr_s2o_i;    // restore after invalidation
+    end
   end // @ clock
 
   // way indexing
@@ -565,9 +566,7 @@ module mor1kx_icache_marocchino
    *   As way size is equal to page one we able to use either
    * physical or virtual indexing.
    */
-  // MAROCCHINO_TODO: combine tag_invdex and virt_addr_rfl_r ??
-  assign tag_windex = ic_invalidate ? tag_invdex                                              : // TAG_WR_ADDR at invalidate
-                                      virt_addr_rfl_r[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH];   // TAG_WR_ADDR at re-fill / update LRU
+  assign tag_windex = virt_addr_rfl_r[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH]; // TAG_WR_ADDR at invalidate / re-fill / update LRU
 
   // TAG read address
   assign tag_rindex = padv_s1s2_i ? virt_addr_mux_i[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH] : // TAG_RE_ADDR at regular advance

@@ -429,6 +429,7 @@ module mor1kx_fetch_marocchino
     // regular requests in/out
     .virt_addr_mux_i          (virt_addr_mux), // ICACHE
     .virt_addr_s1o_i          (s1o_virt_addr), // ICACHE
+    .virt_addr_s2o_i          (s2o_virt_addr), // ICACHE
     .phys_addr_s2t_i          (s2t_phys_addr), // ICACHE
     .fetch_req_hit_i          (s1o_fetch_req_hit_cp), // ICACHE: enables ICACHE's ACK
     .immu_cache_inhibit_i     (s2t_cache_inhibit), // ICACHE
