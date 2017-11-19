@@ -118,19 +118,17 @@ module mor1kx_icache_marocchino
 
 
   // States
-  localparam [4:0] IC_READ       = 5'b00001,
-                   IC_REFILL     = 5'b00010,
-                   IC_REREAD     = 5'b00100, // after re-fill
-                   IC_INVALIDATE = 5'b01000,
-                   IC_SPR_ACK    = 5'b10000;
+  localparam [3:0] IC_READ       = 4'b0001,
+                   IC_REFILL     = 4'b0010,
+                   IC_INVALIDATE = 4'b0100,
+                   IC_SPR_ACK    = 4'b1000;
   // FSM state pointer
-  reg [4:0] ic_state;
+  reg [3:0] ic_state;
   // Particular state indicators
   wire   ic_read       = ic_state[0];
   wire   ic_refill     = ic_state[1];
-  wire   ic_reread     = ic_state[2];
-  wire   ic_invalidate = ic_state[3];
-  assign spr_bus_ack_o = ic_state[4];
+  wire   ic_invalidate = ic_state[2];
+  assign spr_bus_ack_o = ic_state[3];
 
 
   // The index we read and write from tag memory
@@ -299,13 +297,9 @@ module mor1kx_icache_marocchino
           else if (ibus_ack_i) begin    // FSM: during re-fill
             ic_refill_first_o <= 1'b0;  // FSM: IBUS ack during re-fill
             if (ibus_burst_last_i)
-              ic_state <= IC_REREAD;    // FSM: last re-fill
+              ic_state <= IC_READ;      // FSM: last re-fill
           end
         end // FRM-RE-FILL state
-
-        IC_REREAD: begin
-          ic_state <= IC_READ; // FSM: re-read after re-fill
-        end
 
         IC_INVALIDATE: begin
           ic_state <= IC_SPR_ACK; // FSM: invalidate -> ack for SPR BUS
@@ -353,26 +347,37 @@ module mor1kx_icache_marocchino
       virt_addr_rfl_r <= virt_addr_rfl_next;
   end // @ clock
 
-  // way address for write
-  wire [WAY_WIDTH-3:0] way_addr;
-  // ---
-  assign way_addr = ic_refill ? virt_addr_rfl_r[WAY_WIDTH-1:2] : // WAY_WR_ADDR at re-fill
-                    ic_reread ? virt_addr_s1o_i[WAY_WIDTH-1:2] : // WAY_RE_ADDR after re-fill
-                                virt_addr_mux_i[WAY_WIDTH-1:2];  // WAY_RE_ADDR default
+  // way indexing
+  wire [WAY_WIDTH-3:0] way_rindex = ic_refill ? virt_addr_rfl_r[WAY_WIDTH-1:2]: // WAY read address
+                                                virt_addr_mux_i[WAY_WIDTH-1:2]; // WAY read address
+                                    
+  wire [WAY_WIDTH-3:0] way_windex = virt_addr_rfl_r[WAY_WIDTH-1:2]; // at re-fill only
 
-  // "en" / "we" (for re-fill) per way
-  wire [OPTION_ICACHE_WAYS-1:0] way_en;
-  wire [OPTION_ICACHE_WAYS-1:0] way_we;
+  // Controls for read/write port.
+  // We activate RW-port writting during re-fill only.
+  wire [OPTION_ICACHE_WAYS-1:0] way_rwp_en;
+  wire [OPTION_ICACHE_WAYS-1:0] way_rwp_we;
+  // ---
+  wire way_rwp_same_addr = (way_windex == virt_addr_s1o_i[WAY_WIDTH-1:2]);
+
+  // Controls for write-only port
+  wire [OPTION_ICACHE_WAYS-1:0] way_wp_we;
+  // ---
+  wire way_wp_diff_addr = (way_windex != virt_addr_s1o_i[WAY_WIDTH-1:2]);
 
   // WAY-RAM instances
   generate
   for (i = 0; i < OPTION_ICACHE_WAYS; i=i+1) begin : ways_ram
-    // "we" per way (for re-fill only)
-    assign way_we[i] = ibus_ack_i & lru_way_refill_r[i];
-    assign way_en[i] = padv_s1s2_i | ic_reread | way_we[i];
+    // Controls for read/write port.
+    // We activate RW-port during re-fill only.
+    assign way_rwp_we[i] = ibus_ack_i & lru_way_refill_r[i] & way_rwp_same_addr;
+    assign way_rwp_en[i] = padv_s1s2_i | way_rwp_we[i];
+
+    // Controls for write-only port
+    assign way_wp_we[i] = ibus_ack_i & lru_way_refill_r[i] & way_wp_diff_addr;
 
     // WAY-RAM instances
-    mor1kx_spram_en_w1st
+    mor1kx_dpram_en_w1st_sclk
     #(
       .ADDR_WIDTH     (WAY_WIDTH-2), // ICACHE_WAY_RAM
       .DATA_WIDTH     (OPTION_OPERAND_WIDTH), // ICACHE_WAY_RAM
@@ -380,14 +385,20 @@ module mor1kx_icache_marocchino
     )
     ic_way_ram
     (
-      // clock
+      // common clock
       .clk            (cpu_clk), // ICACHE_WAY_RAM
-      // port
-      .en             (way_en[i]), // ICACHE_WAY_RAM
-      .we             (way_we[i]), // ICACHE_WAY_RAM
-      .addr           (way_addr), // ICACHE_WAY_RAM
-      .din            (ibus_dat_i), // ICACHE_WAY_RAM
-      .dout           (way_dout[i]) // ICACHE_WAY_RAM
+      // port "a"
+      .en_a           (way_rwp_en[i]), // ICACHE_WAY_RAM
+      .we_a           (way_rwp_we[i]), // ICACHE_WAY_RAM
+      .addr_a         (way_rindex), // ICACHE_WAY_RAM
+      .din_a          (ibus_dat_i), // ICACHE_WAY_RAM
+      .dout_a         (way_dout[i]), // ICACHE_WAY_RAM
+      // port "b"
+      .en_b           (way_wp_we[i]), // ICACHE_WAY_RAM
+      .we_b           (way_wp_we[i]), // ICACHE_WAY_RAM  MAROCCHINO_TODO: 1'b1 ??
+      .addr_b         (way_windex), // ICACHE_WAY_RAM
+      .din_b          (ibus_dat_i), // ICACHE_WAY_RAM
+      .dout_b () // ICACHE_WAY_RAM
     );
   end // ways_ram
   endgenerate
@@ -554,23 +565,20 @@ module mor1kx_icache_marocchino
    *   As way size is equal to page one we able to use either
    * physical or virtual indexing.
    */
+  // MAROCCHINO_TODO: combine tag_invdex and virt_addr_rfl_r ??
   assign tag_windex = ic_invalidate ? tag_invdex                                              : // TAG_WR_ADDR at invalidate
                                       virt_addr_rfl_r[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH];   // TAG_WR_ADDR at re-fill / update LRU
 
   // TAG read address
   assign tag_rindex = padv_s1s2_i ? virt_addr_mux_i[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH] : // TAG_RE_ADDR at regular advance
-                                    virt_addr_s1o_i[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH];  // TAG_RE_ADDR at re-fill, re-read, current
-
-  // Read/Write into same address
-  wire tag_rw_same_addr = (tag_rindex == tag_windex);
+                                    virt_addr_s1o_i[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH];  // TAG_RE_ADDR at re-fill, invalidate
 
   // Read/Write port (*_rwp_*) write
-  wire tag_rwp_we = tag_we & tag_rw_same_addr;
-  wire tag_rwp_en = padv_s1s2_i | ic_reread | tag_rwp_we;
+  wire tag_rwp_we = tag_we & (tag_rindex == tag_windex);
+  wire tag_rwp_en = padv_s1s2_i | tag_rwp_we;
 
   // Write-only port (*_wp_*) enable
-  wire tag_wp_en = tag_we & (~tag_rw_same_addr);
-
+  wire tag_wp_en = tag_we & (tag_rindex != tag_windex);
 
   //------------------//
   // TAG-RAM instance //
@@ -594,7 +602,7 @@ module mor1kx_icache_marocchino
     .dout_a (tag_dout), // ICACHE_TAG_RAM
     // port "b": Write if no RW-conflict
     .en_b   (tag_wp_en), // ICACHE_TAG_RAM
-    .we_b   (tag_we), // ICACHE_TAG_RAM
+    .we_b   (tag_we), // ICACHE_TAG_RAM  MAROCCHINO_TODO: 1'b1 ??
     .addr_b (tag_windex), // ICACHE_TAG_RAM
     .din_b  (tag_din), // ICACHE_TAG_RAM
     .dout_b () // ICACHE_TAG_RAM
