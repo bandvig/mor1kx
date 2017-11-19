@@ -43,8 +43,8 @@ module mor1kx_icache_marocchino
 
   // pipe controls
   input                                 padv_s1s2_i,
-  input                                 flush_by_ctrl_i,
-  input                                 flush_by_predict_miss_i,
+  input                                 pipeline_flush_i,
+  input                                 predict_miss_i,
   // fetch exceptions
   input                                 s2o_immu_an_except_i,
   input                                 ibus_err_i,
@@ -278,7 +278,7 @@ module mor1kx_icache_marocchino
       // synthesis parallel_case full_case
       case (ic_state)
         IC_READ: begin
-          if (s2o_immu_an_except_i | flush_by_ctrl_i  | flush_by_predict_miss_i) begin // FSM: keep read
+          if (s2o_immu_an_except_i | pipeline_flush_i | predict_miss_i) begin // FSM: keep read
             ic_state <= IC_READ;
           end
           else if (spr_bus_ic_invalidate) begin
@@ -402,7 +402,7 @@ module mor1kx_icache_marocchino
   reg s2o_ic_ack;
   // ---
   always @(posedge cpu_clk) begin
-    if (cpu_rst | flush_by_ctrl_i  | flush_by_predict_miss_i)
+    if (cpu_rst | pipeline_flush_i | predict_miss_i)
       s2o_ic_ack <= 1'b0;
     else if (padv_s1s2_i)
       s2o_ic_ack <= ic_ack_o;
@@ -447,7 +447,7 @@ module mor1kx_icache_marocchino
   // LRU way registered for re-fill process
   always @(posedge cpu_clk) begin
     if (to_refill_i) begin   // save lru way for re-fill
-      lru_way_refill_r <= (flush_by_ctrl_i  | flush_by_predict_miss_i) ? {OPTION_ICACHE_WAYS{1'b0}} : lru_way; // to re-fill
+      lru_way_refill_r <= (pipeline_flush_i | predict_miss_i) ? {OPTION_ICACHE_WAYS{1'b0}} : lru_way; // to re-fill
     end
     else if (ic_refill) begin
       if ((ibus_ack_i & ibus_burst_last_i) | ibus_err_i) begin
@@ -489,7 +489,7 @@ module mor1kx_icache_marocchino
     case (ic_state)
       IC_READ: begin
         // Update LRU data by read-hit only
-        if (s2o_ic_ack & (~s2o_immu_an_except_i) & (~flush_by_ctrl_i) & (~flush_by_predict_miss_i)) begin // on read-hit
+        if (s2o_ic_ack & (~s2o_immu_an_except_i)) begin // on read-hit
           tag_we = 1'b1; // on read-hit
         end
       end

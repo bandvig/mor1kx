@@ -39,7 +39,7 @@ module mor1kx_immu_marocchino
 
   // controls
   input                                 padv_immu_i,      // advance
-  input                                 flush_by_ctrl_i,  // drop stored "IMMU enable"
+  input                                 pipeline_flush_i,  // drop stored "IMMU enable"
 
   // configuration
   input                                 enable_i,
@@ -135,7 +135,7 @@ module mor1kx_immu_marocchino
   reg enable_r;
   // ---
   always @(posedge cpu_clk) begin
-    if (cpu_rst | flush_by_ctrl_i)
+    if (cpu_rst | pipeline_flush_i)
       enable_r <= 1'b0;
     else if (padv_immu_i)
       enable_r <= enable_i;
