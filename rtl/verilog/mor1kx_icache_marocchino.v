@@ -278,15 +278,14 @@ module mor1kx_icache_marocchino
       // synthesis parallel_case full_case
       case (ic_state)
         IC_READ: begin
-          if (s2o_immu_an_except_i | pipeline_flush_i | predict_miss_i) begin // FSM: keep read
-            ic_state <= IC_READ;
+          // to-re-fill or invalidate mean that neither
+          // exceptions nor flushing has occured
+          if (to_refill_i) begin            // FSM: read -> re-fill
+            ic_refill_first_o <= 1'b1;      // FSM: read -> re-fill
+            ic_state          <= IC_REFILL; // FSM: read -> re-fill
           end
           else if (spr_bus_ic_invalidate) begin
             ic_state <= IC_INVALIDATE;      // FSM: read -> invalidate
-          end
-          else if (to_refill_i) begin       // FSM: read -> re-fill
-            ic_refill_first_o <= 1'b1;      // FSM: read -> re-fill
-            ic_state          <= IC_REFILL; // FSM: read -> re-fill
           end
         end // FSM-READ state
 
@@ -447,7 +446,7 @@ module mor1kx_icache_marocchino
   // LRU way registered for re-fill process
   always @(posedge cpu_clk) begin
     if (to_refill_i) begin   // save lru way for re-fill
-      lru_way_refill_r <= (pipeline_flush_i | predict_miss_i) ? {OPTION_ICACHE_WAYS{1'b0}} : lru_way; // to re-fill
+      lru_way_refill_r <= lru_way; // to re-fill
     end
     else if (ic_refill) begin
       if ((ibus_ack_i & ibus_burst_last_i) | ibus_err_i) begin

@@ -498,9 +498,11 @@ module mor1kx_fetch_marocchino
         IBUS_IDLE: begin
           if (spr_bus_stb_i | pipeline_flush_i | predict_miss_i | fetch_an_except_o) // IBUS-IDLE
             ibus_state <= IBUS_IDLE;         // IBUS-IDLE -> flushing / exceptions / etc
-          else if (s2o_ic_refill_req)
+          else if (s2o_ic_refill_req) begin  // IBUS-IDLE
+            ibus_req_o <= ~ibus_req_o;       // IBUS-IDLE -> IBUS-TO-IC-REFILL
             ibus_state <= IBUS_TO_IC_REFILL; // IBUS-IDLE -> IBUS-TO-IC-REFILL
-          else if (s2o_ibus_read_req) begin
+          end
+          else if (s2o_ibus_read_req) begin  // IBUS-IDLE
             ibus_req_o <= ~ibus_req_o;       // IBUS-IDLE -> IBUS read
             ibus_state <= IBUS_READ;         // IBUS-IDLE -> IBUS read
           end
@@ -512,12 +514,7 @@ module mor1kx_fetch_marocchino
         end // read
 
         IBUS_TO_IC_REFILL: begin
-          if (pipeline_flush_i | predict_miss_i) // IBUS-TO-IC-REFILL: break
-            ibus_state <= IBUS_IDLE;          // IBUS-TO-IC-REFILL -> IDLE by flush
-          else begin
-            ibus_req_o <= ~ibus_req_o;        // IBUS-TO-IC-REFILL -> ICACHE refill
-            ibus_state <= IBUS_IC_REFILL;     // IBUS-TO-IC-REFILL -> ICACHE refill
-          end
+          ibus_state <= IBUS_IC_REFILL; // IBUS-TO-IC-REFILL -> ICACHE refill
         end
 
         IBUS_IC_REFILL: begin
@@ -539,20 +536,15 @@ module mor1kx_fetch_marocchino
   end // @ clock
 
   // IBUS access machine: read address
-  // MAROCCHINO_TODO: minimize conditions ?
   always @(posedge cpu_clk) begin
     // synthesis parallel_case full_case
     case (ibus_state)
       // to IBUS read
       IBUS_IDLE: begin
+        // MAROCCHINO_TODO: minimize conditions ?
         if ((~spr_bus_stb_i) & (~pipeline_flush_i) & (~predict_miss_i) &
-            (~fetch_an_except_o) & s2o_ibus_read_req)
+            (~fetch_an_except_o) & (s2o_ibus_read_req | s2o_ic_refill_req))
           ibus_adr_o <= s2o_phys_addr; // IBUS-IDLE -> IBUS read
-      end
-      // to ICACHE re-fill
-      IBUS_TO_IC_REFILL: begin
-        if ((~pipeline_flush_i) & (~predict_miss_i))
-          ibus_adr_o <= s2o_phys_addr;  // IBUS-TO-IC-REFILL -> ICACHE refill
       end
       // do nothing
       default:;
@@ -566,7 +558,6 @@ module mor1kx_fetch_marocchino
   // --- flush extender ---
   wire deassert_flush_r = ibus_idle_state                               | // de-assert flush extender
                           (ibus_read_state & (ibus_ack_i | ibus_err_i)) | // de-assert flush extender
-                          to_refill_state                               | // de-assert flush extender
                           (ic_refill_state & ibus_err_i)                | // de-assert flush extender
                           ic_reread_state;                                // de-assert flush extender
   // ---
@@ -583,7 +574,6 @@ module mor1kx_fetch_marocchino
   // --- misprediction extender ---
   wire deassert_predict_miss_r = ibus_idle_state                               | // de-assert misprediction extender
                                  (ibus_read_state & (ibus_ack_i | ibus_err_i)) | // de-assert misprediction extender
-                                 to_refill_state                               | // de-assert misprediction extender
                                  (ic_refill_state & ibus_err_i)                | // de-assert misprediction extender
                                  ic_reread_state;                                // de-assert misprediction extender
   // ---
@@ -685,8 +675,6 @@ module mor1kx_fetch_marocchino
   wire deassert_s2o_ic_refill_req = (ibus_idle_state & pipeline_flush_i)    | // de-assert re-fill request
                                     (ibus_idle_state & predict_miss_i)      | // de-assert re-fill request
                                     (ibus_idle_state & s2o_immu_an_except)  | // de-assert re-fill request
-                                    (to_refill_state & pipeline_flush_i)    | // de-assert re-fill request
-                                    (to_refill_state & predict_miss_i)      | // de-assert re-fill request
                                     (ic_refill_state & ibus_err_i)          | // de-assert re-fill request
                                     ic_reread_state;                          // de-assert re-fill request
   // ---
