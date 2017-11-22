@@ -297,7 +297,7 @@ module mor1kx_oman_marocchino
   // jump/branch signals to IFETCH
   output                                do_branch_o,
   output     [OPTION_OPERAND_WIDTH-1:0] do_branch_target_o,
-  output                                fetch_jr_bc_hazard_o, // jump/branch data not ready
+  output                                jr_gathering_target_o,
   //  # branch prediction support
   input      [OPTION_OPERAND_WIDTH-1:0] after_ds_target_i,
   output                                predict_miss_o,
@@ -966,8 +966,8 @@ module mor1kx_oman_marocchino
   // synthesis translate_on
  `endif // !synth
   // --- particular states ---
-  wire jb_fsm_get_b1_state               = jb_fsm_state_r[1];
-  wire jb_fsm_waiting_b1_state           = jb_fsm_state_r[2];
+  //wire jb_fsm_get_b1_state               = jb_fsm_state_r[1];
+  //wire jb_fsm_waiting_b1_state           = jb_fsm_state_r[2];
   wire jb_fsm_doing_jr_state             = jb_fsm_state_r[3];
   wire jb_fsm_predict_catching_ds_state  = jb_fsm_state_r[4];
   wire jb_fsm_predict_waiting_flag_state = jb_fsm_state_r[5];
@@ -1011,6 +1011,7 @@ module mor1kx_oman_marocchino
   // --- various pendings till rB/flag computationcompletion ---
   reg  [DEST_EXT_ADDR_WIDTH-1:0] jb_hazard_ext_p;
   reg [OPTION_OPERAND_WIDTH-1:0] jr_target_p;
+  reg                            jr_gathering_target_p;
 
   // --- prediction related registers ---
   reg                            predict_bc_taken_r;    // 0 if not taken
@@ -1039,6 +1040,8 @@ module mor1kx_oman_marocchino
       predict_bc_taken_r   <= 1'b0;
       predict_flag_value_r <= 1'b0;
       predict_flag_alloc_r <= 1'b0;
+      // for l.jr/l.jalr procesing
+      jr_gathering_target_p <= 1'b0;
       // other attributes
       jb_hazard_ext_p <= {DEST_EXT_ADDR_WIDTH{1'b0}};
     end
@@ -1056,6 +1059,7 @@ module mor1kx_oman_marocchino
               else begin // no rB related hazards
                 jb_fsm_state_r <= JB_FSM_GET_B1;
               end
+              jr_gathering_target_p <= 1'b1;
             end
             else if (use_bc_predict) begin
               jb_fsm_state_r        <= JB_FSM_PREDICT_CATCHING_DS;
@@ -1070,12 +1074,14 @@ module mor1kx_oman_marocchino
 
         // gathering target for l.jr/l.jalr
         JB_FSM_GET_B1: begin
-          jb_fsm_state_r <= JB_FSM_DOING_JR;
+          jb_fsm_state_r        <= JB_FSM_DOING_JR;
+          jr_gathering_target_p <= 1'b0;
         end
         // waiting target for l.jr/l.jalr
         JB_FSM_WAITING_B1: begin
           if (jb_hazard_ext_p == wb_ext_bits_o) begin
-            jb_fsm_state_r <= JB_FSM_DOING_JR;
+            jb_fsm_state_r        <= JB_FSM_DOING_JR;
+            jr_gathering_target_p <= 1'b0;
           end
         end
         // doing l.jr/l.jalr
@@ -1173,7 +1179,7 @@ module mor1kx_oman_marocchino
   // --- Feedback to IFETCH --- //
 
 
-  // do_branch_o is meaningless if fetch_jr_bc_hazard_o is rised
+  // "Do branch"
   assign do_branch_o = fetch_op_jimm_i       |  // do jump to immediate
                        do_bc_predict         |  // do branch conditional
                        jb_fsm_doing_jr_state;   // do jump to register (B1)
@@ -1183,9 +1189,7 @@ module mor1kx_oman_marocchino
 
 
   // we execute l.jr/l.jalr after registering target only
-  assign fetch_jr_bc_hazard_o = fetch_op_jr_i           | // rB hazard for l.jr/l.jalr
-                                jb_fsm_get_b1_state     | // rB hazard for l.jr/l.jalr
-                                jb_fsm_waiting_b1_state;  // rB hazard for l.jr/l.jalr
+  assign jr_gathering_target_o = fetch_op_jr_i | jr_gathering_target_p;
 
   // branch prediction missed
   assign predict_miss_o        = jb_fsm_predict_miss_state;

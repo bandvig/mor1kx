@@ -96,7 +96,7 @@ module mor1kx_fetch_marocchino
   //  # do branch (predicted or unconditional)
   input                                 do_branch_i,
   input      [OPTION_OPERAND_WIDTH-1:0] do_branch_target_i,
-  input                                 fetch_jr_bc_hazard_i,
+  input                                 jr_gathering_target_i,
   //  # branch prediction support
   output     [OPTION_OPERAND_WIDTH-1:0] after_ds_target_o,
   input                                 predict_miss_i,
@@ -308,12 +308,12 @@ module mor1kx_fetch_marocchino
       s1r_virt_addr_next <= predict_miss_target_i;
     end
     else if (padv_s1s2) begin // next address to fetch
-      if (fetch_jr_bc_hazard_i)
+      if (jr_gathering_target_i)
         s1r_virt_addr_next <= s1r_virt_addr_next;
       else
         s1r_virt_addr_next <= virt_addr_mux + 3'd4;
     end
-    else if (do_branch_i & (~fetch_jr_bc_hazard_i)) begin // next address to fetch
+    else if (do_branch_i) begin // next address to fetch
       s1r_virt_addr_next <= do_branch_target_i;
     end
   end // @ clock
@@ -326,7 +326,7 @@ module mor1kx_fetch_marocchino
 
 
   // new fetch request is valid
-  wire s1t_fetch_req_hit = ~fetch_jr_bc_hazard_i;
+  wire s1t_fetch_req_hit = ~jr_gathering_target_i;
   // ---
   always @(posedge cpu_clk) begin
     if (cpu_rst | pipeline_flush_i | predict_miss_i) begin // drop "s1o-fetch-req-hit"
@@ -418,7 +418,6 @@ module mor1kx_fetch_marocchino
     .cpu_rst                  (cpu_rst), // ICACHE
     // pipe controls
     .padv_s1s2_i              (padv_s1s2), // ICACHE
-    // MAROCCHINO_TODO : use pipeline-flush/predict-miss instead of flush-by-* ?
     .pipeline_flush_i         (pipeline_flush_i), // ICACHE
     .predict_miss_i           (predict_miss_i), // ICACHE
     // fetch exceptions
@@ -513,11 +512,11 @@ module mor1kx_fetch_marocchino
         end // read
 
         IBUS_TO_IC_REFILL: begin
-          ibus_state <= IBUS_IC_REFILL; // IBUS-TO-IC-REFILL -> ICACHE refill
+          ibus_state <= IBUS_IC_REFILL; // IBUS-TO-IC-REFILL -> ICACHE re-fill
         end
 
         IBUS_IC_REFILL: begin
-          if (ibus_err_i | (ibus_ack_i & ibus_burst_last_i)) // ICACHE refill
+          if (ibus_err_i | (ibus_ack_i & ibus_burst_last_i)) // ICACHE re-fill
             ibus_state <= IBUS_IDLE;  // IBUS error / last re-fill
         end // ic-refill
 
@@ -532,10 +531,8 @@ module mor1kx_fetch_marocchino
     case (ibus_state)
       // to IBUS read
       IBUS_IDLE: begin
-        // MAROCCHINO_TODO: minimize conditions ?
-        if ((~spr_bus_stb_i) & (~pipeline_flush_i) & (~predict_miss_i) &
-            (~fetch_an_except_o) & (s2o_ibus_read_req | s2o_ic_refill_req))
-          ibus_adr_o <= s2o_phys_addr; // IBUS-IDLE -> IBUS read
+        if (s2o_ibus_read_req | s2o_ic_refill_req)
+          ibus_adr_o <= s2o_phys_addr; // IBUS-IDLE -> IBUS read / ICACHE re-fill
       end
       // do nothing
       default:;
@@ -662,12 +659,10 @@ module mor1kx_fetch_marocchino
 
 
   // --- ICACHE re-fill request ---
-  // MAROCCHINO_TODO : use pipeline-flush/predict-miss instead of flush-by-* ?
-  wire deassert_s2o_ic_refill_req = (ibus_idle_state & pipeline_flush_i)              | // de-assert re-fill request
-                                    (ibus_idle_state & predict_miss_i)                | // de-assert re-fill request
-                                    (ibus_idle_state & s2o_immu_an_except)            | // de-assert re-fill request
-                                    (ic_refill_state & ibus_err_i)                    | // de-assert re-fill request
-                                    (ic_refill_state & ibus_ack_i & ibus_burst_last_i); // de-assert re-fill request
+  wire deassert_s2o_ic_refill_req =
+    to_refill_state ? 1'b0 : // de-assert re-fill request
+      (ic_refill_state ? (ibus_err_i | (ibus_ack_i & ibus_burst_last_i)) : // de-assert re-fill request
+                         (pipeline_flush_i | predict_miss_i | s2o_immu_an_except)); // de-assert re-fill request
   // ---
   always @(posedge cpu_clk) begin
     if (cpu_rst)
@@ -689,11 +684,9 @@ module mor1kx_fetch_marocchino
 
 
   // --- IBUS read request ---
-  // MAROCCHINO_TODO : use pipeline-flush/predict-miss instead of flush-by-* ?
-  wire deassert_s2o_ibus_read_req = (ibus_idle_state & pipeline_flush_i)          | // de-assert IBUS request
-                                    (ibus_idle_state & predict_miss_i)            | // de-assert IBUS request
-                                    (ibus_idle_state & s2o_immu_an_except)        | // de-assert IBUS request
-                                    (ibus_read_state & (ibus_ack_i | ibus_err_i));  // de-assert IBUS request
+  wire deassert_s2o_ibus_read_req =
+    ibus_read_state ? (ibus_err_i | ibus_ack_i) : // de-assert IBUS request
+                      (pipeline_flush_i | predict_miss_i | s2o_immu_an_except); // de-assert IBUS request
   // ---
   always @(posedge cpu_clk) begin
     if (cpu_rst)
@@ -821,7 +814,7 @@ module mor1kx_fetch_marocchino
     if (padv_s1s2)
       s1o_bc_cnt_radr <= s1t_bc_cnt_radr;
   end // at clock
-  
+
   // Read/Write port (*_rwp_*) write
   // !!! In short loop it is possible simultaneous
   // !!! update and reading the same counter
@@ -841,7 +834,7 @@ module mor1kx_fetch_marocchino
 
   // saturation counter read result
   wire [1:0] s2t_bc_cnt_value;
-  
+
   // Saturation counters RAM
   mor1kx_dpram_en_w1st_sclk
   #(
@@ -860,7 +853,7 @@ module mor1kx_fetch_marocchino
     .din_a  (bc_cnt_wdat_i),
     .dout_a (s2t_bc_cnt_value),
     // port "b"
-    .en_b   (bc_cnt_wp_en), 
+    .en_b   (bc_cnt_wp_en),
     .we_b   (bc_cnt_we_i),
     .addr_b (bc_cnt_wadr_i),
     .din_b  (bc_cnt_wdat_i),

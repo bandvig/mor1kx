@@ -348,8 +348,8 @@ module mor1kx_cpu_marocchino
   wire                            fetch_op_jb;
   //    ## pc-relative target
   wire [OPTION_OPERAND_WIDTH-1:0] fetch_to_imm_target;
-  //  ## detect jump/branch to indicate "delay slot" for next fetched instruction
-  wire                            fetch_jr_bc_hazard;
+  //  ## l.jr / l.jalr  gathering target
+  wire                            jr_gathering_target;
   //  ## support IBUS error handling in CTRL
   wire                            wb_jump_or_branch;
   //  ## do branch (pedicted or unconditional)
@@ -667,7 +667,7 @@ module mor1kx_cpu_marocchino
     //  # do branch (pedicted or unconditional)
     .do_branch_i                      (do_branch), // FETCH
     .do_branch_target_i               (do_branch_target), // FETCH
-    .fetch_jr_bc_hazard_i             (fetch_jr_bc_hazard), // FETCH
+    .jr_gathering_target_i            (jr_gathering_target), // FETCH
     //  # branch prediction support
     .after_ds_target_o                (after_ds_target), // FETCH
     .predict_miss_i                   (predict_miss), // FETCH
@@ -1099,7 +1099,7 @@ module mor1kx_cpu_marocchino
     // jump/branch signals to IFETCH
     .do_branch_o                (do_branch), // OMAN
     .do_branch_target_o         (do_branch_target), // OMAN
-    .fetch_jr_bc_hazard_o       (fetch_jr_bc_hazard), // OMAN
+    .jr_gathering_target_o      (jr_gathering_target), // OMAN
     //  # branch prediction support
     .after_ds_target_i          (after_ds_target), // OMAN
     .predict_miss_o             (predict_miss), // OMAN

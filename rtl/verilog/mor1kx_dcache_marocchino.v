@@ -363,14 +363,14 @@ module mor1kx_dcache_marocchino
       // synthesis parallel_case full_case
       case (dc_state)
         DC_CHECK: begin
-          if (dc_cancel | snoop_hit_o) begin // keep check
+          if (dc_refill_allowed_i) begin // check -> re-fill
+            dc_state <= DC_REFILL; // check -> re-fill
+          end
+          else if (dc_cancel | snoop_hit_o) begin // keep check
             dc_state <= DC_CHECK;
           end
           else if (spr_bus_dc_invalidate) begin // check -> invalidate
             dc_state <= DC_INVALIDATE; // check -> invalidate
-          end
-          else if (dc_refill_allowed_i) begin
-            dc_state <= DC_REFILL;  // check -> re-fill
           end
           else if (lsu_s2_adv_i) begin // check -> write / keep check
             dc_state <= (s1o_op_lsu_store_i ? DC_WRITE : DC_CHECK); // check -> write / keep check
@@ -441,14 +441,14 @@ module mor1kx_dcache_marocchino
     case (dc_state)
       DC_CHECK: begin
         // next states
-        if (dc_cancel | snoop_hit_o) begin // keep check
+        if (dc_refill_allowed_i) begin
+          lru_way_refill_r <= lru_way;    // check -> re-fill
+          refill_first_o   <= 1'b1;       // check -> re-fill
+        end
+        else if (dc_cancel | snoop_hit_o) begin // keep check
         end
         else if (spr_bus_dc_invalidate) begin // check -> invalidate
           tag_invdex <= spr_bus_dat_i[WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH]; // FSM: check -> invalidate
-        end
-        else if (dc_refill_allowed_i) begin
-          lru_way_refill_r <= lru_way;    // check -> re-fill
-          refill_first_o   <= 1'b1;       // check -> re-fill
         end
         else if (lsu_s2_adv_i) begin // check -> write / keep check
           s2o_dc_ack_write <= dc_ack_write; // check -> write / keep check

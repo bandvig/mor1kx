@@ -653,6 +653,7 @@ module mor1kx_lsu_marocchino
             end
           end
           else if (s2o_dc_refill_req) begin // dmem-req
+            dbus_req_o <= ~dbus_req_o;      // dmem-req -> to-re-fill
             dbus_state <= DBUS_TO_REFILL;   // dmem-req -> to-re-fill
           end
           else if (s2o_dbus_read_req) begin // dmem-req
@@ -670,12 +671,7 @@ module mor1kx_lsu_marocchino
         end // dbus-read
 
         DBUS_TO_REFILL: begin
-          if (flush_by_ctrl)             // to-re-fill
-            dbus_state <= DBUS_IDLE;     // to-re-fill cancelled by flush
-          else begin
-            dbus_req_o <= ~dbus_req_o;     // to-re-fill -> dcache-re-fill
-            dbus_state <= DBUS_DC_REFILL;  // to-re-fill -> dcache-re-fill
-          end
+          dbus_state <= DBUS_DC_REFILL;  // to-re-fill -> dcache-re-fill
         end // to-re-fill
 
         DBUS_DC_REFILL: begin
@@ -730,6 +726,12 @@ module mor1kx_lsu_marocchino
             dbus_atomic <= 1'b1;          // dmem req -> write for l.swa
           end
         end
+        else if (s2o_dc_refill_req) begin
+          dbus_we     <= 1'b0;            // dmem-req -> to-re-fill
+          dbus_bsel_o <= 4'b1111;         // dmem-req -> to-re-fill
+          dbus_adr_o  <= s2o_phys_addr;   // dmem-req -> to-re-fill
+          dbus_atomic <= 1'b0;            // dmem-req -> to-re-fill
+        end
         else if (s2o_dbus_read_req) begin // dmem-req
           dbus_we     <= 1'b0;            // dmem-req -> dbus-read
           dbus_bsel_o <= s2o_bsel;        // dmem-req -> dbus-read
@@ -737,15 +739,6 @@ module mor1kx_lsu_marocchino
           dbus_atomic <= 1'b0;            // dmem-req -> dbus-read
         end
       end // dmem-req
-
-      DBUS_TO_REFILL: begin
-        if (~flush_by_ctrl) begin         // to-re-fill
-          dbus_we     <= 1'b0;            // to-re-fill -> dcache-re-fill
-          dbus_bsel_o <= 4'b1111;         // to-re-fill -> dcache-re-fill
-          dbus_adr_o  <= s2o_phys_addr;   // to-re-fill -> dcache-re-fill
-          dbus_atomic <= 1'b0;            // to-re-fill -> dcache-re-fill
-        end
-      end // to-re-fill
 
       DBUS_INI_WRITE: begin
         // DBUS controls
@@ -935,20 +928,19 @@ module mor1kx_lsu_marocchino
 
 
   // --- DCACHE re-fill request ---
-  wire deassert_s2o_dc_refill_req = (dbus_idle_state   & flush_by_ctrl)    | // de-assert re-fill request
-                                    (dmem_req_state    & flush_by_ctrl)    | // de-assert re-fill request
-                                    (dmem_req_state    & s2o_excepts_addr) | // de-assert re-fill request
-                                    (dc_refill_allowed & flush_by_ctrl)    | // de-assert re-fill request
-                                    (dc_refill_state   & dbus_err_i)       | // de-assert re-fill request
-                                    dc_reread_state;                         // de-assert re-fill request
+  wire deassert_s2o_dc_refill_req =
+    dc_refill_allowed ? 1'b0       : // de-assert re-fill request
+    dc_refill_state   ? dbus_err_i : // de-assert re-fill request
+    dc_reread_state   ? 1'b1       : // de-assert re-fill request
+                        (pipeline_flush_i | s2o_excepts_addr); // de-assert re-fill request
   // ---
   always @(posedge cpu_clk) begin
     if (cpu_rst)
       s2o_dc_refill_req <= 1'b0;              // reset / flush
-    else if (lsu_s2_adv)
-      s2o_dc_refill_req <= s2t_dc_refill_req;
     else if (deassert_s2o_dc_refill_req)
       s2o_dc_refill_req <= 1'b0;              // re-fill done or canceled
+    else if (lsu_s2_adv)
+      s2o_dc_refill_req <= s2t_dc_refill_req;
   end // @ clock
   // --- DCACHE ack ---
   always @(posedge cpu_clk) begin
@@ -967,18 +959,17 @@ module mor1kx_lsu_marocchino
 
 
   // --- DBUS read request ---
-  wire deassert_s2o_dbus_read_req = (dbus_idle_state & flush_by_ctrl)    | // de-assert dbus read request
-                                    (dmem_req_state  & flush_by_ctrl)    | // de-assert dbus read request
-                                    (dmem_req_state  & s2o_excepts_addr) | // de-assert dbus read request
-                                    (dbus_read_state & (dbus_ack_i | dbus_err_i)); // de-assert dbus read request
+  wire deassert_s2o_dbus_read_req =
+    dbus_read_state ? (dbus_err_i | dbus_ack_i) :             // de-assert dbus read request
+                      (pipeline_flush_i | s2o_excepts_addr);  // de-assert dbus read request
   // ---
   always @(posedge cpu_clk) begin
     if (cpu_rst)
       s2o_dbus_read_req <= 1'b0;          // reset / flush
-    else if (lsu_s2_adv)
-      s2o_dbus_read_req <= s2t_dbus_read_req;
     else if (deassert_s2o_dbus_read_req)
       s2o_dbus_read_req <= 1'b0;          // dbus read done or canceled
+    else if (lsu_s2_adv)
+      s2o_dbus_read_req <= s2t_dbus_read_req;
   end // @ clock
   // --- combined DBUS-load/SBUFF-store ACK ---
   always @(posedge cpu_clk) begin
