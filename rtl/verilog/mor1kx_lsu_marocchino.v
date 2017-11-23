@@ -203,27 +203,25 @@ module mor1kx_lsu_marocchino
 
   // DBUS FSM
   //  # DBUS FSM states
-  localparam [8:0] DBUS_IDLE      = 9'b000000001, /*  0 */
-                   DMEM_REQ       = 9'b000000010, /*  1 */
-                   DBUS_READ      = 9'b000000100, /*  2 */
-                   DBUS_TO_REFILL = 9'b000001000, /*  3 */
-                   DBUS_DC_REFILL = 9'b000010000, /*  4 */
-                   DBUS_DC_REREAD = 9'b000100000, /*  5 */
-                   DBUS_SBUF_READ = 9'b001000000, /*  6 */
-                   DBUS_INI_WRITE = 9'b010000000, /*  7 */
-                   DBUS_WRITE     = 9'b100000000; /*  8 */
+  localparam [7:0] DBUS_IDLE      = 8'b00000001, // 0
+                   DMEM_REQ       = 8'b00000010, // 1
+                   DBUS_READ      = 8'b00000100, // 2
+                   DBUS_TO_REFILL = 8'b00001000, // 3
+                   DBUS_DC_REFILL = 8'b00010000, // 4
+                   DBUS_SBUF_READ = 8'b00100000, // 5
+                   DBUS_INI_WRITE = 8'b01000000, // 6
+                   DBUS_WRITE     = 8'b10000000; // 7
   //  # DBUS FSM state indicator
-  reg        [8:0] dbus_state;
+  reg        [7:0] dbus_state;
   //  # particular states
   wire             dbus_idle_state    = dbus_state[0];
   wire             dmem_req_state     = dbus_state[1];
   wire             dbus_read_state    = dbus_state[2];
   assign           dc_refill_allowed  = dbus_state[3];
   wire             dc_refill_state    = dbus_state[4];
-  wire             dc_reread_state    = dbus_state[5];
-  wire             sbuf_read_state    = dbus_state[6];
-//wire             sbuf_init_write    = dbus_state[7];
-  wire             dbus_write_state   = dbus_state[8];
+  wire             sbuf_read_state    = dbus_state[5];
+//wire             sbuf_init_write    = dbus_state[6];
+  wire             dbus_write_state   = dbus_state[7];
   //  # DBUS FSM other registers & wires
   reg              dbus_we;
   reg              dbus_atomic;
@@ -295,8 +293,7 @@ module mor1kx_lsu_marocchino
   wire   lsu_s1_busy = s2o_dc_refill_req |                            // stage #1 is busy
                        (s2o_dbus_read_req        & s1o_op_lsu_load) | // stage #1 is busy
                        (lsu_s2_rdy & lsu_wb_miss & s1o_op_lsu_load) | // stage #1 is busy
-                       s1o_op_lsu_store  | s1o_op_msync             | // stage #1 is busy
-                       flush_r;                                       // stage #1 is busy
+                       s1o_op_lsu_store  | s1o_op_msync;              // stage #1 is busy
   //  ## per stage advance signals
   wire   lsu_s1_adv  = exec_op_lsu_any_i & (~lsu_s1_busy);
   wire   lsu_s2_adv  = s1o_op_lsu_ls     & (~lsu_s2_busy);
@@ -324,15 +321,6 @@ module mor1kx_lsu_marocchino
   // Flushing from pipeline-flush-i till DBUS transaction completion //
   //-----------------------------------------------------------------//
 
-  always @(posedge cpu_clk) begin
-    if (cpu_rst)
-      flush_r <= 1'b0; // on reset
-    else if (flush_r & dbus_idle_state)
-      flush_r <= 1'b0; // on de-assert
-    else if (~flush_r)
-      flush_r <= pipeline_flush_i;
-  end // @clock
-  // ---
   assign flush_by_ctrl = pipeline_flush_i | flush_r;
 
 
@@ -549,6 +537,7 @@ module mor1kx_lsu_marocchino
     //  # addresses and "DCHACHE inhibit" flag
     .virt_addr_idx_i            (s1t_virt_addr), // DCACHE
     .virt_addr_s1o_i            (s1o_virt_addr), // DCACHE
+    .virt_addr_s2o_i            (s2o_virt_addr), // DCACHE
     .phys_addr_s2t_i            (s2t_phys_addr), // DCACHE
     .dmmu_cache_inhibit_i       (s2t_cache_inhibit), // DCACHE
     //  # DCACHE regular answer
@@ -675,17 +664,11 @@ module mor1kx_lsu_marocchino
         end // to-re-fill
 
         DBUS_DC_REFILL: begin
-          if (dbus_err_i)                                       // dcache-re-fill
+          if (dbus_err_i | (dbus_ack_i & dbus_burst_last_i))    // dcache-re-fill
             dbus_state <= DBUS_IDLE;                            // dcache-re-fill: DBUS error
           else if (snoop_hit)                                   // dcache-re-fill
             dbus_state <= flush_by_ctrl ? DBUS_IDLE : DMEM_REQ; // dcache-re-fill: snoop-hit
-          else if (dbus_ack_i & dbus_burst_last_i)              // dcache-re-fill
-            dbus_state <= DBUS_DC_REREAD;                       // dcache-re-fill: last-ack
         end // dc-refill
-
-        DBUS_DC_REREAD: begin       // dc-re-read
-          dbus_state <= DBUS_IDLE;  // dc-re-read
-        end // dc-re-read
 
         DBUS_SBUF_READ: begin
           dbus_state <= DBUS_INI_WRITE;  // dbus-sbuf-read
@@ -762,6 +745,22 @@ module mor1kx_lsu_marocchino
     endcase
   end // @ clock: DBUS_FSM
 
+
+  // flush extender from pipeline-flush
+  //  till DBUS transaction completion
+  wire deassert_flush_r =
+    dc_refill_allowed ? 1'b0 : // de-assert flush extender
+    dc_refill_state   ? (dbus_err_i | (dbus_ack_i & dbus_burst_last_i)) : // de-assert flush extender
+    dbus_read_state   ? (dbus_err_i | dbus_ack_i) : 1'b1; // de-assert flush extender
+  // ---
+  always @(posedge cpu_clk) begin
+    if (cpu_rst)
+      flush_r <= 1'b0; // on reset
+    else if (deassert_flush_r)
+      flush_r <= 1'b0; // on de-assert
+    else if (pipeline_flush_i)
+      flush_r <= 1'b1;
+  end // @clock
 
 
   //-----------------------//
@@ -929,10 +928,9 @@ module mor1kx_lsu_marocchino
 
   // --- DCACHE re-fill request ---
   wire deassert_s2o_dc_refill_req =
-    dc_refill_allowed ? 1'b0       : // de-assert re-fill request
-    dc_refill_state   ? dbus_err_i : // de-assert re-fill request
-    dc_reread_state   ? 1'b1       : // de-assert re-fill request
-                        (pipeline_flush_i | s2o_excepts_addr); // de-assert re-fill request
+    dc_refill_allowed ? 1'b0 : // de-assert re-fill request
+      (dc_refill_state ? (dbus_err_i | (dbus_ack_i & dbus_burst_last_i)) : // de-assert re-fill request
+                         (pipeline_flush_i | s2o_excepts_addr)); // de-assert re-fill request
   // ---
   always @(posedge cpu_clk) begin
     if (cpu_rst)

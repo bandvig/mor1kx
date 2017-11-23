@@ -58,6 +58,7 @@ module mor1kx_dcache_marocchino
   //  # addresses and "DCHACHE inhibit" flag
   input      [OPTION_OPERAND_WIDTH-1:0] virt_addr_idx_i,
   input      [OPTION_OPERAND_WIDTH-1:0] virt_addr_s1o_i,
+  input      [OPTION_OPERAND_WIDTH-1:0] virt_addr_s2o_i,
   input      [OPTION_OPERAND_WIDTH-1:0] phys_addr_s2t_i,
   input                                 dmmu_cache_inhibit_i,
   //  # DCACHE regular answer
@@ -138,28 +139,25 @@ module mor1kx_dcache_marocchino
 
 
   // States
-  localparam  [6:0] DC_CHECK      = 7'b0000001,
-                    DC_WRITE      = 7'b0000010,
-                    DC_REFILL     = 7'b0000100,
-                    DC_REREAD     = 7'b0001000,
-                    DC_INVALIDATE = 7'b0010000,
-                    DC_RST        = 7'b0100000,
-                    DC_SPR_ACK    = 7'b1000000;
+  localparam  [5:0] DC_CHECK      = 6'b000001,
+                    DC_WRITE      = 6'b000010,
+                    DC_REFILL     = 6'b000100,
+                    DC_INVALIDATE = 6'b001000,
+                    DC_RST        = 6'b010000,
+                    DC_SPR_ACK    = 6'b100000;
   // FSM state register
-  reg [6:0] dc_state;
+  reg [5:0] dc_state;
   // FSM state signals
+  wire   dc_check      = dc_state[0];
   wire   dc_refill     = dc_state[2];
-  wire   dc_reread     = dc_state[3];
-  wire   dc_invalidate = dc_state[4];
-  assign spr_bus_ack_o = dc_state[6];
+  wire   dc_invalidate = dc_state[3];
+  assign spr_bus_ack_o = dc_state[5];
 
 
 
   // The index we read and write from tag memory
   reg  [OPTION_DCACHE_SET_WIDTH-1:0] tag_rindex;
   reg  [OPTION_DCACHE_SET_WIDTH-1:0] tag_windex;
-  //  Latch for invalidate index to simplify routing of SPR BUS
-  reg  [OPTION_DCACHE_SET_WIDTH-1:0] tag_invdex;
 
   // The data from the tag memory
   wire       [TAGMEM_WIDTH-1:0] tag_dout;
@@ -180,7 +178,8 @@ module mor1kx_dcache_marocchino
   // WAYs related
   reg    [OPTION_DCACHE_WAYS-1:0] way_we; // Write signals per way
   reg  [OPTION_OPERAND_WIDTH-1:0] way_din;
-  reg             [WAY_WIDTH-3:0] way_addr;
+  reg             [WAY_WIDTH-3:0] way_windex;
+  reg             [WAY_WIDTH-3:0] way_rindex;
   wire [OPTION_OPERAND_WIDTH-1:0] way_dout [OPTION_DCACHE_WAYS-1:0];
 
 
@@ -391,17 +390,10 @@ module mor1kx_dcache_marocchino
           if (snoop_hit_o) begin
             dc_state <= DC_CHECK;  // on snoop-hit during re-fill
           end
-          else if (dbus_err_i) begin  // abort re-fill
+          else if (dbus_err_i | (dbus_ack_i & dbus_burst_last_i)) begin  // abort re-fill
             dc_state <= DC_CHECK;     // on dbus error during re-fill
           end
-          else if (dbus_ack_i & dbus_burst_last_i) begin
-            dc_state <= DC_REREAD;  // on last re-fill
-          end // snoop-hit / dbus-ack
         end // re-fill
-
-        DC_REREAD: begin
-          dc_state <= DC_CHECK;    // re-read -> read by default
-        end
 
         DC_INVALIDATE: begin
           if (~snoop_hit_o) begin // wait till snoop-inv completion
@@ -447,9 +439,6 @@ module mor1kx_dcache_marocchino
         end
         else if (dc_cancel | snoop_hit_o) begin // keep check
         end
-        else if (spr_bus_dc_invalidate) begin // check -> invalidate
-          tag_invdex <= spr_bus_dat_i[WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH]; // FSM: check -> invalidate
-        end
         else if (lsu_s2_adv_i) begin // check -> write / keep check
           s2o_dc_ack_write <= dc_ack_write; // check -> write / keep check
         end
@@ -481,8 +470,6 @@ module mor1kx_dcache_marocchino
           end
         end // snoop-hit / dbus-ack
       end // re-fill
-
-      DC_REREAD:;
 
       DC_INVALIDATE:;
 
@@ -547,8 +534,17 @@ module mor1kx_dcache_marocchino
   always @(posedge cpu_clk) begin
     if (lsu_s2_adv_i)
       virt_addr_rfl_r <= virt_addr_s1o_i;    // before re-fill it is copy of LSU::s2o_virt_addr
-    else if (dc_refill & dbus_ack_i)
-      virt_addr_rfl_r <= virt_addr_rfl_next;
+    else if (dc_refill) begin
+      if (dbus_ack_i)
+        virt_addr_rfl_r <= virt_addr_rfl_next;
+    end
+    else if (dc_check) begin
+      if (spr_bus_dc_invalidate)
+        virt_addr_rfl_r <= spr_bus_dat_i;    // FSM-read -> invalidate
+    end
+    else if (dc_invalidate) begin
+      virt_addr_rfl_r <= virt_addr_s2o_i;    // restore after invalidation
+    end
   end // @ clock
 
 
@@ -574,15 +570,17 @@ module mor1kx_dcache_marocchino
     // physical or virtual indexing.
 
     // TAG-RAM
-    tag_we     = 1'b0;                                                   // by default
+    tag_we     = 1'b0; // by default
     tag_rindex = lsu_s1_adv_i ? virt_addr_idx_i[WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH] : // by default if advance stage #1
                                 virt_addr_s1o_i[WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH];  // by default if stall   stage #1
-    tag_windex = virt_addr_rfl_r[WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH]; // by default
+    tag_windex = virt_addr_rfl_r[WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH]; // by default: for write-hit / re-fill / invalidate
 
     // WAYS-RAM
-    way_we   = {OPTION_DCACHE_WAYS{1'b0}};      // by default
-    way_din  = dbus_sdat_i;                     // by default: write-hit
-    way_addr = virt_addr_idx_i[WAY_WIDTH-1:2];  // by default: check cache
+    way_we     = {OPTION_DCACHE_WAYS{1'b0}};      // by default
+    way_din    = dbus_sdat_i;                     // by default: for write-hit
+    way_rindex = virt_addr_idx_i[WAY_WIDTH-1:2];  // by default: check cache
+    way_windex = virt_addr_rfl_r[WAY_WIDTH-1:2];  // by default: for write-hit / re-fill
+
 
     if (snoop_hit_o) begin
       // This is the write access
@@ -602,8 +600,6 @@ module mor1kx_dcache_marocchino
         end
 
         DC_WRITE: begin
-          // WAYs address
-          way_addr = virt_addr_rfl_r[WAY_WIDTH-1:2];  // on write-hit
           // prepare data for write ahead
           if (~dbus_bsel_i[3]) way_din[31:24] = dc_dat_s2o_i[31:24]; // on write
           if (~dbus_bsel_i[2]) way_din[23:16] = dc_dat_s2o_i[23:16]; // on write
@@ -618,8 +614,8 @@ module mor1kx_dcache_marocchino
 
         DC_REFILL: begin
           // WAYs
-          way_din  = dbus_dat_i;                     // on re-fill
-          way_addr = virt_addr_rfl_r[WAY_WIDTH-1:2]; // on re-fill
+          way_din    = dbus_dat_i;                     // on re-fill
+          way_rindex = virt_addr_s1o_i[WAY_WIDTH-1:2]; // on re-fill
           // TAGs
           // For re-fill (tag_windex == virt_addr_rfl_r) by default setting
           //  (a) In according with WISHBONE-B3 rule 3.45:
@@ -653,11 +649,6 @@ module mor1kx_dcache_marocchino
           end
         end // re-fill
 
-        DC_REREAD: begin
-          way_addr = virt_addr_s1o_i[WAY_WIDTH-1:2]; // re-read
-          // During re-read LSU is stalled, so (tag_rindex == virt_addr_s1o_i) by default
-        end
-
         DC_INVALIDATE: begin
           //
           // Lazy invalidation, invalidate everything that matches tag address
@@ -666,7 +657,6 @@ module mor1kx_dcache_marocchino
           //    l.mf(t)spr commands after successfull completion of
           //    all previous instructions.
           //
-          tag_windex  = tag_invdex; // on invalidate
           tag_we      = 1'b1; // on invalidate
           tag_din_lru = 0; // on invalidate
           for (w2 = 0; w2 < OPTION_DCACHE_WAYS; w2 = w2 + 1) begin
@@ -680,16 +670,30 @@ module mor1kx_dcache_marocchino
     end
   end
 
-  // "en" / "we" (for re-fill) per way
-  wire [OPTION_DCACHE_WAYS-1:0] way_en;
 
+  // Controls for read/write port.
+  wire [OPTION_DCACHE_WAYS-1:0] way_rwp_en;
+  wire [OPTION_DCACHE_WAYS-1:0] way_rwp_we;
+  // ---
+  wire way_rwp_same_addr = (way_windex == way_rindex);
+
+  // Controls for write-only port
+  wire [OPTION_DCACHE_WAYS-1:0] way_wp_we;
+  // ---
+  wire way_wp_diff_addr = (way_windex != way_rindex);
+
+  // WAY-RAM Blocks
   generate
   for (i = 0; i < OPTION_DCACHE_WAYS; i=i+1) begin : way_memories
-    // "we" per way (for re-fill only)
-    assign way_en[i] = lsu_s1_adv_i | dc_reread | way_we[i];
+    // Controls for read/write port.
+    assign way_rwp_we[i] = way_we[i] & way_rwp_same_addr;
+    assign way_rwp_en[i] = lsu_s1_adv_i | way_rwp_we[i];
+
+    // Controls for write-only port
+    assign way_wp_we[i] = way_we[i] & way_wp_diff_addr;
 
     // WAY-RAM instances
-    mor1kx_spram_en_w1st
+    mor1kx_dpram_en_w1st_sclk
     #(
       .ADDR_WIDTH     (WAY_WIDTH-2), // DCACHE_WAY_RAM
       .DATA_WIDTH     (OPTION_OPERAND_WIDTH), // DCACHE_WAY_RAM
@@ -699,12 +703,18 @@ module mor1kx_dcache_marocchino
     (
       // common clock
       .clk            (cpu_clk), // DCACHE_WAY_RAM
-      // port "a": Read / Write (for RW-conflict case)
-      .en             (way_en[i]), // DCACHE_WAY_RAM
-      .we             (way_we[i]), // DCACHE_WAY_RAM
-      .addr           (way_addr), // DCACHE_WAY_RAM
-      .din            (way_din), // DCACHE_WAY_RAM
-      .dout           (way_dout[i]) // DCACHE_WAY_RAM
+      // port "a"
+      .en_a           (way_rwp_en[i]), // DCACHE_WAY_RAM
+      .we_a           (way_rwp_we[i]), // DCACHE_WAY_RAM
+      .addr_a         (way_rindex), // DCACHE_WAY_RAM
+      .din_a          (way_din), // DCACHE_WAY_RAM
+      .dout_a         (way_dout[i]), // DCACHE_WAY_RAM
+      // port "b"
+      .en_b           (way_wp_we[i]), // DCACHE_WAY_RAM
+      .we_b           (way_wp_we[i]), // DCACHE_WAY_RAM  MAROCCHINO_TODO: 1'b1 ??
+      .addr_b         (way_windex), // DCACHE_WAY_RAM
+      .din_b          (way_din), // DCACHE_WAY_RAM
+      .dout_b         () // DCACHE_WAY_RAM
     );
   end
   endgenerate
@@ -739,15 +749,12 @@ module mor1kx_dcache_marocchino
   endgenerate
 
 
-  // TAG-RAM same address for read and write
-  wire tag_rw_same_addr = (tag_rindex == tag_windex);
-
   // Read/Write port (*_rwp_*) controls
-  wire tag_rwp_we = tag_we & tag_rw_same_addr;
-  wire tag_rwp_en = lsu_s1_adv_i | dc_reread | tag_rwp_we;
+  wire tag_rwp_we = tag_we & (tag_rindex == tag_windex);
+  wire tag_rwp_en = lsu_s1_adv_i | tag_rwp_we;
 
   // Write-only port (*_wp_*) enable
-  wire tag_wp_en = tag_we & (~tag_rw_same_addr);
+  wire tag_wp_en = tag_we & (tag_rindex != tag_windex);
 
   // TAG-RAM instance
   mor1kx_dpram_en_w1st_sclk
