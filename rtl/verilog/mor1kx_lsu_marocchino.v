@@ -177,7 +177,7 @@ module mor1kx_lsu_marocchino
 
   //  # store
   reg               s2o_store; // not (!!!) atomic
-  reg               s2o_swa;   // atomic only
+  reg               s2o_swa_req;   // atomic only
   //  # auxiliaries
   //  # DBUS "bsel" and formatted data to store
   reg         [3:0] s2o_bsel;
@@ -290,10 +290,8 @@ module mor1kx_lsu_marocchino
                        (lsu_s2_rdy & lsu_wb_miss)            | // stage #2 is busy
                        s2o_excepts_any;                        // stage #2 is busy, MAROCCHINO_TODO: "& (~snoop_hit)" -??
   //  ---
-  wire   lsu_s1_busy = s2o_dc_refill_req |                            // stage #1 is busy
-                       (s2o_dbus_read_req        & s1o_op_lsu_load) | // stage #1 is busy
-                       (lsu_s2_rdy & lsu_wb_miss & s1o_op_lsu_load) | // stage #1 is busy
-                       s1o_op_lsu_store  | s1o_op_msync;              // stage #1 is busy
+  wire   lsu_s1_busy = (s1o_op_lsu_ls & lsu_s2_busy) |  // stage #1 is busy
+                       s1o_op_msync;                    // stage #1 is busy
   //  ## per stage advance signals
   wire   lsu_s1_adv  = exec_op_lsu_any_i & (~lsu_s1_busy);
   wire   lsu_s2_adv  = s1o_op_lsu_ls     & (~lsu_s2_busy);
@@ -310,8 +308,13 @@ module mor1kx_lsu_marocchino
   assign s3t_load_ack  = s2o_dc_ack_read | dbus_load_ack; // used for l.lwa processing only
 
   // Combined store ACK
+  //  # for command clean up
   assign s3t_store_ack    = sbuf_write |  dbus_swa_ack;
+  //  # for DCAHCE
   wire   dc_store_allowed = sbuf_write | (dbus_swa_ack & atomic_reserve);
+  wire   dc_store_cancel  = dbus_atomic ? dbus_err_i : // cancel write-hit in DCACHE
+                                          (pipeline_flush_i | s2o_excepts_addr); // cancel write-hit in DCACHE
+
 
   // DBUS error not related to STORE_BUFFER
   assign s3t_dbus_err_nsbuf = dbus_load_err | dbus_swa_err;
@@ -350,33 +353,26 @@ module mor1kx_lsu_marocchino
   wire [LSUOOW-1:0] s1t_virt_addr = exec_lsu_a1_i + {{(LSUOOW-16){exec_lsu_imm16_i[15]}},exec_lsu_imm16_i};
 
 
-  // load and "new command is in stage #1" flag
+  // load / store and "new command is in stage #1" flag
   always @(posedge cpu_clk) begin
     if (cpu_rst | pipeline_flush_i) begin
-      s1o_op_lsu_load   <= 1'b0;
-      s1o_op_lsu_atomic <= 1'b0;
-      s1o_op_lsu_ls     <= 1'b0;
+      s1o_op_lsu_store  <= 1'b0;  // reset / flush
+      s1o_op_lsu_load   <= 1'b0;  // reset / flush
+      s1o_op_lsu_atomic <= 1'b0;  // reset / flush
+      s1o_op_lsu_ls     <= 1'b0;  // reset / flush
     end
     else if (lsu_s1_adv) begin // rise "new load command is in stage #1" flag
-      s1o_op_lsu_load   <= exec_op_lsu_load_i;
-      s1o_op_lsu_atomic <= exec_op_lsu_atomic_i;
-      s1o_op_lsu_ls     <= exec_op_lsu_ls;
+      s1o_op_lsu_store  <= exec_op_lsu_store_i; // advance stage #1
+      s1o_op_lsu_load   <= exec_op_lsu_load_i; // advance stage #1
+      s1o_op_lsu_atomic <= exec_op_lsu_atomic_i; // advance stage #1
+      s1o_op_lsu_ls     <= exec_op_lsu_ls; // advance stage #1
     end
     else if (lsu_s2_adv) begin   // drop "new load command is in stage #1" flag
-      s1o_op_lsu_load   <= 1'b0;
-      s1o_op_lsu_atomic <= 1'b0;
-      s1o_op_lsu_ls     <= 1'b0;
+      s1o_op_lsu_store  <= 1'b0; // advance stage #2 only
+      s1o_op_lsu_load   <= 1'b0; // advance stage #2 only
+      s1o_op_lsu_atomic <= 1'b0; // advance stage #2 only
+      s1o_op_lsu_ls     <= 1'b0; // advance stage #2 only
     end
-  end // @cpu-clk
-
-  // store command
-  always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i)
-      s1o_op_lsu_store  <= 1'b0;
-    else if (lsu_s1_adv) // rise "new store command is in stage #1" flag
-      s1o_op_lsu_store  <= exec_op_lsu_store_i;
-    else if (s3t_store_ack) // drop "new store command is in stage #1" flag
-      s1o_op_lsu_store  <= 1'b0;
   end // @cpu-clk
 
   // l.msync is express (and 1-clock length)
@@ -527,11 +523,11 @@ module mor1kx_lsu_marocchino
     // pipe controls
     .lsu_s1_adv_i               (lsu_s1_adv), // DACHE
     .lsu_s2_adv_i               (lsu_s2_adv), // DACHE
-    .flush_by_ctrl_i            (flush_by_ctrl), // DCACHE
+    .pipeline_flush_i           (pipeline_flush_i), // DCACHE
     // configuration
     .dc_enable_i                (dc_enable_i), // DCACHE
     // exceptions
-    .dmmu_excepts_addr_i        (s2o_excepts_addr), // DCACHE
+    .s2o_excepts_addr_i         (s2o_excepts_addr), // DCACHE
     .dbus_err_i                 (dbus_err_i), // DCACHE
     // Regular operation
     //  # addresses and "DCHACHE inhibit" flag
@@ -549,8 +545,8 @@ module mor1kx_lsu_marocchino
     .dbus_bsel_i                (s2o_bsel), // DCACHE
     .dbus_sdat_i                (s2o_sdat), // DCACHE
     .dc_dat_s2o_i               (s2o_dc_dat), // DCACHE
-    .s3t_store_ack_i            (s3t_store_ack), // DCACHE
     .dc_store_allowed_i         (dc_store_allowed), // DCACHE
+    .dc_store_cancel_i          (dc_store_cancel), // DCACHE
     // re-fill
     .dc_refill_req_o            (s2t_dc_refill_req), // DCACHE
     .dc_refill_allowed_i        (dc_refill_allowed), // DCACHE
@@ -617,7 +613,7 @@ module mor1kx_lsu_marocchino
       // synthesis parallel_case full_case
       case (dbus_state)
         DBUS_IDLE: begin
-          if (flush_by_ctrl)              // DBUS_FSM: keep idling
+          if (pipeline_flush_i)           // DBUS_FSM: keep idling
             dbus_state <= DBUS_IDLE;      // DBUS_FSM: keep idling
           else if (~sbuf_empty)           // DBUS_FSM: idle -> dbus-sbuf-read
             dbus_state <= DBUS_SBUF_READ; // DBUS_FSM: idle -> dbus-sbuf-read
@@ -626,7 +622,7 @@ module mor1kx_lsu_marocchino
         end // idle
 
         DMEM_REQ: begin
-          if (flush_by_ctrl) begin          // dmem req
+          if (pipeline_flush_i) begin       // dmem req
             dbus_state <= DBUS_IDLE;        // dmem req: pipe flush
           end
           else if (~sbuf_empty) begin       // dmem req
@@ -635,7 +631,7 @@ module mor1kx_lsu_marocchino
           else if (s2o_excepts_addr) begin  // dmem req
             dbus_state <= DBUS_IDLE;        // dmem req: address conversion an exception
           end
-          else if (s2o_swa) begin
+          else if (s2o_swa_req) begin
             if (~snoop_hit) begin
               dbus_req_o <= ~dbus_req_o;   // dmem req -> write for l.swa
               dbus_state <= DBUS_WRITE;    // dmem req -> write for l.swa
@@ -666,8 +662,6 @@ module mor1kx_lsu_marocchino
         DBUS_DC_REFILL: begin
           if (dbus_err_i | (dbus_ack_i & dbus_burst_last_i))    // dcache-re-fill
             dbus_state <= DBUS_IDLE;                            // dcache-re-fill: DBUS error
-          else if (snoop_hit)                                   // dcache-re-fill
-            dbus_state <= flush_by_ctrl ? DBUS_IDLE : DMEM_REQ; // dcache-re-fill: snoop-hit
         end // dc-refill
 
         DBUS_SBUF_READ: begin
@@ -698,9 +692,9 @@ module mor1kx_lsu_marocchino
     // synthesis parallel_case full_case
     case (dbus_state)
       DMEM_REQ: begin
-        if (flush_by_ctrl | (~sbuf_empty) | s2o_excepts_addr) begin // dmem-req
+        if (pipeline_flush_i | (~sbuf_empty) | s2o_excepts_addr) begin // dmem-req
         end
-        else if (s2o_swa) begin
+        else if (s2o_swa_req) begin
           if (~snoop_hit) begin
             dbus_we     <= 1'b1;          // dmem req -> write for l.swa
             dbus_bsel_o <= s2o_bsel;      // dmem req -> write for l.swa
@@ -768,9 +762,9 @@ module mor1kx_lsu_marocchino
   //-----------------------//
 
   // store buffer write controls
-  assign sbuf_write = s2o_store & (~sbuf_full) & (~snoop_hit) & (~lsu_wb_miss) & grant_wb_to_lsu_i;  // SBUFF write
+  assign sbuf_write = s2o_store & (~sbuf_full) & (~snoop_hit) & (~lsu_wb_miss) & grant_wb_to_lsu_i;
   // include exceptions and pipe flushing
-  assign sbuf_we    = sbuf_write & (~s2o_excepts_addr) & (~flush_by_ctrl);
+  assign sbuf_we    = sbuf_write & (~s2o_excepts_addr) & (~pipeline_flush_i);
 
 
   // store buffer module
@@ -821,7 +815,7 @@ module mor1kx_lsu_marocchino
   assign dbus_swa_err     = dbus_atomic & dbus_err_i;
   // ---
   always @(posedge cpu_clk) begin
-    if (cpu_rst | flush_by_ctrl) // drop atomic reserve
+    if (cpu_rst | pipeline_flush_i) // drop atomic reserve
       atomic_reserve <= 1'b0;
     else if (s2o_excepts_any |                                    // drop atomic reserve
              dbus_swa_ack |                                       // drop atomic reserve
@@ -839,9 +833,7 @@ module mor1kx_lsu_marocchino
   // ---
   always @(posedge cpu_clk) begin
     if (s2o_lwa) begin
-      if (snoop_event & (snoop_adr_i == s2o_phys_addr)) begin
-      end
-      else if (s3t_load_ack) begin // set atomic-address
+      if (s3t_load_ack) begin // set atomic-address
         atomic_addr <= s2o_phys_addr;
       end
     end
@@ -850,6 +842,7 @@ module mor1kx_lsu_marocchino
   reg s2o_atomic_flag_set;
   reg s2o_atomic_flag_clear;
   // ---
+  // MAROCCHINO_TODO: not correct for CDC
   always @(posedge cpu_clk) begin
     if (cpu_rst | flush_by_ctrl) begin // reset/flush s2o- atomic set/clear flags
       s2o_atomic_flag_set   <= 1'b0;
@@ -873,21 +866,33 @@ module mor1kx_lsu_marocchino
 
   // latches for none atomic store command
   always @(posedge cpu_clk) begin
-    if (cpu_rst | flush_by_ctrl) begin
+    if (cpu_rst | pipeline_flush_i) begin
       s2o_op_lsu_store <= 1'b0;
       s2o_store        <= 1'b0;
-      s2o_swa          <= 1'b0;
     end
-    else if (lsu_s2_adv) begin // latch store command in stage #2
+    else if (lsu_s2_adv) begin // latch none atomic store command in stage #2
       s2o_op_lsu_store <= s1o_op_lsu_store;
       s2o_store        <= s1o_op_lsu_store & (~s1o_op_lsu_atomic);
-      s2o_swa          <= s1o_op_lsu_store &   s1o_op_lsu_atomic;
     end
-    else if (s3t_store_ack) begin // claer store command in stage #2
+    else if (s3t_store_ack) begin // clear none atomic store command in stage #2
       s2o_op_lsu_store <= 1'b0;
       s2o_store        <= 1'b0;
-      s2o_swa          <= 1'b0;
     end
+  end // @clock
+
+  // latches for atomic store command
+  // MAROCCHINO_TODO: not correct for CDC
+  wire deassert_s2o_swa_req =
+    (dbus_write_state & dbus_atomic) ? (dbus_err_i | dbus_ack_i) : // deassert l.swa
+                                       (pipeline_flush_i | s2o_excepts_addr); // deassert l.swa
+  //---
+  always @(posedge cpu_clk) begin
+    if (cpu_rst) // drop l.swa command
+      s2o_swa_req <= 1'b0; // by cpu reset
+    else if (deassert_s2o_swa_req)
+      s2o_swa_req <= 1'b0; // by deassert
+    else if (lsu_s2_adv) // latch l.swa store command in stage #2
+      s2o_swa_req <= s1o_op_lsu_store & s1o_op_lsu_atomic;
   end // @clock
 
   // latches for store data
@@ -901,7 +906,7 @@ module mor1kx_lsu_marocchino
 
   // latches for load (either atomic or not) commands
   always @(posedge cpu_clk) begin
-    if (cpu_rst | flush_by_ctrl) begin
+    if (cpu_rst | pipeline_flush_i) begin
       s2o_lwa  <= 1'b0;
     end
     else if (lsu_s2_adv) begin // latch atomic load command

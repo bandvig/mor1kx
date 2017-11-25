@@ -45,13 +45,13 @@ module mor1kx_dcache_marocchino
   // pipe controls
   input                                 lsu_s1_adv_i,
   input                                 lsu_s2_adv_i,
-  input                                 flush_by_ctrl_i,
+  input                                 pipeline_flush_i,
 
   // configuration
   input                                 dc_enable_i,
 
   // exceptions
-  input                                 dmmu_excepts_addr_i,
+  input                                 s2o_excepts_addr_i,
   input                                 dbus_err_i,
 
   // Regular operation
@@ -70,8 +70,8 @@ module mor1kx_dcache_marocchino
   input                           [3:0] dbus_bsel_i,
   input      [OPTION_OPERAND_WIDTH-1:0] dbus_sdat_i,
   input      [OPTION_OPERAND_WIDTH-1:0] dc_dat_s2o_i,
-  input                                 s3t_store_ack_i,
   input                                 dc_store_allowed_i,
+  input                                 dc_store_cancel_i,
 
   // re-fill
   output                                dc_refill_req_o,
@@ -156,7 +156,7 @@ module mor1kx_dcache_marocchino
 
 
   // The index we read and write from tag memory
-  reg  [OPTION_DCACHE_SET_WIDTH-1:0] tag_rindex;
+  wire [OPTION_DCACHE_SET_WIDTH-1:0] tag_rindex;
   reg  [OPTION_DCACHE_SET_WIDTH-1:0] tag_windex;
 
   // The data from the tag memory
@@ -179,7 +179,7 @@ module mor1kx_dcache_marocchino
   reg    [OPTION_DCACHE_WAYS-1:0] way_we; // Write signals per way
   reg  [OPTION_OPERAND_WIDTH-1:0] way_din;
   reg             [WAY_WIDTH-3:0] way_windex;
-  reg             [WAY_WIDTH-3:0] way_rindex;
+  wire            [WAY_WIDTH-3:0] way_rindex;
   wire [OPTION_OPERAND_WIDTH-1:0] way_dout [OPTION_DCACHE_WAYS-1:0];
 
 
@@ -346,7 +346,7 @@ module mor1kx_dcache_marocchino
    */
 
   // go to idle and block update WAY/TAG RAM
-  wire dc_cancel = dmmu_excepts_addr_i | flush_by_ctrl_i;
+  wire dc_cancel = s2o_excepts_addr_i | pipeline_flush_i;
 
 
   /*
@@ -377,9 +377,10 @@ module mor1kx_dcache_marocchino
         end // check
 
         DC_WRITE: begin
-          if (s3t_store_ack_i | dbus_err_i | dc_cancel) begin // done / abort write (IBUS error is possible for l.swa)
+          // stage #2 advance is impossible till either
+          // write completion or DBUS error (for l.swa)
+          if (dc_store_allowed_i | dc_store_cancel_i) // done / abort dc-write
             dc_state <= DC_CHECK; // done / abort write
-          end
         end // write
 
         DC_REFILL: begin
@@ -445,8 +446,8 @@ module mor1kx_dcache_marocchino
       end // check
 
       DC_WRITE: begin
-        if (s3t_store_ack_i | dbus_err_i | dc_cancel) begin // done / abort write (IBUS error is possible for l.swa)
-          s2o_dc_ack_write <= 1'b0;     // done / abort write
+        if (dc_store_allowed_i | dc_store_cancel_i) begin // done / abort dc-write
+          s2o_dc_ack_write <= 1'b0;     // done / abort dc-write
         end
       end // write
 
@@ -511,7 +512,7 @@ module mor1kx_dcache_marocchino
   reg s2o_dc_ack_read;
   // ---
   always @(posedge cpu_clk) begin
-    if (cpu_rst | flush_by_ctrl_i)
+    if (cpu_rst | pipeline_flush_i)
       s2o_dc_ack_read <= 1'b0;
     else if (lsu_s2_adv_i)
       s2o_dc_ack_read <= dc_ack_read_o;
@@ -553,6 +554,16 @@ module mor1kx_dcache_marocchino
   // interfaces the tag and way memories.
   //
 
+  // TAG READ ADDR
+  assign tag_rindex = lsu_s1_adv_i ?
+                        virt_addr_idx_i[WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH] : // TAG READ ADDR if advance stage #1
+                        virt_addr_s1o_i[WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH];  // TAG READ ADDR if stall   stage #1
+
+  // WAY READ ADDR
+  assign way_rindex = lsu_s1_adv_i ?
+                        virt_addr_idx_i[WAY_WIDTH-1:2] :  // WAY READ ADDR if advance stage #1
+                        virt_addr_s1o_i[WAY_WIDTH-1:2];   // WAY READ ADDR if stall   stage #1
+
   integer w2;
   always @(*) begin
     // by default prepare data for LRU update at hit or for re-fill initiation
@@ -571,14 +582,11 @@ module mor1kx_dcache_marocchino
 
     // TAG-RAM
     tag_we     = 1'b0; // by default
-    tag_rindex = lsu_s1_adv_i ? virt_addr_idx_i[WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH] : // by default if advance stage #1
-                                virt_addr_s1o_i[WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH];  // by default if stall   stage #1
     tag_windex = virt_addr_rfl_r[WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH]; // by default: for write-hit / re-fill / invalidate
 
     // WAYS-RAM
     way_we     = {OPTION_DCACHE_WAYS{1'b0}};      // by default
     way_din    = dbus_sdat_i;                     // by default: for write-hit
-    way_rindex = virt_addr_idx_i[WAY_WIDTH-1:2];  // by default: check cache
     way_windex = virt_addr_rfl_r[WAY_WIDTH-1:2];  // by default: for write-hit / re-fill
 
 
@@ -594,19 +602,20 @@ module mor1kx_dcache_marocchino
       // synthesis parallel_case full_case
       case (dc_state)
         DC_CHECK: begin
-          if (s2o_dc_ack_read & (~dc_cancel)) begin // on read-hit
-            tag_we = 1'b1;                          // on read-hit
+          if (s2o_dc_ack_read & (~s2o_excepts_addr_i)) begin // on read-hit
+            tag_we = 1'b1; // on read-hit
           end
         end
 
         DC_WRITE: begin
           // prepare data for write ahead
-          if (~dbus_bsel_i[3]) way_din[31:24] = dc_dat_s2o_i[31:24]; // on write
-          if (~dbus_bsel_i[2]) way_din[23:16] = dc_dat_s2o_i[23:16]; // on write
-          if (~dbus_bsel_i[1]) way_din[15:8]  = dc_dat_s2o_i[15: 8]; // on write
-          if (~dbus_bsel_i[0]) way_din[7:0]   = dc_dat_s2o_i[ 7: 0]; // on write
+          if (~dbus_bsel_i[3]) way_din[31:24] = dc_dat_s2o_i[31:24]; // on write-hit
+          if (~dbus_bsel_i[2]) way_din[23:16] = dc_dat_s2o_i[23:16]; // on write-hit
+          if (~dbus_bsel_i[1]) way_din[15:8]  = dc_dat_s2o_i[15: 8]; // on write-hit
+          if (~dbus_bsel_i[0]) way_din[7:0]   = dc_dat_s2o_i[ 7: 0]; // on write-hit
           // real update on write-hit only
-          if (s2o_dc_ack_write & dc_store_allowed_i & (~dc_cancel)) begin // on write-hit
+          //  # pipeline flush and address exceptions are in "allowed" flag
+          if (s2o_dc_ack_write & dc_store_allowed_i & (~dc_store_cancel_i)) begin // on write-hit
             way_we = s2o_hit_way; // on write-hit
             tag_we = 1'b1;        // on write-hit
           end
@@ -614,8 +623,7 @@ module mor1kx_dcache_marocchino
 
         DC_REFILL: begin
           // WAYs
-          way_din    = dbus_dat_i;                     // on re-fill
-          way_rindex = virt_addr_s1o_i[WAY_WIDTH-1:2]; // on re-fill
+          way_din = dbus_dat_i; // on re-fill
           // TAGs
           // For re-fill (tag_windex == virt_addr_rfl_r) by default setting
           //  (a) In according with WISHBONE-B3 rule 3.45:
@@ -660,7 +668,7 @@ module mor1kx_dcache_marocchino
           tag_we      = 1'b1; // on invalidate
           tag_din_lru = 0; // on invalidate
           for (w2 = 0; w2 < OPTION_DCACHE_WAYS; w2 = w2 + 1) begin
-            tag_din_way[w2] = 0;
+            tag_din_way[w2] = 0; // on invalidate
           end
         end
 
