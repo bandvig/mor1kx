@@ -850,7 +850,7 @@ module mor1kx_fetch_marocchino
     .dout_a (s2t_bc_cnt_value),
     // port "b"
     .en_b   (bc_cnt_wp_en),
-    .we_b   (bc_cnt_we_i),
+    .we_b   (1'b1),
     .addr_b (bc_cnt_wadr_i),
     .din_b  (bc_cnt_wdat_i),
     .dout_b ()

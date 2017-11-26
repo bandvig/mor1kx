@@ -719,7 +719,7 @@ module mor1kx_dcache_marocchino
       .dout_a         (way_dout[i]), // DCACHE_WAY_RAM
       // port "b"
       .en_b           (way_wp_we[i]), // DCACHE_WAY_RAM
-      .we_b           (way_wp_we[i]), // DCACHE_WAY_RAM  MAROCCHINO_TODO: 1'b1 ??
+      .we_b           (1'b1), // DCACHE_WAY_RAM
       .addr_b         (way_windex), // DCACHE_WAY_RAM
       .din_b          (way_din), // DCACHE_WAY_RAM
       .dout_b         () // DCACHE_WAY_RAM
@@ -783,7 +783,7 @@ module mor1kx_dcache_marocchino
     .dout_a         (tag_dout), // DCAHCE_TAG_RAM
     // port "b": Write if no RW-conflict
     .en_b           (tag_wp_en), // DCAHCE_TAG_RAM
-    .we_b           (tag_we), // DCAHCE_TAG_RAM
+    .we_b           (1'b1), // DCAHCE_TAG_RAM
     .addr_b         (tag_windex), // DCAHCE_TAG_RAM
     .din_b          (tag_din), // DCAHCE_TAG_RAM
     .dout_b         () // DCAHCE_TAG_RAM
@@ -833,7 +833,7 @@ module mor1kx_dcache_marocchino
       .dout_a (snoop_dout), // DCACHE_SNOOP_TAG_RAM
       // port "b": Write if no RW-conflict
       .en_b   (str_wp_en), // DCACHE_SNOOP_TAG_RAM
-      .we_b   (str_we), // DCACHE_SNOOP_TAG_RAM
+      .we_b   (1'b1), // DCACHE_SNOOP_TAG_RAM
       .addr_b (tag_windex), // DCACHE_SNOOP_TAG_RAM
       .din_b  (tag_din), // DCACHE_SNOOP_TAG_RAM
       .dout_b () // DCACHE_SNOOP_TAG_RAM

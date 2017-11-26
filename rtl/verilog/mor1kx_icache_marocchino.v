@@ -396,7 +396,7 @@ module mor1kx_icache_marocchino
       .dout_a         (way_dout[i]), // ICACHE_WAY_RAM
       // port "b"
       .en_b           (way_wp_we[i]), // ICACHE_WAY_RAM
-      .we_b           (way_wp_we[i]), // ICACHE_WAY_RAM  MAROCCHINO_TODO: 1'b1 ??
+      .we_b           (1'b1), // ICACHE_WAY_RAM
       .addr_b         (way_windex), // ICACHE_WAY_RAM
       .din_b          (ibus_dat_i), // ICACHE_WAY_RAM
       .dout_b () // ICACHE_WAY_RAM
@@ -601,7 +601,7 @@ module mor1kx_icache_marocchino
     .dout_a (tag_dout), // ICACHE_TAG_RAM
     // port "b": Write if no RW-conflict
     .en_b   (tag_wp_en), // ICACHE_TAG_RAM
-    .we_b   (tag_we), // ICACHE_TAG_RAM  MAROCCHINO_TODO: 1'b1 ??
+    .we_b   (1'b1), // ICACHE_TAG_RAM
     .addr_b (tag_windex), // ICACHE_TAG_RAM
     .din_b  (tag_din), // ICACHE_TAG_RAM
     .dout_b () // ICACHE_TAG_RAM
