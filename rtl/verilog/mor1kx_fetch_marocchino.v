@@ -815,22 +815,18 @@ module mor1kx_fetch_marocchino
       s1o_bc_cnt_radr <= s1t_bc_cnt_radr;
   end // at clock
 
+  // saturatin counter read address
+  wire [GSHARE_BITS_NUM-1:0] bc_cnt_radr;
+  assign bc_cnt_radr = (padv_s1s2 ? s1t_bc_cnt_radr : s1o_bc_cnt_radr);  
+
   // Read/Write port (*_rwp_*) write
   // !!! In short loop it is possible simultaneous
   // !!! update and reading the same counter
-  wire [GSHARE_BITS_NUM-1:0] bc_cnt_radr_rwp;
-  assign bc_cnt_radr_rwp = (padv_s1s2 ? s1t_bc_cnt_radr : bc_cnt_wadr_i);
-  // ---
-  wire bc_cnt_rwp_we = bc_cnt_we_i &                                     // BC-CNT-RWP-WE
-                       (padv_s1s2 ? (bc_cnt_wadr_i == s1t_bc_cnt_radr) : // BC-CNT-RWP-WE
-                                    (bc_cnt_wadr_i == s1o_bc_cnt_radr)); // BC-CNT-RWP-WE
-  // ---
+  wire bc_cnt_rwp_we = bc_cnt_we_i & (bc_cnt_wadr_i == bc_cnt_radr); // BC-CNT-RWP-WE
   wire bc_cnt_rwp_en = padv_s1s2 | bc_cnt_rwp_we;
 
   // Write-only port (*_wp_*) enable
-  wire bc_cnt_wp_en = bc_cnt_we_i &                                     // BC-CNT-WP-WE
-                      (padv_s1s2 ? (bc_cnt_wadr_i != s1t_bc_cnt_radr) : // BC-CNT-WP-WE
-                                   (bc_cnt_wadr_i != s1o_bc_cnt_radr)); // BC-CNT-WP-WE
+  wire bc_cnt_wp_en = bc_cnt_we_i & (bc_cnt_wadr_i != bc_cnt_radr); // BC-CNT-WP-WE
 
   // saturation counter read result
   wire [1:0] s2t_bc_cnt_value;
@@ -849,7 +845,7 @@ module mor1kx_fetch_marocchino
     // port "a"
     .en_a   (bc_cnt_rwp_en),
     .we_a   (bc_cnt_rwp_we),
-    .addr_a (bc_cnt_radr_rwp),
+    .addr_a (bc_cnt_radr),
     .din_a  (bc_cnt_wdat_i),
     .dout_a (s2t_bc_cnt_value),
     // port "b"
