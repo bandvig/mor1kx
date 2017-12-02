@@ -653,7 +653,7 @@ pfpu_rnd_marocchino u_pfpu_rnd
 
 
 // FP64 Comparison
-pfpu64_fcmp_marocchino u_fpxx_cmp
+pfpu_cmp_marocchino u_fpxx_cmp
 (
   // clock and reset
   .cpu_clk                    (cpu_clk), // PFPU_CMP
