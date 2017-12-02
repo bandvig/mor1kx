@@ -53,14 +53,14 @@ module pfpu64_fcmp_marocchino
   input              cpu_rst,
   // pipeline controls
   input              pipeline_flush_i,     // flush pipe
-  output             taking_op_fp64_cmp_o,
+  output             taking_op_fpxx_cmp_o,
   input              padv_wb_i,            // advance output latches
-  input              grant_wb_to_fp64_cmp_i,
+  input              grant_wb_to_fpxx_cmp_i,
   // From multi-clock reservation station
   input              exec_op_fpxx_any_i,
   // command
-  input              op_fp64_cmp_i,
-  input        [2:0] opc_fp64_cmp_i,
+  input              op_fpxx_cmp_i,
+  input        [2:0] opc_fpxx_cmp_i,
   // data related to operand A
   input              signa_i,
   input              opa_0_i,
@@ -82,15 +82,15 @@ module pfpu64_fcmp_marocchino
   input              fpu_mask_flags_inf_i,
   // Outputs
   //  # pre WB
-  output reg         fp64_cmp_valid_o,
-  output             exec_except_fp64_cmp_o, // exception by FP32-comparison
+  output reg         fpxx_cmp_valid_o,
+  output             exec_except_fpxx_cmp_o, // exception by FP32-comparison
   //  # WB-latched
-  output reg         wb_fp64_flag_set_o,      // comparison result
-  output reg         wb_fp64_flag_clear_o,    // comparison result
-  output reg         wb_fp64_cmp_inv_o,       // comparison flag 'invalid'
-  output reg         wb_fp64_cmp_inf_o,       // comparison flag 'infinity'
-  output reg         wb_fp64_cmp_wb_fpcsr_o,  // update FPCSR
-  output reg         wb_except_fp64_cmp_o     // exception by FP32-comparison
+  output reg         wb_fpxx_flag_set_o,      // comparison result
+  output reg         wb_fpxx_flag_clear_o,    // comparison result
+  output reg         wb_fpxx_cmp_inv_o,       // comparison flag 'invalid'
+  output reg         wb_fpxx_cmp_inf_o,       // comparison flag 'infinity'
+  output reg         wb_fpxx_cmp_wb_fpcsr_o,  // update FPCSR
+  output reg         wb_except_fpxx_cmp_o     // exception by FP32-comparison
 );
 
   /*
@@ -116,15 +116,15 @@ module pfpu64_fcmp_marocchino
   //  ## per stage busy flags
   wire s1_busy = s1o_ready & fpxx_cmp_wb_miss_r;
   //  ## per stage advance
-  wire s1_adv  = op_fp64_cmp_i & (~s1_busy);
+  wire s1_adv  = op_fpxx_cmp_i & (~s1_busy);
 
   // ADD/SUB pipe takes operands for computation
-  assign taking_op_fp64_cmp_o = s1_adv;
+  assign taking_op_fpxx_cmp_o = s1_adv;
 
 
   /**** Stage #1: just output latches ****/
 
-  reg  [2:0] s1o_opc_fp64_cmp;
+  reg  [2:0] s1o_opc_fpxx_cmp;
   // data related to operand A
   reg        s1o_signa;
   reg        s1o_opa_0;
@@ -144,7 +144,7 @@ module pfpu64_fcmp_marocchino
   // ---
   always @(posedge cpu_clk) begin
     if (s1_adv) begin
-      s1o_opc_fp64_cmp <= opc_fp64_cmp_i;
+      s1o_opc_fpxx_cmp <= opc_fpxx_cmp_i;
       // data related to operand A
       s1o_signa <= signa_i;
       s1o_opa_0 <= opa_0_i;
@@ -176,11 +176,11 @@ module pfpu64_fcmp_marocchino
   //  valid flag
   always @(posedge cpu_clk) begin
     if (cpu_rst | pipeline_flush_i)
-      fp64_cmp_valid_o <= 1'b0;
+      fpxx_cmp_valid_o <= 1'b0;
     else if (s1_adv)
-      fp64_cmp_valid_o <= exec_op_fpxx_any_i;
-    else if (padv_wb_i & grant_wb_to_fp64_cmp_i)
-      fp64_cmp_valid_o <= fpxx_cmp_wb_miss_r ? s1o_ready : 1'b0;
+      fpxx_cmp_valid_o <= exec_op_fpxx_any_i;
+    else if (padv_wb_i & grant_wb_to_fpxx_cmp_i)
+      fpxx_cmp_valid_o <= fpxx_cmp_wb_miss_r ? s1o_ready : 1'b0;
   end // @clock
 
 
@@ -189,8 +189,8 @@ module pfpu64_fcmp_marocchino
   wire anan = s1o_qnan | s1o_snan;
   // Comparison invalid when sNaN in on an equal comparison,
   // or any NaN for any other comparison.
-  wire inv_cmp = (s1o_snan & (s1o_opc_fp64_cmp == FP_OPC_SFEQ)) |
-                 (anan     & (s1o_opc_fp64_cmp != FP_OPC_SFEQ));
+  wire inv_cmp = (s1o_snan & (s1o_opc_fpxx_cmp == FP_OPC_SFEQ)) |
+                 (anan     & (s1o_opc_fpxx_cmp != FP_OPC_SFEQ));
 
 
   ////////////////////////////////////////////////////////////////////////
@@ -257,9 +257,9 @@ module pfpu64_fcmp_marocchino
   ////////////////////////////////////////////////////////////////////////
   // Comparison cmp_flag generation
   reg cmp_flag;
-  always @(altb or blta or aeqb or s1o_opc_fp64_cmp) begin
+  always @(altb or blta or aeqb or s1o_opc_fpxx_cmp) begin
     // synthesis parallel_case full_case
-    case(s1o_opc_fp64_cmp)
+    case(s1o_opc_fpxx_cmp)
       FP_OPC_SFEQ: cmp_flag = aeqb;
       FP_OPC_SFNE: cmp_flag = ~aeqb;
       FP_OPC_SFGT: cmp_flag = blta & ~aeqb;
@@ -276,7 +276,7 @@ module pfpu64_fcmp_marocchino
   always @(posedge cpu_clk) begin
     if (cpu_rst | pipeline_flush_i)
       fpxx_cmp_wb_miss_r <= 1'b0;
-    else if (padv_wb_i & grant_wb_to_fp64_cmp_i)
+    else if (padv_wb_i & grant_wb_to_fpxx_cmp_i)
       fpxx_cmp_wb_miss_r <= 1'b0;
     else if (~fpxx_cmp_wb_miss_r)
       fpxx_cmp_wb_miss_r <= s1o_ready;
@@ -310,39 +310,39 @@ module pfpu64_fcmp_marocchino
   wire   mux_except_fpxx_cmp    = (fpxx_cmp_wb_miss_r ? (fpxx_wb_cmp_inv_p | fpxx_wb_cmp_inf_p) : (exec_fpxx_cmp_inv | exec_fpxx_cmp_inf)) &
                                   except_fpu_enable_i;
   // ---
-  assign exec_except_fp64_cmp_o = grant_wb_to_fp64_cmp_i & mux_except_fpxx_cmp;
+  assign exec_except_fpxx_cmp_o = grant_wb_to_fpxx_cmp_i & mux_except_fpxx_cmp;
 
   ////////////////////////////////////////////////////////////////////////
   // WB latches: flag set/clear
   always @(posedge cpu_clk) begin
     if (cpu_rst | pipeline_flush_i) begin
-      wb_fp64_flag_set_o   <= 1'b0;
-      wb_fp64_flag_clear_o <= 1'b0;
+      wb_fpxx_flag_set_o   <= 1'b0;
+      wb_fpxx_flag_clear_o <= 1'b0;
     end
     else if (padv_wb_i) begin
-      if (grant_wb_to_fp64_cmp_i) begin
-        wb_fp64_flag_set_o   <= fpxx_cmp_wb_miss_r ? fpxx_wb_flag_set_p : exec_fpxx_flag_set;
-        wb_fp64_flag_clear_o <= fpxx_cmp_wb_miss_r ? fpxx_wb_flag_clear_p : exec_fpxx_flag_clear;
+      if (grant_wb_to_fpxx_cmp_i) begin
+        wb_fpxx_flag_set_o   <= fpxx_cmp_wb_miss_r ? fpxx_wb_flag_set_p : exec_fpxx_flag_set;
+        wb_fpxx_flag_clear_o <= fpxx_cmp_wb_miss_r ? fpxx_wb_flag_clear_p : exec_fpxx_flag_clear;
       end
       else begin
-        wb_fp64_flag_set_o   <= 1'b0;
-        wb_fp64_flag_clear_o <= 1'b0;
+        wb_fpxx_flag_set_o   <= 1'b0;
+        wb_fpxx_flag_clear_o <= 1'b0;
       end
     end // advance WB latches
   end // @clock
 
   ////////////////////////////////////////////////////////////////////////
   // WB latches: fp-related comparison flags
-  // They make sence only if wb_fp64_cmp_wb_fpcsr is rised (see CTRL)
+  // They make sence only if wb_fpxx_cmp_wb_fpcsr is rised (see CTRL)
   always @(posedge cpu_clk) begin
     if(padv_wb_i) begin
-      if (grant_wb_to_fp64_cmp_i) begin
-        wb_fp64_cmp_inv_o <= fpxx_cmp_wb_miss_r ? fpxx_wb_cmp_inv_p : exec_fpxx_cmp_inv;
-        wb_fp64_cmp_inf_o <= fpxx_cmp_wb_miss_r ? fpxx_wb_cmp_inf_p : exec_fpxx_cmp_inf;
+      if (grant_wb_to_fpxx_cmp_i) begin
+        wb_fpxx_cmp_inv_o <= fpxx_cmp_wb_miss_r ? fpxx_wb_cmp_inv_p : exec_fpxx_cmp_inv;
+        wb_fpxx_cmp_inf_o <= fpxx_cmp_wb_miss_r ? fpxx_wb_cmp_inf_p : exec_fpxx_cmp_inf;
       end
       else begin
-        wb_fp64_cmp_inv_o <= 1'b0;
-        wb_fp64_cmp_inf_o <= 1'b0;
+        wb_fpxx_cmp_inv_o <= 1'b0;
+        wb_fpxx_cmp_inf_o <= 1'b0;
       end
     end // advance WB latches
   end // @clock
@@ -351,20 +351,20 @@ module pfpu64_fcmp_marocchino
   // WB latches: update FPCSR (1-clock to prevent extra writes into FPCSR)
   always @(posedge cpu_clk) begin
     if (cpu_rst | pipeline_flush_i)
-      wb_fp64_cmp_wb_fpcsr_o <= 1'b0;
+      wb_fpxx_cmp_wb_fpcsr_o <= 1'b0;
     else if (padv_wb_i)
-      wb_fp64_cmp_wb_fpcsr_o <= grant_wb_to_fp64_cmp_i;
+      wb_fpxx_cmp_wb_fpcsr_o <= grant_wb_to_fpxx_cmp_i;
     else
-      wb_fp64_cmp_wb_fpcsr_o <= 1'b0;
+      wb_fpxx_cmp_wb_fpcsr_o <= 1'b0;
   end // @clock
 
   ////////////////////////////////////////////////////////////////////////
   // WB latches: an fp-comparison exception
   always @(posedge cpu_clk) begin
     if (cpu_rst | pipeline_flush_i)
-      wb_except_fp64_cmp_o <= 1'b0;
+      wb_except_fpxx_cmp_o <= 1'b0;
     else if (padv_wb_i)
-      wb_except_fp64_cmp_o <= exec_except_fp64_cmp_o;
+      wb_except_fpxx_cmp_o <= exec_except_fpxx_cmp_o;
   end // @clock
 
 endmodule // pfpu64_fcmp_marocchino

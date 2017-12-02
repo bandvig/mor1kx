@@ -450,19 +450,19 @@ module mor1kx_cpu_marocchino
   wire                              wb_fpxx_arith_wb_fpcsr; // update FPCSR
   wire                              wb_except_fpxx_arith;   // generate FPx exception by FPx flags
   // FPU3264 comparison part
-  wire                              dcod_op_fp64_cmp;
-  wire                        [2:0] dcod_opc_fp64_cmp;
-  wire                              exec_op_fp64_cmp;
-  wire                        [2:0] exec_opc_fp64_cmp;
-  wire                              fp64_cmp_valid;
-  wire                              grant_wb_to_fp64_cmp;
-  wire                              exec_except_fp64_cmp;
-  wire                              wb_fp64_flag_set;
-  wire                              wb_fp64_flag_clear;
-  wire                              wb_fp64_cmp_inv;
-  wire                              wb_fp64_cmp_inf;
-  wire                              wb_fp64_cmp_wb_fpcsr;
-  wire                              wb_except_fp64_cmp;
+  wire                              dcod_op_fpxx_cmp;
+  wire                        [2:0] dcod_opc_fpxx_cmp;
+  wire                              exec_op_fpxx_cmp;
+  wire                        [2:0] exec_opc_fpxx_cmp;
+  wire                              fpxx_cmp_valid;
+  wire                              grant_wb_to_fpxx_cmp;
+  wire                              exec_except_fpxx_cmp;
+  wire                              wb_fpxx_flag_set;
+  wire                              wb_fpxx_flag_clear;
+  wire                              wb_fpxx_cmp_inv;
+  wire                              wb_fpxx_cmp_inf;
+  wire                              wb_fpxx_cmp_wb_fpcsr;
+  wire                              wb_except_fpxx_cmp;
   // FPU3264 reservationstation controls
   wire                              dcod_op_fpxx_any;
   wire                              exec_op_fpxx_any;
@@ -907,8 +907,8 @@ module mor1kx_cpu_marocchino
     .dcod_op_fpxx_i2f_o               (dcod_op_fpxx_i2f), // DECODE
     .dcod_op_fpxx_f2i_o               (dcod_op_fpxx_f2i), // DECODE
     // FPU-64 comparison part
-    .dcod_op_fp64_cmp_o               (dcod_op_fp64_cmp), // DECODE
-    .dcod_opc_fp64_cmp_o              (dcod_opc_fp64_cmp), // DECODE
+    .dcod_op_fpxx_cmp_o               (dcod_op_fpxx_cmp), // DECODE
+    .dcod_opc_fpxx_cmp_o              (dcod_opc_fpxx_cmp), // DECODE
     // Combined for FPU_RSRVS
     .dcod_op_fpxx_any_o               (dcod_op_fpxx_any), // DECODE
     // MTSPR / MFSPR
@@ -989,7 +989,7 @@ module mor1kx_cpu_marocchino
     .dcod_op_ls_i               (dcod_op_lsu_load | dcod_op_lsu_store), // OMAN
     .dcod_op_rfe_i              (dcod_op_rfe), // OMAN
     // for FPU64
-    .dcod_op_fp64_cmp_i         (dcod_op_fp64_cmp), // OMAN
+    .dcod_op_fpxx_cmp_i         (dcod_op_fpxx_cmp), // OMAN
 
     // DECODE non-latched additional information related instruction
     //  part #1: iformation stored in order control buffer
@@ -1020,7 +1020,7 @@ module mor1kx_cpu_marocchino
     .div_valid_i                (div_valid), // OMAN
     .mul_valid_i                (mul_valid), // OMAN
     .fpxx_arith_valid_i         (fpxx_arith_valid), // OMAN
-    .fp64_cmp_valid_i           (fp64_cmp_valid), // OMAN
+    .fpxx_cmp_valid_i           (fpxx_cmp_valid), // OMAN
     .lsu_valid_i                (lsu_valid), // OMAN: result ready or exceptions
 
     // FETCH & DECODE exceptions
@@ -1081,7 +1081,7 @@ module mor1kx_cpu_marocchino
     .grant_wb_to_fpxx_arith_o   (grant_wb_to_fpxx_arith), // OMAN
     .grant_wb_to_lsu_o          (grant_wb_to_lsu), // OMAN
     // for FPU64
-    .grant_wb_to_fp64_cmp_o     (grant_wb_to_fp64_cmp), // OMAN
+    .grant_wb_to_fpxx_cmp_o     (grant_wb_to_fpxx_cmp), // OMAN
 
     // Logic to support Jump / Branch taking
     //    ## jump/branch variants
@@ -1636,14 +1636,14 @@ module mor1kx_cpu_marocchino
     .dcod_op_i                  (dcod_op_fpxx_any), // FPU_RSRVS
     .dcod_opc_i                 ({dcod_op_fpxx_add,   dcod_op_fpxx_sub, dcod_op_fpxx_mul, // FPU_RSRVS
                                   dcod_op_fpxx_div,   dcod_op_fpxx_i2f, dcod_op_fpxx_f2i, // FPU_RSRVS
-                                  dcod_op_fp64_arith, dcod_op_fp64_cmp, dcod_opc_fp64_cmp}), // FPU_RSRVS
+                                  dcod_op_fp64_arith, dcod_op_fpxx_cmp, dcod_opc_fpxx_cmp}), // FPU_RSRVS
     // outputs
     //   command and its additional attributes
     .exec_op_any_o              (), // FPU_RSRVS
     .exec_op_o                  (exec_op_fpxx_any), // FPU_RSRVS
     .exec_opc_o                 ({exec_op_fpxx_add,   exec_op_fpxx_sub, exec_op_fpxx_mul, // FPU_RSRVS
                                   exec_op_fpxx_div,   exec_op_fpxx_i2f, exec_op_fpxx_f2i, // FPU_RSRVS
-                                  exec_op_fp64_arith, exec_op_fp64_cmp, exec_opc_fp64_cmp}),  // FPU_RSRVS
+                                  exec_op_fp64_arith, exec_op_fpxx_cmp, exec_opc_fpxx_cmp}),  // FPU_RSRVS
     //   operands
     .exec_rfa1_o                (exec_fpxx_a1), // FPU_RSRVS
     .exec_rfb1_o                (exec_fpxx_b1), // FPU_RSRVS
@@ -1667,12 +1667,12 @@ module mor1kx_cpu_marocchino
     .pipeline_flush_i           (pipeline_flush), // FPU3264
     .padv_wb_i                  (padv_wb), // FPU3264
     .grant_wb_to_fpxx_arith_i   (grant_wb_to_fpxx_arith), // FPU3264
-    .grant_wb_to_fp64_cmp_i     (grant_wb_to_fp64_cmp), // FPU3264
+    .grant_wb_to_fpxx_cmp_i     (grant_wb_to_fpxx_cmp), // FPU3264
 
     // pipeline control outputs
     .fpxx_taking_op_o           (fpxx_taking_op), // FPU3264
     .fpxx_arith_valid_o         (fpxx_arith_valid), // FPU3264
-    .fp64_cmp_valid_o           (fp64_cmp_valid), // FPU3264
+    .fpxx_cmp_valid_o           (fpxx_cmp_valid), // FPU3264
 
     // Configuration
     .fpu_round_mode_i           (ctrl_fpu_round_mode), // FPU3264
@@ -1692,8 +1692,8 @@ module mor1kx_cpu_marocchino
     .exec_op_fpxx_f2i_i         (exec_op_fpxx_f2i), // FPU3264
 
     // Commands for comparison part
-    .exec_op_fp64_cmp_i         (exec_op_fp64_cmp), // FPU3264
-    .exec_opc_fp64_cmp_i        (exec_opc_fp64_cmp), // FPU3264
+    .exec_op_fpxx_cmp_i         (exec_op_fpxx_cmp), // FPU3264
+    .exec_opc_fpxx_cmp_i        (exec_opc_fpxx_cmp), // FPU3264
 
     // Operands from reservation station
     .exec_fpxx_a1_i             (exec_fpxx_a1), // FPU3264
@@ -1703,7 +1703,7 @@ module mor1kx_cpu_marocchino
 
     // Pre-WB outputs
     .exec_except_fpxx_arith_o   (exec_except_fpxx_arith), // FPU3264
-    .exec_except_fp64_cmp_o     (exec_except_fp64_cmp), // FPU3264
+    .exec_except_fpxx_cmp_o     (exec_except_fpxx_cmp), // FPU3264
 
     // FPU2364 arithmetic part
     .wb_fpxx_arith_res_hi_o     (wb_fpxx_arith_res_hi), // FPU3264
@@ -1719,12 +1719,12 @@ module mor1kx_cpu_marocchino
     .wb_except_fpxx_arith_o     (wb_except_fpxx_arith), // FPU3264
 
     // FPU-64 comparison part
-    .wb_fp64_flag_set_o         (wb_fp64_flag_set), // FPU3264
-    .wb_fp64_flag_clear_o       (wb_fp64_flag_clear), // FPU3264
-    .wb_fp64_cmp_inv_o          (wb_fp64_cmp_inv), // FPU3264
-    .wb_fp64_cmp_inf_o          (wb_fp64_cmp_inf), // FPU3264
-    .wb_fp64_cmp_wb_fpcsr_o     (wb_fp64_cmp_wb_fpcsr), // FPU3264
-    .wb_except_fp64_cmp_o       (wb_except_fp64_cmp) // FPU3264
+    .wb_fpxx_flag_set_o         (wb_fpxx_flag_set), // FPU3264
+    .wb_fpxx_flag_clear_o       (wb_fpxx_flag_clear), // FPU3264
+    .wb_fpxx_cmp_inv_o          (wb_fpxx_cmp_inv), // FPU3264
+    .wb_fpxx_cmp_inf_o          (wb_fpxx_cmp_inf), // FPU3264
+    .wb_fpxx_cmp_wb_fpcsr_o     (wb_fpxx_cmp_wb_fpcsr), // FPU3264
+    .wb_except_fpxx_cmp_o       (wb_except_fpxx_cmp) // FPU3264
   );
 
 
@@ -2034,7 +2034,7 @@ module mor1kx_cpu_marocchino
                           exec_except_illegal      | exec_except_syscall       |  // EXEC-AN-EXCEPT
                           exec_except_trap         |                              // EXEC-AN-EXCEPT
                           exec_except_overflow_div | exec_except_overflow_1clk |  // EXEC-AN-EXCEPT
-                          exec_except_fp64_cmp     | exec_except_fpxx_arith    |  // EXEC-AN-EXCEPT
+                          exec_except_fpxx_cmp     | exec_except_fpxx_arith    |  // EXEC-AN-EXCEPT
                           exec_an_except_lsu       | sbuf_err                  |  // EXEC-AN-EXCEPT
                           exec_tt_interrupt        | exec_pic_interrupt;          // EXEC-AN-EXCEPT
   // --- wb-latch ---
@@ -2222,8 +2222,8 @@ module mor1kx_cpu_marocchino
     // WB: flag
     .wb_int_flag_set_i                (wb_int_flag_set), // CTRL
     .wb_int_flag_clear_i              (wb_int_flag_clear), // CTRL
-    .wb_fp64_flag_set_i               (wb_fp64_flag_set), // CTRL
-    .wb_fp64_flag_clear_i             (wb_fp64_flag_clear), // CTRL
+    .wb_fpxx_flag_set_i               (wb_fpxx_flag_set), // CTRL
+    .wb_fpxx_flag_clear_i             (wb_fpxx_flag_clear), // CTRL
     .wb_atomic_flag_set_i             (wb_atomic_flag_set), // CTRL
     .wb_atomic_flag_clear_i           (wb_atomic_flag_clear), // CTRL
     .wb_flag_wb_i                     (wb_flag_wb), // CTRL
@@ -2246,10 +2246,10 @@ module mor1kx_cpu_marocchino
     .wb_fpxx_arith_wb_fpcsr_i         (wb_fpxx_arith_wb_fpcsr), // CTRL
     .wb_except_fpxx_arith_i           (wb_except_fpxx_arith), // CTRL
     //  # FPX64 comparison part
-    .wb_fp64_cmp_inv_i                (wb_fp64_cmp_inv), // CTRL
-    .wb_fp64_cmp_inf_i                (wb_fp64_cmp_inf), // CTRL
-    .wb_fp64_cmp_wb_fpcsr_i           (wb_fp64_cmp_wb_fpcsr), // CTRL
-    .wb_except_fp64_cmp_i             (wb_except_fp64_cmp), // CTRL
+    .wb_fpxx_cmp_inv_i                (wb_fpxx_cmp_inv), // CTRL
+    .wb_fpxx_cmp_inf_i                (wb_fpxx_cmp_inf), // CTRL
+    .wb_fpxx_cmp_wb_fpcsr_i           (wb_fpxx_cmp_wb_fpcsr), // CTRL
+    .wb_except_fpxx_cmp_i             (wb_except_fpxx_cmp), // CTRL
 
     //  # Excepion processing auxiliaries
     .sbuf_eear_i                      (sbuf_eear), // CTRL

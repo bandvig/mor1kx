@@ -161,8 +161,8 @@ module mor1kx_decode_marocchino
   output reg                            dcod_op_fpxx_f2i_o, // to FPU3264_ARITH
 
   // FPU-64 comparison part
-  output reg                            dcod_op_fp64_cmp_o,
-  output reg                      [2:0] dcod_opc_fp64_cmp_o,
+  output reg                            dcod_op_fpxx_cmp_o,
+  output reg                      [2:0] dcod_opc_fpxx_cmp_o,
 
   // Combined for FPXX_RSRVS
   output reg                            dcod_op_fpxx_any_o,
@@ -350,11 +350,11 @@ module mor1kx_decode_marocchino
 
   // --- FPU3264 comparison part ---
   //  # for further legality detection
-  wire op_fp64_cmp_l = fetch_insn_i[3] &          // comparison operation
+  wire op_fpxx_cmp_l = fetch_insn_i[3] &          // comparison operation
                        (~(|fetch_insn_i[10:8])) & // all reserved bits are zeros
                        (fetch_insn_i[2:0] < 3'd6);
   //  # directly for FPU32 execution unit
-  wire op_fp64_cmp = op_fp64_cmp_l & (opc_insn == `OR1K_OPCODE_FPU);
+  wire op_fpxx_cmp = op_fpxx_cmp_l & (opc_insn == `OR1K_OPCODE_FPU);
   // fpu comparison opc:
   // ===================
   // 000 = EQ
@@ -363,7 +363,7 @@ module mor1kx_decode_marocchino
   // 011 = GE
   // 100 = LT
   // 101 = LE
-  wire [2:0] opc_fp64_cmp = fetch_insn_i[2:0];
+  wire [2:0] opc_fpxx_cmp = fetch_insn_i[2:0];
 
 
   // Immediate for MF(T)SPR, LOADs and STOREs
@@ -546,7 +546,7 @@ module mor1kx_decode_marocchino
 
       `OR1K_OPCODE_FPU:
         begin
-          attr_except_illegal = ~(op_fpxx_arith_l | op_fp64_cmp_l);
+          attr_except_illegal = ~(op_fpxx_arith_l | op_fpxx_cmp_l);
           attr_op_1clk        = 1'b0;
           if (op_fpxx_arith_l) begin
             attr_rfa1_req = 1'b1;
@@ -561,7 +561,7 @@ module mor1kx_decode_marocchino
             end
             attr_rfd1_wb = 1'b1;
           end
-          else if (op_fp64_cmp_l) begin
+          else if (op_fpxx_cmp_l) begin
             // SR[F] <- rA op rB
             attr_rfa1_req = 1'b1;
             attr_rfb1_req = 1'b1;
@@ -744,7 +744,7 @@ module mor1kx_decode_marocchino
   //---------//
 
   //  # allocation SR[F]
-  assign fetch_flag_wb_o  = op_setflag | op_fp64_cmp | (opc_insn == `OR1K_OPCODE_SWA);
+  assign fetch_flag_wb_o  = op_setflag | op_fpxx_cmp | (opc_insn == `OR1K_OPCODE_SWA);
   //  # allocated as D1
   assign ratin_rfd1_wb_o  = attr_rfd1_wb;
   assign ratin_rfd1_adr_o = op_jal ? JAL_RFD1_ADR : fetch_rfd1_adr_i;
@@ -783,7 +783,7 @@ module mor1kx_decode_marocchino
       dcod_empty_o        <= (~fetch_valid_i);
       dcod_op_1clk_o      <= attr_op_1clk;
       dcod_op_muldiv_o    <= op_mul | op_div;
-      dcod_op_fpxx_any_o  <= op_fpxx_arith | op_fp64_cmp;
+      dcod_op_fpxx_any_o  <= op_fpxx_arith | op_fpxx_cmp;
       dcod_op_lsu_any_o   <= op_lsu_load | op_lsu_store | op_msync;
       dcod_op_mXspr_o     <= op_mfspr | op_mtspr;
       dcod_op_push_exec_o <= fetch_an_except_i   |                                // PUSH EXECUTE
@@ -862,8 +862,8 @@ module mor1kx_decode_marocchino
       dcod_op_fpxx_i2f_o        <= op_fpxx_i2f;
       dcod_op_fpxx_f2i_o        <= op_fpxx_f2i;
       // FPU-64 comparison part
-      dcod_op_fp64_cmp_o        <= op_fp64_cmp;
-      dcod_opc_fp64_cmp_o       <= opc_fp64_cmp;
+      dcod_op_fpxx_cmp_o        <= op_fpxx_cmp;
+      dcod_opc_fpxx_cmp_o       <= opc_fpxx_cmp;
       // MTSPR / MFSPR
       dcod_op_mtspr_o           <= op_mtspr;
       // outcome exception flags

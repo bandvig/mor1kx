@@ -58,12 +58,12 @@ module pfpu_top_marocchino
   input                               pipeline_flush_i,
   input                               padv_wb_i,
   input                               grant_wb_to_fpxx_arith_i,
-  input                               grant_wb_to_fp64_cmp_i,
+  input                               grant_wb_to_fpxx_cmp_i,
 
   // pipeline control outputs
   output                              fpxx_taking_op_o,
   output                              fpxx_arith_valid_o,  // WB-latching ahead arithmetic ready flag
-  output                              fp64_cmp_valid_o,    // WB-latching ahead comparison ready flag
+  output                              fpxx_cmp_valid_o,    // WB-latching ahead comparison ready flag
 
   // Configuration
   input     [`OR1K_FPCSR_RM_SIZE-1:0] fpu_round_mode_i,
@@ -83,8 +83,8 @@ module pfpu_top_marocchino
   input                               exec_op_fpxx_f2i_i,
 
   // Commands for comparison part
-  input                               exec_op_fp64_cmp_i,
-  input                         [2:0] exec_opc_fp64_cmp_i,
+  input                               exec_op_fpxx_cmp_i,
+  input                         [2:0] exec_opc_fpxx_cmp_i,
 
   // Operands from reservation station
   input                        [31:0] exec_fpxx_a1_i,
@@ -94,7 +94,7 @@ module pfpu_top_marocchino
 
   // pre WB outputs
   output                              exec_except_fpxx_arith_o, // exception by FP3264-arithmetic
-  output                              exec_except_fp64_cmp_o,   // exception by FP64-comparison
+  output                              exec_except_fpxx_cmp_o,   // exception by FP64-comparison
 
   // FPU-64 arithmetic part
   output                       [31:0] wb_fpxx_arith_res_hi_o,   // arithmetic result
@@ -110,18 +110,18 @@ module pfpu_top_marocchino
   output                              wb_except_fpxx_arith_o,   // generate exception
 
   // FPU-64 comparison part
-  output                              wb_fp64_flag_set_o,      // comparison result
-  output                              wb_fp64_flag_clear_o,    // comparison result
-  output                              wb_fp64_cmp_inv_o,       // comparison flag 'invalid'
-  output                              wb_fp64_cmp_inf_o,       // comparison flag 'infinity'
-  output                              wb_fp64_cmp_wb_fpcsr_o,  // update FPCSR
-  output                              wb_except_fp64_cmp_o     // exception by FP64-comparison
+  output                              wb_fpxx_flag_set_o,      // comparison result
+  output                              wb_fpxx_flag_clear_o,    // comparison result
+  output                              wb_fpxx_cmp_inv_o,       // comparison flag 'invalid'
+  output                              wb_fpxx_cmp_inf_o,       // comparison flag 'infinity'
+  output                              wb_fpxx_cmp_wb_fpcsr_o,  // update FPCSR
+  output                              wb_except_fpxx_cmp_o     // exception by FP64-comparison
 );
 
 // fp64 pipes controls
 wire   taking_op_fpxx_arith;
-wire   taking_op_fp64_cmp;
-assign fpxx_taking_op_o   = taking_op_fpxx_arith | taking_op_fp64_cmp;
+wire   taking_op_fpxx_cmp;
+assign fpxx_taking_op_o   = taking_op_fpxx_arith | taking_op_fpxx_cmp;
 
 // Double precision operands A and B
 wire [63:0] fp64_opa = {exec_fpxx_a1_i, ({32{exec_op_fp64_arith_i}} & exec_fpxx_a2_i)};
@@ -653,51 +653,51 @@ pfpu_rnd_marocchino u_pfpu_rnd
 
 
 // FP64 Comparison
-pfpu64_fcmp_marocchino u_fp64_cmp
+pfpu64_fcmp_marocchino u_fpxx_cmp
 (
   // clock and reset
-  .cpu_clk                    (cpu_clk), // FP64_CMP
-  .cpu_rst                    (cpu_rst), // FP64_CMP
+  .cpu_clk                    (cpu_clk), // PFPU_CMP
+  .cpu_rst                    (cpu_rst), // PFPU_CMP
   // pipeline controls
-  .pipeline_flush_i           (pipeline_flush_i), // FP64_CMP
-  .taking_op_fp64_cmp_o       (taking_op_fp64_cmp), // FP64_CMP
-  .padv_wb_i                  (padv_wb_i), // FP64_CMP
-  .grant_wb_to_fp64_cmp_i     (grant_wb_to_fp64_cmp_i), // FP64_CMP
+  .pipeline_flush_i           (pipeline_flush_i), // PFPU_CMP
+  .taking_op_fpxx_cmp_o       (taking_op_fpxx_cmp), // PFPU_CMP
+  .padv_wb_i                  (padv_wb_i), // PFPU_CMP
+  .grant_wb_to_fpxx_cmp_i     (grant_wb_to_fpxx_cmp_i), // PFPU_CMP
   // From FPU reservation station
-  .exec_op_fpxx_any_i         (exec_op_fpxx_any_i), // FP64_CMP
+  .exec_op_fpxx_any_i         (exec_op_fpxx_any_i), // PFPU_CMP
   // command
-  .op_fp64_cmp_i              (exec_op_fp64_cmp_i), // FP64_CMP
-  .opc_fp64_cmp_i             (exec_opc_fp64_cmp_i), // FP64_CMP
+  .op_fpxx_cmp_i              (exec_op_fpxx_cmp_i), // PFPU_CMP
+  .opc_fpxx_cmp_i             (exec_opc_fpxx_cmp_i), // PFPU_CMP
   // data related to operand A
-  .signa_i                    (signa), // FP64_CMP
-  .opa_0_i                    (opa_0), // FP64_CMP
-  .infa_i                     (infa), // FP64_CMP
+  .signa_i                    (signa), // PFPU_CMP
+  .opa_0_i                    (opa_0), // PFPU_CMP
+  .infa_i                     (infa), // PFPU_CMP
   // data related to operand B
-  .signb_i                    (signb), // FP64_CMP
-  .opb_0_i                    (opb_0), // FP64_CMP
-  .infb_i                     (infb), // FP64_CMP
+  .signb_i                    (signb), // PFPU_CMP
+  .opb_0_i                    (opb_0), // PFPU_CMP
+  .infb_i                     (infb), // PFPU_CMP
   // data related to operand A|B
-  .snan_i                     (snan_x), // FP64_CMP
-  .qnan_i                     (qnan_x), // FP64_CMP
-  .exp_gt_i                   (exp_gt), // FP64_CMP
-  .exp_eq_i                   (exp_eq), // FP64_CMP
-  .fract_gt_i                 (fract_gt), // FP64_CMP
-  .fract_eq_i                 (fract_eq), // FP64_CMP
+  .snan_i                     (snan_x), // PFPU_CMP
+  .qnan_i                     (qnan_x), // PFPU_CMP
+  .exp_gt_i                   (exp_gt), // PFPU_CMP
+  .exp_eq_i                   (exp_eq), // PFPU_CMP
+  .fract_gt_i                 (fract_gt), // PFPU_CMP
+  .fract_eq_i                 (fract_eq), // PFPU_CMP
   // Modes
-  .except_fpu_enable_i        (except_fpu_enable_r), // FP64_CMP
-  .fpu_mask_flags_inv_i       (fpu_mask_flags_r[`OR1K_FPCSR_IVF - `OR1K_FPCSR_OVF]), // FP64_CMP
-  .fpu_mask_flags_inf_i       (fpu_mask_flags_r[`OR1K_FPCSR_INF - `OR1K_FPCSR_OVF]), // FP64_CMP
+  .except_fpu_enable_i        (except_fpu_enable_r), // PFPU_CMP
+  .fpu_mask_flags_inv_i       (fpu_mask_flags_r[`OR1K_FPCSR_IVF - `OR1K_FPCSR_OVF]), // PFPU_CMP
+  .fpu_mask_flags_inf_i       (fpu_mask_flags_r[`OR1K_FPCSR_INF - `OR1K_FPCSR_OVF]), // PFPU_CMP
   // Outputs
   //  # pre WB
-  .fp64_cmp_valid_o           (fp64_cmp_valid_o), // FP64_CMP
-  .exec_except_fp64_cmp_o     (exec_except_fp64_cmp_o), // FP64_CMP
+  .fpxx_cmp_valid_o           (fpxx_cmp_valid_o), // PFPU_CMP
+  .exec_except_fpxx_cmp_o     (exec_except_fpxx_cmp_o), // PFPU_CMP
   //  # WB-latched
-  .wb_fp64_flag_set_o         (wb_fp64_flag_set_o), // FP64_CMP
-  .wb_fp64_flag_clear_o       (wb_fp64_flag_clear_o), // FP64_CMP
-  .wb_fp64_cmp_inv_o          (wb_fp64_cmp_inv_o), // FP64_CMP
-  .wb_fp64_cmp_inf_o          (wb_fp64_cmp_inf_o), // FP64_CMP
-  .wb_fp64_cmp_wb_fpcsr_o     (wb_fp64_cmp_wb_fpcsr_o), // FP64_CMP
-  .wb_except_fp64_cmp_o       (wb_except_fp64_cmp_o) // FP64_CMP
+  .wb_fpxx_flag_set_o         (wb_fpxx_flag_set_o), // PFPU_CMP
+  .wb_fpxx_flag_clear_o       (wb_fpxx_flag_clear_o), // PFPU_CMP
+  .wb_fpxx_cmp_inv_o          (wb_fpxx_cmp_inv_o), // PFPU_CMP
+  .wb_fpxx_cmp_inf_o          (wb_fpxx_cmp_inf_o), // PFPU_CMP
+  .wb_fpxx_cmp_wb_fpcsr_o     (wb_fpxx_cmp_wb_fpcsr_o), // PFPU_CMP
+  .wb_except_fpxx_cmp_o       (wb_except_fpxx_cmp_o) // PFPU_CMP
 );
 
 endmodule // pfpu_top_marocchino

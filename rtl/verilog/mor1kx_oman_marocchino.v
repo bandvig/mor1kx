@@ -186,7 +186,7 @@ module mor1kx_oman_marocchino
   input                                 dcod_op_ls_i,     // load / store (we need store for pushing LSU exceptions)
   input                                 dcod_op_rfe_i,    // l.rfe
   // for FPU3264
-  input                                 dcod_op_fp64_cmp_i,
+  input                                 dcod_op_fpxx_cmp_i,
 
   // DECODE additional information related instruction
   //  part #1: information stored in order control buffer
@@ -217,7 +217,7 @@ module mor1kx_oman_marocchino
   input                                 div_valid_i,
   input                                 mul_valid_i,
   input                                 fpxx_arith_valid_i,
-  input                                 fp64_cmp_valid_i,
+  input                                 fpxx_cmp_valid_i,
   input                                 lsu_valid_i,
 
   // FETCH & DECODE exceptions
@@ -278,7 +278,7 @@ module mor1kx_oman_marocchino
   output                                grant_wb_to_fpxx_arith_o,
   output                                grant_wb_to_lsu_o,
   // for FPU64
-  output                                grant_wb_to_fp64_cmp_o,
+  output                                grant_wb_to_fpxx_cmp_o,
 
   // Logic to support Jump / Branch taking
   //  # from IFETCH
@@ -360,8 +360,8 @@ module mor1kx_oman_marocchino
   localparam  OCBTC_OP_DIV_POS         = OCBTC_OP_1CLK_POS        + 1;
   localparam  OCBTC_OP_MUL_POS         = OCBTC_OP_DIV_POS         + 1;
   localparam  OCBTC_OP_FPXX_ARITH_POS  = OCBTC_OP_MUL_POS         + 1; // arithmetic part only
-  localparam  OCBTC_OP_FP64_CMP_POS    = OCBTC_OP_FPXX_ARITH_POS  + 1; // granting write back to fpxx comparison
-  localparam  OCBTC_OP_LS_POS          = OCBTC_OP_FP64_CMP_POS    + 1; // load / store
+  localparam  OCBTC_OP_FPXX_CMP_POS    = OCBTC_OP_FPXX_ARITH_POS  + 1; // granting write back to fpxx comparison
+  localparam  OCBTC_OP_LS_POS          = OCBTC_OP_FPXX_CMP_POS    + 1; // load / store
   // we also reset extention bits because zero value is meaningfull
   localparam  OCBTC_EXT_ADR_LSB        = OCBTC_OP_LS_POS          + 1;
   localparam  OCBTC_EXT_ADR_MSB        = OCBTC_OP_LS_POS          + DEST_EXT_ADDR_WIDTH;
@@ -473,7 +473,7 @@ module mor1kx_oman_marocchino
   assign ocbci = {
                   dcod_ext_bits_r, // OCB-Controls entrance
                   dcod_op_ls_i, // OCB-Controls entrance
-                  dcod_op_fp64_cmp_i, // OCB-Controls entrance
+                  dcod_op_fpxx_cmp_i, // OCB-Controls entrance
                   dcod_op_fpxx_arith_i, // OCB-Controls entrance
                   dcod_op_mul_i, // OCB-Controls entrance
                   dcod_op_div_i, // OCB-Controls entrance
@@ -616,7 +616,7 @@ module mor1kx_oman_marocchino
   assign grant_wb_to_mul_o         = ocbco[OCBTC_OP_MUL_POS];
   assign grant_wb_to_fpxx_arith_o  = ocbco[OCBTC_OP_FPXX_ARITH_POS];
   assign grant_wb_to_lsu_o         = ocbco[OCBTC_OP_LS_POS];
-  assign grant_wb_to_fp64_cmp_o    = ocbco[OCBTC_OP_FP64_CMP_POS];
+  assign grant_wb_to_fpxx_cmp_o    = ocbco[OCBTC_OP_FPXX_CMP_POS];
 
 
   //--------------------------//
@@ -928,7 +928,7 @@ module mor1kx_oman_marocchino
     (div_valid_i              &  ocbco[OCBTC_OP_DIV_POS])         | // EXEC VALID
     (mul_valid_i              &  ocbco[OCBTC_OP_MUL_POS])         | // EXEC VALID
     (fpxx_arith_valid_i       &  ocbco[OCBTC_OP_FPXX_ARITH_POS])  | // EXEC VALID
-    (fp64_cmp_valid_i         &  ocbco[OCBTC_OP_FP64_CMP_POS])    | // EXEC VALID
+    (fpxx_cmp_valid_i         &  ocbco[OCBTC_OP_FPXX_CMP_POS])    | // EXEC VALID
     (lsu_valid_i              &  ocbco[OCBTC_OP_LS_POS])          | // EXEC VALID
                                  ocbco[OCBTC_OP_PUSH_WB_POS];       // EXEC VALID
 

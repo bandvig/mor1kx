@@ -150,8 +150,8 @@ module mor1kx_ctrl_marocchino
   // WB: flag
   input                                 wb_int_flag_set_i,
   input                                 wb_int_flag_clear_i,
-  input                                 wb_fp64_flag_set_i,
-  input                                 wb_fp64_flag_clear_i,
+  input                                 wb_fpxx_flag_set_i,
+  input                                 wb_fpxx_flag_clear_i,
   input                                 wb_atomic_flag_set_i,
   input                                 wb_atomic_flag_clear_i,
   input                                 wb_flag_wb_i,
@@ -174,10 +174,10 @@ module mor1kx_ctrl_marocchino
   input                                 wb_fpxx_arith_wb_fpcsr_i,
   input                                 wb_except_fpxx_arith_i,
   //  # FPX64 comparison part
-  input                                 wb_fp64_cmp_inv_i,
-  input                                 wb_fp64_cmp_inf_i,
-  input                                 wb_fp64_cmp_wb_fpcsr_i,
-  input                                 wb_except_fp64_cmp_i,
+  input                                 wb_fpxx_cmp_inv_i,
+  input                                 wb_fpxx_cmp_inf_i,
+  input                                 wb_fpxx_cmp_wb_fpcsr_i,
+  input                                 wb_except_fpxx_cmp_i,
 
   //  # Excepion processing auxiliaries
   //    ## Exception PC input coming from the store buffer
@@ -327,8 +327,8 @@ module mor1kx_ctrl_marocchino
 
 
   // Flag output
-  wire   ctrl_flag_clear = wb_int_flag_clear_i | wb_fp64_flag_clear_i | wb_atomic_flag_clear_i;
-  wire   ctrl_flag_set   = wb_int_flag_set_i   | wb_fp64_flag_set_i   | wb_atomic_flag_set_i;
+  wire   ctrl_flag_clear = wb_int_flag_clear_i | wb_fpxx_flag_clear_i | wb_atomic_flag_clear_i;
+  wire   ctrl_flag_set   = wb_int_flag_set_i   | wb_fpxx_flag_set_i   | wb_atomic_flag_set_i;
   // ---
   assign ctrl_flag_o     = (~ctrl_flag_clear) & (ctrl_flag_set | spr_sr[`OR1K_SPR_SR_F]);
   // ---
@@ -461,7 +461,7 @@ module mor1kx_ctrl_marocchino
              wb_except_trap_i,
              (wb_except_dbus_err_i | sbuf_err_i),
              (wb_except_overflow_div_i | wb_except_overflow_1clk_i),
-             (wb_except_fp64_cmp_i | wb_except_fpxx_arith_i),
+             (wb_except_fpxx_cmp_i | wb_except_fpxx_arith_i),
              wb_pic_interrupt_i,
              wb_tt_interrupt_i
             })
@@ -617,7 +617,7 @@ module mor1kx_ctrl_marocchino
   assign ctrl_fpu_round_mode_o = spr_fpcsr[`OR1K_FPCSR_RM];
 
   // collect FPx flags
-  wire [`OR1K_FPCSR_ALLF_SIZE-1:0] fpx_flags = {1'b0, wb_fp64_cmp_inf_i, wb_fp64_cmp_inv_i, 6'd0} |
+  wire [`OR1K_FPCSR_ALLF_SIZE-1:0] fpx_flags = {1'b0, wb_fpxx_cmp_inf_i, wb_fpxx_cmp_inv_i, 6'd0} |
                                                wb_fpxx_arith_fpcsr_i;
 
   // FPU Control & Status Register
@@ -626,7 +626,7 @@ module mor1kx_ctrl_marocchino
       spr_fpcsr <= `OR1K_FPCSR_RESET_VALUE;
     else if (spr_fpcsr_we)
       spr_fpcsr <= spr_sys_group_wdat_r[`OR1K_FPCSR_WIDTH-1:0]; // update all fields
-    else if (wb_fp64_cmp_wb_fpcsr_i | wb_fpxx_arith_wb_fpcsr_i)
+    else if (wb_fpxx_cmp_wb_fpcsr_i | wb_fpxx_arith_wb_fpcsr_i)
       spr_fpcsr <= {fpx_flags, spr_fpcsr[`OR1K_FPCSR_RM], spr_fpcsr[`OR1K_FPCSR_FPEE]};
   end
 
