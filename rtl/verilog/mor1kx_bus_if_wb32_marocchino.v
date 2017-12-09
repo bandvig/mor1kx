@@ -100,22 +100,17 @@ module mor1kx_bus_if_wb32_marocchino
   //  the begining of the file), each synchronizer
   //  contains only one register. So register enumeration
   //  starts from _r2 (*_r1 should be 1st in full sync. implementation).
-  reg   cpu_req_r2;
-  reg   cpu_req_r3;
+  reg   cpu_req_r1;
   wire  cpu_req_pulse; // 1-clock in Wishbone clock domain
   // ---
   always @(posedge wb_clk) begin
-    if (wb_rst) begin
-      cpu_req_r2 <= 1'b0;
-      cpu_req_r3 <= 1'b0;
-    end
-    else begin
-      cpu_req_r2 <= cpu_req_i;
-      cpu_req_r3 <= cpu_req_r2;
-    end
+    if (wb_rst)
+      cpu_req_r1 <= 1'b0;
+    else
+      cpu_req_r1 <= cpu_req_i;
   end // @wb-clock
   // ---
-  assign cpu_req_pulse = cpu_req_r2 ^ cpu_req_r3;
+  assign cpu_req_pulse = cpu_req_r1 ^ cpu_req_i;
 
 
   //----------------------------//
@@ -141,7 +136,13 @@ module mor1kx_bus_if_wb32_marocchino
 
   // for burst control
   reg   [(BURST_LENGTH-1):0] burst_done_r;
+  wire                       burst_proc;
+  wire                       burst_keep;
   wire                [31:0] burst_next_adr;
+
+  // continue busrting
+  assign burst_proc = to_wbm_cti_r[1];
+  assign burst_keep = burst_proc & (~burst_done_r[0]);
 
   // ---
   always @(posedge wb_clk) begin
@@ -169,12 +170,12 @@ module mor1kx_bus_if_wb32_marocchino
       else if (wbm_ack_i) begin
         // pay attention:
         // as DCACHE is write through, "data" and "we" are irrelevant for read burst
-        to_wbm_stb_r <= (to_wbm_cti_r[1] & (~burst_done_r[0]));
-        to_wbm_cyc_r <= (to_wbm_cti_r[1] & (~burst_done_r[0]));
-        to_wbm_sel_r <= (to_wbm_cti_r[1] & (~burst_done_r[0])) ? to_wbm_sel_r : 4'd0;
-        to_wbm_we_r  <=  1'b0;
-        to_wbm_cti_r <= (to_wbm_cti_r[1] ? (burst_done_r[1] ? 3'b111 : 3'b010) : 3'b000);
-        to_wbm_bte_r <= (to_wbm_cti_r[1] & (~burst_done_r[0])) ? to_wbm_bte_r : 2'd0;
+        to_wbm_stb_r <= burst_keep;
+        to_wbm_cyc_r <= burst_keep;
+        to_wbm_sel_r <= burst_keep ? to_wbm_sel_r : 4'd0;
+        to_wbm_we_r  <= 1'b0;
+        to_wbm_cti_r <= (burst_proc ? (burst_done_r[1] ? 3'b111 : 3'b010) : 3'b000);
+        to_wbm_bte_r <= burst_keep ? to_wbm_bte_r : 2'd0;
         // for burst control
         burst_done_r <= {1'b0, burst_done_r[(BURST_LENGTH-1):1]};
       end
@@ -201,7 +202,7 @@ module mor1kx_bus_if_wb32_marocchino
   // ---
   always @(posedge wb_clk) begin
     if (to_wbm_cyc_r) begin // wait complete transaction
-      if (wbm_ack_i) begin
+      if (wbm_ack_i & burst_keep) begin // next burst address to WB
         // pay attention:
         // as DCACHE is write through, "data" and "we" are irrelevant for read burst
         to_wbm_adr_r <= burst_next_adr;
@@ -274,9 +275,9 @@ module mor1kx_bus_if_wb32_marocchino
   // ---
   always @(posedge wb_clk) begin
     if (to_wbm_cyc_r & (wbm_err_i | wbm_ack_i))
-      queue_in_r <= { wbm_err_i, wbm_ack_i,                // WBM-TO-CPU data layout
-                      (to_wbm_cti_r[1] & burst_done_r[0]), // WBM-TO-CPU data layout
-                      wbm_dat_i };                         // WBM-TO-CPU data layout
+      queue_in_r <= { wbm_err_i, wbm_ack_i,           // WBM-TO-CPU data layout
+                      (burst_proc & burst_done_r[0]), // WBM-TO-CPU data layout
+                      wbm_dat_i };                    // WBM-TO-CPU data layout
   end // @wb-clock
 
   // --- signaling to CPU ---
@@ -285,69 +286,50 @@ module mor1kx_bus_if_wb32_marocchino
   always @(posedge wb_clk) begin
     if (wb_rst)
       queue2cpu_rdy_toggle_r <= 1'b0;
-    else if (queue_in_r[WBM2CPU_ERR])
-      queue2cpu_rdy_toggle_r <= queue2cpu_rdy_toggle_r;
     else if (to_wbm_cyc_r & (wbm_err_i | wbm_ack_i))
       queue2cpu_rdy_toggle_r <= ~queue2cpu_rdy_toggle_r;
   end // @wb-clock
-  //  As CDC is not completely implemented (see note (c) at
-  //  the begining of the file), each synchronizer
-  //  contains only one register. So register enumeration
-  //  starts from _r2 (*_r1 should be 1st in full sync. implementation).
-  reg   queue2cpu_rdy_r2;
-  reg   queue2cpu_rdy_r3;
-  wire  queue2cpu_rdy_pulse; // 1-clock in Wishbone clock domain
+  //
+  // Pseudo CDC disclaimer:
+  // As positive edges of wb-clock and cpu-clock assumed be aligned,
+  // we use simplest clock domain pseudo-synchronizers.
+  //
+  reg   queue2cpu_rdy_r1;
+  wire  queue2cpu_rdy_pulse; // from toggle to posedge of CPU clock
   // ---
   always @(posedge cpu_clk) begin
-    if (cpu_rst) begin
-      queue2cpu_rdy_r2 <= 1'b0;
-      queue2cpu_rdy_r3 <= 1'b0;
-    end
-    else begin
-      queue2cpu_rdy_r2 <= queue2cpu_rdy_toggle_r;
-      queue2cpu_rdy_r3 <= queue2cpu_rdy_r2;
-    end
+    if (cpu_rst)
+      queue2cpu_rdy_r1 <= 1'b0;
+    else
+      queue2cpu_rdy_r1 <= queue2cpu_rdy_toggle_r;
   end // @cpu-clock
   // ---
-  assign queue2cpu_rdy_pulse = queue2cpu_rdy_r2 ^ queue2cpu_rdy_r3;
+  assign queue2cpu_rdy_pulse = queue2cpu_rdy_toggle_r ^ queue2cpu_rdy_r1;
 
-  // two stages ACK/ERR buffer
-  reg [2:0] queue_ack_err_r2;
-  reg [2:0] queue_ack_err_r3;
+  // ACK/ERR latches (with reset control)
+  reg [2:0] queue_ack_err_r1;
   // ---
   always @(posedge cpu_clk) begin
     if (cpu_rst)
-      queue_ack_err_r2 <= 3'd0;
-    else
-      queue_ack_err_r2 <= {queue_in_r[WBM2CPU_ERR],queue_in_r[WBM2CPU_ACK],queue_in_r[WBM2CPU_LAST]};
-  end // at cpu-clock
-  // ---
-  always @(posedge cpu_clk) begin
-    if (cpu_rst)
-      queue_ack_err_r3 <= 3'd0;
+      queue_ack_err_r1 <= 3'd0;
     else if (queue2cpu_rdy_pulse)
-      queue_ack_err_r3 <= queue_ack_err_r2;
+      queue_ack_err_r1 <= {queue_in_r[WBM2CPU_ERR],queue_in_r[WBM2CPU_ACK],queue_in_r[WBM2CPU_LAST]};
     else // 1-clock
-      queue_ack_err_r3 <= 3'd0;
+      queue_ack_err_r1 <= 3'd0;
   end // at cpu-clock
 
-  // two stages DATA buffer
-  reg [31:0] queue_dat_r2;
-  reg [31:0] queue_dat_r3;
-  // ---
-  always @(posedge cpu_clk) begin
-    queue_dat_r2 <= queue_in_r[WBM2CPU_DAT_MSB:WBM2CPU_DAT_LSB];
-  end // at cpu-clock
+  // DATA latches (without reset control)
+  reg [31:0] queue_dat_r1;
   // ---
   always @(posedge cpu_clk) begin
     if (queue2cpu_rdy_pulse)
-      queue_dat_r3 <= queue_dat_r2;
+      queue_dat_r1 <= queue_in_r[WBM2CPU_DAT_MSB:WBM2CPU_DAT_LSB];
   end // at cpu-clock
 
   // output assignement
-  assign cpu_burst_last_o = queue_ack_err_r3[0];
-  assign cpu_ack_o        = queue_ack_err_r3[1];
-  assign cpu_err_o        = queue_ack_err_r3[2];
-  assign cpu_dat_o        = queue_dat_r3;
+  assign cpu_burst_last_o = queue_ack_err_r1[0];
+  assign cpu_ack_o        = queue_ack_err_r1[1];
+  assign cpu_err_o        = queue_ack_err_r1[2];
+  assign cpu_dat_o        = queue_dat_r1;
 
 endmodule // mor1kx_bus_if_wb32_marocchino

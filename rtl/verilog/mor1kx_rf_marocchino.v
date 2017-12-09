@@ -108,13 +108,14 @@ module mor1kx_rf_marocchino
   localparam RF_AW = OPTION_RF_ADDR_WIDTH;
   localparam RF_DW = OPTION_OPERAND_WIDTH;
 
-  //-----------------------------//
-  // operand addresses in DECODE //
-  //-----------------------------//
-  reg [(RF_AW-1):0] dcod_rfa1_adr;
-  reg [(RF_AW-1):0] dcod_rfb1_adr;
-  reg [(RF_AW-1):0] dcod_rfa2_adr;
-  reg [(RF_AW-1):0] dcod_rfb2_adr;
+  //------------------------------------//
+  // LSB of operand addresses in DECODE //
+  // for odd/even RAMs selection        //
+  //------------------------------------//
+  reg dcod_rfa1_adr_odd;
+  reg dcod_rfb1_adr_odd;
+  reg dcod_rfa2_adr_odd;
+  reg dcod_rfb2_adr_odd;
 
   //---------------------------------------------//
   // odd/even sorted operand addresses in DECODE //
@@ -487,11 +488,11 @@ module mor1kx_rf_marocchino
   // update operand addresses
   always @(posedge cpu_clk) begin
     if (cpu_rst) begin
-      // Ax/Bx operand addresses
-      dcod_rfa1_adr <= {RF_AW{1'b0}};
-      dcod_rfb1_adr <= {RF_AW{1'b0}};
-      dcod_rfa2_adr <= {{(RF_AW-1){1'b0}},1'b1};
-      dcod_rfb2_adr <= {{(RF_AW-1){1'b0}},1'b1};
+      // LSB of Ax/Bx operand addresses
+      dcod_rfa1_adr_odd <= 1'b0;
+      dcod_rfb1_adr_odd <= 1'b0;
+      dcod_rfa2_adr_odd <= 1'b1;
+      dcod_rfb2_adr_odd <= 1'b1;
       // Even/Odd sorted operand addresses
       dcod_rfa_even_adr <= {RF_AW{1'b0}};
       dcod_rfa_odd_adr  <= {{(RF_AW-1){1'b0}},1'b1};
@@ -500,11 +501,11 @@ module mor1kx_rf_marocchino
     end
     else if (padv_dcod_i) begin
       // Ax/Bx operand addresses
-      dcod_rfa1_adr <= fetch_rfa1_adr_i;
-      dcod_rfb1_adr <= fetch_rfb1_adr_i;
-      dcod_rfa2_adr <= fetch_rfa2_adr_i;
-      dcod_rfb2_adr <= fetch_rfb2_adr_i;
-      // Even/Odd sorted operand addresses
+      dcod_rfa1_adr_odd <= fetch_rfa1_adr_i[0];
+      dcod_rfb1_adr_odd <= fetch_rfb1_adr_i[0];
+      dcod_rfa2_adr_odd <= fetch_rfa2_adr_i[0];
+      dcod_rfb2_adr_odd <= fetch_rfb2_adr_i[0];
+      // LSB of Even/Odd sorted operand addresses
       dcod_rfa_even_adr <= fetch_rfa_even_adr;
       dcod_rfa_odd_adr  <= fetch_rfa_odd_adr;
       dcod_rfb_even_adr <= fetch_rfb_even_adr;
@@ -516,7 +517,7 @@ module mor1kx_rf_marocchino
   assign dcod_rfa1_o = dcod_op_jal_i          ? pc_decode_i  :
                        dcod_wb2dec_d1a1_fwd_i ? wb_result1_i :
                        dcod_wb2dec_d2a1_fwd_i ? wb_result2_i :
-                       dcod_rfa1_adr[0]       ? rfa_odd_dout :
+                       dcod_rfa1_adr_odd      ? rfa_odd_dout :
                                                 rfa_even_dout;
 
   // Muxing and forwarding RFB1-output
@@ -524,19 +525,19 @@ module mor1kx_rf_marocchino
                        dcod_immediate_sel_i   ? dcod_immediate_i :
                        dcod_wb2dec_d1b1_fwd_i ? wb_result1_i     :
                        dcod_wb2dec_d2b1_fwd_i ? wb_result2_i     :
-                       dcod_rfb1_adr[0]       ? rfb_odd_dout     :
+                       dcod_rfb1_adr_odd      ? rfb_odd_dout     :
                                                 rfb_even_dout;
 
   // Muxing and forwarding RFA2-output
   assign dcod_rfa2_o = dcod_wb2dec_d1a2_fwd_i ? wb_result1_i :
                        dcod_wb2dec_d2a2_fwd_i ? wb_result2_i :
-                       dcod_rfa2_adr[0]       ? rfa_odd_dout :
+                       dcod_rfa2_adr_odd      ? rfa_odd_dout :
                                                 rfa_even_dout;
 
   // Muxing and forwarding RFB2-output
   assign dcod_rfb2_o = dcod_wb2dec_d1b2_fwd_i ? wb_result1_i :
                        dcod_wb2dec_d2b2_fwd_i ? wb_result2_i :
-                       dcod_rfb2_adr[0]       ? rfb_odd_dout :
+                       dcod_rfb2_adr_odd      ? rfb_odd_dout :
                                                 rfb_even_dout;
 
 
@@ -546,6 +547,6 @@ module mor1kx_rf_marocchino
   //   (b) The output is used next clock to DECODE to form
   //       registered l.jr/l.jalr target
   //   (c) IFETCH generates bubbles till B1 completion
-  assign dcod_rfb1_jr_o = dcod_rfb1_adr[0] ? rfb_odd_dout : rfb_even_dout;
+  assign dcod_rfb1_jr_o = dcod_rfb1_adr_odd ? rfb_odd_dout : rfb_even_dout;
 
 endmodule // mor1kx_rf_marocchino

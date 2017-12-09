@@ -81,7 +81,7 @@ module mor1kx_fetch_marocchino
   input                                 ibus_burst_last_i,
   output reg                            ibus_req_o,
   output reg [OPTION_OPERAND_WIDTH-1:0] ibus_adr_o,
-  output                                ibus_burst_o,
+  output reg                            ibus_burst_o,
 
   // Jump/Branch processing
   //  # jump/branch variants
@@ -487,8 +487,9 @@ module mor1kx_fetch_marocchino
   // state machine itself
   always @(posedge cpu_clk) begin
     if (cpu_rst) begin
-      ibus_req_o     <= 1'b0;       // by reset
-      ibus_state     <= IBUS_IDLE;  // by reset
+      ibus_req_o    <= 1'b0;       // by reset
+      ibus_burst_o  <= 1'b0;       // by reset
+      ibus_state    <= IBUS_IDLE;  // by reset
     end
     else begin
       // synthesis parallel_case full_case
@@ -497,8 +498,9 @@ module mor1kx_fetch_marocchino
           if (spr_bus_stb_i | pipeline_flush_i | predict_miss_i | fetch_an_except_o) // IBUS-IDLE
             ibus_state <= IBUS_IDLE;         // IBUS-IDLE -> flushing / exceptions / etc
           else if (s2o_ic_refill_req) begin  // IBUS-IDLE
-            ibus_req_o <= ~ibus_req_o;       // IBUS-IDLE -> IBUS-TO-IC-REFILL
-            ibus_state <= IBUS_TO_IC_REFILL; // IBUS-IDLE -> IBUS-TO-IC-REFILL
+            ibus_req_o   <= ~ibus_req_o;       // IBUS-IDLE -> IBUS-TO-IC-REFILL
+            ibus_burst_o <= 1'b1;              // IBUS-IDLE -> IBUS-TO-IC-REFILL
+            ibus_state   <= IBUS_TO_IC_REFILL; // IBUS-IDLE -> IBUS-TO-IC-REFILL
           end
           else if (s2o_ibus_read_req) begin  // IBUS-IDLE
             ibus_req_o <= ~ibus_req_o;       // IBUS-IDLE -> IBUS read
@@ -516,8 +518,10 @@ module mor1kx_fetch_marocchino
         end
 
         IBUS_IC_REFILL: begin
-          if (ibus_err_i | (ibus_ack_i & ibus_burst_last_i)) // ICACHE re-fill
-            ibus_state <= IBUS_IDLE;  // IBUS error / last re-fill
+          if (ibus_err_i | (ibus_ack_i & ibus_burst_last_i)) begin // ICACHE re-fill
+            ibus_burst_o <= 1'b0;      // IBUS error / last re-fill
+            ibus_state   <= IBUS_IDLE; // IBUS error / last re-fill
+          end
         end // ic-refill
 
         default:;
@@ -538,9 +542,6 @@ module mor1kx_fetch_marocchino
       default:;
     endcase
   end // @ clock
-
-  // And burst mode
-  assign ibus_burst_o = ic_refill_state;
 
 
   // --- flush extender ---
@@ -817,7 +818,7 @@ module mor1kx_fetch_marocchino
 
   // saturatin counter read address
   wire [GSHARE_BITS_NUM-1:0] bc_cnt_radr;
-  assign bc_cnt_radr = (padv_s1s2 ? s1t_bc_cnt_radr : s1o_bc_cnt_radr);  
+  assign bc_cnt_radr = (padv_s1s2 ? s1t_bc_cnt_radr : s1o_bc_cnt_radr);
 
   // Read/Write port (*_rwp_*) write
   // !!! In short loop it is possible simultaneous

@@ -86,7 +86,7 @@ module mor1kx_lsu_marocchino
   output reg [OPTION_OPERAND_WIDTH-1:0] dbus_dat_o,
   output reg                      [3:0] dbus_bsel_o,
   output                                dbus_we_o,
-  output                                dbus_burst_o,
+  output reg                            dbus_burst_o,
   input                                 dbus_err_i,
   input                                 dbus_ack_i,
   input      [OPTION_OPERAND_WIDTH-1:0] dbus_dat_i,
@@ -595,8 +595,6 @@ module mor1kx_lsu_marocchino
   // DBUS FSM //
   //----------//
 
-  assign dbus_burst_o = dc_refill_state;
-
   // Slightly subtle, but if there is an atomic store coming out from the
   // store buffer, and the link has been broken while it was waiting there,
   // the bus access is still performed as a (discarded) read.
@@ -606,8 +604,9 @@ module mor1kx_lsu_marocchino
   // DBUS state machine: switching
   always @(posedge cpu_clk) begin
     if (cpu_rst) begin
-      dbus_req_o <= 1'b0;      // DBUS_FSM reset
-      dbus_state <= DBUS_IDLE; // DBUS_FSM reset
+      dbus_req_o   <= 1'b0;      // DBUS_FSM reset
+      dbus_burst_o <= 1'b0;      // DBUS_FSM reset
+      dbus_state   <= DBUS_IDLE; // DBUS_FSM reset
     end
     else begin
       // synthesis parallel_case full_case
@@ -633,13 +632,14 @@ module mor1kx_lsu_marocchino
           end
           else if (s2o_swa_req) begin
             if (~snoop_hit) begin
-              dbus_req_o <= ~dbus_req_o;   // dmem req -> write for l.swa
-              dbus_state <= DBUS_WRITE;    // dmem req -> write for l.swa
+              dbus_req_o   <= ~dbus_req_o;   // dmem req -> write for l.swa
+              dbus_state   <= DBUS_WRITE;    // dmem req -> write for l.swa
             end
           end
           else if (s2o_dc_refill_req) begin // dmem-req
-            dbus_req_o <= ~dbus_req_o;      // dmem-req -> to-re-fill
-            dbus_state <= DBUS_TO_REFILL;   // dmem-req -> to-re-fill
+            dbus_req_o   <= ~dbus_req_o;    // dmem-req -> to-re-fill
+            dbus_burst_o <= 1'b1;           // dmem req -> to-re-fill
+            dbus_state   <= DBUS_TO_REFILL; // dmem-req -> to-re-fill
           end
           else if (s2o_dbus_read_req) begin // dmem-req
             dbus_req_o <= ~dbus_req_o;      // dmem-req -> dbus-read
@@ -660,8 +660,10 @@ module mor1kx_lsu_marocchino
         end // to-re-fill
 
         DBUS_DC_REFILL: begin
-          if (dbus_err_i | (dbus_ack_i & dbus_burst_last_i))    // dcache-re-fill
-            dbus_state <= DBUS_IDLE;                            // dcache-re-fill: DBUS error
+          if (dbus_err_i | (dbus_ack_i & dbus_burst_last_i)) begin  // dcache-re-fill
+            dbus_burst_o <= 1'b0;      // dcache-re-fill: DBUS error / last re-fill
+            dbus_state   <= DBUS_IDLE; // dcache-re-fill: DBUS error / last re-fill
+          end
         end // dc-refill
 
         DBUS_SBUF_READ: begin
