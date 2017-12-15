@@ -2,22 +2,17 @@
 //                                                                    //
 //  mor1kx_bus_if_wb32_marocchino                                     //
 //                                                                    //
-//  Description: mor1kx CPU <-> Wishbone bus bridge                   //
-//               with CDC (clock domain crossing)                     //
+//  Description: mor1kx CPU <-> Wishbone IBUS/DBUS bridges            //
+//               with Pseudo CDC (clock domain crossing)              //
 //                                                                    //
 //    (a) Assumes 32-bit data and address.                            //
 //    (b) Only CLASSIC and B3_REGISTERED_FEEDBACK modes               //
 //        are implemented                                             //
-//    (c) Actually, CDC is not implemented completely yet.            //
-//        The CPU clock could be greater or equal to Wishbone one,    //
-//        buth them must be aligned. So, synchronizers consist of     //
-//        single latch named "*_r2". To implement full synchronizers  //
-//        latches *_r1 shuld be appropriatelly added.                 //
-//    (d) Even with such incomplete CDC implementation, IFETCH's      //
-//        ibus_req and LSU's dbus_req behavior has been changed       //
-//        from "level" to "toggle" for correct transfering requests   //
-//        tightly coupled on high CPU clock. That is why the modole   //
-//        designed exclusively for MAROCCHINO                         //
+//    (c) Pseudo CDC disclaimer:                                      //
+//        As positive edges of wb-clock and cpu-clock assumed be      //
+//        aligned, we use simplest clock domain pseudo-synchronizers. //
+//    (d) Also atomic reservation implemeted here in Wishbone         //
+//        clock domain                                                //
 //                                                                    //
 ////////////////////////////////////////////////////////////////////////
 //                                                                    //
@@ -94,12 +89,11 @@ module mor1kx_bus_if_wb32_marocchino
   //-------------------------//
   // CPU-toggle -> WBM-pulse //
   //-------------------------//
-
-  //  Request access to interconnect
-  //  As CDC is not completely implemented (see note (c) at
-  //  the begining of the file), each synchronizer
-  //  contains only one register. So register enumeration
-  //  starts from _r2 (*_r1 should be 1st in full sync. implementation).
+  //
+  // Pseudo CDC disclaimer:
+  // As positive edges of wb-clock and cpu-clock assumed be aligned,
+  // we use simplest clock domain pseudo-synchronizers.
+  //
   reg   cpu_req_r1;
   wire  cpu_req_pulse; // 1-clock in Wishbone clock domain
   // ---
@@ -120,19 +114,11 @@ module mor1kx_bus_if_wb32_marocchino
   // WB-clock domain registered control signals (to interconnect)
   reg        to_wbm_stb_r;
   reg        to_wbm_cyc_r;
-  reg  [3:0] to_wbm_sel_r;
-  reg        to_wbm_we_r;
   reg  [2:0] to_wbm_cti_r;
   reg  [1:0] to_wbm_bte_r;
 
   // WB-clock domain register address (to interconnect)
   reg [31:0] to_wbm_adr_r;
-  // initial value for simulation
- `ifndef SYNTHESIS
-  // synthesis translate_off
-  initial to_wbm_adr_r = 32'd0;
-  // synthesis translate_on
- `endif // !synth
 
   // for burst control
   reg   [(BURST_LENGTH-1):0] burst_done_r;
@@ -149,42 +135,32 @@ module mor1kx_bus_if_wb32_marocchino
     if (wb_rst) begin
       to_wbm_stb_r <=  1'b0;
       to_wbm_cyc_r <=  1'b0;
-      to_wbm_sel_r <=  4'd0;
-      to_wbm_we_r  <=  1'b0;
       to_wbm_cti_r <=  3'd0;
       to_wbm_bte_r <=  2'd0;
       // for burst control
       burst_done_r <= {BURST_LENGTH{1'b0}};
     end
-    else if (to_wbm_cyc_r) begin // wait complete transaction
-      if (wbm_err_i) begin // pipe flushed or transaction done or error
+    else if (to_wbm_cyc_r) begin
+      if (wbm_err_i) begin
         to_wbm_stb_r <=  1'b0;
         to_wbm_cyc_r <=  1'b0;
-        to_wbm_sel_r <=  4'd0;
-        to_wbm_we_r  <=  1'b0;
         to_wbm_cti_r <=  3'd0;
         to_wbm_bte_r <=  2'd0;
         // for burst control
         burst_done_r <= {BURST_LENGTH{1'b0}};
       end
       else if (wbm_ack_i) begin
-        // pay attention:
-        // as DCACHE is write through, "data" and "we" are irrelevant for read burst
         to_wbm_stb_r <= burst_keep;
         to_wbm_cyc_r <= burst_keep;
-        to_wbm_sel_r <= burst_keep ? to_wbm_sel_r : 4'd0;
-        to_wbm_we_r  <= 1'b0;
         to_wbm_cti_r <= (burst_proc ? (burst_done_r[1] ? 3'b111 : 3'b010) : 3'b000);
         to_wbm_bte_r <= burst_keep ? to_wbm_bte_r : 2'd0;
         // for burst control
         burst_done_r <= {1'b0, burst_done_r[(BURST_LENGTH-1):1]};
       end
     end
-    else if (cpu_req_pulse) begin // start transaction : address and controls
+    else if (cpu_req_pulse) begin // a bridge latches address and controls
       to_wbm_stb_r <= 1'b1;
       to_wbm_cyc_r <= 1'b1;
-      to_wbm_sel_r <= cpu_bsel_i;
-      to_wbm_we_r  <= cpu_we_i;
       to_wbm_cti_r <= {1'b0, cpu_burst_i, 1'b0}; // 010 if burst
       to_wbm_bte_r <= cpu_burst_i ? BTE_ID : 2'd0;
       // for burst control
@@ -219,25 +195,55 @@ module mor1kx_bus_if_wb32_marocchino
   /* verilator lint_off WIDTH */
   if (DRIVER_TYPE == "I_CACHE") begin : drv_i_cache
   /* verilator lint_on WIDTH */
+
+    // Constant values for IBUS
     assign wbm_dat_o = 32'd0;
+    assign wbm_sel_o =  4'hf;
+    assign wbm_we_o  =  1'b0;
+
   end
   /* verilator lint_off WIDTH */
   else if (DRIVER_TYPE == "D_CACHE") begin: drv_d_cache
   /* verilator lint_on WIDTH */
+
+    // Data for write
     reg [31:0] to_wbm_dat_r;
-    // initial value for simulation
-   `ifndef SYNTHESIS
-    // synthesis translate_off
-    initial to_wbm_dat_r = 32'd0;
-    // synthesis translate_on
-   `endif // !synth
     // ---
     always @(posedge wb_clk) begin
-      if (cpu_req_pulse) // start transaction : data for d-cache driver
+      if (cpu_req_pulse) // d-cache bridge latches data
         to_wbm_dat_r <= cpu_dat_i;
     end
     // ---
     assign wbm_dat_o = to_wbm_dat_r;
+
+    // Byte select and write enable
+    reg  [3:0] to_wbm_sel_r;
+    reg        to_wbm_we_r;
+    // ---
+    always @(posedge wb_clk) begin
+      if (wb_rst) begin
+        to_wbm_sel_r <=  4'd0;
+        to_wbm_we_r  <=  1'b0;
+      end
+      else if (to_wbm_cyc_r) begin
+        if (wbm_err_i) begin
+          to_wbm_sel_r <=  4'd0;
+          to_wbm_we_r  <=  1'b0;
+        end
+        else if (wbm_ack_i) begin
+          to_wbm_sel_r <= burst_keep ? to_wbm_sel_r : 4'd0;
+          to_wbm_we_r  <= 1'b0; // DCACHE is write through: no write bursting
+        end
+      end
+      else if (cpu_req_pulse) begin // d-cache bridge latches byte select and write enable
+        to_wbm_sel_r <= cpu_bsel_i;
+        to_wbm_we_r  <= cpu_we_i;
+      end
+    end // @wb-clock
+    // ---
+    assign wbm_sel_o = to_wbm_sel_r;
+    assign wbm_we_o  = to_wbm_we_r;
+
   end
   else begin : drv_undef
     initial begin
@@ -251,8 +257,6 @@ module mor1kx_bus_if_wb32_marocchino
   assign wbm_adr_o = to_wbm_adr_r;
   assign wbm_stb_o = to_wbm_stb_r;
   assign wbm_cyc_o = to_wbm_cyc_r;
-  assign wbm_sel_o = to_wbm_sel_r;
-  assign wbm_we_o  = to_wbm_we_r;
   assign wbm_cti_o = to_wbm_cti_r;
   assign wbm_bte_o = to_wbm_bte_r;
 
