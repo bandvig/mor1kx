@@ -72,6 +72,8 @@ module mor1kx_dcache_marocchino
   input      [OPTION_OPERAND_WIDTH-1:0] dc_dat_s2o_i,
   input                                 dc_store_allowed_i,
   input                                 dc_store_cancel_i,
+  //  # Atomics
+  input                                 s1o_op_lsu_atomic_i,
 
   // re-fill
   output                                dc_refill_req_o,
@@ -139,19 +141,21 @@ module mor1kx_dcache_marocchino
 
 
   // States
-  localparam  [5:0] DC_CHECK      = 6'b000001,
-                    DC_WRITE      = 6'b000010,
-                    DC_REFILL     = 6'b000100,
-                    DC_INVALIDATE = 6'b001000,
-                    DC_RST        = 6'b010000,
-                    DC_SPR_ACK    = 6'b100000;
+  localparam  [6:0] DC_CHECK         = 7'b0000001,
+                    DC_WRITE         = 7'b0000010,
+                    DC_REFILL        = 7'b0000100,
+                    DC_INV_BY_MTSPR  = 7'b0001000,
+                    DC_INV_BY_ATOMIC = 7'b0010000,
+                    DC_RST           = 7'b0100000,
+                    DC_SPR_ACK       = 7'b1000000;
   // FSM state register
-  reg [5:0] dc_state;
+  reg [6:0] dc_state;
   // FSM state signals
-  wire   dc_check      = dc_state[0];
-  wire   dc_refill     = dc_state[2];
-  wire   dc_invalidate = dc_state[3];
-  assign spr_bus_ack_o = dc_state[5];
+  wire   dc_check         = dc_state[0];
+  wire   dc_refill        = dc_state[2];
+  wire   dc_inv_by_mtspr  = dc_state[3];
+  wire   dc_inv_by_atomic = dc_state[4];
+  assign spr_bus_ack_o    = dc_state[6];
 
 
 
@@ -299,17 +303,18 @@ module mor1kx_dcache_marocchino
   wire   is_cacheble     = dc_enable_r & dc_check_limit_width & (~dmmu_cache_inhibit_i);
 
   // for write processing
-  wire   dc_ack_write    =   is_cacheble  & s1o_op_lsu_store_i &   dc_hit  & (~snoop_hit_o);
+  wire   dc_ack_write    = s1o_op_lsu_store_i & (~s1o_op_lsu_atomic_i) & is_cacheble &   dc_hit  & (~snoop_hit_o);
   reg    s2o_dc_ack_write;
 
   // if requested data were fetched before snoop-hit, it is valid
-  assign dc_ack_read_o   =   is_cacheble  & s1o_op_lsu_load_i  &   dc_hit  & (~snoop_hit_o);
+  assign dc_ack_read_o   = s1o_op_lsu_load_i  & (~s1o_op_lsu_atomic_i) & is_cacheble &   dc_hit  & (~snoop_hit_o);
+  reg    s2o_dc_ack_read;
 
   // re-fill reqest
-  assign dc_refill_req_o =   is_cacheble  & s1o_op_lsu_load_i  & (~dc_hit) & (~snoop_hit_o);
+  assign dc_refill_req_o = s1o_op_lsu_load_i  & (~s1o_op_lsu_atomic_i) & is_cacheble & (~dc_hit) & (~snoop_hit_o);
 
   // DBUS access request
-  assign dbus_read_req_o = (~is_cacheble) & s1o_op_lsu_load_i;
+  assign dbus_read_req_o = s1o_op_lsu_load_i  & (s1o_op_lsu_atomic_i | (~is_cacheble));
 
 
   // read result if success
@@ -368,11 +373,12 @@ module mor1kx_dcache_marocchino
           else if (dc_cancel | snoop_hit_o) begin // keep check
             dc_state <= DC_CHECK;
           end
-          else if (spr_bus_dc_invalidate) begin // check -> invalidate
-            dc_state <= DC_INVALIDATE; // check -> invalidate
+          else if (spr_bus_dc_invalidate) begin // check -> invalidate by l.mtspr
+            dc_state <= DC_INV_BY_MTSPR; // check -> invalidate by l.mtspr
           end
           else if (lsu_s2_adv_i) begin // check -> write / keep check
-            dc_state <= (s1o_op_lsu_store_i ? DC_WRITE : DC_CHECK); // check -> write / keep check
+            dc_state <= s1o_op_lsu_atomic_i ? DC_INV_BY_ATOMIC :      // check -> invalidate by lwa/swa
+                          (s1o_op_lsu_store_i ? DC_WRITE : DC_CHECK); // check -> write / keep check
           end
         end // check
 
@@ -396,10 +402,14 @@ module mor1kx_dcache_marocchino
           end
         end // re-fill
 
-        DC_INVALIDATE: begin
+        DC_INV_BY_MTSPR: begin
           if (~snoop_hit_o) begin // wait till snoop-inv completion
-            dc_state <= DC_SPR_ACK; // invalidate -> ack for SPR BUS
+            dc_state <= DC_SPR_ACK; // invalidate by l.mtspr -> ack for SPR BUS
           end
+        end
+
+        DC_INV_BY_ATOMIC: begin
+          dc_state <= DC_CHECK; // invalidate by lwa/swa -> check
         end
 
         DC_SPR_ACK,
@@ -412,7 +422,9 @@ module mor1kx_dcache_marocchino
     end
   end // at clock
 
+  //
   // DCACHE FSM: various data
+  //
   always @(posedge cpu_clk) begin
     // snoop processing
     if (snoop_event_i) begin
@@ -472,8 +484,6 @@ module mor1kx_dcache_marocchino
         end // snoop-hit / dbus-ack
       end // re-fill
 
-      DC_INVALIDATE:;
-
       DC_RST: begin
         refill_first_o   <= 1'b0; // on default
         lru_way_refill_r <= {OPTION_DCACHE_WAYS{1'b0}}; // on default
@@ -483,6 +493,39 @@ module mor1kx_dcache_marocchino
         snoop_windex     <= {OPTION_DCACHE_SET_WIDTH{1'b0}}; // on default
       end
 
+      default:;
+    endcase
+  end // @ clock
+
+  //
+  // For re-fill we use local copy of bus-bridge's burst address
+  //  accumulator to generate WAY-RAM index.
+  // The approach increases logic locality and makes routing easier.
+  //
+  reg  [OPTION_OPERAND_WIDTH-1:0] virt_addr_rfl_r;
+  wire [OPTION_OPERAND_WIDTH-1:0] virt_addr_rfl_next;
+  // cache block length is 5 -> burst length is 8: 32 bytes = (8 words x 32 bits/word)
+  // cache block length is 4 -> burst length is 4: 16 bytes = (4 words x 32 bits/word)
+  assign virt_addr_rfl_next = (OPTION_DCACHE_BLOCK_WIDTH == 5) ?
+    {virt_addr_rfl_r[31:5], virt_addr_rfl_r[4:0] + 5'd4} : // 32 byte = (8 words x 32 bits/word)
+    {virt_addr_rfl_r[31:4], virt_addr_rfl_r[3:0] + 4'd4};  // 16 byte = (4 words x 32 bits/word)
+  // ---
+  always @(posedge cpu_clk) begin
+    // synthesis parallel_case full_case
+    case (dc_state)
+      DC_CHECK: begin // re-fill address register
+        if (spr_bus_dc_invalidate)  // set re-fill address register to invaldate by l.mtspr
+          virt_addr_rfl_r <= spr_bus_dat_i;   // invaldate by l.mtspr
+        else if (lsu_s2_adv_i)      // set re-fill address register to initial re-fill address
+          virt_addr_rfl_r <= virt_addr_s1o_i; // prepare to re-fill (copy of LSU::s2o_virt_addr)
+      end // check
+      DC_REFILL: begin
+        if (dbus_ack_i)
+          virt_addr_rfl_r <= virt_addr_rfl_next;  // re-fill in progress
+      end // re-fill
+      DC_SPR_ACK: begin // re-fill address register
+        virt_addr_rfl_r <= virt_addr_s2o_i; // restore after invalidation by l.mtspr
+      end
       default:;
     endcase
   end // @ clock
@@ -509,8 +552,6 @@ module mor1kx_dcache_marocchino
 
 
   // Local copy of LSU's s2o_dc_ack_read, but 1-clock length
-  reg s2o_dc_ack_read;
-  // ---
   always @(posedge cpu_clk) begin
     if (cpu_rst | pipeline_flush_i)
       s2o_dc_ack_read <= 1'b0;
@@ -519,34 +560,6 @@ module mor1kx_dcache_marocchino
     else
       s2o_dc_ack_read <= 1'b0;
   end // @clock
-
-
-  // For re-fill we use local copy of bus-bridge's burst address
-  //  accumulator to generate WAY-RAM index.
-  // The approach increases logic locality and makes routing easier.
-  reg  [OPTION_OPERAND_WIDTH-1:0] virt_addr_rfl_r;
-  wire [OPTION_OPERAND_WIDTH-1:0] virt_addr_rfl_next;
-  // cache block length is 5 -> burst length is 8: 32 bytes = (8 words x 32 bits/word)
-  // cache block length is 4 -> burst length is 4: 16 bytes = (4 words x 32 bits/word)
-  assign virt_addr_rfl_next = (OPTION_DCACHE_BLOCK_WIDTH == 5) ?
-    {virt_addr_rfl_r[31:5], virt_addr_rfl_r[4:0] + 5'd4} : // 32 byte = (8 words x 32 bits/word)
-    {virt_addr_rfl_r[31:4], virt_addr_rfl_r[3:0] + 4'd4};  // 16 byte = (4 words x 32 bits/word)
-  // ---
-  always @(posedge cpu_clk) begin
-    if (lsu_s2_adv_i)
-      virt_addr_rfl_r <= virt_addr_s1o_i;    // before re-fill it is copy of LSU::s2o_virt_addr
-    else if (dc_refill) begin
-      if (dbus_ack_i)
-        virt_addr_rfl_r <= virt_addr_rfl_next;
-    end
-    else if (dc_check) begin
-      if (spr_bus_dc_invalidate)
-        virt_addr_rfl_r <= spr_bus_dat_i;    // FSM-read -> invalidate
-    end
-    else if (dc_invalidate) begin
-      virt_addr_rfl_r <= virt_addr_s2o_i;    // restore after invalidation
-    end
-  end // @ clock
 
 
   //
@@ -566,28 +579,28 @@ module mor1kx_dcache_marocchino
 
   integer w2;
   always @(*) begin
-    // by default prepare data for LRU update at hit or for re-fill initiation
+    // default prepare data for LRU update at hit or for re-fill initiation
     //  -- input for LRU calculator
-    lru_hit_way      = s2o_hit_way; // by default
-    lru_history_curr = lru_history_curr_s2o; // by default
+    lru_hit_way      = s2o_hit_way; // default
+    lru_history_curr = lru_history_curr_s2o; // default
     //  -- output of LRU calculator
-    tag_din_lru = lru_history_next; // by default
+    tag_din_lru = lru_history_next; // default
     //  -- other TAG-RAM fields
     for (w2 = 0; w2 < OPTION_DCACHE_WAYS; w2 = w2 + 1) begin
-      tag_din_way[w2] = tag_s2o_way[w2]; // by default
+      tag_din_way[w2] = tag_s2o_way[w2]; // default
     end
 
     //   As way size is equal to page one we able to use either
     // physical or virtual indexing.
 
     // TAG-RAM
-    tag_we     = 1'b0; // by default
-    tag_windex = virt_addr_rfl_r[WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH]; // by default: for write-hit / re-fill / invalidate
+    tag_we     = 1'b0; // default
+    tag_windex = virt_addr_rfl_r[WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH]; // default: write-hit / re-fill / invalidate_by_any
 
     // WAYS-RAM
-    way_we     = {OPTION_DCACHE_WAYS{1'b0}};      // by default
-    way_din    = dbus_sdat_i;                     // by default: for write-hit
-    way_windex = virt_addr_rfl_r[WAY_WIDTH-1:2];  // by default: for write-hit / re-fill
+    way_we     = {OPTION_DCACHE_WAYS{1'b0}};      // default
+    way_din    = dbus_sdat_i;                     // default: for write-hit
+    way_windex = virt_addr_rfl_r[WAY_WIDTH-1:2];  // default: for write-hit / re-fill
 
 
     if (snoop_hit_o) begin
@@ -625,7 +638,7 @@ module mor1kx_dcache_marocchino
           // WAYs
           way_din = dbus_dat_i; // on re-fill
           // TAGs
-          // For re-fill (tag_windex == virt_addr_rfl_r) by default setting
+          // For re-fill (tag_windex == virt_addr_rfl_r) is default setting
           //  (a) In according with WISHBONE-B3 rule 3.45:
           // "SLAVE MUST NOT assert more than one of ACK, ERR or RTY"
           //  (b) We don't interrupt re-fill on flushing, so the only reason
@@ -633,7 +646,7 @@ module mor1kx_dcache_marocchino
           if (dbus_err_i) begin // during re-fill
             for (w2 = 0; w2 < OPTION_DCACHE_WAYS; w2 = w2 + 1) begin
               if (lru_way_refill_r[w2])
-                tag_din_way[w2][TAGMEM_WAY_VALID] = 1'b0;
+                tag_din_way[w2][TAGMEM_WAY_VALID] = 1'b0; // DBUS error  during re-fill
             end
             // MAROCCHINO_TODO: how to handle LRU in the case?
             // ---
@@ -657,7 +670,7 @@ module mor1kx_dcache_marocchino
           end
         end // re-fill
 
-        DC_INVALIDATE: begin
+        DC_INV_BY_MTSPR: begin
           //
           // Lazy invalidation, invalidate everything that matches tag address
           //  # Pay attention we needn't to take into accaunt exceptions or
@@ -665,15 +678,27 @@ module mor1kx_dcache_marocchino
           //    l.mf(t)spr commands after successfull completion of
           //    all previous instructions.
           //
-          tag_we      = 1'b1; // on invalidate
-          tag_din_lru = 0; // on invalidate
+          tag_we      = 1'b1;     // on invalidate by l.mtspr
+          tag_din_lru = 0;        // on invalidate by l.mtspr
           for (w2 = 0; w2 < OPTION_DCACHE_WAYS; w2 = w2 + 1) begin
-            tag_din_way[w2] = 0; // on invalidate
+            tag_din_way[w2] = 0;  // on invalidate by l.mtspr
           end
         end
 
-        default: begin
+        DC_INV_BY_ATOMIC: begin
+          //
+          // With the simplest approach we just force linked
+          // address to be not cachable.
+          // MAROCCHINO_TODO: more accurate processing if linked address is cachable.
+          //
+          tag_we = 1'b1;                                  // on invalidate by lwa/swa
+          for (w2 = 0; w2 < OPTION_DCACHE_WAYS; w2 = w2 + 1) begin
+            if (s2o_hit_way[w2])                          // on invalidate by lwa/swa
+              tag_din_way[w2][TAGMEM_WAY_VALID] = 1'b0;   // on invalidate by lwa/swa
+          end
         end
+
+        default:;
       endcase
     end
   end
@@ -799,7 +824,7 @@ module mor1kx_dcache_marocchino
     //  # we force snoop invalidation through RW-port
     //    to provide snoop-hit off
     wire str_re = (snoop_event_i & ~snoop_check) | snoop_hit_o;
-    wire str_we = dc_invalidate | snoop_hit_o;
+    wire str_we = dc_inv_by_mtspr | snoop_hit_o;
 
     // address for Read/Write port
     //  # for soop-hit case tag-windex is equal to snoop-windex

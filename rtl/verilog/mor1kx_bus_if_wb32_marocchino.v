@@ -30,9 +30,10 @@
 
 module mor1kx_bus_if_wb32_marocchino
 #(
-  parameter DRIVER_TYPE  = "I_CACHE", // I_CACHE / D_CACHE
-  parameter BUS_IF_TYPE  = "B3_REGISTERED_FEEDBACK", // CLASSIC / B3_REGISTERED_FEEDBACK
-  parameter BURST_LENGTH = 8
+  parameter DRIVER_TYPE         = "D_CACHE", // D_CACHE / I_CACHE
+  parameter BUS_IF_TYPE         = "B3_REGISTERED_FEEDBACK", // CLASSIC / B3_REGISTERED_FEEDBACK
+  parameter BURST_LENGTH        = 8,
+  parameter OPTION_DCACHE_SNOOP = "NONE" // for multi-core
 )
 (
   // Wishbone side clock and reset
@@ -42,6 +43,8 @@ module mor1kx_bus_if_wb32_marocchino
   // CPU side clock and reset
   input             cpu_clk,
   input             cpu_rst,
+  // For lwa/swa
+  input             pipeline_flush_i,
 
   // CPU side
   output            cpu_err_o,
@@ -54,6 +57,9 @@ module mor1kx_bus_if_wb32_marocchino
   input       [3:0] cpu_bsel_i,
   input             cpu_we_i,
   input             cpu_burst_i,
+  // For lwa/swa
+  input             cpu_atomic_i,
+  output            cpu_atomic_flg_o,
 
   // Wishbone side
   output     [31:0] wbm_adr_o,
@@ -67,13 +73,17 @@ module mor1kx_bus_if_wb32_marocchino
   input             wbm_err_i,
   input             wbm_ack_i,
   input      [31:0] wbm_dat_i,
-  input             wbm_rty_i
+  input             wbm_rty_i,
+  // For lwa/swa
+  input      [31:0] snoop_adr_i,
+  input             snoop_en_i
 );
 
   generate
-  if ((BUS_IF_TYPE != "CLASSIC") && (BUS_IF_TYPE != "B3_REGISTERED_FEEDBACK")) begin
+  if (((BUS_IF_TYPE != "CLASSIC") && (BUS_IF_TYPE != "B3_REGISTERED_FEEDBACK")) ||
+      ((DRIVER_TYPE != "D_CACHE") && (OPTION_DCACHE_SNOOP != "NONE"))) begin
     initial begin
-      $display("ERROR: Wishbone bus IF is incorrect");
+      $display("ERROR: Incorrect configuration of a Wishbone bridge");
       $finish;
     end
   end
@@ -86,6 +96,35 @@ module mor1kx_bus_if_wb32_marocchino
                                                    2'b00; // Linear burst
 
 
+  //----------------------------------------------//
+  // Forward declarations for l.lwa/l.swa support //
+  //----------------------------------------------//
+  //
+  // Cross connections for various generated blocks
+  // All of them are in Wishbone clock domain
+  //
+  // CPU request clarifications
+  // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  // !!! Use them only with "and" with another flags     !!!
+  // !!! because they keep states between CPU's requests !!!
+  // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  // MAROCCHINO_TODO: move them into LSU's DBUS FSM ?
+  //
+  wire        str_cmd;
+  wire        swa_cmd;
+  wire        lwa_cmd;
+  //
+  // atomic reservation flag
+  //
+  wire        atomic_flg;
+  //
+  // Latched attributes of swa snoop event.
+  // Self snoop event is equvivalent for success l.swa completion.
+  //
+  wire        snoop_en_l;
+  wire [29:0] snoop_adr_l; // [31:2] of snooped address
+
+
   //-------------------------//
   // CPU-toggle -> WBM-pulse //
   //-------------------------//
@@ -95,25 +134,44 @@ module mor1kx_bus_if_wb32_marocchino
   // we use simplest clock domain pseudo-synchronizers.
   //
   reg   cpu_req_r1;
+  reg   cpu_req_r2;
   wire  cpu_req_pulse; // 1-clock in Wishbone clock domain
   // ---
   always @(posedge wb_clk) begin
-    if (wb_rst)
+    if (wb_rst) begin
+      cpu_req_r2 <= 1'b0;
       cpu_req_r1 <= 1'b0;
-    else
+    end
+    else begin
+      cpu_req_r2 <= cpu_req_r1;
       cpu_req_r1 <= cpu_req_i;
+    end
   end // @wb-clock
   // ---
-  assign cpu_req_pulse = cpu_req_r1 ^ cpu_req_i;
+  assign cpu_req_pulse = cpu_req_r1 ^ cpu_req_r2;
+
+  //
+  // Wishbone domain lathes for CPU's requests
+  // for both IBUS and DBUS bridges
+  //
+  reg  [31:0] cpu_adr_r1;
+  reg  [31:0] cpu_dat_r1;
+  reg   [3:0] cpu_bsel_r1;
+  reg         cpu_burst_r1;
+  // ---
+  always @(posedge wb_clk) begin
+    cpu_adr_r1   <= cpu_adr_i;
+    cpu_dat_r1   <= cpu_dat_i;
+    cpu_bsel_r1  <= cpu_bsel_i;
+    cpu_burst_r1 <= cpu_burst_i;
+  end // at wb-clock
 
 
-  //----------------------------//
-  // WBM access with read burst //
-  //----------------------------//
+  //----------------------------------------------------------//
+  // CTI, BTE and reading burst support for IBUS/DBUS bridges //
+  //----------------------------------------------------------//
 
   // WB-clock domain registered control signals (to interconnect)
-  reg        to_wbm_stb_r;
-  reg        to_wbm_cyc_r;
   reg  [2:0] to_wbm_cti_r;
   reg  [1:0] to_wbm_bte_r;
 
@@ -133,25 +191,19 @@ module mor1kx_bus_if_wb32_marocchino
   // ---
   always @(posedge wb_clk) begin
     if (wb_rst) begin
-      to_wbm_stb_r <=  1'b0;
-      to_wbm_cyc_r <=  1'b0;
       to_wbm_cti_r <=  3'd0;
       to_wbm_bte_r <=  2'd0;
       // for burst control
       burst_done_r <= {BURST_LENGTH{1'b0}};
     end
-    else if (to_wbm_cyc_r) begin
+    else if (wbm_cyc_o) begin // MAROCCHINO_TODO: redundant?
       if (wbm_err_i) begin
-        to_wbm_stb_r <=  1'b0;
-        to_wbm_cyc_r <=  1'b0;
         to_wbm_cti_r <=  3'd0;
         to_wbm_bte_r <=  2'd0;
         // for burst control
         burst_done_r <= {BURST_LENGTH{1'b0}};
       end
       else if (wbm_ack_i) begin
-        to_wbm_stb_r <= burst_keep;
-        to_wbm_cyc_r <= burst_keep;
         to_wbm_cti_r <= (burst_proc ? (burst_done_r[1] ? 3'b111 : 3'b010) : 3'b000);
         to_wbm_bte_r <= burst_keep ? to_wbm_bte_r : 2'd0;
         // for burst control
@@ -159,12 +211,10 @@ module mor1kx_bus_if_wb32_marocchino
       end
     end
     else if (cpu_req_pulse) begin // a bridge latches address and controls
-      to_wbm_stb_r <= 1'b1;
-      to_wbm_cyc_r <= 1'b1;
-      to_wbm_cti_r <= {1'b0, cpu_burst_i, 1'b0}; // 010 if burst
-      to_wbm_bte_r <= cpu_burst_i ? BTE_ID : 2'd0;
+      to_wbm_cti_r <= {1'b0, cpu_burst_r1, 1'b0}; // 010 if burst
+      to_wbm_bte_r <= cpu_burst_r1 ? BTE_ID : 2'd0;
       // for burst control
-      burst_done_r <= {cpu_burst_i, {(BURST_LENGTH-1){1'b0}}};
+      burst_done_r <= {cpu_burst_r1, {(BURST_LENGTH-1){1'b0}}};
     end
   end // @wb-clock
 
@@ -177,7 +227,7 @@ module mor1kx_bus_if_wb32_marocchino
     {to_wbm_adr_r[31:4], to_wbm_adr_r[3:0] + 4'd4};  // 16 byte = (4 words x 32 bits/word)
   // ---
   always @(posedge wb_clk) begin
-    if (to_wbm_cyc_r) begin // wait complete transaction
+    if (wbm_cyc_o) begin // wait complete transaction
       if (wbm_ack_i & burst_keep) begin // next burst address to WB
         // pay attention:
         // as DCACHE is write through, "data" and "we" are irrelevant for read burst
@@ -185,103 +235,193 @@ module mor1kx_bus_if_wb32_marocchino
       end
     end
     else if (cpu_req_pulse) begin // start transaction : address
-      to_wbm_adr_r <= cpu_adr_i;
+      to_wbm_adr_r <= cpu_adr_r1;
     end
   end // @wb-clock
 
 
-  // WB-clock domain register data (to interconnect)
+  // --- IBUS/DBUS bridges output assignenment ---
+  assign wbm_adr_o = to_wbm_adr_r; // IBUS/DBUS bridges
+  assign wbm_cti_o = to_wbm_cti_r; // IBUS/DBUS bridges
+  assign wbm_bte_o = to_wbm_bte_r; // IBUS/DBUS bridges
+
+
+  //----------------------------------------------//
+  // STB, CYC, WE, SEL, DAT for DBUS/IBUS bridges //
+  //----------------------------------------------//
+
+  //
+  // Here we declare states for DBUS control FSM
+  // because some of EDA tools deprecate localparam
+  // operator inside generate.
+  //
+
+  localparam [2:0] DBUS_WAITING_CPU_REQ = 3'b001,
+                   DBUS_WAITING_WBM_ACQ = 3'b010,
+                   DBUS_PENDING_SWA     = 3'b100;
+
   generate
   /* verilator lint_off WIDTH */
-  if (DRIVER_TYPE == "I_CACHE") begin : drv_i_cache
+  if (DRIVER_TYPE == "D_CACHE") begin: dbus_specific
   /* verilator lint_on WIDTH */
 
-    // Constant values for IBUS
-    assign wbm_dat_o = 32'd0;
-    assign wbm_sel_o =  4'hf;
-    assign wbm_we_o  =  1'b0;
+    // latch for "we"
+    reg  cpu_we_r1;
+    reg  cpu_atomic_r1;
 
-  end
-  /* verilator lint_off WIDTH */
-  else if (DRIVER_TYPE == "D_CACHE") begin: drv_d_cache
-  /* verilator lint_on WIDTH */
-
-    // Data for write
-    reg [31:0] to_wbm_dat_r;
-    // ---
+    // latch "CPU is requesting atomic operation" flag
     always @(posedge wb_clk) begin
-      if (cpu_req_pulse) // d-cache bridge latches data
-        to_wbm_dat_r <= cpu_dat_i;
+      if (wb_rst) begin
+        cpu_we_r1     <= 1'b0; // by reset
+        cpu_atomic_r1 <= 1'b0; // by reset
+      end
+      else begin
+        cpu_we_r1     <= cpu_we_i;     // taking cpu request
+        cpu_atomic_r1 <= cpu_atomic_i; // taking cpu request
+      end
     end
-    // ---
-    assign wbm_dat_o = to_wbm_dat_r;
 
+    // CPU request clarifications
+    assign lwa_cmd = (~cpu_we_r1) &   cpu_atomic_r1;  // DBUS bridge
+    assign swa_cmd =   cpu_we_r1  &   cpu_atomic_r1;  // DBUS bridge
+    assign str_cmd =   cpu_we_r1  & (~cpu_atomic_r1); // DBUS bridge
+
+
+    // DBUS request states
+    reg  [2:0] dbus_state_r;
     // Byte select and write enable
     reg  [3:0] to_wbm_sel_r;
     reg        to_wbm_we_r;
-    // ---
+    reg [31:0] to_wbm_dat_r;
+
+    // --- STB, CYC and WE ---
     always @(posedge wb_clk) begin
       if (wb_rst) begin
-        to_wbm_sel_r <=  4'd0;
-        to_wbm_we_r  <=  1'b0;
+        to_wbm_we_r  <= 1'b0;
+        dbus_state_r <= DBUS_WAITING_CPU_REQ;
       end
-      else if (to_wbm_cyc_r) begin
-        if (wbm_err_i) begin
-          to_wbm_sel_r <=  4'd0;
-          to_wbm_we_r  <=  1'b0;
-        end
-        else if (wbm_ack_i) begin
-          to_wbm_sel_r <= burst_keep ? to_wbm_sel_r : 4'd0;
-          to_wbm_we_r  <= 1'b0; // DCACHE is write through: no write bursting
-        end
-      end
-      else if (cpu_req_pulse) begin // d-cache bridge latches byte select and write enable
-        to_wbm_sel_r <= cpu_bsel_i;
-        to_wbm_we_r  <= cpu_we_i;
+      else begin
+        // synthesis parallel_case full_case
+        case (dbus_state_r)
+          // waiting CPU request
+          // l.swa could be "another l.swa" (i.e. to another location),
+          // so we don't initiate DBUS request here, but do
+          // "another l.swa" checking
+          DBUS_WAITING_CPU_REQ: begin
+            if (cpu_req_pulse) begin
+              to_wbm_we_r  <= str_cmd;
+              dbus_state_r <= swa_cmd ? DBUS_PENDING_SWA : DBUS_WAITING_WBM_ACQ;
+            end
+          end
+
+          // waiting DBUS ACK/ERR
+          // for l.swa case we don't care about self-snoop because
+          // DBUS ACK/ERR have more priority
+          DBUS_WAITING_WBM_ACQ: begin
+            if (wbm_err_i) begin
+              to_wbm_we_r  <= 1'b0;
+              dbus_state_r <= DBUS_WAITING_CPU_REQ;
+            end
+            else if (wbm_ack_i) begin
+              to_wbm_we_r  <= 1'b0; // DCACHE is write through, no write burst
+              dbus_state_r <= burst_keep ? DBUS_WAITING_WBM_ACQ : DBUS_WAITING_CPU_REQ;
+            end
+            else if (snoop_en_i & swa_cmd) begin
+              to_wbm_we_r  <= 1'b0;
+              dbus_state_r <= DBUS_PENDING_SWA;
+            end
+          end
+
+          // pending l.swa
+          // (1) here we wait till completion of all snoop events
+          // (2) if link has been broken while we was waiting here,
+          //     the bus access is still performed as a (discarded) read.
+          DBUS_PENDING_SWA: begin
+            if ((~snoop_en_i) & (~snoop_en_l)) begin
+              to_wbm_we_r  <= atomic_flg;
+              dbus_state_r <= DBUS_WAITING_WBM_ACQ;
+            end
+          end
+
+          // don't change by default
+          default:;
+        endcase
       end
     end // @wb-clock
-    // ---
-    assign wbm_sel_o = to_wbm_sel_r;
-    assign wbm_we_o  = to_wbm_we_r;
+
+    // --- SEL ---
+    always @(posedge wb_clk) begin
+      if (wb_rst)
+        to_wbm_sel_r <= 4'd0;
+      else if (cpu_req_pulse) // d-cache bridge latches byte select
+        to_wbm_sel_r <= cpu_bsel_r1;
+    end // @wb-clock
+
+    // --- DATA for write ---
+    always @(posedge wb_clk) begin
+      if (cpu_req_pulse) // d-cache bridge latches data
+        to_wbm_dat_r <= cpu_dat_r1; // DBUS bridge
+    end // @wb-clock
+
+    // --- DBUS bridge output assignenment ---
+    assign wbm_stb_o = dbus_state_r[1]; // DBUS bridge
+    assign wbm_cyc_o = dbus_state_r[1]; // DBUS bridge
+    assign wbm_we_o  = to_wbm_we_r;     // DBUS bridge
+    assign wbm_sel_o = to_wbm_sel_r;    // DBUS bridge
+    assign wbm_dat_o = to_wbm_dat_r;    // DBUS bridge
 
   end
-  else begin : drv_undef
-    initial begin
-      $display("ERROR: Bridge driver is undefined");
-      $finish;
-    end
+  else begin : ibus_specific
+
+    // STB and CYC for IBUS bridge
+    reg  to_wbm_req_r;
+    // ---
+    always @(posedge wb_clk) begin
+      if (wb_rst)
+        to_wbm_req_r <= 1'b0;
+      else if (wbm_cyc_o) begin // MAROCCHINO_TODO : redundant?
+        if (wbm_err_i)
+          to_wbm_req_r <= 1'b0;
+        else if (wbm_ack_i)
+          to_wbm_req_r <= burst_keep;
+      end
+      else if (cpu_req_pulse) // rise CYC/STB in IBUS bridge
+        to_wbm_req_r <= 1'b1;
+    end // @wb-clock
+
+    // --- IBUS bridge output assignenment ---
+    assign wbm_stb_o = to_wbm_req_r;  // IBUS bridge
+    assign wbm_cyc_o = to_wbm_req_r;  // IBUS bridge
+    assign wbm_we_o  =  1'b0;         // IBUS bridge
+    assign wbm_sel_o =  4'hf;         // IBUS bridge
+    assign wbm_dat_o = 32'd0;         // IBUS bridge
+
   end
   endgenerate
-
-  // --- to interconnect output assignenment ---
-  assign wbm_adr_o = to_wbm_adr_r;
-  assign wbm_stb_o = to_wbm_stb_r;
-  assign wbm_cyc_o = to_wbm_cyc_r;
-  assign wbm_cti_o = to_wbm_cti_r;
-  assign wbm_bte_o = to_wbm_bte_r;
 
 
   //------------------------//
   // WBM-to-CPU burst queue //
   //------------------------//
 
-  // WBM-TO-CPU data layout
-  localparam  WBM2CPU_DAT_LSB =  0;
-  localparam  WBM2CPU_DAT_MSB = 31;
-  localparam  WBM2CPU_LAST    = WBM2CPU_DAT_MSB + 1;
-  localparam  WBM2CPU_ACK     = WBM2CPU_LAST    + 1;
-  localparam  WBM2CPU_ERR     = WBM2CPU_ACK     + 1;
-  // ---
-  localparam  WBM2CPU_MSB     = WBM2CPU_ERR;
-
-  // --- registered input data ---
-  reg  [WBM2CPU_MSB:0] queue_in_r;
+  // --- registered input controls (1-Wishbone-clock) ---
+  reg  [2:0] queue_in_ctrls_r;
   // ---
   always @(posedge wb_clk) begin
-    if (to_wbm_cyc_r & (wbm_err_i | wbm_ack_i))
-      queue_in_r <= { wbm_err_i, wbm_ack_i,           // WBM-TO-CPU data layout
-                      (burst_proc & burst_done_r[0]), // WBM-TO-CPU data layout
-                      wbm_dat_i };                    // WBM-TO-CPU data layout
+    if (wb_rst)
+      queue_in_ctrls_r <= 3'd0;
+    else if (wbm_cyc_o & (wbm_err_i | wbm_ack_i))
+      queue_in_ctrls_r <= { wbm_err_i, wbm_ack_i, (burst_proc & burst_done_r[0]) };
+    else
+      queue_in_ctrls_r <= 3'd0;
+  end // @wb-clock
+
+  // --- registered input data ---
+  reg  [31:0] queue_in_dat_r;
+  // ---
+  always @(posedge wb_clk) begin
+    if (wbm_cyc_o & (wbm_err_i | wbm_ack_i))
+      queue_in_dat_r <= wbm_dat_i;
   end // @wb-clock
 
   // --- signaling to CPU ---
@@ -290,9 +430,11 @@ module mor1kx_bus_if_wb32_marocchino
   always @(posedge wb_clk) begin
     if (wb_rst)
       queue2cpu_rdy_toggle_r <= 1'b0;
-    else if (to_wbm_cyc_r & (wbm_err_i | wbm_ack_i))
+    else if (wbm_cyc_o & (wbm_err_i | wbm_ack_i))
       queue2cpu_rdy_toggle_r <= ~queue2cpu_rdy_toggle_r;
   end // @wb-clock
+
+
   //
   // Pseudo CDC disclaimer:
   // As positive edges of wb-clock and cpu-clock assumed be aligned,
@@ -311,15 +453,15 @@ module mor1kx_bus_if_wb32_marocchino
   assign queue2cpu_rdy_pulse = queue2cpu_rdy_toggle_r ^ queue2cpu_rdy_r1;
 
   // ACK/ERR latches (with reset control)
-  reg [2:0] queue_ack_err_r1;
+  reg [2:0] queue_ctrls_r1;
   // ---
   always @(posedge cpu_clk) begin
     if (cpu_rst)
-      queue_ack_err_r1 <= 3'd0;
+      queue_ctrls_r1 <= 3'd0;
     else if (queue2cpu_rdy_pulse)
-      queue_ack_err_r1 <= {queue_in_r[WBM2CPU_ERR],queue_in_r[WBM2CPU_ACK],queue_in_r[WBM2CPU_LAST]};
+      queue_ctrls_r1 <= queue_in_ctrls_r;
     else // 1-clock
-      queue_ack_err_r1 <= 3'd0;
+      queue_ctrls_r1 <= 3'd0;
   end // at cpu-clock
 
   // DATA latches (without reset control)
@@ -327,13 +469,179 @@ module mor1kx_bus_if_wb32_marocchino
   // ---
   always @(posedge cpu_clk) begin
     if (queue2cpu_rdy_pulse)
-      queue_dat_r1 <= queue_in_r[WBM2CPU_DAT_MSB:WBM2CPU_DAT_LSB];
+      queue_dat_r1 <= queue_in_dat_r;
   end // at cpu-clock
 
   // output assignement
-  assign cpu_burst_last_o = queue_ack_err_r1[0];
-  assign cpu_ack_o        = queue_ack_err_r1[1];
-  assign cpu_err_o        = queue_ack_err_r1[2];
+  assign cpu_burst_last_o = queue_ctrls_r1[0];
+  assign cpu_ack_o        = queue_ctrls_r1[1];
+  assign cpu_err_o        = queue_ctrls_r1[2];
   assign cpu_dat_o        = queue_dat_r1;
+
+
+  //------------------------------//
+  // Atomic (l.lwa/l.swa) support //
+  //------------------------------//
+
+  // snoop hit for l.swa in multicore machine
+  generate
+  /* verilator lint_off WIDTH */
+  if ((DRIVER_TYPE == "D_CACHE") && (OPTION_DCACHE_SNOOP != "NONE")) begin: dbus_multi_core
+  /* verilator lint_on WIDTH */
+
+    //
+    // Latched attributes of swa snoop event.
+    // Self snoop event is equvivalent for success l.swa completion.
+    //
+    reg        snoop_en_r;
+    reg [29:0] snoop_adr_r; // [31:2] of snooped address
+    //
+    // We don't care about self-snoop because:
+    //  (a) for atomic reservation flag it operates in the same way
+    //      as 'reset by l.swa completion' logic
+    //  (b) DBUS's ACK has got priority in DBUS controller
+    //
+    always @(posedge wb_clk) begin
+      if (wb_rst)
+        snoop_en_r <= 1'b0; // at reset
+      else
+        snoop_en_r <= snoop_en_i;
+    end
+    //
+    // latch snooped address
+    //
+    always @(posedge wb_clk) begin
+      snoop_adr_r <= snoop_adr_i[31:2];
+    end
+    //
+    // output assignement
+    //
+    assign snoop_en_l  = snoop_en_r;  // DBUS multi core bridge
+    assign snoop_adr_l = snoop_adr_r; // DBUS multi core bridge
+
+  end
+  else begin: dbus_single_core
+
+    assign snoop_en_l  =  1'b0; // IBUS bridge or Single Core machine
+    assign snoop_adr_l = 30'd0; // IBUS bridge or Single Core machine
+
+  end
+  endgenerate
+
+  // Atomic reservation flag and address are placed in
+  // Wishbown clock domain to exclude possible misalign
+  // during crossing propagations:
+  //  (a) snoop hits from Wishbone to CPU
+  //  (b) l.swa from CPU to Wishbone
+  // ---
+  generate
+  /* verilator lint_off WIDTH */
+  if (DRIVER_TYPE == "D_CACHE") begin: dbus_with_atomics
+  /* verilator lint_on WIDTH */
+
+    // Aliases for latched DBUS's ACK and ERR
+    wire wbm_err_l = queue_in_ctrls_r[2]; // DBUS bridge
+    wire wbm_ack_l = queue_in_ctrls_r[1]; // DBUS bridge
+
+    // Clock domain crossing fo pipeline-flush to
+    // clean up atomic reservation flag at context switch.
+    //
+    // Pseudo CDC disclaimer:
+    // As positive edges of wb-clock and cpu-clock assumed be aligned,
+    // we use simplest clock domain pseudo-synchronizers.
+    //
+    reg  pipeline_flush_toggle_r; // MAROCCHINO_TODO: implement in CTRL ?
+    // ---
+    always @(posedge cpu_clk) begin
+      if (cpu_rst)
+        pipeline_flush_toggle_r <= 1'b0;
+      else if (pipeline_flush_i)
+        pipeline_flush_toggle_r <= ~pipeline_flush_toggle_r;
+    end // @cpu-clock
+    // ---
+    reg  pipeline_flush_r1;
+    wire pipeline_flush_pulse = pipeline_flush_toggle_r ^ pipeline_flush_r1; // from toggle to posedge of Wishbone clock
+    // ---
+    always @(posedge wb_clk) begin
+      if (wb_rst)
+        pipeline_flush_r1 <= 1'b0;
+      else
+        pipeline_flush_r1 <= pipeline_flush_toggle_r;
+    end // @cpu-clock
+    // ---
+    // no re-fill for l.swa (see LSU and DCACHE),
+    // so needn't taking into accaunt bursting here
+    reg  flush_r;
+    // ---
+    always @(posedge wb_clk) begin
+      if (wb_rst)
+        flush_r <= 1'b0;
+      else if (wbm_err_l | wbm_ack_l)
+        flush_r <= 1'b0;
+      else if (pipeline_flush_pulse)
+        flush_r <= wbm_cyc_o;
+    end // @cpu-clock
+
+
+    // Atomic related declarations
+    reg         atomic_flg_r; // reservation flag
+    reg  [29:0] atomic_adr_r; // linked address [31:2] of phys. address
+
+
+    // store linked address from cache
+    always @(posedge wb_clk) begin
+      if (wb_rst)
+        atomic_adr_r <= 30'd0;
+      else if (lwa_cmd & wbm_ack_l)       // save linked address
+        atomic_adr_r <= cpu_adr_r1[31:2];
+    end
+
+
+    // atomic reserve flag
+    wire deassert_atomic_flg =
+      pipeline_flush_pulse | flush_r | // deassert atomic flag by context switch
+      (str_cmd    & atomic_flg_r & (atomic_adr_r == cpu_adr_r1[31:2])) | // deassert atomic flag by store to the same location
+      (swa_cmd    & atomic_flg_r & (atomic_adr_r != cpu_adr_r1[31:2])) | // deassert atomic flag by l.swa to another location
+      (snoop_en_l & atomic_flg_r & (atomic_adr_r == snoop_adr_l))      | // deassert atomic flag by snoop hit
+      (swa_cmd & (wbm_err_l | wbm_ack_l)); // deassert atomic flag by l.swa completion
+    // ---
+    always @(posedge wb_clk) begin
+      if (wb_rst)
+        atomic_flg_r <= 1'b0;
+      else if (deassert_atomic_flg)
+        atomic_flg_r <= 1'b0;
+      else if (lwa_cmd & wbm_ack_l)    // update linked flag
+        atomic_flg_r <= ~atomic_flg_r; // assert by "1-st" l.lwa, deassert by another l.lwa
+    end
+    // ---
+    assign atomic_flg = atomic_flg_r; // DBUS bridge
+
+
+    // transfer atomic reserve flag to CPU
+    reg to_cpu_atomic_flg_r1;
+    // ---
+    always @(posedge cpu_clk) begin
+      if (queue2cpu_rdy_pulse)
+        to_cpu_atomic_flg_r1 <= atomic_flg_r;
+    end // at cpu-clock
+
+    // output assignement
+    assign cpu_atomic_flg_o = to_cpu_atomic_flg_r1; // DBUS bridge
+
+  end // atomic_support
+  else begin : ibus_without_atomics
+
+    // CPU request clarifications
+    assign str_cmd          =  1'b0; // IBUS bridge
+    assign swa_cmd          =  1'b0; // IBUS bridge
+    assign lwa_cmd          =  1'b0; // IBUS bridge
+
+    // atomic reservation flag
+    assign atomic_flg       =  1'b0; // IBUS bridge
+    // "to CPU" output
+    assign cpu_atomic_flg_o =  1'b0; // IBUS bridge
+
+  end
+  endgenerate
 
 endmodule // mor1kx_bus_if_wb32_marocchino

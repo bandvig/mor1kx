@@ -85,12 +85,15 @@ module mor1kx_lsu_marocchino
   output reg                            dbus_req_o,
   output reg [OPTION_OPERAND_WIDTH-1:0] dbus_dat_o,
   output reg                      [3:0] dbus_bsel_o,
-  output                                dbus_we_o,
+  output reg                            dbus_we_o,
   output reg                            dbus_burst_o,
   input                                 dbus_err_i,
   input                                 dbus_ack_i,
   input      [OPTION_OPERAND_WIDTH-1:0] dbus_dat_i,
   input                                 dbus_burst_last_i,
+  // For lwa/swa
+  output reg                            dbus_atomic_o,
+  input                                 dbus_atomic_flg_i,
   // Cache sync for multi-core environment
   input                          [31:0] snoop_adr_i,
   input                                 snoop_en_i,
@@ -153,7 +156,7 @@ module mor1kx_lsu_marocchino
   reg               s2o_op_lsu_store;
 
   //  # load command
-  reg               s2o_lwa;   // exactly atomic load
+  reg               s2o_lwa_req;   // exactly atomic load
   reg         [1:0] s2o_length;
   reg               s2o_zext;
   //  # load processing
@@ -172,18 +175,16 @@ module mor1kx_lsu_marocchino
   wire              dbus_load_ack;
   wire              dbus_load_err;
   reg  [LSUOOW-1:0] s2o_dbus_dat;
-  //    ## combined load ACK :MAROCCHINO_TODO: makes sense for l.lwa only now
-  wire              s3t_load_ack;
 
   //  # store
-  reg               s2o_store; // not (!!!) atomic
-  reg               s2o_swa_req;   // atomic only
+  reg               s2o_stna_req; // not atomic store
+  reg               s2o_swa_req;  // atomic only
   //  # auxiliaries
   //  # DBUS "bsel" and formatted data to store
   reg         [3:0] s2o_bsel;
   reg  [LSUOOW-1:0] s2o_sdat;     // register file B in (store operand)
+  wire              dbus_swa_do;  // DBUS FSM doing l.swa
   wire              dbus_swa_ack; // complete DBUS trunsaction with l.swa
-  wire              dbus_swa_err; // DBUS error during l.swa
   //    ## combined store ACK
   wire              s3t_store_ack;
 
@@ -222,11 +223,6 @@ module mor1kx_lsu_marocchino
   wire             sbuf_read_state    = dbus_state[5];
 //wire             sbuf_init_write    = dbus_state[6];
   wire             dbus_write_state   = dbus_state[7];
-  //  # DBUS FSM other registers & wires
-  reg              dbus_we;
-  reg              dbus_atomic;
-  wire             dbus_swa_discard; // reservation is lost, execute empty read
-
 
 
   // Store buffer
@@ -241,17 +237,6 @@ module mor1kx_lsu_marocchino
   wire [LSUOOW-1:0] sbuf_dat;
   wire        [3:0] sbuf_bsel;
 
-  // Atomic operations
-  reg               atomic_reserve;
-  reg  [LSUOOW-1:0] atomic_addr;
-  // initial values for simulations
- `ifndef SYNTHESIS
-  // synthesis translate_off
-  initial begin
-    atomic_addr = {LSUOOW{1'b0}};
-  end
-  // synthesis translate_on
- `endif // !syhth
 
   // Snoop (for multicore SoC)
   wire              snoop_event;
@@ -304,20 +289,17 @@ module mor1kx_lsu_marocchino
   assign dbus_load_ack = (dbus_read_state | dc_refill_first) & dbus_ack_i;
   assign dbus_load_err = (dbus_read_state | dc_refill_state) & dbus_err_i;
 
-  // Combined DCACHE/DBUS read ACK
-  assign s3t_load_ack  = s2o_dc_ack_read | dbus_load_ack; // used for l.lwa processing only
-
   // Combined store ACK
   //  # for command clean up
   assign s3t_store_ack    = sbuf_write |  dbus_swa_ack;
   //  # for DCAHCE
-  wire   dc_store_allowed = sbuf_write | (dbus_swa_ack & atomic_reserve);
-  wire   dc_store_cancel  = dbus_atomic ? dbus_err_i : // cancel write-hit in DCACHE
-                                          (pipeline_flush_i | s2o_excepts_addr); // cancel write-hit in DCACHE
+  wire   dc_store_allowed = sbuf_write;
+  wire   dc_store_cancel  = (pipeline_flush_i | s2o_excepts_addr); // cancel write-hit in DCACHE, MAROCCHINO_TODO: "| snoop_hit" -??
 
 
-  // DBUS error not related to STORE_BUFFER
-  assign s3t_dbus_err_nsbuf = dbus_load_err | dbus_swa_err;
+  // DBUS error not related to store buffer
+  // note: l.swa goes around store buffer
+  assign s3t_dbus_err_nsbuf = dbus_load_err | (dbus_swa_do & dbus_err_i);
 
 
   //-----------------------------------------------------------------//
@@ -547,6 +529,8 @@ module mor1kx_lsu_marocchino
     .dc_dat_s2o_i               (s2o_dc_dat), // DCACHE
     .dc_store_allowed_i         (dc_store_allowed), // DCACHE
     .dc_store_cancel_i          (dc_store_cancel), // DCACHE
+    //  # Atomics
+    .s1o_op_lsu_atomic_i        (s1o_op_lsu_atomic), // DCACHE
     // re-fill
     .dc_refill_req_o            (s2t_dc_refill_req), // DCACHE
     .dc_refill_allowed_i        (dc_refill_allowed), // DCACHE
@@ -582,7 +566,7 @@ module mor1kx_lsu_marocchino
   // --- bus error during bus access from store buffer ---
   //  ## pay attention that l.swa is executed around of
   //     store buffer, so we don't take it into accaunt here.
-  wire sbuf_err = dbus_write_state & (~dbus_atomic) & dbus_err_i ; // to force empty STORE_BUFFER
+  wire sbuf_err = dbus_write_state & (~dbus_atomic_o) & dbus_err_i ; // to force empty STORE_BUFFER
   // ---
   always @(posedge cpu_clk) begin
     if (cpu_rst | flush_by_ctrl) // reset store buffer DBUS error
@@ -594,12 +578,6 @@ module mor1kx_lsu_marocchino
   //----------//
   // DBUS FSM //
   //----------//
-
-  // Slightly subtle, but if there is an atomic store coming out from the
-  // store buffer, and the link has been broken while it was waiting there,
-  // the bus access is still performed as a (discarded) read.
-  // MAROCCHINO_TODO: not correct for CDC
-  assign dbus_we_o = dbus_we & ~dbus_swa_discard;
 
   // DBUS state machine: switching
   always @(posedge cpu_clk) begin
@@ -631,10 +609,8 @@ module mor1kx_lsu_marocchino
             dbus_state <= DBUS_IDLE;        // dmem req: address conversion an exception
           end
           else if (s2o_swa_req) begin
-            if (~snoop_hit) begin
-              dbus_req_o   <= ~dbus_req_o;   // dmem req -> write for l.swa
-              dbus_state   <= DBUS_WRITE;    // dmem req -> write for l.swa
-            end
+            dbus_req_o   <= ~dbus_req_o;   // dmem req -> write for l.swa
+            dbus_state   <= DBUS_WRITE;    // dmem req -> write for l.swa
           end
           else if (s2o_dc_refill_req) begin // dmem-req
             dbus_req_o   <= ~dbus_req_o;    // dmem-req -> to-re-fill
@@ -697,44 +673,43 @@ module mor1kx_lsu_marocchino
         if (pipeline_flush_i | (~sbuf_empty) | s2o_excepts_addr) begin // dmem-req
         end
         else if (s2o_swa_req) begin
-          if (~snoop_hit) begin
-            dbus_we     <= 1'b1;          // dmem req -> write for l.swa
-            dbus_bsel_o <= s2o_bsel;      // dmem req -> write for l.swa
-            dbus_adr_o  <= s2o_phys_addr; // dmem req -> write for l.swa
-            dbus_dat_o  <= s2o_sdat;      // dmem req -> write for l.swa
-            dbus_atomic <= 1'b1;          // dmem req -> write for l.swa
-          end
+          dbus_we_o     <= 1'b1;          // dmem req -> write for l.swa
+          dbus_bsel_o   <= s2o_bsel;      // dmem req -> write for l.swa
+          dbus_adr_o    <= s2o_phys_addr; // dmem req -> write for l.swa
+          dbus_dat_o    <= s2o_sdat;      // dmem req -> write for l.swa
+          dbus_atomic_o <= 1'b1;          // dmem req -> write for l.swa
         end
         else if (s2o_dc_refill_req) begin
-          dbus_we     <= 1'b0;            // dmem-req -> to-re-fill
-          dbus_bsel_o <= 4'b1111;         // dmem-req -> to-re-fill
-          dbus_adr_o  <= s2o_phys_addr;   // dmem-req -> to-re-fill
-          dbus_atomic <= 1'b0;            // dmem-req -> to-re-fill
+          dbus_we_o     <= 1'b0;            // dmem-req -> to-re-fill
+          dbus_bsel_o   <= 4'b1111;         // dmem-req -> to-re-fill
+          dbus_adr_o    <= s2o_phys_addr;   // dmem-req -> to-re-fill
+          dbus_atomic_o <= 1'b0;            // dmem-req -> to-re-fill
         end
         else if (s2o_dbus_read_req) begin // dmem-req
-          dbus_we     <= 1'b0;            // dmem-req -> dbus-read
-          dbus_bsel_o <= s2o_bsel;        // dmem-req -> dbus-read
-          dbus_adr_o  <= s2o_phys_addr;   // dmem-req -> dbus-read
-          dbus_atomic <= 1'b0;            // dmem-req -> dbus-read
+          dbus_we_o     <= 1'b0;            // dmem-req -> dbus-read
+          dbus_bsel_o   <= s2o_bsel;        // dmem-req -> dbus-read
+          dbus_adr_o    <= s2o_phys_addr;   // dmem-req -> dbus-read
+          dbus_atomic_o <= s2o_lwa_req;     // dmem-req -> dbus-read, l.lwa
         end
       end // dmem-req
 
       DBUS_INI_WRITE: begin
         // DBUS controls
-        dbus_we     <= 1'b1;            // dbus-ini-write -> write
-        dbus_bsel_o <= sbuf_bsel;       // dbus-ini-write -> write
-        dbus_adr_o  <= sbuf_phys_addr;  // dbus-ini-write -> write
-        dbus_dat_o  <= sbuf_dat;        // dbus-ini-write -> write
-        dbus_atomic <= 1'b0;            // dbus-ini-write -> write : l.swa goes around buffer
+        dbus_we_o     <= 1'b1;            // dbus-ini-write -> write
+        dbus_bsel_o   <= sbuf_bsel;       // dbus-ini-write -> write
+        dbus_adr_o    <= sbuf_phys_addr;  // dbus-ini-write -> write
+        dbus_dat_o    <= sbuf_dat;        // dbus-ini-write -> write
+        dbus_atomic_o <= 1'b0;            // dbus-ini-write -> write : l.swa goes around buffer
         // Update data for potential DBUS error on write
         //  -- they make sense only if sbuf-err is raised
-        sbuf_eear_o <= sbuf_virt_addr;  // dbus-ini-write -> write : from buffer output
-        sbuf_epcr_o <= sbuf_epcr;       // dbus-ini-write -> write : from buffer output
+        sbuf_eear_o   <= sbuf_virt_addr;  // dbus-ini-write -> write : from buffer output
+        sbuf_epcr_o   <= sbuf_epcr;       // dbus-ini-write -> write : from buffer output
       end // dbus-ini-write
 
+      DBUS_READ,
       DBUS_WRITE: begin
-        if (dbus_err_i | dbus_ack_i)    // dbus-write
-          dbus_atomic <= 1'b0;          // dbus-write: ACK/ERR
+        if (dbus_err_i | dbus_ack_i)    // dbus-read/write
+          dbus_atomic_o <= 1'b0;        // dbus-read/write: ACK/ERR
       end // dbus-write
 
       default:;
@@ -764,7 +739,7 @@ module mor1kx_lsu_marocchino
   //-----------------------//
 
   // store buffer write controls
-  assign sbuf_write = s2o_store & (~sbuf_full) & (~snoop_hit) & (~lsu_wb_miss) & grant_wb_to_lsu_i;
+  assign sbuf_write = s2o_stna_req & (~sbuf_full) & (~lsu_wb_miss) & grant_wb_to_lsu_i;
   // include exceptions and pipe flushing
   assign sbuf_we    = sbuf_write & (~s2o_excepts_addr) & (~pipeline_flush_i);
 
@@ -803,6 +778,7 @@ module mor1kx_lsu_marocchino
 
 
   // We have to mask out our own snooped bus access
+  // MAROCCHINO_TODO: not correct for CDC
   assign snoop_event = (snoop_en_i & ~((snoop_adr_i == dbus_adr_o) & dbus_ack_i)) &
                        (OPTION_DCACHE_SNOOP != "NONE");
 
@@ -810,51 +786,23 @@ module mor1kx_lsu_marocchino
   //-------------------------//
   // Atomic operations logic //
   //-------------------------//
-  // MAROCCHINO_TODO: not correct for CDC
-  assign dbus_swa_discard = dbus_atomic & ~atomic_reserve;
-  // ---
-  assign dbus_swa_ack     = dbus_atomic & dbus_ack_i;
-  assign dbus_swa_err     = dbus_atomic & dbus_err_i;
-  // ---
-  always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i) // drop atomic reserve
-      atomic_reserve <= 1'b0;
-    else if (s2o_excepts_any |                                    // drop atomic reserve
-             dbus_swa_ack |                                       // drop atomic reserve
-             (s2o_store & (s2o_phys_addr == atomic_addr)) |       // drop atomic reserve
-             (snoop_event & (snoop_adr_i == atomic_addr))) begin  // drop atomic reserve
-      atomic_reserve <= 1'b0;
-    end
-    else if (s2o_lwa) begin
-      if (snoop_event & (snoop_adr_i == s2o_phys_addr))
-        atomic_reserve <= 1'b0;
-      else if (s3t_load_ack) // set atomic-reserve
-        atomic_reserve <= 1'b1;
-    end
-  end // @clock
-  // ---
-  always @(posedge cpu_clk) begin
-    if (s2o_lwa) begin
-      if (s3t_load_ack) begin // set atomic-address
-        atomic_addr <= s2o_phys_addr;
-      end
-    end
-  end // @clock
+
+  assign dbus_swa_do  = dbus_write_state & dbus_atomic_o;
+  assign dbus_swa_ack = dbus_swa_do & dbus_ack_i;
   // ---
   reg s2o_atomic_flag_set;
   reg s2o_atomic_flag_clear;
   // ---
-  // MAROCCHINO_TODO: not correct for CDC
   always @(posedge cpu_clk) begin
-    if (cpu_rst | flush_by_ctrl) begin // reset/flush s2o- atomic set/clear flags
+    if (cpu_rst | flush_by_ctrl) begin  // reset/flush s2o- atomic set/clear flags
       s2o_atomic_flag_set   <= 1'b0;
       s2o_atomic_flag_clear <= 1'b0;
     end
-    else if (dbus_swa_ack) begin          // determine  s2o- atomic set/clear flags
-      s2o_atomic_flag_set   <=   atomic_reserve;
-      s2o_atomic_flag_clear <= (~atomic_reserve);
+    else if (dbus_swa_ack) begin        // determine  s2o- atomic set/clear flags
+      s2o_atomic_flag_set   <=   dbus_atomic_flg_i;
+      s2o_atomic_flag_clear <= (~dbus_atomic_flg_i);
     end
-    else if (lsu_s3_adv) begin            // drop  s2o- atomic set/clear flags
+    else if (lsu_s3_adv) begin          // drop  s2o- atomic set/clear flags
       s2o_atomic_flag_set   <= 1'b0;
       s2o_atomic_flag_clear <= 1'b0;
     end
@@ -866,27 +814,49 @@ module mor1kx_lsu_marocchino
   // S2O_* control registers //
   //-------------------------//
 
-  // latches for none atomic store command
+  //
+  // latch various load/store attributes
+  //
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i) begin
-      s2o_op_lsu_store <= 1'b0;
-      s2o_store        <= 1'b0;
-    end
-    else if (lsu_s2_adv) begin // latch none atomic store command in stage #2
-      s2o_op_lsu_store <= s1o_op_lsu_store;
-      s2o_store        <= s1o_op_lsu_store & (~s1o_op_lsu_atomic);
-    end
-    else if (s3t_store_ack) begin // clear none atomic store command in stage #2
-      s2o_op_lsu_store <= 1'b0;
-      s2o_store        <= 1'b0;
+    if (lsu_s2_adv) begin
+      // store command attributes
+      s2o_epcr      <= s1o_sbuf_epcr;
+      s2o_bsel      <= s2t_bsel;
+      s2o_sdat      <= s2t_sdat;
+      // load command attributes
+      s2o_length    <= s1o_lsu_length;
+      s2o_zext      <= s1o_lsu_zext;
+      // virtual and physical addersses
+      s2o_virt_addr <= s1o_virt_addr;
+      s2o_phys_addr <= s2t_phys_addr;
     end
   end // @clock
 
-  // latches for atomic store command
-  // MAROCCHINO_TODO: not correct for CDC
-  wire deassert_s2o_swa_req =
-    (dbus_write_state & dbus_atomic) ? (dbus_err_i | dbus_ack_i) : // deassert l.swa
-                                       (pipeline_flush_i | s2o_excepts_addr); // deassert l.swa
+  // latches for none atomic store command
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | pipeline_flush_i) // reset any store command in stage #2
+      s2o_op_lsu_store <= 1'b0;             // reset / flush
+    else if (lsu_s2_adv)            // latch any store command in stage #2
+      s2o_op_lsu_store <= s1o_op_lsu_store; // stage #2 advance
+    else if (s3t_store_ack)         // clear any store command in stage #2
+      s2o_op_lsu_store <= 1'b0;             // done
+  end // @clock
+
+  // none-atomic store command
+  wire deassert_s2o_stna_req = sbuf_write | pipeline_flush_i | s2o_excepts_addr;
+  // ---
+  always @(posedge cpu_clk) begin
+    if (cpu_rst) // drop l.swa command
+      s2o_stna_req <= 1'b0; // by cpu reset
+    else if (deassert_s2o_stna_req)
+      s2o_stna_req <= 1'b0; // by deassert
+    else if (lsu_s2_adv)    // latch none-atomic store command in stage #2
+      s2o_stna_req <= s1o_op_lsu_store & (~s1o_op_lsu_atomic);
+  end // @clock
+
+  // atomic store command
+  wire deassert_s2o_swa_req = dbus_swa_do ? (dbus_err_i | dbus_ack_i) : // deassert l.swa
+                                            (pipeline_flush_i | s2o_excepts_addr); // deassert l.swa
   //---
   always @(posedge cpu_clk) begin
     if (cpu_rst) // drop l.swa command
@@ -895,41 +865,6 @@ module mor1kx_lsu_marocchino
       s2o_swa_req <= 1'b0; // by deassert
     else if (lsu_s2_adv) // latch l.swa store command in stage #2
       s2o_swa_req <= s1o_op_lsu_store & s1o_op_lsu_atomic;
-  end // @clock
-
-  // latches for store data
-  always @(posedge cpu_clk) begin
-    if (lsu_s2_adv) begin
-      s2o_epcr <= s1o_sbuf_epcr;
-      s2o_bsel <= s2t_bsel;
-      s2o_sdat <= s2t_sdat;
-    end
-  end // @clock
-
-  // latches for load (either atomic or not) commands
-  always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i) begin
-      s2o_lwa  <= 1'b0;
-    end
-    else if (lsu_s2_adv) begin // latch atomic load command
-      s2o_lwa  <= s1o_op_lsu_load & s1o_op_lsu_atomic;
-    end
-    else if (s3t_load_ack) begin // clean atomic load command
-      s2o_lwa  <= 1'b0;
-    end
-  end // @clock
-
-  // latch additional parameters of a command
-  //       and calculated virtual adderss
-  always @(posedge cpu_clk) begin
-    if (lsu_s2_adv) begin
-      // additional parameters of a command
-      s2o_length        <= s1o_lsu_length;
-      s2o_zext          <= s1o_lsu_zext;
-      // virtual and physical addersses
-      s2o_virt_addr     <= s1o_virt_addr;
-      s2o_phys_addr     <= s2t_phys_addr;
-    end
   end // @clock
 
 
@@ -969,20 +904,26 @@ module mor1kx_lsu_marocchino
                       (pipeline_flush_i | s2o_excepts_addr);  // de-assert dbus read request
   // ---
   always @(posedge cpu_clk) begin
-    if (cpu_rst)
+    if (cpu_rst) begin
       s2o_dbus_read_req <= 1'b0;          // reset / flush
-    else if (deassert_s2o_dbus_read_req)
+      s2o_lwa_req       <= 1'b0;          // reset / flush
+    end
+    else if (deassert_s2o_dbus_read_req) begin
       s2o_dbus_read_req <= 1'b0;          // dbus read done or canceled
-    else if (lsu_s2_adv)
+      s2o_lwa_req       <= 1'b0;          // dbus read done or canceled
+    end
+    else if (lsu_s2_adv) begin
       s2o_dbus_read_req <= s2t_dbus_read_req;
+      s2o_lwa_req       <= s1o_op_lsu_load & s1o_op_lsu_atomic;
+    end
   end // @ clock
   // --- combined DBUS-load/SBUFF-store ACK ---
   always @(posedge cpu_clk) begin
     if (cpu_rst | flush_by_ctrl)
       s3o_ls_ack <= 1'b0;                     // reset / flush
-    else if (dbus_load_ack | s3t_store_ack)   // rise combined DBUS-load/SBUFF-store ACK
+    else if (dbus_load_ack | s3t_store_ack)   // rise combined DBUS-load/ANY-store s3o-ACK
       s3o_ls_ack <= 1'b1;                     // dbus-load-ack OR s3t-store-ack
-    else if (lsu_s3_adv)                      // drop combined DBUS-load/SBUFF-store ACK
+    else if (lsu_s3_adv)                      // drop combined DBUS-load/ANY-store s3o-ACK
       s3o_ls_ack <= 1'b0;                     // WriteBack/Pending is taking result
   end // @ clock
   // --- DBUS load data ---

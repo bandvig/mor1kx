@@ -76,10 +76,16 @@ module mor1kx_rf_cappuccino
     );
 
 `include "mor1kx_utils.vh"
+   function integer calc_rf_addr_width;
+      input integer rf_addr_width;
+      input integer rf_num_shadow_gpr;
+      calc_rf_addr_width  = rf_addr_width +
+                           ((rf_num_shadow_gpr == 1) ? 1 :
+                             `clog2(rf_num_shadow_gpr));
+   endfunction
 
-   localparam RF_ADDR_WIDTH = OPTION_RF_ADDR_WIDTH +
-                              ((OPTION_RF_NUM_SHADOW_GPR == 1) ? 1 :
-                               `clog2(OPTION_RF_NUM_SHADOW_GPR));
+   localparam RF_ADDR_WIDTH = calc_rf_addr_width(OPTION_RF_ADDR_WIDTH,
+                                                 OPTION_RF_NUM_SHADOW_GPR);
 
    wire [OPTION_OPERAND_WIDTH-1:0]    rfa_ram_o;
    wire [OPTION_OPERAND_WIDTH-1:0]    rfb_ram_o;
@@ -274,8 +280,12 @@ if (FEATURE_DEBUGUNIT!="NONE" || FEATURE_FASTCONTEXTS!="NONE" ||
 			  spr_gpr_re & spr_gpr_read_ack;
 
    wire [RF_ADDR_WIDTH-1:0] wb_rfd_adr_expand;
-   assign wb_rfd_adr_expand[RF_ADDR_WIDTH-1:OPTION_RF_ADDR_WIDTH] = 0;
+   // Zero-pad unused parts of vector
+   if (OPTION_RF_NUM_SHADOW_GPR > 0) begin
+     assign wb_rfd_adr_expand[RF_ADDR_WIDTH-1:OPTION_RF_ADDR_WIDTH] = 0;
+   end
    assign wb_rfd_adr_expand[OPTION_RF_ADDR_WIDTH-1:0] = wb_rfd_adr_i;
+
    assign rf_wren =  wb_rf_wb_i | spr_gpr_we;
    assign rf_wradr = wb_rf_wb_i ? wb_rfd_adr_expand : spr_bus_addr_i[RF_ADDR_WIDTH-1:0];
    assign rf_wrdat = wb_rf_wb_i ? result_i : spr_bus_dat_i;

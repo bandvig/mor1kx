@@ -79,6 +79,8 @@ module mor1kx_cpu_marocchino
   // CPU clock and reset
   input                             cpu_clk,
   input                             cpu_rst,
+  // For lwa/swa
+  output                            pipeline_flush_o,
 
   // Instruction bus
   input                             ibus_err_i,
@@ -100,6 +102,9 @@ module mor1kx_cpu_marocchino
   output                      [3:0] dbus_bsel_o,
   output                            dbus_we_o,
   output                            dbus_burst_o,
+  // For lwa/swa
+  output                            dbus_atomic_o,
+  input                             dbus_atomic_flg_i,
 
   // Interrupts
   input                      [31:0] irq_i,
@@ -115,6 +120,13 @@ module mor1kx_cpu_marocchino
   input                             du_stall_i,
   output                            du_stall_o,
 
+  // SPR accesses to external units (cache, mmu, etc.)
+  output [15:0]                     spr_bus_addr_o,
+  output                            spr_bus_we_o,
+  output                            spr_bus_stb_o,
+  output [OPTION_OPERAND_WIDTH-1:0] spr_bus_dat_o,
+
+  // trace report
   output reg                        traceport_exec_valid_o,
   output reg                 [31:0] traceport_exec_pc_o,
   output reg [`OR1K_INSN_WIDTH-1:0] traceport_exec_insn_o,
@@ -122,15 +134,9 @@ module mor1kx_cpu_marocchino
   output [OPTION_RF_ADDR_WIDTH-1:0] traceport_exec_wbreg_o,
   output                            traceport_exec_wben_o,
 
-  // SPR accesses to external units (cache, mmu, etc.)
-  output [15:0]                     spr_bus_addr_o,
-  output                            spr_bus_we_o,
-  output                            spr_bus_stb_o,
-  output [OPTION_OPERAND_WIDTH-1:0] spr_bus_dat_o,
-
+  // multi-core
   input  [OPTION_OPERAND_WIDTH-1:0] multicore_coreid_i,
   input  [OPTION_OPERAND_WIDTH-1:0] multicore_numcores_i,
-
   input                      [31:0] snoop_adr_i,
   input                             snoop_en_i
 );
@@ -499,6 +505,9 @@ module mor1kx_cpu_marocchino
   wire padv_exec;
   wire padv_wb;
   wire pipeline_flush;
+
+  // For lwa/swa
+  assign pipeline_flush_o = pipeline_flush;
 
   // enable modules and other control signals from CTRL
   wire                            ic_enable;
@@ -1914,6 +1923,9 @@ module mor1kx_cpu_marocchino
     .dbus_bsel_o                      (dbus_bsel_o[3:0]), // LSU
     .dbus_we_o                        (dbus_we_o), // LSU
     .dbus_burst_o                     (dbus_burst_o), // LSU
+    // For lwa/swa
+    .dbus_atomic_o                    (dbus_atomic_o), // LSU
+    .dbus_atomic_flg_i                (dbus_atomic_flg_i), // LSU
     // Cache sync for multi-core environment
     .snoop_adr_i                      (snoop_adr_i[31:0]), // LSU
     .snoop_en_i                       (snoop_en_i), // LSU
