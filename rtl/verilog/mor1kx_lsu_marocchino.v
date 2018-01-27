@@ -85,14 +85,15 @@ module mor1kx_lsu_marocchino
   output reg                            dbus_req_o,
   output reg [OPTION_OPERAND_WIDTH-1:0] dbus_dat_o,
   output reg                      [3:0] dbus_bsel_o,
-  output reg                            dbus_we_o,
+  output reg                            dbus_lwa_cmd_o, // atomic load
+  output reg                            dbus_stna_cmd_o, // none-atomic store
+  output reg                            dbus_swa_cmd_o, // atomic store
   output reg                            dbus_burst_o,
   input                                 dbus_err_i,
   input                                 dbus_ack_i,
   input      [OPTION_OPERAND_WIDTH-1:0] dbus_dat_i,
   input                                 dbus_burst_last_i,
-  // For lwa/swa
-  output reg                            dbus_atomic_o,
+  // Other connections for lwa/swa support
   input                                 dbus_atomic_flg_i,
   // Cache sync for multi-core environment
   input                          [31:0] snoop_adr_i,
@@ -183,7 +184,6 @@ module mor1kx_lsu_marocchino
   //  # DBUS "bsel" and formatted data to store
   reg         [3:0] s2o_bsel;
   reg  [LSUOOW-1:0] s2o_sdat;     // register file B in (store operand)
-  wire              dbus_swa_do;  // DBUS FSM doing l.swa
   wire              dbus_swa_ack; // complete DBUS trunsaction with l.swa
   //    ## combined store ACK
   wire              s3t_store_ack;
@@ -222,7 +222,7 @@ module mor1kx_lsu_marocchino
   wire             dc_refill_state    = dbus_state[4];
   wire             sbuf_read_state    = dbus_state[5];
 //wire             sbuf_init_write    = dbus_state[6];
-  wire             dbus_write_state   = dbus_state[7];
+//wire             dbus_write_state   = dbus_state[7];
 
 
   // Store buffer
@@ -299,7 +299,7 @@ module mor1kx_lsu_marocchino
 
   // DBUS error not related to store buffer
   // note: l.swa goes around store buffer
-  assign s3t_dbus_err_nsbuf = dbus_load_err | (dbus_swa_do & dbus_err_i);
+  assign s3t_dbus_err_nsbuf = dbus_load_err | (dbus_swa_cmd_o & dbus_err_i);
 
 
   //-----------------------------------------------------------------//
@@ -566,7 +566,7 @@ module mor1kx_lsu_marocchino
   // --- bus error during bus access from store buffer ---
   //  ## pay attention that l.swa is executed around of
   //     store buffer, so we don't take it into accaunt here.
-  wire sbuf_err = dbus_write_state & (~dbus_atomic_o) & dbus_err_i ; // to force empty STORE_BUFFER
+  wire sbuf_err = dbus_stna_cmd_o & dbus_err_i ; // to force empty STORE_BUFFER
   // ---
   always @(posedge cpu_clk) begin
     if (cpu_rst | flush_by_ctrl) // reset store buffer DBUS error
@@ -582,9 +582,12 @@ module mor1kx_lsu_marocchino
   // DBUS state machine: switching
   always @(posedge cpu_clk) begin
     if (cpu_rst) begin
-      dbus_req_o   <= 1'b0;      // DBUS_FSM reset
-      dbus_burst_o <= 1'b0;      // DBUS_FSM reset
-      dbus_state   <= DBUS_IDLE; // DBUS_FSM reset
+      dbus_req_o      <= 1'b0;      // DBUS_FSM reset
+      dbus_lwa_cmd_o  <= 1'b0;      // DBUS_FSM reset
+      dbus_stna_cmd_o <= 1'b0;      // DBUS_FSM reset
+      dbus_swa_cmd_o  <= 1'b0;      // DBUS_FSM reset
+      dbus_burst_o    <= 1'b0;      // DBUS_FSM reset
+      dbus_state      <= DBUS_IDLE; // DBUS_FSM reset
     end
     else begin
       // synthesis parallel_case full_case
@@ -609,8 +612,9 @@ module mor1kx_lsu_marocchino
             dbus_state <= DBUS_IDLE;        // dmem req: address conversion an exception
           end
           else if (s2o_swa_req) begin
-            dbus_req_o   <= ~dbus_req_o;   // dmem req -> write for l.swa
-            dbus_state   <= DBUS_WRITE;    // dmem req -> write for l.swa
+            dbus_req_o     <= ~dbus_req_o;   // dmem req -> write for l.swa
+            dbus_swa_cmd_o <= 1'b1;          // dmem req -> write for l.swa
+            dbus_state     <= DBUS_WRITE;    // dmem req -> write for l.swa
           end
           else if (s2o_dc_refill_req) begin // dmem-req
             dbus_req_o   <= ~dbus_req_o;    // dmem-req -> to-re-fill
@@ -618,8 +622,9 @@ module mor1kx_lsu_marocchino
             dbus_state   <= DBUS_TO_REFILL; // dmem-req -> to-re-fill
           end
           else if (s2o_dbus_read_req) begin // dmem-req
-            dbus_req_o <= ~dbus_req_o;      // dmem-req -> dbus-read
-            dbus_state <= DBUS_READ;        // dmem-req -> dbus-read
+            dbus_req_o     <= ~dbus_req_o;  // dmem-req -> dbus-read
+            dbus_lwa_cmd_o <= s2o_lwa_req;  // dmem-req -> dbus-read
+            dbus_state     <= DBUS_READ;    // dmem-req -> dbus-read
           end
           else if (~lsu_s2_adv) begin       // dmem-req: no new memory request MAROCCHINO_TODO: redundancy ??
             dbus_state <= DBUS_IDLE;        // dmem-req: no new memory request
@@ -627,8 +632,10 @@ module mor1kx_lsu_marocchino
         end // dmem-req
 
         DBUS_READ: begin
-          if (dbus_err_i | dbus_ack_i)      // dbus-read
-            dbus_state <= DBUS_IDLE;        // dbus-read: complete
+          if (dbus_err_i | dbus_ack_i) begin  // dbus-read
+            dbus_lwa_cmd_o <= 1'b0;           // dbus-read: eror OR complete
+            dbus_state     <= DBUS_IDLE;      // dbus-read: eror OR complete
+          end
         end // dbus-read
 
         DBUS_TO_REFILL: begin
@@ -643,15 +650,22 @@ module mor1kx_lsu_marocchino
         end // dc-refill
 
         DBUS_SBUF_READ: begin
-          dbus_state <= DBUS_INI_WRITE;  // dbus-sbuf-read
+          dbus_state <= DBUS_INI_WRITE;   // dbus-sbuf-read
         end // dbus-sbuf-red
 
         DBUS_INI_WRITE: begin
-          dbus_req_o <= ~dbus_req_o;     // dbus-ini-write -> write
-          dbus_state <= DBUS_WRITE;      // dbus-ini-write -> write : from buffer output
+          dbus_req_o      <= ~dbus_req_o; // dbus-ini-write -> write
+          dbus_stna_cmd_o <= 1'b1;        // dbus-ini-write -> write
+          dbus_state      <= DBUS_WRITE;  // dbus-ini-write -> write
         end // dbus-ini-write
 
         DBUS_WRITE: begin
+          // drop store commands
+          if (dbus_err_i | dbus_ack_i) begin
+            dbus_stna_cmd_o <= 1'b0;    // dbus-write: error OR complete
+            dbus_swa_cmd_o  <= 1'b0;    // dbus-write: error OR complete
+          end
+          // next state
           if (dbus_err_i) begin         // dbus-write
             dbus_state <= DBUS_IDLE;    // dbus-write: DBUS error
           end
@@ -673,44 +687,30 @@ module mor1kx_lsu_marocchino
         if (pipeline_flush_i | (~sbuf_empty) | s2o_excepts_addr) begin // dmem-req
         end
         else if (s2o_swa_req) begin
-          dbus_we_o     <= 1'b1;          // dmem req -> write for l.swa
           dbus_bsel_o   <= s2o_bsel;      // dmem req -> write for l.swa
           dbus_adr_o    <= s2o_phys_addr; // dmem req -> write for l.swa
           dbus_dat_o    <= s2o_sdat;      // dmem req -> write for l.swa
-          dbus_atomic_o <= 1'b1;          // dmem req -> write for l.swa
         end
         else if (s2o_dc_refill_req) begin
-          dbus_we_o     <= 1'b0;            // dmem-req -> to-re-fill
           dbus_bsel_o   <= 4'b1111;         // dmem-req -> to-re-fill
           dbus_adr_o    <= s2o_phys_addr;   // dmem-req -> to-re-fill
-          dbus_atomic_o <= 1'b0;            // dmem-req -> to-re-fill
         end
         else if (s2o_dbus_read_req) begin // dmem-req
-          dbus_we_o     <= 1'b0;            // dmem-req -> dbus-read
           dbus_bsel_o   <= s2o_bsel;        // dmem-req -> dbus-read
           dbus_adr_o    <= s2o_phys_addr;   // dmem-req -> dbus-read
-          dbus_atomic_o <= s2o_lwa_req;     // dmem-req -> dbus-read, l.lwa
         end
       end // dmem-req
 
       DBUS_INI_WRITE: begin
         // DBUS controls
-        dbus_we_o     <= 1'b1;            // dbus-ini-write -> write
         dbus_bsel_o   <= sbuf_bsel;       // dbus-ini-write -> write
         dbus_adr_o    <= sbuf_phys_addr;  // dbus-ini-write -> write
         dbus_dat_o    <= sbuf_dat;        // dbus-ini-write -> write
-        dbus_atomic_o <= 1'b0;            // dbus-ini-write -> write : l.swa goes around buffer
         // Update data for potential DBUS error on write
         //  -- they make sense only if sbuf-err is raised
         sbuf_eear_o   <= sbuf_virt_addr;  // dbus-ini-write -> write : from buffer output
         sbuf_epcr_o   <= sbuf_epcr;       // dbus-ini-write -> write : from buffer output
       end // dbus-ini-write
-
-      DBUS_READ,
-      DBUS_WRITE: begin
-        if (dbus_err_i | dbus_ack_i)    // dbus-read/write
-          dbus_atomic_o <= 1'b0;        // dbus-read/write: ACK/ERR
-      end // dbus-write
 
       default:;
     endcase
@@ -787,8 +787,7 @@ module mor1kx_lsu_marocchino
   // Atomic operations logic //
   //-------------------------//
 
-  assign dbus_swa_do  = dbus_write_state & dbus_atomic_o;
-  assign dbus_swa_ack = dbus_swa_do & dbus_ack_i;
+  assign dbus_swa_ack = dbus_swa_cmd_o & dbus_ack_i;
   // ---
   reg s2o_atomic_flag_set;
   reg s2o_atomic_flag_clear;
@@ -855,8 +854,8 @@ module mor1kx_lsu_marocchino
   end // @clock
 
   // atomic store command
-  wire deassert_s2o_swa_req = dbus_swa_do ? (dbus_err_i | dbus_ack_i) : // deassert l.swa
-                                            (pipeline_flush_i | s2o_excepts_addr); // deassert l.swa
+  wire deassert_s2o_swa_req = dbus_swa_cmd_o ? (dbus_err_i | dbus_ack_i) : // deassert l.swa
+                                               (pipeline_flush_i | s2o_excepts_addr); // deassert l.swa
   //---
   always @(posedge cpu_clk) begin
     if (cpu_rst) // drop l.swa command
@@ -905,8 +904,8 @@ module mor1kx_lsu_marocchino
   // ---
   always @(posedge cpu_clk) begin
     if (cpu_rst) begin
-      s2o_dbus_read_req <= 1'b0;          // reset / flush
-      s2o_lwa_req       <= 1'b0;          // reset / flush
+      s2o_dbus_read_req <= 1'b0;          // cpu-reset
+      s2o_lwa_req       <= 1'b0;          // cpu-reset
     end
     else if (deassert_s2o_dbus_read_req) begin
       s2o_dbus_read_req <= 1'b0;          // dbus read done or canceled

@@ -100,10 +100,11 @@ module mor1kx_cpu_marocchino
   output [OPTION_OPERAND_WIDTH-1:0] dbus_dat_o,
   output                            dbus_req_o,
   output                      [3:0] dbus_bsel_o,
-  output                            dbus_we_o,
+  output                            dbus_lwa_cmd_o, // atomic load
+  output                            dbus_stna_cmd_o, // none-atomic store
+  output                            dbus_swa_cmd_o, // atomic store
   output                            dbus_burst_o,
-  // For lwa/swa
-  output                            dbus_atomic_o,
+  // Other connections for lwa/swa support
   input                             dbus_atomic_flg_i,
 
   // Interrupts
@@ -1921,10 +1922,11 @@ module mor1kx_cpu_marocchino
     .dbus_req_o                       (dbus_req_o), // LSU
     .dbus_dat_o                       (dbus_dat_o), // LSU
     .dbus_bsel_o                      (dbus_bsel_o[3:0]), // LSU
-    .dbus_we_o                        (dbus_we_o), // LSU
+    .dbus_lwa_cmd_o                   (dbus_lwa_cmd_o), // LSU: atomic load
+    .dbus_stna_cmd_o                  (dbus_stna_cmd_o), // LSU: none-atomic store
+    .dbus_swa_cmd_o                   (dbus_swa_cmd_o), // LSU: atomic store
     .dbus_burst_o                     (dbus_burst_o), // LSU
-    // For lwa/swa
-    .dbus_atomic_o                    (dbus_atomic_o), // LSU
+    // Other connections for lwa/swa support
     .dbus_atomic_flg_i                (dbus_atomic_flg_i), // LSU
     // Cache sync for multi-core environment
     .snoop_adr_i                      (snoop_adr_i[31:0]), // LSU

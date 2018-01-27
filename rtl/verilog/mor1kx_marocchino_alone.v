@@ -158,24 +158,25 @@ module mor1kx_marocchino_alone
   input                            snoop_en_i
 );
 
-  // BUS-Bridge <-> CPU data port
+  // DBUS-Bridge <-> CPU data port
   wire [OPTION_OPERAND_WIDTH-1:0] cpu2dbus_adr;
   wire [3:0]                      cpu2dbus_bsel;
   wire                            cpu2dbus_burst;
   wire [OPTION_OPERAND_WIDTH-1:0] cpu2dbus_dat;
   wire                            cpu2dbus_req;
-  wire                            cpu2dbus_we;
+  wire                            cpu2dbus_lwa_cmd; // atomic load
+  wire                            cpu2dbus_stna_cmd; // none-atomic store
+  wire                            cpu2dbus_swa_cmd; // atomic store
   wire                            dbus2cpu_err;
   wire                            dbus2cpu_ack;
   wire [OPTION_OPERAND_WIDTH-1:0] dbus2cpu_dat;
   wire                            dbus2cpu_burst_last;
-  // For lwa/swa
+  // Other connections for lwa/swa support
   wire                            pipeline_flush;
-  wire                            cpu2dbus_atomic;
   wire                            dbus2cpu_atomic_flg;
 
 
-  // BUS-Bridge <-> CPU instruction port
+  // IBUS-Bridge <-> CPU instruction port
   wire [OPTION_OPERAND_WIDTH-1:0] cpu2ibus_adr;
   wire                            cpu2ibus_burst;
   wire                            cpu2ibus_req;
@@ -219,10 +220,11 @@ module mor1kx_marocchino_alone
     .cpu_dat_i        ({OPTION_OPERAND_WIDTH{1'b0}}), // IBUS_BRIDGE
     .cpu_req_i        (cpu2ibus_req), // IBUS_BRIDGE
     .cpu_bsel_i       (4'b1111), // IBUS_BRIDGE
-    .cpu_we_i         (1'b0), // IBUS_BRIDGE
+    .cpu_lwa_cmd_i    (1'b0), // IBUS_BRIDGE
+    .cpu_stna_cmd_i   (1'b0), // IBUS_BRIDGE
+    .cpu_swa_cmd_i    (1'b0), // IBUS_BRIDGE
     .cpu_burst_i      (cpu2ibus_burst), // IBUS_BRIDGE
-    // For lwa/swa
-    .cpu_atomic_i     (1'b0), // IBUS_BRIDGE
+    // Other connections for lwa/swa support
     .cpu_atomic_flg_o (), // IBUS_BRIDGE
     // Wishbone side
     .wbm_adr_o        (iwbm_adr_o), // IBUS_BRIDGE
@@ -270,10 +272,11 @@ module mor1kx_marocchino_alone
     .cpu_dat_i        (cpu2dbus_dat), // DBUS_BRIDGE
     .cpu_req_i        (cpu2dbus_req), // DBUS_BRIDGE
     .cpu_bsel_i       (cpu2dbus_bsel), // DBUS_BRIDGE
-    .cpu_we_i         (cpu2dbus_we), // DBUS_BRIDGE
+    .cpu_lwa_cmd_i    (cpu2dbus_lwa_cmd), // DBUS_BRIDGE
+    .cpu_stna_cmd_i   (cpu2dbus_stna_cmd), // DBUS_BRIDGE
+    .cpu_swa_cmd_i    (cpu2dbus_swa_cmd), // DBUS_BRIDGE
     .cpu_burst_i      (cpu2dbus_burst), // DBUS_BRIDGE
-    // For lwa/swa
-    .cpu_atomic_i     (cpu2dbus_atomic), // DBUS_BRIDGE
+    // Other connections for lwa/swa support
     .cpu_atomic_flg_o (dbus2cpu_atomic_flg), // DBUS_BRIDGE
     // Wishbone side
     .wbm_adr_o        (dwbm_adr_o), // DBUS_BRIDGE
@@ -366,14 +369,15 @@ module mor1kx_marocchino_alone
     .dbus_dat_o               (cpu2dbus_dat), // CPU
     .dbus_req_o               (cpu2dbus_req), // CPU
     .dbus_bsel_o              (cpu2dbus_bsel), // CPU
-    .dbus_we_o                (cpu2dbus_we), // CPU
+    .dbus_lwa_cmd_o           (cpu2dbus_lwa_cmd), // CPU
+    .dbus_stna_cmd_o          (cpu2dbus_stna_cmd), // CPU
+    .dbus_swa_cmd_o           (cpu2dbus_swa_cmd), // CPU
     .dbus_burst_o             (cpu2dbus_burst), // CPU
     .dbus_err_i               (dbus2cpu_err), // CPU
     .dbus_ack_i               (dbus2cpu_ack), // CPU
     .dbus_dat_i               (dbus2cpu_dat), // CPU
     .dbus_burst_last_i        (dbus2cpu_burst_last), // CPU
-    // For lwa/swa
-    .dbus_atomic_o            (cpu2dbus_atomic), // CPU
+    // Other connections for lwa/swa support
     .dbus_atomic_flg_i        (dbus2cpu_atomic_flg), // CPU
     // Interrupts
     .irq_i                    (irq_i[31:0]), // CPU

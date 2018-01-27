@@ -55,10 +55,11 @@ module mor1kx_bus_if_wb32_marocchino
   input      [31:0] cpu_dat_i,
   input             cpu_req_i,
   input       [3:0] cpu_bsel_i,
-  input             cpu_we_i,
+  input             cpu_lwa_cmd_i,
+  input             cpu_stna_cmd_i,
+  input             cpu_swa_cmd_i,
   input             cpu_burst_i,
-  // For lwa/swa
-  input             cpu_atomic_i,
+  // Other connections for lwa/swa support
   output            cpu_atomic_flg_o,
 
   // Wishbone side
@@ -108,11 +109,10 @@ module mor1kx_bus_if_wb32_marocchino
   // !!! Use them only with "and" with another flags     !!!
   // !!! because they keep states between CPU's requests !!!
   // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-  // MAROCCHINO_TODO: move them into LSU's DBUS FSM ?
   //
-  wire        str_cmd;
-  wire        swa_cmd;
   wire        lwa_cmd;
+  wire        stna_cmd;
+  wire        swa_cmd;
   //
   // atomic reservation flag
   //
@@ -265,26 +265,29 @@ module mor1kx_bus_if_wb32_marocchino
   if (DRIVER_TYPE == "D_CACHE") begin: dbus_specific
   /* verilator lint_on WIDTH */
 
-    // latch for "we"
-    reg  cpu_we_r1;
-    reg  cpu_atomic_r1;
+    // latch for command type
+    reg  cpu_lwa_cmd_r1;
+    reg  cpu_stna_cmd_r1;
+    reg  cpu_swa_cmd_r1;
 
     // latch "CPU is requesting atomic operation" flag
     always @(posedge wb_clk) begin
       if (wb_rst) begin
-        cpu_we_r1     <= 1'b0; // by reset
-        cpu_atomic_r1 <= 1'b0; // by reset
+        cpu_lwa_cmd_r1  <= 1'b0; // cpu-reset
+        cpu_stna_cmd_r1 <= 1'b0; // cpu-reset
+        cpu_swa_cmd_r1  <= 1'b0; // cpu-reset
       end
       else begin
-        cpu_we_r1     <= cpu_we_i;     // taking cpu request
-        cpu_atomic_r1 <= cpu_atomic_i; // taking cpu request
+        cpu_lwa_cmd_r1  <= cpu_lwa_cmd_i;  // taking cpu request
+        cpu_stna_cmd_r1 <= cpu_stna_cmd_i; // taking cpu request
+        cpu_swa_cmd_r1  <= cpu_swa_cmd_i;  // taking cpu request
       end
     end
 
     // CPU request clarifications
-    assign lwa_cmd = (~cpu_we_r1) &   cpu_atomic_r1;  // DBUS bridge
-    assign swa_cmd =   cpu_we_r1  &   cpu_atomic_r1;  // DBUS bridge
-    assign str_cmd =   cpu_we_r1  & (~cpu_atomic_r1); // DBUS bridge
+    assign lwa_cmd  = cpu_lwa_cmd_r1;  // DBUS bridge
+    assign stna_cmd = cpu_stna_cmd_r1; // DBUS bridge
+    assign swa_cmd  = cpu_swa_cmd_r1;  // DBUS bridge
 
 
     // DBUS request states
@@ -309,7 +312,7 @@ module mor1kx_bus_if_wb32_marocchino
           // "another l.swa" checking
           DBUS_WAITING_CPU_REQ: begin
             if (cpu_req_pulse) begin
-              to_wbm_we_r  <= str_cmd;
+              to_wbm_we_r  <= stna_cmd;
               dbus_state_r <= swa_cmd ? DBUS_PENDING_SWA : DBUS_WAITING_WBM_ACQ;
             end
           end
@@ -600,7 +603,7 @@ module mor1kx_bus_if_wb32_marocchino
     // atomic reserve flag
     wire deassert_atomic_flg =
       pipeline_flush_pulse | flush_r | // deassert atomic flag by context switch
-      (str_cmd    & atomic_flg_r & (atomic_adr_r == cpu_adr_r1[31:2])) | // deassert atomic flag by store to the same location
+      (stna_cmd   & atomic_flg_r & (atomic_adr_r == cpu_adr_r1[31:2])) | // deassert atomic flag by store to the same location
       (swa_cmd    & atomic_flg_r & (atomic_adr_r != cpu_adr_r1[31:2])) | // deassert atomic flag by l.swa to another location
       (snoop_en_l & atomic_flg_r & (atomic_adr_r == snoop_adr_l))      | // deassert atomic flag by snoop hit
       (swa_cmd & (wbm_err_l | wbm_ack_l)); // deassert atomic flag by l.swa completion
@@ -632,9 +635,9 @@ module mor1kx_bus_if_wb32_marocchino
   else begin : ibus_without_atomics
 
     // CPU request clarifications
-    assign str_cmd          =  1'b0; // IBUS bridge
-    assign swa_cmd          =  1'b0; // IBUS bridge
     assign lwa_cmd          =  1'b0; // IBUS bridge
+    assign stna_cmd         =  1'b0; // IBUS bridge
+    assign swa_cmd          =  1'b0; // IBUS bridge
 
     // atomic reservation flag
     assign atomic_flg       =  1'b0; // IBUS bridge
