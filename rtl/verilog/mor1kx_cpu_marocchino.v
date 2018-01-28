@@ -54,11 +54,13 @@ module mor1kx_cpu_marocchino
   // interrupt controller
   parameter OPTION_PIC_TRIGGER          = "LEVEL",
   parameter OPTION_PIC_NMI_WIDTH        = 0,
-  // debug unit, performance counters, m-core, trace
+  // debug unit, performance counters, trace
   parameter FEATURE_DEBUGUNIT           = "NONE",
   parameter FEATURE_PERFCOUNTERS        = "NONE",
-  parameter FEATURE_MULTICORE           = "NONE",
   parameter FEATURE_TRACEPORT_EXEC      = "NONE",
+  // m-core
+  parameter FEATURE_MULTICORE           = "NONE",
+  parameter OPTION_RF_NUM_SHADOW_GPR    = 0,      // for multicore mostly
   // Redister File
   parameter OPTION_RF_CLEAR_ON_INIT     = 0,
   parameter OPTION_RF_ADDR_WIDTH        = 5,
@@ -483,9 +485,12 @@ module mor1kx_cpu_marocchino
 
 
   // SPR access buses (Unit -> CTRL part)
-  //   GPR
-  wire                            spr_bus_ack_gpr;
-  wire [OPTION_OPERAND_WIDTH-1:0] spr_bus_dat_gpr;
+  //   GPR[0]
+  wire                            spr_bus_ack_gpr0;
+  wire [OPTION_OPERAND_WIDTH-1:0] spr_bus_dat_gpr0;
+  //   GPR [S]hadow
+  wire                            spr_bus_ack_gprS;
+  wire [OPTION_OPERAND_WIDTH-1:0] spr_bus_dat_gprS;
   //   Data MMU
   wire [OPTION_OPERAND_WIDTH-1:0] spr_bus_dat_dmmu;
   wire                            spr_bus_ack_dmmu;
@@ -735,7 +740,8 @@ module mor1kx_cpu_marocchino
     .OPTION_OPERAND_WIDTH           (OPTION_OPERAND_WIDTH), // RF
     .OPTION_RF_CLEAR_ON_INIT        (OPTION_RF_CLEAR_ON_INIT), // RF
     .OPTION_RF_ADDR_WIDTH           (OPTION_RF_ADDR_WIDTH), // RF
-    .FEATURE_DEBUGUNIT              (FEATURE_DEBUGUNIT) // RF
+    .FEATURE_DEBUGUNIT              (FEATURE_DEBUGUNIT), // RF
+    .OPTION_RF_NUM_SHADOW_GPR       (OPTION_RF_NUM_SHADOW_GPR) // RF
   )
   u_rf
   (
@@ -750,8 +756,10 @@ module mor1kx_cpu_marocchino
     .spr_bus_stb_i                    (spr_bus_stb_o), // RF
     .spr_bus_we_i                     (spr_bus_we_o), // RF
     .spr_bus_dat_i                    (spr_bus_dat_o), // RF
-    .spr_bus_ack_gpr_o                (spr_bus_ack_gpr), // RF
-    .spr_bus_dat_gpr_o                (spr_bus_dat_gpr), // RF
+    .spr_bus_ack_gpr0_o               (spr_bus_ack_gpr0), // RF
+    .spr_bus_dat_gpr0_o               (spr_bus_dat_gpr0), // RF
+    .spr_bus_ack_gprS_o               (spr_bus_ack_gprS), // RF
+    .spr_bus_dat_gprS_o               (spr_bus_dat_gprS), // RF
     // from FETCH
     .fetch_rfa1_adr_i                 (fetch_rfa1_adr_cp1), // RF
     .fetch_rfb1_adr_i                 (fetch_rfb1_adr_cp1), // RF
@@ -2145,7 +2153,8 @@ module mor1kx_cpu_marocchino
     .FEATURE_DEBUGUNIT          (FEATURE_DEBUGUNIT), // CTRL
     .FEATURE_PERFCOUNTERS       (FEATURE_PERFCOUNTERS), // CTRL
     .FEATURE_MAC                ("NONE"), // CTRL
-    .FEATURE_MULTICORE          (FEATURE_MULTICORE) // CTRL
+    .FEATURE_MULTICORE          (FEATURE_MULTICORE), // CTRL
+    .OPTION_RF_NUM_SHADOW_GPR   (OPTION_RF_NUM_SHADOW_GPR) // CTRL
   )
   u_ctrl
   (
@@ -2221,8 +2230,10 @@ module mor1kx_cpu_marocchino
     .spr_bus_ack_tt_i                 (spr_bus_ack_tt), // CTRL
     .spr_bus_dat_pic_i                (spr_bus_dat_pic), // CTRL
     .spr_bus_ack_pic_i                (spr_bus_ack_pic), // CTRL
-    .spr_bus_dat_gpr_i                (spr_bus_dat_gpr), // CTRL
-    .spr_bus_ack_gpr_i                (spr_bus_ack_gpr), // CTRL
+    .spr_bus_dat_gpr0_i               (spr_bus_dat_gpr0), // CTRL
+    .spr_bus_ack_gpr0_i               (spr_bus_ack_gpr0), // CTRL
+    .spr_bus_dat_gprS_i               (spr_bus_dat_gprS), // CTRL
+    .spr_bus_ack_gprS_i               (spr_bus_ack_gprS), // CTRL
 
     // WB: External Interrupt Collection
     .tt_interrupt_enable_o            (tt_interrupt_enable), // CTRL

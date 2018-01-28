@@ -56,7 +56,9 @@ module mor1kx_ctrl_marocchino
   parameter FEATURE_PERFCOUNTERS      = "NONE",
   parameter FEATURE_PMU               = "NONE",
   parameter FEATURE_MAC               = "NONE",
+
   parameter FEATURE_MULTICORE         = "NONE",
+  parameter OPTION_RF_NUM_SHADOW_GPR  = 0,        // for multicore mostly
 
   parameter OPTION_PIC_TRIGGER        = "LEVEL",
 
@@ -135,8 +137,10 @@ module mor1kx_ctrl_marocchino
   input                                 spr_bus_ack_tt_i,
   input      [OPTION_OPERAND_WIDTH-1:0] spr_bus_dat_pic_i,
   input                                 spr_bus_ack_pic_i,
-  input      [OPTION_OPERAND_WIDTH-1:0] spr_bus_dat_gpr_i,
-  input                                 spr_bus_ack_gpr_i,
+  input      [OPTION_OPERAND_WIDTH-1:0] spr_bus_dat_gpr0_i,
+  input                                 spr_bus_ack_gpr0_i,
+  input      [OPTION_OPERAND_WIDTH-1:0] spr_bus_dat_gprS_i,
+  input                                 spr_bus_ack_gprS_i,
 
   // WB: External Interrupt Collection
   output                                tt_interrupt_enable_o,
@@ -764,7 +768,7 @@ module mor1kx_ctrl_marocchino
     .OPTION_PIC_TRIGGER              (OPTION_PIC_TRIGGER),
     .FEATURE_DSX                     ("ENABLED"), // mor1kx_cfgrs instance: marocchino
     .FEATURE_FASTCONTEXTS            ("NONE"), // mor1kx_cfgrs instance: marocchino
-    .OPTION_RF_NUM_SHADOW_GPR        (0), // mor1kx_cfgrs instance: marocchino
+    .OPTION_RF_NUM_SHADOW_GPR        (OPTION_RF_NUM_SHADOW_GPR), // mor1kx_cfgrs instance: marocchino
     .FEATURE_OVERFLOW                ("ENABLED"), // mor1kx_cfgrs instance: marocchino
     .FEATURE_DATACACHE               ("ENABLED"), // mor1kx_cfgrs instance: marocchino
     .OPTION_DCACHE_BLOCK_WIDTH       (OPTION_DCACHE_BLOCK_WIDTH), // mor1kx_cfgrs instance:
@@ -1102,7 +1106,8 @@ module mor1kx_ctrl_marocchino
 
 
   // SPR access "ACK"
-  assign spr_bus_ack = spr_bus_ack_sys_group | spr_bus_ack_gpr_i  |
+  assign spr_bus_ack = spr_bus_ack_sys_group |
+                       spr_bus_ack_gpr0_i    | spr_bus_ack_gprS_i |
                        spr_bus_ack_dmmu_i    | spr_bus_ack_immu_i |
                        spr_bus_ack_dc_i      | spr_bus_ack_ic_i   |
                        spr_bus_ack_mac_i     | spr_bus_ack_du     |
@@ -1115,7 +1120,8 @@ module mor1kx_ctrl_marocchino
   // Read datas are simply ORed since set to 0 when not
   // concerned by spr access.
   //
-  assign spr_bus_dat_mux = spr_bus_dat_sys_group | spr_bus_dat_gpr_i  |
+  assign spr_bus_dat_mux = spr_bus_dat_sys_group |
+                           spr_bus_dat_gpr0_i    | spr_bus_dat_gprS_i |
                            spr_bus_dat_dmmu_i    | spr_bus_dat_immu_i |
                            spr_bus_dat_dc_i      | spr_bus_dat_ic_i   |
                            spr_bus_dat_mac_i     | spr_bus_dat_du     |

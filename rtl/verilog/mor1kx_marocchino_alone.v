@@ -84,6 +84,7 @@ module mor1kx_marocchino_alone
   parameter FEATURE_CSYNC              = "NONE",
 
   parameter FEATURE_MULTICORE          = "NONE",
+  parameter OPTION_RF_NUM_SHADOW_GPR   = 0,       // for multicore mostly
 
   parameter FEATURE_TRACEPORT_EXEC     = "NONE",
 
@@ -329,11 +330,13 @@ module mor1kx_marocchino_alone
     // interrupt controller
     .OPTION_PIC_TRIGGER               (OPTION_PIC_TRIGGER), // CPU
     .OPTION_PIC_NMI_WIDTH             (OPTION_PIC_NMI_WIDTH), // CPU
-    // timer, debug unit, performance counters, m-core, trace
+    // timer, debug unit, performance counters, trace
     .FEATURE_DEBUGUNIT                (FEATURE_DEBUGUNIT), // CPU
     .FEATURE_PERFCOUNTERS             (FEATURE_PERFCOUNTERS), // CPU
-    .FEATURE_MULTICORE                (FEATURE_MULTICORE), // CPU
     .FEATURE_TRACEPORT_EXEC           (FEATURE_TRACEPORT_EXEC), // CPU
+    // m-core
+    .FEATURE_MULTICORE                (FEATURE_MULTICORE), // CPU
+    .OPTION_RF_NUM_SHADOW_GPR         (OPTION_RF_NUM_SHADOW_GPR), // CPU
     // Redister File
     .OPTION_RF_CLEAR_ON_INIT          (OPTION_RF_CLEAR_ON_INIT), // CPU
     .OPTION_RF_ADDR_WIDTH             (OPTION_RF_ADDR_WIDTH), // CPU

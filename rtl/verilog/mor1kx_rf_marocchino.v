@@ -29,10 +29,11 @@
 
 module mor1kx_rf_marocchino
 #(
-  parameter OPTION_RF_CLEAR_ON_INIT  = 0,
-  parameter OPTION_RF_ADDR_WIDTH     = 5,
+  parameter OPTION_RF_CLEAR_ON_INIT  =  0,
+  parameter OPTION_RF_ADDR_WIDTH     =  5,
+  parameter OPTION_OPERAND_WIDTH     = 32,
   parameter FEATURE_DEBUGUNIT        = "NONE",
-  parameter OPTION_OPERAND_WIDTH     = 32
+  parameter OPTION_RF_NUM_SHADOW_GPR =  0       // for multicore mostly
 )
 (
   input                             cpu_clk,
@@ -47,8 +48,10 @@ module mor1kx_rf_marocchino
   input                                 spr_bus_stb_i,
   input                                 spr_bus_we_i,
   input      [OPTION_OPERAND_WIDTH-1:0] spr_bus_dat_i,
-  output reg                            spr_bus_ack_gpr_o,
-  output     [OPTION_OPERAND_WIDTH-1:0] spr_bus_dat_gpr_o,
+  output                                spr_bus_ack_gpr0_o,
+  output     [OPTION_OPERAND_WIDTH-1:0] spr_bus_dat_gpr0_o,
+  output                                spr_bus_ack_gprS_o,
+  output     [OPTION_OPERAND_WIDTH-1:0] spr_bus_dat_gprS_o,
 
   // from FETCH
   input  [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfa1_adr_i,
@@ -131,17 +134,22 @@ module mor1kx_rf_marocchino
   //-----------//
 
   // ram blocks outputs
+  //  # for DECODE
   wire [(RF_DW-1):0] rfa_even_dout;
   wire [(RF_DW-1):0] rfa_odd_dout;
   wire [(RF_DW-1):0] rfb_even_dout;
   wire [(RF_DW-1):0] rfb_odd_dout;
+  //  # for SPR BUS access
+  wire [(RF_DW-1):0] rfa_even_spr_dout;
+  wire [(RF_DW-1):0] rfa_odd_spr_dout;
+  
 
-  // SPR/GPR access from SPR bus
-  wire               spr_gpr_cs;
-  wire               spr_gpr_we_even;
-  wire               spr_gpr_we_odd;
-  wire [(RF_AW-1):0] spr_gpr_waddr;
-  wire [(RF_DW-1):0] spr_gpr_wdata;
+  // GPRs access from SPR bus
+  wire               spr_gpr0_we_even;
+  wire               spr_gpr0_we_odd;
+  wire               spr_gpr0_re;
+  wire [(RF_AW-1):0] spr_gpr0_addr;
+  wire [(RF_DW-1):0] spr_gpr0_wdata;
 
 
   // short name for read request
@@ -154,9 +162,9 @@ module mor1kx_rf_marocchino
   //    will be restarted by l.rfe
 
   //  write in even
-  wire write_even_req = wb_rf_even_wb_i | spr_gpr_we_even;
+  wire write_even_req = wb_rf_even_wb_i | spr_gpr0_we_even;
   // write in odd
-  wire write_odd_req  = wb_rf_odd_wb_i  | spr_gpr_we_odd;
+  wire write_odd_req  = wb_rf_odd_wb_i  | spr_gpr0_we_odd;
 
   // if A(B)'s address is odd than A2(B2)=A(B)+1 is even and vise verse
 
@@ -166,11 +174,11 @@ module mor1kx_rf_marocchino
   wire [(RF_DW-1):0] wb_odd_data  = wb_rfd1_adr_i[0] ? wb_result1_i : wb_result2_i;
 
   //  write even address & data
-  wire [(RF_AW-1):0] even_wadr = spr_gpr_we_even ? spr_gpr_waddr : wb_rf_even_addr_i;
-  wire [(RF_DW-1):0] even_wdat = spr_gpr_we_even ? spr_gpr_wdata : wb_even_data;
+  wire [(RF_AW-1):0] even_wadr = spr_gpr0_we_even ? spr_gpr0_addr  : wb_rf_even_addr_i;
+  wire [(RF_DW-1):0] even_wdat = spr_gpr0_we_even ? spr_gpr0_wdata : wb_even_data;
   //  write odd address & data
-  wire [(RF_AW-1):0] odd_wadr = spr_gpr_we_odd ? spr_gpr_waddr : wb_rf_odd_addr_i;
-  wire [(RF_DW-1):0] odd_wdat = spr_gpr_we_odd ? spr_gpr_wdata : wb_odd_data;
+  wire [(RF_AW-1):0] odd_wadr = spr_gpr0_we_odd ? spr_gpr0_addr  : wb_rf_odd_addr_i;
+  wire [(RF_DW-1):0] odd_wdat = spr_gpr0_we_odd ? spr_gpr0_wdata : wb_odd_data;
 
 
   // Controls for A-even RAM block
@@ -185,7 +193,12 @@ module mor1kx_rf_marocchino
   wire rfa_even_rwp_we = write_even_req & (even_wadr == rfa_even_radr);
   wire rfa_even_rwp_en = read_req | rfa_even_rwp_we;
   //  # signals for Write port *_wp_*
-  wire rfa_even_wp_en  = write_even_req & (even_wadr != rfa_even_radr);
+  //  # we also use this port for SPR GPR read access
+  wire rfa_even_wp_en  = (write_even_req & (even_wadr != rfa_even_radr)) | spr_gpr0_re;
+  wire rfa_even_wp_we  = (~pipeline_flush_i) & (~spr_gpr0_re);
+  //  # Write port address
+  wire [(RF_AW-2):0] rfa_even_wpadr;
+  assign rfa_even_wpadr = spr_gpr0_re ? spr_gpr0_addr[(RF_AW-1):1] : even_wadr[(RF_AW-1):1];
   //  # RFA-even RAM-block instance
   mor1kx_dpram_en_w1st_sclk
   #(
@@ -205,10 +218,10 @@ module mor1kx_rf_marocchino
     .dout_a (rfa_even_dout),
     // port "b": Write if no RW-conflict
     .en_b   (rfa_even_wp_en),
-    .we_b   (~pipeline_flush_i),
-    .addr_b (even_wadr[(RF_AW-1):1]),
+    .we_b   (rfa_even_wp_we),
+    .addr_b (rfa_even_wpadr),
     .din_b  (even_wdat),
-    .dout_b ()
+    .dout_b (rfa_even_spr_dout)
   );
 
 
@@ -224,7 +237,12 @@ module mor1kx_rf_marocchino
   wire rfa_odd_rwp_we = write_odd_req & (odd_wadr == rfa_odd_radr);
   wire rfa_odd_rwp_en = read_req | rfa_odd_rwp_we;
   //  # signals for Write port *_wp_*
-  wire rfa_odd_wp_en  = write_odd_req & (odd_wadr != rfa_odd_radr);
+  //  # we also use this port for SPR GPR read access
+  wire rfa_odd_wp_en  = (write_odd_req & (odd_wadr != rfa_odd_radr)) | spr_gpr0_re;
+  wire rfa_odd_wp_we  = (~pipeline_flush_i) & (~spr_gpr0_re);
+  //  # Write port address
+  wire [(RF_AW-2):0] rfa_odd_wpadr;
+  assign rfa_odd_wpadr = spr_gpr0_re ? spr_gpr0_addr[(RF_AW-1):1] : odd_wadr[(RF_AW-1):1];
   //  # RFA-odd RAM-block instance
   mor1kx_dpram_en_w1st_sclk
   #(
@@ -244,10 +262,10 @@ module mor1kx_rf_marocchino
     .dout_a (rfa_odd_dout),
     // port "b": Write if no RW-conflict
     .en_b   (rfa_odd_wp_en),
-    .we_b   (~pipeline_flush_i),
-    .addr_b (odd_wadr[(RF_AW-1):1]),
+    .we_b   (rfa_odd_wp_we),
+    .addr_b (rfa_odd_wpadr),
     .din_b  (odd_wdat),
-    .dout_b ()
+    .dout_b (rfa_odd_spr_dout)
   );
 
 
@@ -333,150 +351,344 @@ module mor1kx_rf_marocchino
   // SPR interface //
   //---------------//
 
-  // detect GPR access
-  //  !!! low bits of SPR-address are used for addressing RF !!!
-  assign spr_gpr_cs = spr_bus_stb_i & (spr_bus_addr_i[15:10] == 6'b000001); // see OR1K_SPR_GPR0_ADDR
+  //  we don't expect R/W-collisions for SPRbus vs WB cycles since
+  //    SPRbus access start 1-clock later than WB
+  //    thanks to MT(F)SPR processing logic (see OMAN)
+
+  // Registering SPR BUS incoming signals.
+
+  // SPR BUS strobe registering
+  reg spr_bus_stb_r;
+  // ---
+  always @(posedge cpu_clk) begin
+    if (cpu_rst)
+      spr_bus_stb_r <= 1'b0;
+    else if (spr_bus_ack_gpr0_o | spr_bus_ack_gprS_o)
+      spr_bus_stb_r <= 1'b0;
+    else
+      spr_bus_stb_r <= spr_bus_stb_i;
+  end // at clock
+
+  // SPR BUS address registering
+  reg [15:0] spr_bus_addr_r;
+  // ---
+  always @(posedge cpu_clk) begin
+    spr_bus_addr_r <= spr_bus_addr_i;
+  end
+
+  // Registering SPR BUS "write strobe" and "data for write".
+  wire               spr_bus_we_l;
+  wire [(RF_DW-1):0] spr_bus_dat_l;
 
   generate
   /* verilator lint_off WIDTH */
-  if (FEATURE_DEBUGUNIT != "NONE") begin : rfspr_enabled
+  if ((FEATURE_DEBUGUNIT != "NONE") || (OPTION_RF_NUM_SHADOW_GPR > 0)) begin : spr_aux_enabled
   /* verilator lint_on WIDTH */
 
-    wire [(RF_DW-1):0] rfspr_dout;
+    // Registering SPR BUS "write strobe" and "data for write".
+    reg               spr_bus_we_r; // DBGU or SHADOW
+    reg [(RF_DW-1):0] spr_bus_dat_r; // DBGU or SHADOW
+    // ---
+    assign spr_bus_we_l  = spr_bus_we_r; // DBGU or SHADOW
+    assign spr_bus_dat_l = spr_bus_dat_r; // DBGU or SHADOW
+    // ---
+    always @(posedge cpu_clk) begin
+      spr_bus_we_r  <= spr_bus_we_i; // DBGU or SHADOW
+      spr_bus_dat_r <= spr_bus_dat_i; // DBGU or SHADOW
+    end // at clock
 
-    //  we don't expect R/W-collisions for SPRbus vs WB cycles since
-    //    SPRbus access start 1-clock later than WB
-    //    thanks to MT(F)SPR processing logic (see OMAN)
+  end
+  else begin : spr_aux_disabled
 
-    reg               spr_gpr_we_r;
-    reg               spr_gpr_we_even_r;
-    reg               spr_gpr_we_odd_r;
-    reg               spr_gpr_re_r;
-    reg               spr_gpr_mux_r;
-    reg [(RF_DW-1):0] spr_bus_dat_gpr_r;
-    // Address and data for write
-    reg [(RF_AW-1):0] spr_gpr_waddr_r;
-    reg [(RF_DW-1):0] spr_gpr_wdata_r;
+    assign spr_bus_we_l  = 1'b0;          // No DBGU and No SHADOW
+    assign spr_bus_dat_l = {RF_DW{1'b0}}; // No DBGU and No SHADOW
 
-    // SPR processing cycle
+  end
+  endgenerate
+
+
+  // GPR[0] chip select
+  // low bits of SPR-address are used for addressing GPR[0]
+  wire spr_gpr0_cs = spr_bus_stb_r &                  // GPR[0] access
+                     (spr_bus_addr_r[15:9] == 7'd2) & // GPR[0] access, see OR1K_SPR_GPR0_ADDR
+                     (spr_bus_addr_r[ 8:5] == 4'd0);  // GPR[0] access
+
+  // We declare states or SPR BUS FSM here because some
+  // of EDA tools deprecate local parameters declaration
+  // inside of generate blocks.
+
+  localparam  [4:0] SPR_GPR0_WAITING = 5'b00001,
+                    SPR_GPR0_WE_STRB = 5'b00010,
+                    SPR_GPR0_RE_STRB = 5'b00100,
+                    SPR_GPR0_READ_MX = 5'b01000,
+                    SPR_GPR0_ACK     = 5'b10000;
+
+  generate
+  /* verilator lint_off WIDTH */
+  if (FEATURE_DEBUGUNIT != "NONE") begin : dbgu_enabled
+  /* verilator lint_on WIDTH */
+
+    // SPR BUS FSM states
+    reg         [4:0] spr_gpr0_state;
+
+    // Particular states
+    wire              spr_gpr0_waiting_state = spr_gpr0_state[0];
+    assign            spr_gpr0_re            = spr_gpr0_state[2]; // DBGU enabled
+    wire              spr_gpr0_read_mx_state = spr_gpr0_state[3];
+    assign            spr_bus_ack_gpr0_o     = spr_gpr0_state[4]; // DBGU enabled
+
+    // Read/Write controls
+    reg               spr_gpr0_we_even_r;
+    reg               spr_gpr0_we_odd_r;
+
+    // Read data
+    reg [(RF_DW-1):0] spr_bus_dat_gpr0_r;
+
+
+    // SPR BUS FSM
     always @(posedge cpu_clk) begin
       if (cpu_rst) begin
-        spr_gpr_we_r      <= 1'b0;
-        spr_gpr_we_even_r <= 1'b0;
-        spr_gpr_we_odd_r  <= 1'b0;
-        spr_gpr_re_r      <= 1'b0;
-        spr_gpr_mux_r     <= 1'b0;
-        spr_bus_ack_gpr_o <= 1'b0;
+        // controls
+        spr_gpr0_we_even_r <= 1'b0;
+        spr_gpr0_we_odd_r  <= 1'b0;
+        // state
+        spr_gpr0_state     <= SPR_GPR0_WAITING;
       end
-      else if (spr_bus_ack_gpr_o) begin
-        spr_gpr_we_r      <= 1'b0;
-        spr_gpr_we_even_r <= 1'b0;
-        spr_gpr_we_odd_r  <= 1'b0;
-        spr_gpr_re_r      <= 1'b0;
-        spr_gpr_mux_r     <= 1'b0;
-        spr_bus_ack_gpr_o <= 1'b0;
-      end
-      else if (spr_gpr_mux_r) begin
-        spr_gpr_we_r      <= 1'b0;
-        spr_gpr_we_even_r <= 1'b0;
-        spr_gpr_we_odd_r  <= 1'b0;
-        spr_gpr_re_r      <= 1'b0;
-        spr_gpr_mux_r     <= 1'b0;
-        spr_bus_ack_gpr_o <= 1'b1;
-      end
-      else if (spr_gpr_re_r) begin
-        spr_gpr_we_r      <= 1'b0;
-        spr_gpr_we_even_r <= 1'b0;
-        spr_gpr_we_odd_r  <= 1'b0;
-        spr_gpr_re_r      <= 1'b0;
-        spr_gpr_mux_r     <= 1'b1;
-        spr_bus_ack_gpr_o <= 1'b0;
-      end
-      else if (spr_gpr_cs) begin
-        spr_gpr_we_r      <= spr_bus_we_i;
-        spr_gpr_we_even_r <= spr_bus_we_i & (~spr_bus_addr_i[0]);
-        spr_gpr_we_odd_r  <= spr_bus_we_i &   spr_bus_addr_i[0];
-        spr_gpr_re_r      <= ~spr_bus_we_i;
-        spr_gpr_mux_r     <= 1'b0;
-        spr_bus_ack_gpr_o <= spr_bus_we_i; // write on next posedge of clock and finish
+      else begin
+        // synthesis parallel_case full_case
+        case (spr_gpr0_state)
+          // waiting GPR[0] access
+          SPR_GPR0_WAITING: begin
+            if (spr_gpr0_cs) begin
+              // controls
+              spr_gpr0_we_even_r <= spr_bus_we_l & (~spr_bus_addr_r[0]);
+              spr_gpr0_we_odd_r  <= spr_bus_we_l &   spr_bus_addr_r[0];
+              // next state
+              spr_gpr0_state     <= spr_bus_we_l ? SPR_GPR0_WE_STRB : SPR_GPR0_RE_STRB;
+            end
+          end
+
+          // write strobe
+          SPR_GPR0_WE_STRB: begin
+            // controls
+            spr_gpr0_we_even_r <= 1'b0;
+            spr_gpr0_we_odd_r  <= 1'b0;
+            // next state
+            spr_gpr0_state     <= SPR_GPR0_ACK;
+          end
+
+          // read strobe
+          SPR_GPR0_RE_STRB: begin
+            spr_gpr0_state <= SPR_GPR0_READ_MX;
+          end
+
+          // latch data for read
+          SPR_GPR0_READ_MX: begin
+            spr_gpr0_state <= SPR_GPR0_ACK;
+          end
+
+          // done
+          SPR_GPR0_ACK: begin
+            spr_gpr0_state <= SPR_GPR0_WAITING;
+          end
+
+          default;
+        endcase
       end
     end // @ clock
 
-    assign spr_gpr_we_even   = spr_gpr_we_even_r;
-    assign spr_gpr_we_odd    = spr_gpr_we_odd_r;
+
+    // Read/Write controls
+    assign spr_gpr0_we_even = spr_gpr0_we_even_r; // DBGU enabled
+    assign spr_gpr0_we_odd  = spr_gpr0_we_odd_r; // DBGU enabled
+
+    // Acceess address and data to write
+    assign spr_gpr0_addr  = spr_bus_addr_r[(RF_AW-1):0]; // DBGU enabled
+    assign spr_gpr0_wdata = spr_bus_dat_l; // DBGU enabled
+
 
     // registered output data: valid for 1-clock only with rised ACK
     always @(posedge cpu_clk) begin
-      spr_bus_dat_gpr_r <= {RF_DW{spr_gpr_mux_r}} & rfspr_dout;
+      spr_bus_dat_gpr0_r <= {RF_DW{spr_gpr0_read_mx_state}} &                          // SPR GPR[0] read latch
+                            (spr_gpr0_addr[0] ? rfa_odd_spr_dout : rfa_even_spr_dout); // SPR GPR[0] read latch
     end
     // ---
-    assign spr_bus_dat_gpr_o = spr_bus_dat_gpr_r;
-
-    // Address and data for write
-    always @(posedge cpu_clk) begin
-      if (spr_gpr_cs) begin
-        spr_gpr_waddr_r <= spr_bus_addr_i[(RF_AW-1):0];
-        spr_gpr_wdata_r <= spr_bus_dat_i;
-      end
-    end
-    // ---
-    assign spr_gpr_waddr = spr_gpr_waddr_r;
-    assign spr_gpr_wdata = spr_gpr_wdata_r;
-
-    // for port #1 we write result #1 and read by debug unit
-    wire               rfspr_p1_we    = wb_rfd1_wb_i | spr_gpr_we_r;
-    wire [(RF_AW-1):0] rfspr_p1_addr  = wb_rfd1_wb_i ? wb_rfd1_adr_i : spr_gpr_waddr;
-    wire [(RF_DW-1):0] rfspr_p1_data  = wb_rfd1_wb_i ? wb_result1_i  : spr_gpr_wdata;
-
-    // ---
-    mor1kx_dpram_en_w1st_sclk
-    #(
-      .ADDR_WIDTH     (RF_AW),
-      .DATA_WIDTH     (RF_DW),
-      .CLEAR_ON_INIT  (OPTION_RF_CLEAR_ON_INIT)
-    )
-    rfspr
-    (
-      // common clock
-      .clk    (cpu_clk),
-      // port "a"
-      .en_a   ((rfspr_p1_we | spr_gpr_re_r) & ~pipeline_flush_i),
-      .we_a   (rfspr_p1_we),
-      .addr_a (rfspr_p1_addr),
-      .din_a  (rfspr_p1_data),
-      .dout_a (rfspr_dout),
-      // port "b": just write result #2
-      .en_b   (wb_rfd2_wb_i & ~pipeline_flush_i),
-      .we_b   (wb_rfd2_wb_i),
-      .addr_b (wb_rfd2_adr_i),
-      .din_b  (wb_result2_i),
-      .dout_b ()
-    );
+    assign spr_bus_dat_gpr0_o = spr_bus_dat_gpr0_r; // DBGU enabled
 
   end
-  else begin : rfspr_disabled
+  else begin : dbgu_disabled
 
     // make ACK
+    reg    spr_bus_ack_gpr0_r;
+    assign spr_bus_ack_gpr0_o = spr_bus_ack_gpr0_r; // DBGU disabled
+    // ---
     always @(posedge cpu_clk) begin
       if (cpu_rst)
-        spr_bus_ack_gpr_o <= 1'b0;
-      else if (spr_bus_ack_gpr_o)
-        spr_bus_ack_gpr_o <= 1'b0;
-      else if (spr_gpr_cs)
-        spr_bus_ack_gpr_o <= 1'b1;
+        spr_bus_ack_gpr0_r <= 1'b0;
+      else if (spr_bus_ack_gpr0_r)
+        spr_bus_ack_gpr0_r <= 1'b0;
+      else if (spr_gpr0_cs)
+        spr_bus_ack_gpr0_r <= 1'b1;
     end
 
     // SPR data output
-    assign spr_bus_dat_gpr_o = {RF_DW{1'b0}};
+    assign spr_bus_dat_gpr0_o = {RF_DW{1'b0}}; // DBGU disabled
 
     // Write by SPR-bus command
-    assign spr_gpr_we_even = 1'b0;
-    assign spr_gpr_we_odd  = 1'b0;
+    assign spr_gpr0_we_even = 1'b0; // DBGU disabled
+    assign spr_gpr0_we_odd  = 1'b0; // DBGU disabled
+    assign spr_gpr0_re      = 1'b0; // DBGU disabled
 
     // Address and data for write
-    assign spr_gpr_waddr = {RF_AW{1'b0}};
-    assign spr_gpr_wdata = {RF_DW{1'b0}};
+    assign spr_gpr0_addr  = {RF_AW{1'b0}}; // DBGU disabled
+    assign spr_gpr0_wdata = {RF_DW{1'b0}}; // DBGU disabled
 
+  end
+  endgenerate
+
+
+  //--------------//
+  // GPR [S]hadow //
+  //--------------//
+
+  `include "mor1kx_utils.vh"
+
+  function integer calc_shadow_addr_width;
+    input integer rf_addr_width;
+    input integer rf_num_shadow_gpr;
+    calc_shadow_addr_width  = rf_addr_width +
+                              ((rf_num_shadow_gpr == 1) ? 1 :
+                               `clog2(rf_num_shadow_gpr));
+  endfunction
+
+  localparam SHADOW_AW = calc_shadow_addr_width(OPTION_RF_ADDR_WIDTH,
+                                                OPTION_RF_NUM_SHADOW_GPR);
+
+  // GPR[S]hadow chip select
+  // low bits of SPR-address are used for addressing GPR[S]hadow
+  wire spr_gprS_cs = spr_bus_stb_r &                  // GPR[S]hadow access
+                     (spr_bus_addr_r[15:9] == 7'd2) & // GPR[S]hadow access, same to OR1K_SPR_GPR0_ADDR
+                     (spr_bus_addr_r[ 8:5] != 4'd0);  // GPR[S]hadow access
+
+  // We declare states or SPR BUS FSM here because some
+  // of EDA tools deprecate local parameters declaration
+  // inside of generate blocks.
+
+  localparam  [4:0] SPR_GPRS_WAITING = 5'b00001,
+                    SPR_GPRS_WE_STRB = 5'b00010,
+                    SPR_GPRS_RE_STRB = 5'b00100,
+                    SPR_GPRS_READ_MX = 5'b01000,
+                    SPR_GPRS_ACK     = 5'b10000;
+
+  generate
+  /* verilator lint_off WIDTH */
+  if (OPTION_RF_NUM_SHADOW_GPR > 0) begin : shadow_enabled
+  /* verilator lint_on WIDTH */
+
+    // SPR BUS FSM states
+    reg         [4:0] spr_gprS_state;
+
+    // Particular states
+    wire              spr_gprS_waiting_state = spr_gprS_state[0];
+    wire              spr_gprS_we_strb_state = spr_gprS_state[1];
+    wire              spr_gprS_re_strb_state = spr_gprS_state[2];
+    wire              spr_gprS_read_mx_state = spr_gprS_state[3];
+    assign            spr_bus_ack_gprS_o     = spr_gprS_state[4];
+
+    // Read data
+    reg [(RF_DW-1):0] spr_bus_dat_gprS_r;
+
+
+    // SPR BUS FSM
+    always @(posedge cpu_clk) begin
+      if (cpu_rst) begin
+        spr_gprS_state <= SPR_GPRS_WAITING;
+      end
+      else begin
+        // synthesis parallel_case full_case
+        case (spr_gprS_state)
+          // waiting GPR[0] access
+          SPR_GPRS_WAITING: begin
+            if (spr_gprS_cs) begin
+              spr_gprS_state <= spr_bus_we_l ? SPR_GPRS_WE_STRB : SPR_GPRS_RE_STRB;
+            end
+          end
+
+          // write strobe
+          SPR_GPRS_WE_STRB: begin
+            spr_gprS_state <= SPR_GPRS_ACK;
+          end
+
+          // read strobe
+          SPR_GPRS_RE_STRB: begin
+            spr_gprS_state <= SPR_GPRS_READ_MX;
+          end
+
+          // latch data for read
+          SPR_GPRS_READ_MX: begin
+            spr_gprS_state <= SPR_GPRS_ACK;
+          end
+
+          // done
+          SPR_GPRS_ACK: begin
+            spr_gprS_state <= SPR_GPRS_WAITING;
+          end
+
+          default;
+        endcase
+      end
+    end // @ clock
+
+
+    // registered output data: valid for 1-clock only with rised ACK
+    wire [(RF_DW-1):0] rfS_dout;
+    // ---
+    always @(posedge cpu_clk) begin
+      spr_bus_dat_gprS_r <= {RF_DW{spr_gprS_read_mx_state}} & // SPR GPR[S]hadow read latch
+                            rfS_dout; // SPR GPR[S]hadow read latch
+    end
+    // ---
+    assign spr_bus_dat_gprS_o = spr_bus_dat_gprS_r; // SHADOW enabled
+
+
+    // Shadow RAM instance
+    mor1kx_spram_en_w1st
+    #(
+      .ADDR_WIDTH     (SHADOW_AW),
+      .DATA_WIDTH     (RF_DW),
+      .CLEAR_ON_INIT  (OPTION_RF_CLEAR_ON_INIT)
+    )
+    rfShadow
+    (
+      // clock
+      .clk    (cpu_clk),
+      // port
+      .en     (spr_gprS_we_strb_state | spr_gprS_re_strb_state),
+      .we     (spr_gprS_we_strb_state),
+      .addr   (spr_bus_addr_r[(SHADOW_AW-1):0]),
+      .din    (spr_bus_dat_l),
+      .dout   (rfS_dout)
+    );
+
+  end
+  else begin: shadow_disabled
+
+    // make ACK
+    reg    spr_bus_ack_gprS_r;
+    assign spr_bus_ack_gprS_o = spr_bus_ack_gprS_r; // SHADOW disabled
+    // ---
+    always @(posedge cpu_clk) begin
+      if (cpu_rst)
+        spr_bus_ack_gprS_r <= 1'b0;
+      else if (spr_bus_ack_gprS_r)
+        spr_bus_ack_gprS_r <= 1'b0;
+      else if (spr_gprS_cs)
+        spr_bus_ack_gprS_r <= 1'b1;
+    end
+
+    // SPR data output
+    assign spr_bus_dat_gprS_o = {RF_DW{1'b0}}; // SHADOW disabled
+    
   end
   endgenerate
 
