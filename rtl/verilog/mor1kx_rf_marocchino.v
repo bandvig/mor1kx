@@ -71,12 +71,9 @@ module mor1kx_rf_marocchino
   input                             wb_rf_odd_wb_i,
 
   // from WB
-  input                             wb_rfd1_wb_i,
-  input  [OPTION_RF_ADDR_WIDTH-1:0] wb_rfd1_adr_i,
+  input                             wb_rfd1_odd_i,
   input  [OPTION_OPERAND_WIDTH-1:0] wb_result1_i,
   // for FPU64
-  input                             wb_rfd2_wb_i,
-  input  [OPTION_RF_ADDR_WIDTH-1:0] wb_rfd2_adr_i,
   input  [OPTION_OPERAND_WIDTH-1:0] wb_result2_i,
 
   // 1-clock "WB to DECODE operand forwarding" flags
@@ -142,7 +139,7 @@ module mor1kx_rf_marocchino
   //  # for SPR BUS access
   wire [(RF_DW-1):0] rfa_even_spr_dout;
   wire [(RF_DW-1):0] rfa_odd_spr_dout;
-  
+
 
   // GPRs access from SPR bus
   wire               spr_gpr0_we_even;
@@ -169,9 +166,9 @@ module mor1kx_rf_marocchino
   // if A(B)'s address is odd than A2(B2)=A(B)+1 is even and vise verse
 
   //    Write Back even data
-  wire [(RF_DW-1):0] wb_even_data = wb_rfd1_adr_i[0] ? wb_result2_i : wb_result1_i;
+  wire [(RF_DW-1):0] wb_even_data = wb_rfd1_odd_i ? wb_result2_i : wb_result1_i;
   //    Write Back odd data
-  wire [(RF_DW-1):0] wb_odd_data  = wb_rfd1_adr_i[0] ? wb_result1_i : wb_result2_i;
+  wire [(RF_DW-1):0] wb_odd_data  = wb_rfd1_odd_i ? wb_result1_i : wb_result2_i;
 
   //  write even address & data
   wire [(RF_AW-1):0] even_wadr = spr_gpr0_we_even ? spr_gpr0_addr  : wb_rf_even_addr_i;
@@ -688,7 +685,7 @@ module mor1kx_rf_marocchino
 
     // SPR data output
     assign spr_bus_dat_gprS_o = {RF_DW{1'b0}}; // SHADOW disabled
-    
+
   end
   endgenerate
 

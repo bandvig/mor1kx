@@ -339,13 +339,9 @@ module mor1kx_oman_marocchino
   //  ## instruction related information
   output reg [OPTION_OPERAND_WIDTH-1:0] pc_wb_o,
   output reg                            wb_delay_slot_o,
-  output reg [OPTION_RF_ADDR_WIDTH-1:0] wb_rfd1_adr_o,
-  output reg                            wb_rfd1_wb_o,
+  output reg                            wb_rfd1_odd_o,
   output reg                            wb_flag_wb_o,
   output reg                            wb_carry_wb_o,
-  // for FPU64
-  output reg [OPTION_RF_ADDR_WIDTH-1:0] wb_rfd2_adr_o,
-  output reg                            wb_rfd2_wb_o,
   // for hazards resolution in RSRVS
   output reg  [DEST_EXT_ADDR_WIDTH-1:0] wb_ext_bits_o
 );
@@ -1482,28 +1478,6 @@ module mor1kx_oman_marocchino
   end // @clock
 
 
-  // D1 WB-to-RF request (1-clock length)
-  always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i)
-      wb_rfd1_wb_o <= 1'b0;
-    else if (padv_wb_i)
-      wb_rfd1_wb_o <= exec_rfd1_wb;
-    else
-      wb_rfd1_wb_o <= 1'b0;
-  end // @clock
-
-
-  // D2 WB-to-RF request (1-clock length)
-  always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i)
-      wb_rfd2_wb_o <= 1'b0;
-    else if (padv_wb_i)
-      wb_rfd2_wb_o <= exec_rfd2_wb;
-    else
-      wb_rfd2_wb_o <= 1'b0;
-  end // @clock
-
-
   // OMAN WB-to-FLAG-request
   always @(posedge cpu_clk) begin
     if (cpu_rst | pipeline_flush_i)
@@ -1538,14 +1512,7 @@ module mor1kx_oman_marocchino
   // address of D1
   always @(posedge cpu_clk) begin
     if (padv_wb_i)
-      wb_rfd1_adr_o <= exec_rfd1_adr;
-  end // @clock
-
-
-  // address of D2
-  always @(posedge cpu_clk) begin
-    if (padv_wb_i)
-      wb_rfd2_adr_o <= exec_rfd2_adr;
+      wb_rfd1_odd_o <= exec_rfd1_adr[0];
   end // @clock
 
 

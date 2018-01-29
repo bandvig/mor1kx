@@ -331,11 +331,7 @@ module mor1kx_cpu_marocchino
   wire                            wb_flag_wb;
   wire                            wb_carry_wb;
   //  ## A or B operand
-  wire                            wb_rfd1_wb;
-  wire [OPTION_RF_ADDR_WIDTH-1:0] wb_rfd1_adr;
-  //  ## for FPU64
-  wire                            wb_rfd2_wb;  // WB instruction is writting RF
-  wire [OPTION_RF_ADDR_WIDTH-1:0] wb_rfd2_adr; // low part of A or B operand
+  wire                            wb_rfd1_odd;
   //  ## for hazards resolution in RSRVS
   wire  [DEST_EXT_ADDR_WIDTH-1:0] wb_ext_bits;
 
@@ -775,12 +771,9 @@ module mor1kx_cpu_marocchino
     .wb_rf_odd_addr_i                 (wb_rf_odd_addr), // RF
     .wb_rf_odd_wb_i                   (wb_rf_odd_wb), // RF
     // from WB
-    .wb_rfd1_wb_i                     (wb_rfd1_wb), // RF
-    .wb_rfd1_adr_i                    (wb_rfd1_adr), // RF
+    .wb_rfd1_odd_i                    (wb_rfd1_odd), // RF
     .wb_result1_i                     (wb_result1), // RF
     // for FPU64
-    .wb_rfd2_wb_i                     (wb_rfd2_wb), // RF
-    .wb_rfd2_adr_i                    (wb_rfd2_adr), // RF
     .wb_result2_i                     (wb_result2), // RF
     // 1-clock "WB to DECODE operand forwarding" flags
     //  # relative operand A1
@@ -1158,13 +1151,9 @@ module mor1kx_cpu_marocchino
     //  ## instruction related information
     .pc_wb_o                    (pc_wb), // OMAN
     .wb_delay_slot_o            (wb_delay_slot), // OMAN
-    .wb_rfd1_adr_o              (wb_rfd1_adr), // OMAN
-    .wb_rfd1_wb_o               (wb_rfd1_wb), // OMAN
+    .wb_rfd1_odd_o              (wb_rfd1_odd), // OMAN
     .wb_flag_wb_o               (wb_flag_wb), // OMAN
     .wb_carry_wb_o              (wb_carry_wb), // OMAN
-    // for FPU64
-    .wb_rfd2_adr_o              (wb_rfd2_adr), // OMAN
-    .wb_rfd2_wb_o               (wb_rfd2_wb), // OMAN
     // for hazards resolution in RSRVS
     .wb_ext_bits_o              (wb_ext_bits) // OMAN
   );
@@ -2394,8 +2383,8 @@ module mor1kx_cpu_marocchino
 
    generate
       if (FEATURE_TRACEPORT_EXEC != "NONE") begin
-   assign traceport_exec_wbreg_o = wb_rfd1_adr;
-   assign traceport_exec_wben_o = wb_rfd1_wb;
+   assign traceport_exec_wbreg_o = ?;
+   assign traceport_exec_wben_o = ?;
    assign traceport_exec_wbdata_o = wb_result1;
       end else begin
    assign traceport_exec_wbreg_o = {OPTION_RF_ADDR_WIDTH{1'b0}};
