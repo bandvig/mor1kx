@@ -254,11 +254,41 @@ module mor1kx_icache_marocchino
   end // always
 
 
-  // SPR bus interface
-  //  # detect SPR request to ICACHE
-  //  # (only invalidation command is implemented)
-  wire spr_bus_ic_invalidate = spr_bus_stb_i & spr_bus_we_i & (spr_bus_addr_i == `OR1K_SPR_ICBIR_ADDR);
-  //  # data output
+  //---------------//
+  // SPR interface //
+  //---------------//
+
+  //  we don't expect R/W-collisions for SPRbus vs WB cycles since
+  //    SPRbus access start 1-clock later than WB
+  //    thanks to MT(F)SPR processing logic (see OMAN)
+
+  // Registering SPR BUS incoming signals.
+
+  // SPR BUS strobe registering
+  reg                              spr_bus_stb_r;
+  reg                              spr_bus_we_r;
+  reg                       [14:0] spr_bus_addr_r;
+  reg [(OPTION_OPERAND_WIDTH-1):0] spr_bus_dat_r;
+  // ---
+  always @(posedge cpu_clk) begin
+    if (cpu_rst)
+      spr_bus_stb_r <= 1'b0;
+    else if (spr_bus_ack_o)
+      spr_bus_stb_r <= 1'b0;
+    else
+      spr_bus_stb_r <= spr_bus_stb_i;
+  end // at clock
+  // ---
+  always @(posedge cpu_clk) begin
+    spr_bus_we_r   <= spr_bus_we_i;
+    spr_bus_addr_r <= spr_bus_addr_i[14:0];
+    spr_bus_dat_r  <= spr_bus_dat_i;
+  end
+
+
+  // ICACHE "chip select" / invalidation / data output
+  wire spr_ic_cs  = spr_bus_stb_r & (spr_bus_addr_r[14:11] == `OR1K_SPR_IC_BASE);
+  wire spr_ic_inv = spr_bus_we_r & (`SPR_OFFSET(spr_bus_addr_r) == `SPR_OFFSET(`OR1K_SPR_ICBIR_ADDR));
   assign spr_bus_dat_o = {OPTION_OPERAND_WIDTH{1'b0}};
 
 
@@ -281,8 +311,8 @@ module mor1kx_icache_marocchino
             ic_refill_first_o <= 1'b1;      // FSM: read -> re-fill
             ic_state          <= IC_REFILL; // FSM: read -> re-fill
           end
-          else if (spr_bus_ic_invalidate) begin
-            ic_state <= IC_INVALIDATE;      // FSM: read -> invalidate
+          else if (spr_ic_cs) begin
+            ic_state <= spr_ic_inv ? IC_INVALIDATE : IC_SPR_ACK; // FSM: read: SPR request processing
           end
         end // FSM-READ state
 
@@ -332,26 +362,29 @@ module mor1kx_icache_marocchino
     {virt_addr_rfl_r[31:4], virt_addr_rfl_r[3:0] + 4'd4};  // 16 byte = (4 words x 32 bits/word)
   // ---
   always @(posedge cpu_clk) begin
-    if (padv_s1s2_i) begin
-      virt_addr_rfl_r <= virt_addr_s1o_i;    // before re-fill it is copy of IFETCH::s2o_virt_addr
-    end
-    else if (ic_refill) begin
-      if (ibus_ack_i)
-        virt_addr_rfl_r <= virt_addr_rfl_next;
-    end
-    else if (ic_read) begin
-      if (spr_bus_ic_invalidate)
-        virt_addr_rfl_r <= spr_bus_dat_i;    // FSM-read -> invalidate
-    end
-    else if (ic_invalidate) begin
-      virt_addr_rfl_r <= virt_addr_s2o_i;    // restore after invalidation
-    end
+    // synthesis parallel_case full_case
+    case (ic_state)
+      IC_READ: begin // re-fill address register
+        if (spr_ic_cs)        // set re-fill address register to invaldate by l.mtspr
+          virt_addr_rfl_r <= spr_bus_dat_r;   // invaldate by l.mtspr
+        else if (padv_s1s2_i) // set re-fill address register to initial re-fill address
+          virt_addr_rfl_r <= virt_addr_s1o_i; // prepare to re-fill (copy of LSU::s2o_virt_addr)
+      end // check
+      IC_REFILL: begin
+        if (ibus_ack_i)
+          virt_addr_rfl_r <= virt_addr_rfl_next;  // re-fill in progress
+      end // re-fill
+      IC_SPR_ACK: begin // re-fill address register
+        virt_addr_rfl_r <= virt_addr_s2o_i; // restore after invalidation by l.mtspr
+      end
+      default:;
+    endcase
   end // @ clock
 
   // way indexing
   wire [WAY_WIDTH-3:0] way_rindex = ic_refill ? virt_addr_rfl_r[WAY_WIDTH-1:2]: // WAY read address
                                                 virt_addr_mux_i[WAY_WIDTH-1:2]; // WAY read address
-                                    
+
   wire [WAY_WIDTH-3:0] way_windex = virt_addr_rfl_r[WAY_WIDTH-1:2]; // at re-fill only
 
   // Controls for read/write port.
