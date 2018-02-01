@@ -108,9 +108,8 @@ module mor1kx_dmmu_marocchino
 
   wire                             spr_dmmu_cs;
 
-  //  Latch address and data to simplify routing of SPR BUS
-  reg   [OPTION_OPERAND_WIDTH-1:0] spr_bus_dat_r;
-  reg  [OPTION_DMMU_SET_WIDTH-1:0] spr_bus_addr_r;
+  // address to re-read at SPR access completion
+  reg  [OPTION_DMMU_SET_WIDTH-1:0] spr_reread_addr_r;
 
   reg                              dmmucr_spr_cs_r;
   reg   [OPTION_OPERAND_WIDTH-1:0] dmmucr;
@@ -160,8 +159,32 @@ module mor1kx_dmmu_marocchino
   // SPR interface //
   //---------------//
 
-  //   We don't expect R/W-collisions for SPRbus vs FETCH advance
-  // because we execute l.mt(f)spr after pipeline stalling (see OMAN)
+  //  we don't expect R/W-collisions for SPRbus vs WB cycles since
+  //    SPRbus access start 1-clock later than WB
+  //    thanks to MT(F)SPR processing logic (see OMAN)
+
+  // Registering SPR BUS incoming signals.
+
+  // SPR BUS strobe registering
+  reg                              spr_bus_stb_r;
+  reg                              spr_bus_we_r;
+  reg                       [14:0] spr_bus_addr_r;
+  reg [(OPTION_OPERAND_WIDTH-1):0] spr_bus_dat_r;
+  // ---
+  always @(posedge cpu_clk) begin
+    if (cpu_rst)
+      spr_bus_stb_r <= 1'b0;
+    else if (spr_bus_ack_o)
+      spr_bus_stb_r <= 1'b0;
+    else
+      spr_bus_stb_r <= spr_bus_stb_i;
+  end // at clock
+  // ---
+  always @(posedge cpu_clk) begin
+    spr_bus_we_r   <= spr_bus_we_i;
+    spr_bus_addr_r <= spr_bus_addr_i[14:0];
+    spr_bus_dat_r  <= spr_bus_dat_i;
+  end
 
   // SPR BUS transaction states
   localparam [5:0] SPR_DMMU_WAIT  = 6'b000001,
@@ -178,9 +201,9 @@ module mor1kx_dmmu_marocchino
   assign    spr_bus_ack_o = spr_dmmu_state_r[4];
 
   // overall IMMU "chip select"
-  assign spr_dmmu_cs = spr_bus_stb_i & (spr_bus_addr_i[14:11] == `OR1K_SPR_DMMU_BASE); // `SPR_BASE
+  assign spr_dmmu_cs = spr_bus_stb_r & (spr_bus_addr_r[14:11] == `OR1K_SPR_DMMU_BASE); // `SPR_BASE
 
-  assign spr_way_idx = {spr_bus_addr_i[10], spr_bus_addr_i[8]};
+  assign spr_way_idx = {spr_bus_addr_r[10], spr_bus_addr_r[8]};
 
   // SPR processing cycle: states switching
   always @(posedge cpu_clk) begin
@@ -193,7 +216,7 @@ module mor1kx_dmmu_marocchino
         // wait SPR BUS request
         SPR_DMMU_WAIT: begin
           if (spr_dmmu_cs) begin
-            spr_dmmu_state_r <= spr_bus_we_i ? SPR_DMMU_WRITE : SPR_DMMU_RINIT; // on spr request take
+            spr_dmmu_state_r <= spr_bus_we_r ? SPR_DMMU_WRITE : SPR_DMMU_RINIT; // on spr request take
           end
         end
         // done write and start ACK
@@ -206,7 +229,7 @@ module mor1kx_dmmu_marocchino
         SPR_DMMU_ACK,
         SPR_DMMU_RST:   spr_dmmu_state_r <= SPR_DMMU_WAIT; // generate ACK / doing reset
         // others
-        default:;    
+        default:;
       endcase
     end
   end // @ clock
@@ -218,17 +241,16 @@ module mor1kx_dmmu_marocchino
       // wait SPR BUS request
       SPR_DMMU_WAIT: begin
         if (spr_dmmu_cs) begin
-          dtlb_match_spr_cs_r <= (|spr_bus_addr_i[10:9]) & ~spr_bus_addr_i[7];
-          dtlb_trans_spr_cs_r <= (|spr_bus_addr_i[10:9]) &  spr_bus_addr_i[7];
-          dmmucr_spr_cs_r     <= (`SPR_OFFSET(spr_bus_addr_i) == `SPR_OFFSET(`OR1K_SPR_DMMUCR_ADDR));
+          dtlb_match_spr_cs_r <= (|spr_bus_addr_r[10:9]) & ~spr_bus_addr_r[7];
+          dtlb_trans_spr_cs_r <= (|spr_bus_addr_r[10:9]) &  spr_bus_addr_r[7];
+          dmmucr_spr_cs_r     <= (`SPR_OFFSET(spr_bus_addr_r) == `SPR_OFFSET(`OR1K_SPR_DMMUCR_ADDR));
           spr_way_idx_r       <= spr_way_idx[WAYS_WIDTH-1:0];
-          spr_bus_dat_r       <= spr_bus_dat_i;
-          spr_bus_addr_r      <= spr_bus_addr_i[OPTION_DMMU_SET_WIDTH-1:0];
+          spr_reread_addr_r   <= spr_bus_addr_r[OPTION_DMMU_SET_WIDTH-1:0];
         end
       end
       // write completion
       SPR_DMMU_WRITE: begin
-        spr_bus_addr_r <= virt_addr_tag_i[13+(OPTION_DMMU_SET_WIDTH-1):13]; // re-read after write
+        spr_reread_addr_r <= virt_addr_tag_i[(OPTION_DMMU_SET_WIDTH+13-1):13]; // re-read after write
       end
       // do nothing
       SPR_DMMU_RINIT:;
@@ -238,9 +260,9 @@ module mor1kx_dmmu_marocchino
                           dtlb_trans_spr_cs_r ? dtlb_trans_dout[spr_way_idx_r] :
                           dmmucr_spr_cs_r     ? dmmucr                         :
                                                 {OPTION_OPERAND_WIDTH{1'b0}};
-        spr_bus_addr_r <= virt_addr_tag_i[13+(OPTION_DMMU_SET_WIDTH-1):13]; // re-read after read
+        spr_reread_addr_r <= virt_addr_tag_i[(OPTION_DMMU_SET_WIDTH+13-1):13]; // re-read after read
       end
-      // back to waiting 
+      // back to waiting
       SPR_DMMU_ACK,
       SPR_DMMU_RST: begin
         spr_bus_dat_o       <= {OPTION_OPERAND_WIDTH{1'b0}}; // on ack/rst
@@ -339,20 +361,20 @@ module mor1kx_dmmu_marocchino
 
 
   // match 8KB input address
-  assign dtlb_match_addr = dtlb_match_spr_cs_r ? spr_bus_addr_r :
-                                                 virt_addr_idx_i[13+(OPTION_DMMU_SET_WIDTH-1):13];
+  assign dtlb_match_addr = dtlb_match_spr_cs_r ? spr_reread_addr_r :
+                                                 virt_addr_idx_i[(OPTION_DMMU_SET_WIDTH+13-1):13];
   // match huge address and write command
-  assign dtlb_match_huge_addr = virt_addr_idx_i[24+(OPTION_DMMU_SET_WIDTH-1):24];
+  assign dtlb_match_huge_addr = virt_addr_idx_i[(OPTION_DMMU_SET_WIDTH+24-1):24];
   assign dtlb_match_huge_we   = dtlb_match_reload_we & tlb_reload_huge;
   // match data in
   assign dtlb_match_din = dtlb_match_reload_we ? dtlb_match_reload_din : spr_bus_dat_r;
 
 
   // translation 8KB input address
-  assign dtlb_trans_addr = dtlb_trans_spr_cs_r ? spr_bus_addr_r :
-                                                 virt_addr_idx_i[13+(OPTION_DMMU_SET_WIDTH-1):13];
+  assign dtlb_trans_addr = dtlb_trans_spr_cs_r ? spr_reread_addr_r :
+                                                 virt_addr_idx_i[(OPTION_DMMU_SET_WIDTH+13-1):13];
   // translation huge address and write command
-  assign dtlb_trans_huge_addr = virt_addr_idx_i[24+(OPTION_DMMU_SET_WIDTH-1):24];
+  assign dtlb_trans_huge_addr = virt_addr_idx_i[(OPTION_DMMU_SET_WIDTH+24-1):24];
   assign dtlb_trans_huge_we   = dtlb_trans_reload_we & tlb_reload_huge;
   // translation data in
   assign dtlb_trans_din = dtlb_trans_reload_we ? dtlb_trans_reload_din : spr_bus_dat_r;

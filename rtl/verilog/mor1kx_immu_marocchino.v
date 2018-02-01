@@ -101,16 +101,14 @@ module mor1kx_immu_marocchino
   reg   [OPTION_OPERAND_WIDTH-1:0] itlb_trans_reload_din;
 
   wire                             spr_immu_cs;
-
-  //  Latch address and data to simplify routing of SPR BUS
-  reg   [OPTION_OPERAND_WIDTH-1:0] spr_bus_dat_r;
-  reg  [OPTION_IMMU_SET_WIDTH-1:0] spr_bus_addr_r;
-
   reg                              itlb_match_spr_cs_r;
   reg                              itlb_trans_spr_cs_r;
 
   wire                       [1:0] spr_way_idx; // from SPR BUS
   reg             [WAYS_WIDTH-1:0] spr_way_idx_r;
+
+  // address to re-read at SPR access completion
+  reg  [OPTION_IMMU_SET_WIDTH-1:0] spr_reread_addr_r;
 
   reg                              immucr_spr_cs_r;
   reg   [OPTION_OPERAND_WIDTH-1:0] immucr;
@@ -154,8 +152,33 @@ module mor1kx_immu_marocchino
   // SPR interface //
   //---------------//
 
-  //   We don't expect R/W-collisions for SPRbus vs FETCH advance
-  // because we execute l.mt(f)spr after pipeline stalling (see OMAN)
+  //  we don't expect R/W-collisions for SPRbus vs WB cycles since
+  //    SPRbus access start 1-clock later than WB
+  //    thanks to MT(F)SPR processing logic (see OMAN)
+
+  // Registering SPR BUS incoming signals.
+
+  // SPR BUS strobe registering
+  reg                              spr_bus_stb_r;
+  reg                              spr_bus_we_r;
+  reg                       [14:0] spr_bus_addr_r;
+  reg [(OPTION_OPERAND_WIDTH-1):0] spr_bus_dat_r;
+  // ---
+  always @(posedge cpu_clk) begin
+    if (cpu_rst)
+      spr_bus_stb_r <= 1'b0;
+    else if (spr_bus_ack_o)
+      spr_bus_stb_r <= 1'b0;
+    else
+      spr_bus_stb_r <= spr_bus_stb_i;
+  end // at clock
+  // ---
+  always @(posedge cpu_clk) begin
+    spr_bus_we_r   <= spr_bus_we_i;
+    spr_bus_addr_r <= spr_bus_addr_i[14:0];
+    spr_bus_dat_r  <= spr_bus_dat_i;
+  end
+
 
   // SPR BUS transaction states
   localparam [5:0] SPR_IMMU_WAIT  = 6'b000001,
@@ -172,9 +195,9 @@ module mor1kx_immu_marocchino
   assign    spr_bus_ack_o = spr_immu_state_r[4];
 
   // overall IMMU "chip select"
-  assign spr_immu_cs = spr_bus_stb_i & (spr_bus_addr_i[14:11] == `OR1K_SPR_IMMU_BASE); // `SPR_BASE
+  assign spr_immu_cs = spr_bus_stb_r & (spr_bus_addr_r[14:11] == `OR1K_SPR_IMMU_BASE); // `SPR_BASE
 
-  assign spr_way_idx = {spr_bus_addr_i[10], spr_bus_addr_i[8]};
+  assign spr_way_idx = {spr_bus_addr_r[10], spr_bus_addr_r[8]};
 
   // SPR processing cycle: states switching
   always @(posedge cpu_clk) begin
@@ -187,7 +210,7 @@ module mor1kx_immu_marocchino
         // wait SPR BUS request
         SPR_IMMU_WAIT: begin
           if (spr_immu_cs)
-            spr_immu_state_r <= spr_bus_we_i ? SPR_IMMU_WRITE : SPR_IMMU_RINIT; // on spr request take
+            spr_immu_state_r <= spr_bus_we_r ? SPR_IMMU_WRITE : SPR_IMMU_RINIT; // on spr request take
         end
         // done write and start ACK
         SPR_IMMU_WRITE: spr_immu_state_r <= SPR_IMMU_ACK; // on write completion
@@ -211,17 +234,16 @@ module mor1kx_immu_marocchino
       // wait SPR BUS request
       SPR_IMMU_WAIT: begin
         if (spr_immu_cs) begin
-          itlb_match_spr_cs_r <= (|spr_bus_addr_i[10:9]) & ~spr_bus_addr_i[7];
-          itlb_trans_spr_cs_r <= (|spr_bus_addr_i[10:9]) &  spr_bus_addr_i[7];
-          immucr_spr_cs_r     <= (`SPR_OFFSET(spr_bus_addr_i) == `SPR_OFFSET(`OR1K_SPR_IMMUCR_ADDR));
+          itlb_match_spr_cs_r <= (|spr_bus_addr_r[10:9]) & ~spr_bus_addr_r[7];
+          itlb_trans_spr_cs_r <= (|spr_bus_addr_r[10:9]) &  spr_bus_addr_r[7];
+          immucr_spr_cs_r     <= (`SPR_OFFSET(spr_bus_addr_r) == `SPR_OFFSET(`OR1K_SPR_IMMUCR_ADDR));
           spr_way_idx_r       <= spr_way_idx[WAYS_WIDTH-1:0];
-          spr_bus_dat_r       <= spr_bus_dat_i;
-          spr_bus_addr_r      <= spr_bus_addr_i[OPTION_IMMU_SET_WIDTH-1:0];
+          spr_reread_addr_r   <= spr_bus_addr_r[OPTION_IMMU_SET_WIDTH-1:0];
         end
       end
       // write completion
       SPR_IMMU_WRITE: begin
-        spr_bus_addr_r <= virt_addr_tag_i[13+(OPTION_IMMU_SET_WIDTH-1):13]; // re-read after write
+        spr_reread_addr_r <= virt_addr_tag_i[(OPTION_IMMU_SET_WIDTH+13-1):13]; // re-read after write
       end
       // do nothing
       SPR_IMMU_RINIT:;
@@ -231,7 +253,7 @@ module mor1kx_immu_marocchino
                           itlb_trans_spr_cs_r ? itlb_trans_dout[spr_way_idx_r] :
                           immucr_spr_cs_r     ? immucr                         :
                                                 {OPTION_OPERAND_WIDTH{1'b0}};
-        spr_bus_addr_r <= virt_addr_tag_i[13+(OPTION_IMMU_SET_WIDTH-1):13]; // re-read after read
+        spr_reread_addr_r <= virt_addr_tag_i[(OPTION_IMMU_SET_WIDTH+13-1):13]; // re-read after read
       end
       // back to waiting
       SPR_IMMU_ACK,
@@ -320,10 +342,10 @@ module mor1kx_immu_marocchino
   //  a) SPR BUS read/write access
   //  b) Re-read after SPR BUS read/write access
   //  c) Regular IFETCH advance
-  assign itlb_match_addr = itlb_match_spr_cs_r ? spr_bus_addr_r :
-                                                 virt_addr_mux_i[13+(OPTION_IMMU_SET_WIDTH-1):13];
+  assign itlb_match_addr = itlb_match_spr_cs_r ? spr_reread_addr_r :
+                                                 virt_addr_mux_i[(OPTION_IMMU_SET_WIDTH+13-1):13];
   // match huge address and write command
-  assign itlb_match_huge_addr = virt_addr_mux_i[24+(OPTION_IMMU_SET_WIDTH-1):24];
+  assign itlb_match_huge_addr = virt_addr_mux_i[(OPTION_IMMU_SET_WIDTH+24-1):24];
   assign itlb_match_huge_we   = itlb_match_reload_we & tlb_reload_huge;
   // match data in
   assign itlb_match_din = itlb_match_reload_we ? itlb_match_reload_din : spr_bus_dat_r;
@@ -333,10 +355,10 @@ module mor1kx_immu_marocchino
   //  a) SPR BUS read/write access
   //  b) Re-read after SPR BUS read/write access
   //  c) Regular IFETCH advance
-  assign itlb_trans_addr = itlb_trans_spr_cs_r ? spr_bus_addr_r :
-                                                 virt_addr_mux_i[13+(OPTION_IMMU_SET_WIDTH-1):13];
+  assign itlb_trans_addr = itlb_trans_spr_cs_r ? spr_reread_addr_r :
+                                                 virt_addr_mux_i[(OPTION_IMMU_SET_WIDTH+13-1):13];
   // translation huge address and write command
-  assign itlb_trans_huge_addr = virt_addr_mux_i[24+(OPTION_IMMU_SET_WIDTH-1):24];
+  assign itlb_trans_huge_addr = virt_addr_mux_i[(OPTION_IMMU_SET_WIDTH+24-1):24];
   assign itlb_trans_huge_we   = itlb_trans_reload_we & tlb_reload_huge;
   // translation data in
   assign itlb_trans_din = itlb_trans_reload_we ? itlb_trans_reload_din : spr_bus_dat_r;

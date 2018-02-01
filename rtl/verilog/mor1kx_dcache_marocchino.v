@@ -337,12 +337,38 @@ module mor1kx_dcache_marocchino
    *    if pipeline is stalled.
    */
 
-  assign spr_bus_dat_o = {OPTION_OPERAND_WIDTH{1'b0}};
+  //  we don't expect R/W-collisions for SPRbus vs WB cycles since
+  //    SPRbus access start 1-clock later than WB
+  //    thanks to MT(F)SPR processing logic (see OMAN)
 
-  // An invalidate request is either a block flush or a block invalidate
-  wire spr_bus_dc_invalidate = spr_bus_stb_i & spr_bus_we_i &
-                               ((spr_bus_addr_i == `OR1K_SPR_DCBFR_ADDR) |
-                                (spr_bus_addr_i == `OR1K_SPR_DCBIR_ADDR));
+  // Registering SPR BUS incoming signals.
+
+  // SPR BUS strobe registering
+  reg                              spr_bus_stb_r;
+  reg                              spr_bus_we_r;
+  reg                       [14:0] spr_bus_addr_r;
+  reg [(OPTION_OPERAND_WIDTH-1):0] spr_bus_dat_r;
+  // ---
+  always @(posedge cpu_clk) begin
+    if (cpu_rst)
+      spr_bus_stb_r <= 1'b0;
+    else if (spr_bus_ack_o)
+      spr_bus_stb_r <= 1'b0;
+    else
+      spr_bus_stb_r <= spr_bus_stb_i;
+  end // at clock
+  // ---
+  always @(posedge cpu_clk) begin
+    spr_bus_we_r   <= spr_bus_we_i;
+    spr_bus_addr_r <= spr_bus_addr_i[14:0];
+    spr_bus_dat_r  <= spr_bus_dat_i;
+  end
+
+  // DCACHE "chip select" / invalidation / data output
+  wire spr_dc_cs  = spr_bus_stb_r & (spr_bus_addr_r[14:11] == `OR1K_SPR_DC_BASE);
+  wire spr_dc_inv = spr_bus_we_r & ((`SPR_OFFSET(spr_bus_addr_r) == `SPR_OFFSET(`OR1K_SPR_DCBFR_ADDR)) |
+                                    (`SPR_OFFSET(spr_bus_addr_r) == `SPR_OFFSET(`OR1K_SPR_DCBIR_ADDR)));
+  assign spr_bus_dat_o = {OPTION_OPERAND_WIDTH{1'b0}};
 
 
 
@@ -373,8 +399,8 @@ module mor1kx_dcache_marocchino
           else if (dc_cancel | snoop_hit_o) begin // keep check
             dc_state <= DC_CHECK;
           end
-          else if (spr_bus_dc_invalidate) begin // check -> invalidate by l.mtspr
-            dc_state <= DC_INV_BY_MTSPR; // check -> invalidate by l.mtspr
+          else if (spr_dc_cs) begin // check -> invalidate by l.mtspr
+            dc_state <= spr_dc_inv ? DC_INV_BY_MTSPR : DC_SPR_ACK; // check: SPR request processing
           end
           else if (lsu_s2_adv_i) begin // check -> write / keep check
             dc_state <= s1o_op_lsu_atomic_i ? DC_INV_BY_ATOMIC :      // check -> invalidate by lwa/swa
@@ -514,9 +540,9 @@ module mor1kx_dcache_marocchino
     // synthesis parallel_case full_case
     case (dc_state)
       DC_CHECK: begin // re-fill address register
-        if (spr_bus_dc_invalidate)  // set re-fill address register to invaldate by l.mtspr
-          virt_addr_rfl_r <= spr_bus_dat_i;   // invaldate by l.mtspr
-        else if (lsu_s2_adv_i)      // set re-fill address register to initial re-fill address
+        if (spr_dc_cs)          // set re-fill address register to invaldate by l.mtspr
+          virt_addr_rfl_r <= spr_bus_dat_r;   // invaldate by l.mtspr
+        else if (lsu_s2_adv_i)  // set re-fill address register to initial re-fill address
           virt_addr_rfl_r <= virt_addr_s1o_i; // prepare to re-fill (copy of LSU::s2o_virt_addr)
       end // check
       DC_REFILL: begin
