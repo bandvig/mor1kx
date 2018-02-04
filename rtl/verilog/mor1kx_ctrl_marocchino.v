@@ -275,7 +275,7 @@ module mor1kx_ctrl_marocchino
 
   /* DU internal control signals */
   // SPR BUS acceess to DU's control registers
-  wire                              spr_bus_cs_du;  // "chip select" for DU
+  wire                              spr_du_cs;  // "chip select" for DU
   wire                              spr_bus_ack_du;
   wire                       [31:0] spr_bus_dat_du;
   wire                              du2spr_we_w;    // DU->SPR write request
@@ -307,12 +307,13 @@ module mor1kx_ctrl_marocchino
   reg    [OPTION_OPERAND_WIDTH-1:0] spr_bus_dat_r;
   //  # access to SYSTEM GROUP control registers
   //  # excluding GPR0
-  wire                              spr_sys_group_cs;
-  wire                              spr_sys_group_wait;
-  wire                              spr_sys_group_wr;
-  wire                              spr_sys_group_re;
-  reg                        [15:0] spr_sys_group_wadr_r;
+  reg                               spr_sys_group_stb_r;
+  reg                               spr_sys_group_we_r;
+  reg                        [14:0] spr_sys_group_wadr_r;
   reg                        [31:0] spr_sys_group_wdat_r;
+  wire                              spr_sys_group_cs;
+  wire                              spr_sys_group_we;
+  wire                              spr_sys_group_re;
   wire                              spr_bus_ack_sys_group;
   reg                        [31:0] spr_bus_dat_sys_group;
 
@@ -411,7 +412,7 @@ module mor1kx_ctrl_marocchino
       endcase
     end
     else if ((`SPR_OFFSET(spr_sys_group_wadr_r) == `SPR_OFFSET(`OR1K_SPR_EPCR0_ADDR)) &
-             spr_sys_group_wr) begin
+             spr_sys_group_we) begin
       spr_epcr <= spr_sys_group_wdat_r;
     end
   end // @ clock
@@ -443,7 +444,7 @@ module mor1kx_ctrl_marocchino
     if (cpu_rst)
       spr_evbar <= {SPR_EVBAR_WIDTH{1'b0}};
     else if ((`SPR_OFFSET(spr_sys_group_wadr_r) == `SPR_OFFSET(`OR1K_SPR_EVBAR_ADDR)) &
-             spr_sys_group_wr)
+             spr_sys_group_we)
       spr_evbar <= spr_sys_group_wdat_r[(OPTION_OPERAND_WIDTH-1):SPR_EVBAR_LSB];
   end // @ clock
 
@@ -602,7 +603,7 @@ module mor1kx_ctrl_marocchino
   assign except_fpu_enable_o = spr_fpcsr[`OR1K_FPCSR_FPEE];
 
   wire spr_fpcsr_we = (`SPR_OFFSET(spr_sys_group_wadr_r) == `SPR_OFFSET(`OR1K_SPR_FPCSR_ADDR)) &
-                      spr_sys_group_wr &  spr_sr[`OR1K_SPR_SR_SM];
+                      spr_sys_group_we &  spr_sr[`OR1K_SPR_SR_SM];
 
  `ifdef OR1K_FPCSR_MASK_FLAGS
   reg [`OR1K_FPCSR_ALLF_SIZE-1:0] ctrl_fpu_mask_flags_r;
@@ -666,7 +667,7 @@ module mor1kx_ctrl_marocchino
       spr_sr[`OR1K_SPR_SR_DSX] <= wb_delay_slot_i;
     end
     else if ((`SPR_OFFSET(spr_sys_group_wadr_r) == `SPR_OFFSET(`OR1K_SPR_SR_ADDR)) &
-             spr_sys_group_wr &
+             spr_sys_group_we &
              spr_sr[`OR1K_SPR_SR_SM]) begin
       // from SPR bus
       spr_sr[`OR1K_SPR_SR_SM ] <= spr_sys_group_wdat_r[`OR1K_SPR_SR_SM ];
@@ -708,7 +709,7 @@ module mor1kx_ctrl_marocchino
     else if (wb_an_except_i)
       spr_esr <= spr_sr; // by exceptions
     else if ((`SPR_OFFSET(spr_sys_group_wadr_r) == `SPR_OFFSET(`OR1K_SPR_ESR0_ADDR)) &
-             spr_sys_group_wr)
+             spr_sys_group_we)
       spr_esr <= spr_sys_group_wdat_r[SPR_SR_WIDTH-1:0];
   end // @ clock
 
@@ -737,7 +738,7 @@ module mor1kx_ctrl_marocchino
 
   // NPC for SPR (write accesses implemented for Debug System only)
   assign du_npc_we = ((`SPR_OFFSET(spr_sys_group_wadr_r) == `SPR_OFFSET(`OR1K_SPR_NPC_ADDR)) &
-                      spr_sys_group_wr & spr_bus_wait_du_ack);
+                      spr_sys_group_we & spr_bus_wait_du_ack);
   // --- Actually it is used just to restart CPU after salling by DU ---
   always @(posedge cpu_clk) begin
     if (cpu_rst)
@@ -998,8 +999,107 @@ module mor1kx_ctrl_marocchino
     endcase
   end // @clock
 
+
+  // SPR access "ACK"
+  assign spr_bus_ack = spr_bus_ack_sys_group |
+                       spr_bus_ack_gpr0_i    | spr_bus_ack_gprS_i |
+                       spr_bus_ack_dmmu_i    | spr_bus_ack_immu_i |
+                       spr_bus_ack_dc_i      | spr_bus_ack_ic_i   |
+                       spr_bus_ack_mac_i     | spr_bus_ack_du     |
+                       spr_bus_ack_pcu_i     | spr_bus_ack_pmu_i  |
+                       spr_bus_ack_pic_i     | spr_bus_ack_tt_i   |
+                       spr_bus_ack_fpu_i     | (~spr_access_valid_reg);
+
+  //
+  // Generate data to the register file for mfspr operations
+  // Read datas are simply ORed since set to 0 when not
+  // concerned by spr access.
+  //
+  assign spr_bus_dat_mux = spr_bus_dat_sys_group |
+                           spr_bus_dat_gpr0_i    | spr_bus_dat_gprS_i |
+                           spr_bus_dat_dmmu_i    | spr_bus_dat_immu_i |
+                           spr_bus_dat_dc_i      | spr_bus_dat_ic_i   |
+                           spr_bus_dat_mac_i     | spr_bus_dat_du     |
+                           spr_bus_dat_pcu_i     | spr_bus_dat_pmu_i  |
+                           spr_bus_dat_pic_i     | spr_bus_dat_tt_i   |
+                           spr_bus_dat_fpu_i;
+
+
+  // MFSPR data and flag for WB_MUX
+  wire [OPTION_OPERAND_WIDTH-1:0] wb_mfspr_result_m;
+  assign wb_mfspr_result_m = {OPTION_OPERAND_WIDTH{spr_bus_wb}} & spr_bus_dat_r;
+  // ---
+  always @(posedge cpu_clk) begin
+    if (padv_wb_o) begin
+      wb_mfspr_result_o     <= wb_mfspr_result_m;
+      wb_mfspr_result_cp1_o <= wb_mfspr_result_m;
+      wb_mfspr_result_cp2_o <= wb_mfspr_result_m;
+      wb_mfspr_result_cp3_o <= wb_mfspr_result_m;
+    end
+  end // @clock
+
+
+
+  //----------------------------------------//
+  // SPR requests for system group register //
+  //----------------------------------------//
+
+  // SYS GROUP's STB
+  always @(posedge cpu_clk) begin
+    if (cpu_rst)
+      spr_sys_group_stb_r <= 1'b0;
+    else if (spr_bus_ack_sys_group)
+      spr_sys_group_stb_r <= 1'b0;
+    else
+      spr_sys_group_stb_r <= spr_bus_stb_o;
+  end // at clock
+  // SYS GROUP's WE / Address / Data
+  always @(posedge cpu_clk) begin
+    spr_sys_group_we_r   <= spr_bus_we_o;
+    spr_sys_group_wadr_r <= spr_bus_addr_o[14:0];
+    spr_sys_group_wdat_r <= spr_bus_dat_o;
+  end // at clock
+
+  // SPR BUS interface for SYSTEM GROUP
+  localparam [3:0] SPR_SYS_WAIT  = 4'b0001,
+                   SPR_SYS_WRITE = 4'b0010,
+                   SPR_SYS_READ  = 4'b0100,
+                   SPR_SYS_ACK   = 4'b1000;
+  // ---
+  reg [3:0] spr_sys_state;
+  // ---
+  assign spr_sys_group_we      = spr_sys_state[1];
+  assign spr_sys_group_re      = spr_sys_state[2];
+  assign spr_bus_ack_sys_group = spr_sys_state[3];
+  //  !!! Excluding GPR0 (`SPR_BASE) !!!
+  assign spr_sys_group_cs = spr_sys_group_stb_r &
+                            (spr_sys_group_wadr_r[14:11] == `OR1K_SPR_SYS_BASE) &
+                            (~spr_sys_group_wadr_r[10]);
+  // ---
+  always @(posedge cpu_clk) begin
+    if (cpu_rst)
+      spr_sys_state <= SPR_SYS_WAIT;
+    else begin
+      // synthesis parallel_case full_case
+      case (spr_sys_state)
+        SPR_SYS_WAIT: begin
+          if (spr_sys_group_cs)
+            spr_sys_state <= spr_sys_group_we_r ? SPR_SYS_WRITE : SPR_SYS_READ;
+        end
+        SPR_SYS_WRITE,
+        SPR_SYS_READ: begin
+          spr_sys_state <= SPR_SYS_ACK;
+        end
+        SPR_SYS_ACK: begin
+          spr_sys_state <= SPR_SYS_WAIT;
+        end
+        default:;
+      endcase
+    end
+  end // at clock
+
   // System group (0) SPR data out
-  reg [OPTION_OPERAND_WIDTH-1:0]    spr_sys_group_dat;
+  reg  [OPTION_OPERAND_WIDTH-1:0] spr_sys_group_dat;
   // ---
   always @(*) begin
     // synthesis parallel_case full_case
@@ -1053,51 +1153,6 @@ module mor1kx_ctrl_marocchino
     endcase
   end // always
 
-
-  // SPR BUS interface for SYSTEM GROUP
-  localparam [3:0] SPR_SYS_WAIT  = 4'b0001,
-                   SPR_SYS_WRITE = 4'b0010,
-                   SPR_SYS_READ  = 4'b0100,
-                   SPR_SYS_ACK   = 4'b1000;
-  // ---
-  reg [3:0] spr_sys_state;
-  // ---
-  assign spr_sys_group_wait    = spr_sys_state[0];
-  assign spr_sys_group_wr      = spr_sys_state[1];
-  assign spr_sys_group_re      = spr_sys_state[2];
-  assign spr_bus_ack_sys_group = spr_sys_state[3];
-  //  !!! Excluding GPR0 (`SPR_BASE) !!!
-  assign spr_sys_group_cs = spr_bus_stb_o & (spr_bus_addr_o[14:11] == `OR1K_SPR_SYS_BASE) &
-                                            (~spr_bus_addr_o[10]);
-  // ---
-  always @(posedge cpu_clk) begin
-    if (cpu_rst)
-      spr_sys_state <= SPR_SYS_WAIT;
-    else begin
-      // synthesis parallel_case full_case
-      case (spr_sys_state)
-        SPR_SYS_WAIT: begin
-          if (spr_sys_group_cs)
-            spr_sys_state <= spr_bus_we_o ? SPR_SYS_WRITE : SPR_SYS_READ;
-        end
-        SPR_SYS_WRITE,
-        SPR_SYS_READ: begin
-          spr_sys_state <= SPR_SYS_ACK;
-        end
-        SPR_SYS_ACK: begin
-          spr_sys_state <= SPR_SYS_WAIT;
-        end
-        default:;
-      endcase
-    end
-  end // at clock
-  // --- write address and data ---
-  always @(posedge cpu_clk) begin
-    if (spr_sys_group_wait & spr_sys_group_cs) begin
-      spr_sys_group_wadr_r <= spr_bus_addr_o;
-      spr_sys_group_wdat_r <= spr_bus_dat_o;
-    end
-  end // at clock
   // --- read data (1-clock valid) ---
   always @(posedge cpu_clk) begin
     if (spr_sys_group_re)
@@ -1108,49 +1163,29 @@ module mor1kx_ctrl_marocchino
 
 
 
-  // SPR access "ACK"
-  assign spr_bus_ack = spr_bus_ack_sys_group |
-                       spr_bus_ack_gpr0_i    | spr_bus_ack_gprS_i |
-                       spr_bus_ack_dmmu_i    | spr_bus_ack_immu_i |
-                       spr_bus_ack_dc_i      | spr_bus_ack_ic_i   |
-                       spr_bus_ack_mac_i     | spr_bus_ack_du     |
-                       spr_bus_ack_pcu_i     | spr_bus_ack_pmu_i  |
-                       spr_bus_ack_pic_i     | spr_bus_ack_tt_i   |
-                       spr_bus_ack_fpu_i     | (~spr_access_valid_reg);
-
-  //
-  // Generate data to the register file for mfspr operations
-  // Read datas are simply ORed since set to 0 when not
-  // concerned by spr access.
-  //
-  assign spr_bus_dat_mux = spr_bus_dat_sys_group |
-                           spr_bus_dat_gpr0_i    | spr_bus_dat_gprS_i |
-                           spr_bus_dat_dmmu_i    | spr_bus_dat_immu_i |
-                           spr_bus_dat_dc_i      | spr_bus_dat_ic_i   |
-                           spr_bus_dat_mac_i     | spr_bus_dat_du     |
-                           spr_bus_dat_pcu_i     | spr_bus_dat_pmu_i  |
-                           spr_bus_dat_pic_i     | spr_bus_dat_tt_i   |
-                           spr_bus_dat_fpu_i;
-
-
-  // MFSPR data and flag for WB_MUX
-  wire [OPTION_OPERAND_WIDTH-1:0] wb_mfspr_result_m;
-  assign wb_mfspr_result_m = {OPTION_OPERAND_WIDTH{spr_bus_wb}} & spr_bus_dat_r;
-  // ---
-  always @(posedge cpu_clk) begin
-    if (padv_wb_o) begin
-      wb_mfspr_result_o     <= wb_mfspr_result_m;
-      wb_mfspr_result_cp1_o <= wb_mfspr_result_m;
-      wb_mfspr_result_cp2_o <= wb_mfspr_result_m;
-      wb_mfspr_result_cp3_o <= wb_mfspr_result_m;
-    end
-  end // @clock
-
-
-
   //------------//
   // DEBUG unit //
   //------------//
+
+  // Registering SPR BUS
+  reg         spr_du_stb_r;
+  reg  [14:0] spr_du_wadr_r;
+  // ---
+  always @(posedge cpu_clk) begin
+    if (cpu_rst)
+      spr_du_stb_r <= 1'b0;
+    else if (spr_bus_ack_du)
+      spr_du_stb_r <= 1'b0;
+    else
+      spr_du_stb_r <= spr_bus_stb_o;
+  end // at clock
+  // ---
+  always @(posedge cpu_clk) begin
+    spr_du_wadr_r <= spr_bus_addr_o[14:0];
+  end // at clock
+
+  // "chip select" for DU from SPR BUS
+  assign spr_du_cs = spr_du_stb_r & (spr_du_wadr_r[14:11] == `OR1K_SPR_DU_BASE); // `SPR_BASE
 
   // SPR BUS interface for DEBUG UNIT
   localparam [3:0] SPR_DU_WAIT  = 4'b0001,
@@ -1158,11 +1193,7 @@ module mor1kx_ctrl_marocchino
                    SPR_DU_READ  = 4'b0100,
                    SPR_DU_ACK   = 4'b1000;
 
-  // "chip select" for DU from SPR BUS
-  assign spr_bus_cs_du = spr_bus_stb_o & (spr_bus_addr_o[14:11] == `OR1K_SPR_DU_BASE); // `SPR_BASE
-
   generate
-
   /* verilator lint_off WIDTH */
   if (FEATURE_DEBUGUNIT != "NONE") begin : du_enabled
   /* verilator lint_on WIDTH */
@@ -1198,33 +1229,61 @@ module mor1kx_ctrl_marocchino
     assign du_dat_o = du_dat_r; // DU enabled
 
 
-    /* DU's Control registers and SPR BUS access cycle */
+    /* DU's Control registers */
 
     reg spr_dmr1_st;
     reg spr_dsr_te;
     reg spr_drr_te;
 
+
+    /* SPR BUS access to DU */
+
+    // Registering SPR BUS
+    reg  spr_du_we_r;
+    reg  spr_du_wdat_dmr1_st_r;
+    reg  spr_du_wdat_dXr_te_r;
     // ---
+    always @(posedge cpu_clk) begin
+      spr_du_we_r           <= spr_bus_we_o;
+      spr_du_wdat_dmr1_st_r <= spr_bus_dat_o[`OR1K_SPR_DMR1_ST];
+      spr_du_wdat_dXr_te_r  <= spr_bus_dat_o[`OR1K_SPR_DSR_TE];
+    end // at clock
+
+    // SPR FSM
     reg [3:0] spr_du_state;
     // ---
-    wire   spr_du_wait    = spr_du_state[0];
-    wire   spr_du_wr      = spr_du_state[1];
+    wire   spr_du_we      = spr_du_state[1];
     wire   spr_du_re      = spr_du_state[2];
     assign spr_bus_ack_du = spr_du_state[3];
     // ---
+    reg spr_du_dmr1_cs_r;
+    reg spr_du_dsr_cs_r;
+    reg spr_du_drr_cs_r;
+    // ---
     always @(posedge cpu_clk) begin
-      if (cpu_rst)
-        spr_du_state <= SPR_DU_WAIT;
+      if (cpu_rst) begin
+        spr_du_dmr1_cs_r <= 1'b0;
+        spr_du_dsr_cs_r  <= 1'b0;
+        spr_du_drr_cs_r  <= 1'b0;
+        spr_du_state     <= SPR_DU_WAIT;
+      end
       else begin
         // synthesis parallel_case full_case
         case (spr_du_state)
           SPR_DU_WAIT: begin
-            if (spr_bus_cs_du)
-              spr_du_state <= spr_bus_we_o ? SPR_DU_WRITE : SPR_DU_READ;
+            if (spr_du_cs) begin
+              spr_du_dmr1_cs_r <= (`SPR_OFFSET(spr_du_wadr_r) == `SPR_OFFSET(`OR1K_SPR_DMR1_ADDR));
+              spr_du_dsr_cs_r  <= (`SPR_OFFSET(spr_du_wadr_r) == `SPR_OFFSET(`OR1K_SPR_DSR_ADDR));
+              spr_du_drr_cs_r  <= (`SPR_OFFSET(spr_du_wadr_r) == `SPR_OFFSET(`OR1K_SPR_DRR_ADDR));
+              spr_du_state     <= spr_du_we_r ? SPR_DU_WRITE : SPR_DU_READ;
+            end
           end
           SPR_DU_WRITE,
           SPR_DU_READ: begin
-            spr_du_state <= SPR_DU_ACK;
+            spr_du_dmr1_cs_r <= 1'b0;
+            spr_du_dsr_cs_r  <= 1'b0;
+            spr_du_drr_cs_r  <= 1'b0;
+            spr_du_state     <= SPR_DU_ACK;
           end
           SPR_DU_ACK: begin
             spr_du_state <= SPR_DU_WAIT;
@@ -1234,21 +1293,6 @@ module mor1kx_ctrl_marocchino
       end
     end // at clock
 
-    // --- write address and data ---
-    reg                       [15:0] spr_du_wadr_r;
-    reg [(OPTION_OPERAND_WIDTH-1):0] spr_du_wdat_r;
-    // ---
-    always @(posedge cpu_clk) begin
-      if (spr_du_wait & spr_bus_cs_du) begin
-        spr_du_wadr_r <= spr_bus_addr_o;
-        spr_du_wdat_r <= spr_bus_dat_o;
-      end
-    end // at clock
-    // ---
-    wire spr_bus_cs_du_dmr1 = (`SPR_OFFSET(spr_du_wadr_r) == `SPR_OFFSET(`OR1K_SPR_DMR1_ADDR));
-    wire spr_bus_cs_du_dsr  = (`SPR_OFFSET(spr_du_wadr_r) == `SPR_OFFSET(`OR1K_SPR_DSR_ADDR));
-    wire spr_bus_cs_du_drr  = (`SPR_OFFSET(spr_du_wadr_r) == `SPR_OFFSET(`OR1K_SPR_DRR_ADDR));
-
     // --- read data (1-clock valid) ---
     reg [(OPTION_OPERAND_WIDTH-1):0] spr_bus_dat_du_r;
     // ---
@@ -1256,10 +1300,10 @@ module mor1kx_ctrl_marocchino
       if (spr_du_re)
         spr_bus_dat_du_r <= {
                               {(OPTION_OPERAND_WIDTH - 1 - `OR1K_SPR_DMR1_ST){1'b0}}, // DU enabled: SPR BUS DAT DU
-                              (spr_bus_cs_du_dmr1 & spr_dmr1_st),                     // DU enabled: SPR BUS DAT DU
+                              (spr_du_dmr1_cs_r & spr_dmr1_st),                       // DU enabled: SPR BUS DAT DU
                               {(`OR1K_SPR_DMR1_ST - 1 - `OR1K_SPR_DSR_TE){1'b0}},     // DU enabled: SPR BUS DAT DU
-                              ((spr_bus_cs_du_dsr & spr_dsr_te) |                     // DU enabled: SPR BUS DAT DU
-                               (spr_bus_cs_du_drr & spr_drr_te)),                     // DU enabled: SPR BUS DAT DU
+                              ((spr_du_dsr_cs_r & spr_dsr_te) |                       // DU enabled: SPR BUS DAT DU
+                               (spr_du_drr_cs_r & spr_drr_te)),                       // DU enabled: SPR BUS DAT DU
                               {`OR1K_SPR_DSR_TE{1'b0}}                                // DU enabled: SPR BUS DAT DU
                             };
       else
@@ -1273,8 +1317,8 @@ module mor1kx_ctrl_marocchino
     always @(posedge cpu_clk) begin
       if (cpu_rst)
         spr_dmr1_st <= 1'b0;
-      else if (spr_du_wr & spr_bus_cs_du_dmr1)
-        spr_dmr1_st <= spr_du_wdat_r[`OR1K_SPR_DMR1_ST];
+      else if (spr_du_we & spr_du_dmr1_cs_r)
+        spr_dmr1_st <= spr_du_wdat_dmr1_st_r;
     end // @ clock
 
 
@@ -1282,8 +1326,8 @@ module mor1kx_ctrl_marocchino
     always @(posedge cpu_clk) begin
       if (cpu_rst)
         spr_dsr_te <= 1'b0;
-      else if (spr_du_wr & spr_bus_cs_du_dsr)
-        spr_dsr_te <= spr_du_wdat_r[`OR1K_SPR_DSR_TE];
+      else if (spr_du_we & spr_du_dsr_cs_r)
+        spr_dsr_te <= spr_du_wdat_dXr_te_r;
     end // @ clock
 
     // Pick the traps-cause-stall bit out of the DSR
@@ -1294,8 +1338,8 @@ module mor1kx_ctrl_marocchino
     always @(posedge cpu_clk) begin
       if (cpu_rst)
         spr_drr_te <= 1'b0;
-      else if (spr_du_wr & spr_bus_cs_du_drr)
-        spr_drr_te <= spr_du_wdat_r[`OR1K_SPR_DRR_TE];
+      else if (spr_du_we & spr_du_drr_cs_r)
+        spr_drr_te <= spr_du_wdat_dXr_te_r;
       else if (wb_except_trap_i) // DU
         spr_drr_te <= 1'b1;
     end // @ clock
@@ -1471,7 +1515,7 @@ module mor1kx_ctrl_marocchino
         spr_bus_ack_du_r <= 1'b0; // DU disabled
       else if (spr_bus_ack_du_r)
         spr_bus_ack_du_r <= 1'b0; // DU disabled
-      else if (spr_bus_cs_du)
+      else if (spr_du_cs)
         spr_bus_ack_du_r <= 1'b1; // DU disabled
     end
     // ---
@@ -1507,7 +1551,6 @@ module mor1kx_ctrl_marocchino
     assign stepped_into_rfe        = 1'b0; // DU disabled
 
   end // DU enabled/disabled
-
   endgenerate
 
 endmodule // mor1kx_ctrl_marocchino
