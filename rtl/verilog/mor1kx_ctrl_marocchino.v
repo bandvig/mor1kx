@@ -116,6 +116,7 @@ module mor1kx_ctrl_marocchino
   output reg                     [15:0] spr_bus_addr_o,
   output reg                            spr_bus_we_o,
   output reg                            spr_bus_stb_o,
+  output reg                            spr_bus_toggle_o, // for TT and PIC
   output reg [OPTION_OPERAND_WIDTH-1:0] spr_bus_dat_o,
   input      [OPTION_OPERAND_WIDTH-1:0] spr_bus_dat_dc_i,
   input                                 spr_bus_ack_dc_i,
@@ -568,8 +569,8 @@ module mor1kx_ctrl_marocchino
 
   // Advance DECODE
   // In step-by-step mode DECODE could be advanced
-  //  just by the fact it has got "step enabled" 
-  assign padv_dcod_o = (~spr_bus_cpu_stall_r) & (~du_cpu_stall) & // ADV. DECODE 
+  //  just by the fact it has got "step enabled"
+  assign padv_dcod_o = (~spr_bus_cpu_stall_r) & (~du_cpu_stall) & // ADV. DECODE
     (((~stepping) & dcod_free_i & (dcod_empty_i | dcod_valid_i)) | // ADV. DECODE
        (stepping   & pstep[1])); // ADV. DECODE
   // Pass step from DECODE to EXEC
@@ -578,7 +579,7 @@ module mor1kx_ctrl_marocchino
 
   // Advance EXECUTE (push RSRVS)
   // In step-by-step mode EXECUTE could be advanced
-  //  just by the fact it has got "step enabled" 
+  //  just by the fact it has got "step enabled"
   assign padv_exec_o = (~spr_bus_cpu_stall_r) & (~du_cpu_stall) & // ADV. EXECUTE (push RSRVS)
     (((~stepping) & dcod_valid_i) | // ADV. EXECUTE (push RSRVS)
        (stepping   & pstep[2])); // ADV. EXECUTE (push RSRVS)
@@ -913,11 +914,12 @@ module mor1kx_ctrl_marocchino
   always @(posedge cpu_clk) begin
     if (cpu_rst) begin
       // SPR BUS "we" and "stb"
-      spr_bus_we_o   <=  1'b0; // on reset / flush
-      spr_bus_stb_o  <=  1'b0; // on reset / flush
+      spr_bus_we_o     <=  1'b0; // on reset
+      spr_bus_stb_o    <=  1'b0; // on reset
+      spr_bus_toggle_o <=  1'b0; // on reset
       // internal auxiliaries
-      spr_bus_cpu_stall_r  <= 1'b0; // on reset / flush
-      spr_access_valid_reg <= 1'b1; // on reset / flush
+      spr_bus_cpu_stall_r  <= 1'b0; // on reset
+      spr_access_valid_reg <= 1'b1; // on reset
       // SPR BUS controller state
       spr_bus_state <= SPR_BUS_WAIT_REQ;
     end
@@ -939,8 +941,9 @@ module mor1kx_ctrl_marocchino
         SPR_BUS_RUN_DU_REQ: begin
           // SPR BUS "we" and "stb"
           if (spr_access_valid_mux) begin
-            spr_bus_we_o  <= spr_bus_run_mxspr ? ctrl_op_mtspr_r : du2spr_we_w;
-            spr_bus_stb_o <= 1'b1;
+            spr_bus_we_o     <= spr_bus_run_mxspr ? ctrl_op_mtspr_r : du2spr_we_w;
+            spr_bus_stb_o    <= 1'b1;
+            spr_bus_toggle_o <= (~spr_bus_toggle_o);
           end
           // internal auxiliaries
           spr_access_valid_reg <= spr_access_valid_mux;

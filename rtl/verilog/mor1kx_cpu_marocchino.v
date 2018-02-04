@@ -480,6 +480,9 @@ module mor1kx_cpu_marocchino
   wire                            sbuf_err;
 
 
+  // CTRL -> Unit on Wishbone clock (TT & PIC)
+  wire                            spr_bus_toggle;
+
   // SPR access buses (Unit -> CTRL part)
   //   GPR[0]
   wire                            spr_bus_ack_gpr0;
@@ -2079,6 +2082,7 @@ module mor1kx_cpu_marocchino
     .spr_bus_addr_i     (spr_bus_addr_o), // TIMER
     .spr_bus_we_i       (spr_bus_we_o), // TIMER
     .spr_bus_stb_i      (spr_bus_stb_o), // TIMER
+    .spr_bus_toggle_i   (spr_bus_toggle), // TIMER
     .spr_bus_dat_i      (spr_bus_dat_o), // TIMER
     .spr_bus_dat_tt_o   (spr_bus_dat_tt), // TIMER
     .spr_bus_ack_tt_o   (spr_bus_ack_tt) // TIMER
@@ -2114,6 +2118,7 @@ module mor1kx_cpu_marocchino
     .spr_bus_addr_i     (spr_bus_addr_o), // PIC
     .spr_bus_we_i       (spr_bus_we_o), // PIC
     .spr_bus_stb_i      (spr_bus_stb_o), // PIC
+    .spr_bus_toggle_i   (spr_bus_toggle), // PIC
     .spr_bus_dat_i      (spr_bus_dat_o), // PIC
     //  # outputs
     .spr_bus_dat_pic_o  (spr_bus_dat_pic), // PIC
@@ -2198,6 +2203,7 @@ module mor1kx_cpu_marocchino
     .spr_bus_addr_o                   (spr_bus_addr_o), // CTRL
     .spr_bus_we_o                     (spr_bus_we_o), // CTRL
     .spr_bus_stb_o                    (spr_bus_stb_o), // CTRL
+    .spr_bus_toggle_o                 (spr_bus_toggle), // CTRL
     .spr_bus_dat_o                    (spr_bus_dat_o), // CTRL
     .spr_bus_dat_dc_i                 (spr_bus_dat_dc), // CTRL
     .spr_bus_ack_dc_i                 (spr_bus_ack_dc), // CTRL

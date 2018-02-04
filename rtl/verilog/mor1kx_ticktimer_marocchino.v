@@ -43,12 +43,13 @@ module mor1kx_ticktimer_marocchino
   input             cpu_rst,
 
   // ready flag
-  output            tt_rdy_o,
+  output reg        tt_rdy_o,
 
   // SPR interface
   input      [15:0] spr_bus_addr_i,
   input             spr_bus_we_i,
   input             spr_bus_stb_i,
+  input             spr_bus_toggle_i,
   input      [31:0] spr_bus_dat_i,
   output reg [31:0] spr_bus_dat_tt_o,
   output reg        spr_bus_ack_tt_o
@@ -59,132 +60,150 @@ module mor1kx_ticktimer_marocchino
   reg [31:0] spr_ttcr;
 
 
-  // SPR request decoders
-  wire spr_tt_cs   = spr_bus_stb_i & (spr_bus_addr_i[14:11] == `OR1K_SPR_TT_BASE); // `SPR_BASE
-  wire spr_ttmr_cs = (`SPR_OFFSET(spr_bus_addr_i) == `SPR_OFFSET(`OR1K_SPR_TTMR_ADDR));
-  wire spr_ttcr_cs = (`SPR_OFFSET(spr_bus_addr_i) == `SPR_OFFSET(`OR1K_SPR_TTCR_ADDR));
+  //---------------//
+  // SPR interface //
+  //---------------//
 
+  //  we don't expect R/W-collisions for SPRbus vs WB cycles since
+  //    SPRbus access start 1-clock later than WB
+  //    thanks to MT(F)SPR processing logic (see OMAN)
 
-  // CPU clock domain:
-  // CPU-toggle -> PIC-pulse
-  //  to latch SPR bus signals in Wishbone clock domain
-  reg        spr_bus_toggle_r;
-  // Latch all necassary SPR access controls
-  reg [34:0] spr_tt_cmd_r; // {"ttmr-cs", "ttcr-cs", "we", dat}
+  // CPU -> Wishbone clock domain
 
-  // initial value for simulation
- `ifndef SYNTHESIS
-  // synthesis translate_off
-  initial begin
-    spr_bus_toggle_r  = 1'b0;
-    spr_bus_ack_tt_o = 1'b0;
-  end
-  // synthesis translate_on
- `endif // !synth
+  // Pseudo CDC disclaimer:
+  // As positive edges of wb-clock and cpu-clock assumed be aligned,
+  // we use simplest clock domain pseudo-synchronizers.
 
-  // pulse to initiate read/write transaction
-  reg  spr_tt_cs_r;
-  wire spr_tt_cs_pulse;
+  // Registering SPR BUS incoming signals in Wishbone clock domain.
+  reg         spr_bus_stb_r1;
+  reg         spr_bus_we_r1;
+  reg  [14:0] spr_bus_addr_r1;
+  reg  [31:0] spr_bus_dat_r1;
   // ---
-  always @(posedge cpu_clk) begin
-    if (cpu_rst)
-      spr_tt_cs_r <= 1'b0;
-    else
-      spr_tt_cs_r <= spr_tt_cs;
-  end
-  // ---
-  assign spr_tt_cs_pulse = (~spr_tt_cs_r) & spr_tt_cs;
-  // transaction data latch
-  always @(posedge cpu_clk) begin
-    if (spr_tt_cs_pulse) begin
-      spr_bus_toggle_r <= (~spr_bus_toggle_r);
-      spr_tt_cmd_r     <= {spr_ttmr_cs,spr_ttcr_cs,spr_bus_we_i,spr_bus_dat_i};
-    end
-  end
+  always @(posedge wb_clk) begin
+    spr_bus_stb_r1  <= spr_bus_stb_i;
+    spr_bus_we_r1   <= spr_bus_we_i;
+    spr_bus_addr_r1 <= spr_bus_addr_i[14:0];
+    spr_bus_dat_r1  <= spr_bus_dat_i;
+  end // at wb-clock
 
-
-  // Wishbone clock domain:
-  // --- synch. ---
-  // As CDC is not completely implemented, that's why each synchronizer
-  // contains only one register. So register enumeration
-  // starts from _r2 (*_r1 should be 1st in full sync. implementation).
-  reg cpu2tt_cs_r2, cpu2tt_cs_r3;
+  // Detect new SPR request in Wishbone clock domain.
+  reg  cpu2tt_r1;
+  reg  cpu2tt_r2;
+  wire cpu2tt_pulse = cpu2tt_r2 ^ cpu2tt_r1;
   //---
   always @(posedge wb_clk) begin
     if (wb_rst) begin
-      cpu2tt_cs_r2 <= 1'b0;
-      cpu2tt_cs_r3 <= 1'b0;
+      cpu2tt_r2 <= 1'b0;
+      cpu2tt_r1 <= 1'b0;
     end
     else begin
-      cpu2tt_cs_r2 <= spr_bus_toggle_r;
-      cpu2tt_cs_r3 <= cpu2tt_cs_r2;
+      cpu2tt_r2 <= cpu2tt_r1;
+      cpu2tt_r1 <= spr_bus_toggle_i;
     end
-  end
-  // ---
-  wire cpu2tt_cs_pulse = cpu2tt_cs_r2 ^ cpu2tt_cs_r3;
-  reg  cpu2tt_cs_pulse_r;
+  end // at wb-clock
+
+  // SPR's STB & ACK in Wishbone clock domain
+  reg   spr_tt_stb_r;
+  wire  spr_tt_ack;
   // ---
   always @(posedge wb_clk) begin
     if (wb_rst)
-      cpu2tt_cs_pulse_r <= 1'b0;
-    else
-      cpu2tt_cs_pulse_r <= cpu2tt_cs_pulse;
-  end // at clock
-  // --- latch SPR access parameters in Wishbone clock domain ---
-  reg [34:0] cpu2tt_cmd_r; // {"ttmr-cs", "ttcr-cs", "we", dat}
-  // ---
-  always @(posedge wb_clk) begin
-    if (cpu2tt_cs_pulse)
-      cpu2tt_cmd_r <= spr_tt_cmd_r;
-  end // at clock
-  // --- unpack SPR access parameters ---
-  wire        cpu2tt_ttmr_cs = cpu2tt_cmd_r[34];
-  wire        cpu2tt_ttcr_cs = cpu2tt_cmd_r[33];
-  wire        cpu2tt_we      = cpu2tt_cmd_r[32];
-  wire [31:0] cpu2tt_dat     = cpu2tt_cmd_r[31:0];
+      spr_tt_stb_r <= 1'b0;
+    else if (spr_tt_ack)
+      spr_tt_stb_r <= 1'b0;
+    else if (cpu2tt_pulse)
+      spr_tt_stb_r <= spr_bus_stb_r1;
+  end // at cb-clock
 
+  // Chip selects / WE
+  wire spr_tt_cs = spr_tt_stb_r & (spr_bus_addr_r1[14:11] == `OR1K_SPR_TT_BASE); // `SPR_BASE
+  wire spr_tt_we;
+  wire spr_tt_re;
+  reg  spr_ttmr_cs_r;
+  reg  spr_ttcr_cs_r;
 
-  // read/write done and data for output to SPR BUS
-  reg        tt_ack_r;
-  reg [31:0] tt_dato_r;
-  // ---
+  // SPR FSM states
+  wire [3:0] SPR_TT_WAIT = 4'b0001,
+             SPR_TT_WE   = 4'b0010,
+             SPR_TT_RE   = 4'b0100,
+             SPR_TT_ACK  = 4'b1000;
+
+  // SPR FSM state register and particular states
+  reg  [3:0] spr_tt_state;
+  assign     spr_tt_we  = spr_tt_state[1];
+  assign     spr_tt_re  = spr_tt_state[2];
+  assign     spr_tt_ack = spr_tt_state[3];
+
+  // SPR FSM
   always @(posedge wb_clk) begin
-    if (wb_rst)
-      tt_ack_r <= 1'b0;
-    else
-      tt_ack_r <= cpu2tt_cs_pulse_r;
-  end // at clock
-  // ---
-  always @(posedge wb_clk) begin
-    if (cpu2tt_cs_pulse_r) begin
-      tt_dato_r <= cpu2tt_ttmr_cs ? spr_ttmr :
-                   cpu2tt_ttcr_cs ? spr_ttcr :
-                                    32'd0;
+    if (wb_rst) begin
+      spr_ttmr_cs_r <= 1'b0; // at reset
+      spr_ttcr_cs_r <= 1'b0; // at reset
+      spr_tt_state  <= SPR_TT_WAIT;
     end
+    else begin
+      // synthesis parallel_case full_case
+      case (spr_tt_state)
+        // wait SPR access request
+        SPR_TT_WAIT: begin
+          if (spr_tt_cs) begin
+            spr_ttmr_cs_r <= (`SPR_OFFSET(spr_bus_addr_r1) == `SPR_OFFSET(`OR1K_SPR_TTMR_ADDR));
+            spr_ttcr_cs_r <= (`SPR_OFFSET(spr_bus_addr_r1) == `SPR_OFFSET(`OR1K_SPR_TTCR_ADDR));
+            spr_tt_state  <= spr_bus_we_r1 ? SPR_TT_WE : SPR_TT_RE;
+          end
+        end
+        // doing SPR write/read
+        SPR_TT_WE,
+        SPR_TT_RE: begin
+          spr_ttmr_cs_r <= 1'b0;
+          spr_ttcr_cs_r <= 1'b0;
+          spr_tt_state  <= SPR_TT_ACK;
+        end
+        // make ack
+        SPR_TT_ACK: begin
+          spr_tt_state  <= SPR_TT_WAIT;
+        end
+        // default
+        default;
+      endcase
+    end
+  end // at wb-clock
+
+  // data for output to SPR BUS
+  reg  [31:0] tt_dato_r;
+  // ---
+  always @(posedge wb_clk) begin
+    if (spr_tt_re)
+      tt_dato_r <= spr_ttmr_cs_r ? spr_ttmr :
+                    (spr_ttcr_cs_r ? spr_ttcr : 32'd0);
   end // at clock
 
 
   // TT-ack-pulse -> CPU-ack-pulse
   //   As CPU clock assumed to be faster or equal to TT's one, we
   // don't use toggle here.
-  //   As CDC is not completely implemented, that's why each synchronizer
-  // contains only one register. So register enumeration
-  // starts from _r2 (*_r1 should be 1st in full sync. implementation).
-  reg tt2cpu_ack_r2;
-  reg tt2cpu_ack_r3;
+  reg  tt2cpu_ack_r1;
+  reg  tt2cpu_ack_r2;
+  wire tt2cpu_ack_pulse = (~tt2cpu_ack_r2) & tt2cpu_ack_r1;
   // ---
   always @(posedge cpu_clk) begin
     if (cpu_rst) begin
       tt2cpu_ack_r2 <= 1'b0;
-      tt2cpu_ack_r3 <= 1'b0;
+      tt2cpu_ack_r1 <= 1'b0;
     end
     else begin
-      tt2cpu_ack_r2 <= tt_ack_r;
-      tt2cpu_ack_r3 <= tt2cpu_ack_r2;
+      tt2cpu_ack_r2 <= tt2cpu_ack_r1;
+      tt2cpu_ack_r1 <= spr_tt_ack;
     end
   end
+
+  // Re-clock output data in CPU clock domain
+  reg  [31:0] tt2cpu_dato_r1;
   // ---
-  wire tt2cpu_ack = tt2cpu_ack_r2 & (~tt2cpu_ack_r3);
+  always @(posedge cpu_clk) begin
+    tt2cpu_dato_r1 <= tt_dato_r;
+  end
 
 
   // SPR BUS: output data and ack (CPU clock domain)
@@ -192,44 +211,46 @@ module mor1kx_ticktimer_marocchino
     if (cpu_rst)
       spr_bus_ack_tt_o <=  1'b0;
     else
-      spr_bus_ack_tt_o <= tt2cpu_ack;
+      spr_bus_ack_tt_o <= tt2cpu_ack_pulse;
   end
   // SPR BUS: output data latch (1-clock valid)
   always @(posedge cpu_clk) begin
-    if (tt2cpu_ack)
-      spr_bus_dat_tt_o <= tt_dato_r;
+    if (tt2cpu_ack_pulse)
+      spr_bus_dat_tt_o <= tt2cpu_dato_r1;
     else
       spr_bus_dat_tt_o <= 32'd0;
   end
 
 
   // TT-interrupt-level -> CPU-interrupt-level
-  //   As CPU clock assumed to be faster or equal to TT's one, we
-  // don't use toggle here.
-  //   As CDC is not completely implemented, that's why each synchronizer
-  // contains only one register. So register enumeration
-  // starts from _r2 (*_r1 should be 1st in full sync. implementation).
-  reg tt_rdy_r2;
+  // Re-clock TT -> CPU interrupt
+  reg  tt_rdy_r1;
   // ---
   always @(posedge cpu_clk) begin
-    if (cpu_rst | spr_bus_ack_tt_o)
-      tt_rdy_r2 <= 1'b0;
-    else
-      tt_rdy_r2 <= spr_ttmr[28];
+    tt_rdy_r1 <= spr_ttmr[28];
   end
   // ---
-  assign tt_rdy_o = tt_rdy_r2;
+  always @(posedge cpu_clk) begin
+    if (cpu_rst)
+      tt_rdy_o <= 1'b0;      
+    else
+      tt_rdy_o <= tt_rdy_r1 & (~spr_bus_ack_tt_o);
+  end
 
 
-  // Timer
+
+  //-------------//
+  // Timer logic //
+  //-------------//
+
   wire ttcr_match = (spr_ttcr[27:0] == spr_ttmr[27:0]);
 
   // Timer SPR control
   always @(posedge wb_clk) begin
     if (wb_rst)
       spr_ttmr <= 32'd0;
-    else if (cpu2tt_cs_pulse_r & cpu2tt_ttmr_cs & cpu2tt_we)
-      spr_ttmr <= cpu2tt_dat;
+    else if (spr_ttmr_cs_r & spr_tt_we)
+      spr_ttmr <= spr_bus_dat_r1;
     else if (ttcr_match & spr_ttmr[29])
       spr_ttmr[28] <= 1'b1; // Generate interrupt
   end
@@ -246,8 +267,8 @@ module mor1kx_ticktimer_marocchino
   always @(posedge wb_clk) begin
     if (wb_rst)
       spr_ttcr <= 32'd0;
-    else if (cpu2tt_cs_pulse_r & cpu2tt_ttcr_cs & cpu2tt_we)
-      spr_ttcr <= cpu2tt_dat;
+    else if (spr_ttcr_cs_r & spr_tt_we)
+      spr_ttcr <= spr_bus_dat_r1;
     else if (ttcr_clear)
       spr_ttcr <= 32'd0;
     else if (ttcr_run)
