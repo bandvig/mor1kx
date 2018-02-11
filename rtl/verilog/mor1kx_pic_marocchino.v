@@ -46,7 +46,7 @@ module mor1kx_pic_marocchino
   // input interrupt lines
   input      [31:0] irq_i,
   // output interrupt lines
-  output reg [31:0] spr_picsr_o,
+  output reg        pic_rdy_o, // an interrupt
   // SPR BUS
   //  # inputs
   input      [15:0] spr_bus_addr_i,
@@ -208,7 +208,7 @@ module mor1kx_pic_marocchino
   always @(posedge cpu_clk) begin
     pic2cpu_dato_r1 <= pic_dato_r;
   end
-  
+
   // SPR BUS: ACK (CPU clock domain, 1-clock)
   always @(posedge cpu_clk) begin
     if (cpu_rst)
@@ -234,9 +234,9 @@ module mor1kx_pic_marocchino
   // ---
   always @(posedge cpu_clk) begin
     if (cpu_rst)
-      spr_picsr_o <= 32'd0;      
+      pic_rdy_o <= 1'b0;
     else
-      spr_picsr_o <= spr_picsr_r1;
+      pic_rdy_o <= (|spr_picsr_r1);
   end
 
 
@@ -298,7 +298,7 @@ module mor1kx_pic_marocchino
   /* verilator lint_off WIDTH */
   else if (OPTION_PIC_TRIGGER == "LEVEL") begin : level_triggered
   /* verilator lint_on WIDTH */
-  
+
     always @(irq_unmasked) begin
       spr_picsr = irq_unmasked;
     end
@@ -307,7 +307,7 @@ module mor1kx_pic_marocchino
   /* verilator lint_off WIDTH */
   else if (OPTION_PIC_TRIGGER == "LATCHED_LEVEL") begin : latched_level
   /* verilator lint_on WIDTH */
-  
+
     always @(posedge wb_clk) begin
       if (wb_rst)
         spr_picsr <= 32'd0;

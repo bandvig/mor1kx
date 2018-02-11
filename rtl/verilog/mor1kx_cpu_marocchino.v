@@ -584,7 +584,7 @@ module mor1kx_cpu_marocchino
   wire        tt_rdy;
   wire        tt_interrupt_enable;
   //  # from "Programmble Interrupt Controller"
-  wire [31:0] spr_picsr;
+  wire        pic_rdy; // an interrupt
   wire        pic_interrupt_enable;
   //  # flag to enabel/disable exterlal interrupts processing
   //    depending on the fact is instructions restartable or not
@@ -1992,8 +1992,8 @@ module mor1kx_cpu_marocchino
   //------------------------------------//
   // WB: External Interrupts Collection //
   //------------------------------------//
-  wire exec_tt_interrupt  = tt_rdy       & tt_interrupt_enable  & exec_interrupts_en; // from "Tick Timer"
-  wire exec_pic_interrupt = (|spr_picsr) & pic_interrupt_enable & exec_interrupts_en; // from "Programmble Interrupt Controller"
+  wire exec_tt_interrupt  = tt_rdy  & tt_interrupt_enable  & exec_interrupts_en; // from "Tick Timer"
+  wire exec_pic_interrupt = pic_rdy & pic_interrupt_enable & exec_interrupts_en; // from "Programmble Interrupt Controller"
   // --- wb-latches ---
   always @(posedge cpu_clk) begin
     if (cpu_rst | pipeline_flush) begin  // WB: External Interrupts Collection
@@ -2112,7 +2112,7 @@ module mor1kx_cpu_marocchino
     // input interrupt lines
     .irq_i              (irq_i), // PIC
     // output interrupt lines
-    .spr_picsr_o        (spr_picsr), // PIC
+    .pic_rdy_o          (pic_rdy), // PIC
     // SPR BUS
     //  # inputs
     .spr_bus_addr_i     (spr_bus_addr_o), // PIC

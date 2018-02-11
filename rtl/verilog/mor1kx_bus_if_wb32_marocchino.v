@@ -47,10 +47,10 @@ module mor1kx_bus_if_wb32_marocchino
   input             pipeline_flush_i,
 
   // CPU side
-  output            cpu_err_o,
-  output            cpu_ack_o,
-  output     [31:0] cpu_dat_o,
-  output            cpu_burst_last_o,
+  output reg        cpu_err_o,
+  output reg        cpu_ack_o,
+  output reg [31:0] cpu_dat_o,
+  output reg        cpu_burst_last_o,
   input      [31:0] cpu_adr_i,
   input      [31:0] cpu_dat_i,
   input             cpu_req_i,
@@ -403,38 +403,47 @@ module mor1kx_bus_if_wb32_marocchino
   endgenerate
 
 
-  //------------------------//
-  // WBM-to-CPU burst queue //
-  //------------------------//
+  //------------//
+  // WBM-to-CPU //
+  //------------//
 
   // --- registered input controls (1-Wishbone-clock) ---
-  reg  [2:0] queue_in_ctrls_r;
+  reg         wbm_err_r;
+  reg         wbm_ack_r;
+  reg         wbm_burst_last_r;
+  reg  [31:0] wbm_dat_r;
   // ---
   always @(posedge wb_clk) begin
-    if (wb_rst)
-      queue_in_ctrls_r <= 3'd0;
-    else if (wbm_cyc_o & (wbm_err_i | wbm_ack_i))
-      queue_in_ctrls_r <= { wbm_err_i, wbm_ack_i, (burst_proc & burst_done_r[0]) };
-    else
-      queue_in_ctrls_r <= 3'd0;
+    if (wb_rst) begin
+      wbm_err_r        <= 1'b0;
+      wbm_ack_r        <= 1'b0;
+      wbm_burst_last_r <= 1'b0;
+    end
+    else if (wbm_cyc_o & (wbm_err_i | wbm_ack_i)) begin
+      wbm_err_r        <= wbm_err_i;
+      wbm_ack_r        <= wbm_ack_i;
+      wbm_burst_last_r <= (burst_proc & burst_done_r[0]);
+    end
+    else begin
+      wbm_err_r        <= 1'b0;
+      wbm_ack_r        <= 1'b0;
+      wbm_burst_last_r <= 1'b0;
+    end
   end // @wb-clock
-
-  // --- registered input data ---
-  reg  [31:0] queue_in_dat_r;
   // ---
   always @(posedge wb_clk) begin
     if (wbm_cyc_o & (wbm_err_i | wbm_ack_i))
-      queue_in_dat_r <= wbm_dat_i;
+      wbm_dat_r <= wbm_dat_i;
   end // @wb-clock
 
   // --- signaling to CPU ---
-  reg   queue2cpu_rdy_toggle_r;
+  reg   wbm2cpu_toggle_r;
   // ---
   always @(posedge wb_clk) begin
     if (wb_rst)
-      queue2cpu_rdy_toggle_r <= 1'b0;
+      wbm2cpu_toggle_r <= 1'b0;
     else if (wbm_cyc_o & (wbm_err_i | wbm_ack_i))
-      queue2cpu_rdy_toggle_r <= ~queue2cpu_rdy_toggle_r;
+      wbm2cpu_toggle_r <= ~wbm2cpu_toggle_r;
   end // @wb-clock
 
 
@@ -443,43 +452,40 @@ module mor1kx_bus_if_wb32_marocchino
   // As positive edges of wb-clock and cpu-clock assumed be aligned,
   // we use simplest clock domain pseudo-synchronizers.
   //
-  reg   queue2cpu_rdy_r1;
-  wire  queue2cpu_rdy_pulse; // from toggle to posedge of CPU clock
+  reg   wbm2cpu_rdy_r1;
+  wire  wbm2cpu_rdy_pulse = wbm2cpu_rdy_r1 ^ wbm2cpu_toggle_r; // from toggle to posedge of CPU clock
   // ---
   always @(posedge cpu_clk) begin
     if (cpu_rst)
-      queue2cpu_rdy_r1 <= 1'b0;
+      wbm2cpu_rdy_r1 <= 1'b0;
     else
-      queue2cpu_rdy_r1 <= queue2cpu_rdy_toggle_r;
+      wbm2cpu_rdy_r1 <= wbm2cpu_toggle_r;
   end // @cpu-clock
-  // ---
-  assign queue2cpu_rdy_pulse = queue2cpu_rdy_toggle_r ^ queue2cpu_rdy_r1;
 
-  // ACK/ERR latches (with reset control)
-  reg [2:0] queue_ctrls_r1;
-  // ---
+  // To CPU ACK/ERR/BurstLast (with reset control)
   always @(posedge cpu_clk) begin
-    if (cpu_rst)
-      queue_ctrls_r1 <= 3'd0;
-    else if (queue2cpu_rdy_pulse)
-      queue_ctrls_r1 <= queue_in_ctrls_r;
-    else // 1-clock
-      queue_ctrls_r1 <= 3'd0;
+    if (cpu_rst) begin
+      cpu_err_o        <= 1'b0;
+      cpu_ack_o        <= 1'b0;
+      cpu_burst_last_o <= 1'b0;
+    end
+    else if (wbm2cpu_rdy_pulse) begin
+      cpu_err_o        <= wbm_err_r;
+      cpu_ack_o        <= wbm_ack_r;
+      cpu_burst_last_o <= wbm_burst_last_r;
+    end
+    else begin // 1-clock
+      cpu_err_o        <= 1'b0;
+      cpu_ack_o        <= 1'b0;
+      cpu_burst_last_o <= 1'b0;
+    end
   end // at cpu-clock
 
-  // DATA latches (without reset control)
-  reg [31:0] queue_dat_r1;
-  // ---
+  // To CPU DATA (without reset control)
   always @(posedge cpu_clk) begin
-    if (queue2cpu_rdy_pulse)
-      queue_dat_r1 <= queue_in_dat_r;
+    if (wbm2cpu_rdy_pulse)
+      cpu_dat_o <= wbm_dat_r;
   end // at cpu-clock
-
-  // output assignement
-  assign cpu_burst_last_o = queue_ctrls_r1[0];
-  assign cpu_ack_o        = queue_ctrls_r1[1];
-  assign cpu_err_o        = queue_ctrls_r1[2];
-  assign cpu_dat_o        = queue_dat_r1;
 
 
   //------------------------------//
@@ -542,10 +548,6 @@ module mor1kx_bus_if_wb32_marocchino
   if (DRIVER_TYPE == "D_CACHE") begin: dbus_with_atomics
   /* verilator lint_on WIDTH */
 
-    // Aliases for latched DBUS's ACK and ERR
-    wire wbm_err_l = queue_in_ctrls_r[2]; // DBUS bridge
-    wire wbm_ack_l = queue_in_ctrls_r[1]; // DBUS bridge
-
     // Clock domain crossing fo pipeline-flush to
     // clean up atomic reservation flag at context switch.
     //
@@ -579,7 +581,7 @@ module mor1kx_bus_if_wb32_marocchino
     always @(posedge wb_clk) begin
       if (wb_rst)
         flush_r <= 1'b0;
-      else if (wbm_err_l | wbm_ack_l)
+      else if (wbm_err_r | wbm_ack_r)
         flush_r <= 1'b0;
       else if (pipeline_flush_pulse)
         flush_r <= wbm_cyc_o;
@@ -595,7 +597,7 @@ module mor1kx_bus_if_wb32_marocchino
     always @(posedge wb_clk) begin
       if (wb_rst)
         atomic_adr_r <= 30'd0;
-      else if (lwa_cmd & wbm_ack_l)       // save linked address
+      else if (lwa_cmd & wbm_ack_r)       // save linked address
         atomic_adr_r <= cpu_adr_r1[31:2];
     end
 
@@ -606,14 +608,14 @@ module mor1kx_bus_if_wb32_marocchino
       (stna_cmd   & atomic_flg_r & (atomic_adr_r == cpu_adr_r1[31:2])) | // deassert atomic flag by store to the same location
       (swa_cmd    & atomic_flg_r & (atomic_adr_r != cpu_adr_r1[31:2])) | // deassert atomic flag by l.swa to another location
       (snoop_en_l & atomic_flg_r & (atomic_adr_r == snoop_adr_l))      | // deassert atomic flag by snoop hit
-      (swa_cmd & (wbm_err_l | wbm_ack_l)); // deassert atomic flag by l.swa completion
+      (swa_cmd & (wbm_err_r | wbm_ack_r)); // deassert atomic flag by l.swa completion
     // ---
     always @(posedge wb_clk) begin
       if (wb_rst)
         atomic_flg_r <= 1'b0;
       else if (deassert_atomic_flg)
         atomic_flg_r <= 1'b0;
-      else if (lwa_cmd & wbm_ack_l)    // update linked flag
+      else if (lwa_cmd & wbm_ack_r)    // update linked flag
         atomic_flg_r <= ~atomic_flg_r; // assert by "1-st" l.lwa, deassert by another l.lwa
     end
     // ---
@@ -624,7 +626,7 @@ module mor1kx_bus_if_wb32_marocchino
     reg to_cpu_atomic_flg_r1;
     // ---
     always @(posedge cpu_clk) begin
-      if (queue2cpu_rdy_pulse)
+      if (wbm2cpu_rdy_pulse)
         to_cpu_atomic_flg_r1 <= atomic_flg_r;
     end // at cpu-clock
 
