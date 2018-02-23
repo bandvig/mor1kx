@@ -204,16 +204,15 @@ module mor1kx_lsu_marocchino
 
   // DBUS FSM
   //  # DBUS FSM states
-  localparam [7:0] DBUS_IDLE      = 8'b00000001, // 0
-                   DMEM_REQ       = 8'b00000010, // 1
-                   DBUS_READ      = 8'b00000100, // 2
-                   DBUS_TO_REFILL = 8'b00001000, // 3
-                   DBUS_DC_REFILL = 8'b00010000, // 4
-                   DBUS_SBUF_READ = 8'b00100000, // 5
-                   DBUS_INI_WRITE = 8'b01000000, // 6
-                   DBUS_WRITE     = 8'b10000000; // 7
+  localparam [6:0] DBUS_IDLE      = 7'b0000001, // 0
+                   DMEM_REQ       = 7'b0000010, // 1
+                   DBUS_READ      = 7'b0000100, // 2
+                   DBUS_TO_REFILL = 7'b0001000, // 3
+                   DBUS_DC_REFILL = 7'b0010000, // 4
+                   DBUS_SBUF_READ = 7'b0100000, // 5
+                   DBUS_WRITE     = 7'b1000000; // 6
   //  # DBUS FSM state indicator
-  reg        [7:0] dbus_state;
+  reg        [6:0] dbus_state;
   //  # particular states
   wire             dbus_idle_state    = dbus_state[0];
   wire             dmem_req_state     = dbus_state[1];
@@ -221,8 +220,7 @@ module mor1kx_lsu_marocchino
   assign           dc_refill_allowed  = dbus_state[3];
   wire             dc_refill_state    = dbus_state[4];
   wire             sbuf_read_state    = dbus_state[5];
-//wire             sbuf_init_write    = dbus_state[6];
-//wire             dbus_write_state   = dbus_state[7];
+//wire             dbus_write_state   = dbus_state[6];
 
 
   // Store buffer
@@ -650,14 +648,10 @@ module mor1kx_lsu_marocchino
         end // dc-refill
 
         DBUS_SBUF_READ: begin
-          dbus_state <= DBUS_INI_WRITE;   // dbus-sbuf-read
+          dbus_req_o      <= ~dbus_req_o; // dbus-sbuf-read -> write
+          dbus_stna_cmd_o <= 1'b1;        // dbus-sbuf-read -> write
+          dbus_state      <= DBUS_WRITE;  // dbus-sbuf-read -> write
         end // dbus-sbuf-red
-
-        DBUS_INI_WRITE: begin
-          dbus_req_o      <= ~dbus_req_o; // dbus-ini-write -> write
-          dbus_stna_cmd_o <= 1'b1;        // dbus-ini-write -> write
-          dbus_state      <= DBUS_WRITE;  // dbus-ini-write -> write
-        end // dbus-ini-write
 
         DBUS_WRITE: begin
           // drop store commands
@@ -701,16 +695,16 @@ module mor1kx_lsu_marocchino
         end
       end // dmem-req
 
-      DBUS_INI_WRITE: begin
+      DBUS_SBUF_READ: begin
         // DBUS controls
-        dbus_bsel_o   <= sbuf_bsel;       // dbus-ini-write -> write
-        dbus_adr_o    <= sbuf_phys_addr;  // dbus-ini-write -> write
-        dbus_dat_o    <= sbuf_dat;        // dbus-ini-write -> write
+        dbus_bsel_o   <= sbuf_bsel;       // dbus-sbuf-read -> write
+        dbus_adr_o    <= sbuf_phys_addr;  // dbus-sbuf-read -> write
+        dbus_dat_o    <= sbuf_dat;        // dbus-sbuf-read -> write
         // Update data for potential DBUS error on write
         //  -- they make sense only if sbuf-err is raised
-        sbuf_eear_o   <= sbuf_virt_addr;  // dbus-ini-write -> write : from buffer output
-        sbuf_epcr_o   <= sbuf_epcr;       // dbus-ini-write -> write : from buffer output
-      end // dbus-ini-write
+        sbuf_eear_o   <= sbuf_virt_addr;  // dbus-sbuf-read -> write : from buffer output
+        sbuf_epcr_o   <= sbuf_epcr;       // dbus-sbuf-read -> write : from buffer output
+      end // dbus-sbuf-read
 
       default:;
     endcase

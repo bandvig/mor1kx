@@ -1,17 +1,15 @@
 /////////////////////////////////////////////////////////////////////
 //                                                                 //
-//  mor1kx_ocb_marocchino                                          //
-//  Order Control Buffer for MAROCCHINO pipeline                   //
+//  Order Control Buffer and Reservation Station                   //
+//  for MAROCCHINO pipeline                                        //
 //                                                                 //
 //  Author: Andrey Bacherov                                        //
 //          avbacherov@opencores.org                               //
 //                                                                 //
-//  TODO: OCB length is fixed by 8 taps. Parametrization?          //
-//                                                                 //
 /////////////////////////////////////////////////////////////////////
 //                                                                 //
-//   Copyright (C) 2015 Andrey Bacherov                            //
-//                      avbacherov@opencores.org                   //
+//   Copyright (C) 2015 - 2018 Andrey Bacherov                     //
+//                             avbacherov@opencores.org            //
 //                                                                 //
 //      This Source Code Form is subject to the terms of the       //
 //      Open Hardware Description License, v. 1.0. If a copy       //
@@ -64,7 +62,7 @@ endmodule // ocb_tap
 //   all outputs could be analized simultaneously for example to //
 //   detect data dependancy                                      //
 //---------------------------------------------------------------//
-
+/*
 module mor1kx_ocb_marocchino
 #(
   parameter NUM_TAPS    = 8,
@@ -105,9 +103,9 @@ module mor1kx_ocb_marocchino
 
   // "OCB is empty" flag
   generate
-  /* verilator lint_off WIDTH */
+  // verilator lint_off WIDTH
   if (EMPTY_FLAG != "NONE") begin : ocb_empty_flag_enabled
-  /* verilator lint_on WIDTH */
+  // verilator lint_on WIDTH
     assign empty_o = ptr_curr[0];
   end
   else begin : ocb_empty_flag_disabled
@@ -118,9 +116,9 @@ module mor1kx_ocb_marocchino
   // "OCB is full" flag
   //  # no more availaible taps, pointer is out of range
   generate
-  /* verilator lint_off WIDTH */
+  // verilator lint_off WIDTH
   if (FULL_FLAG != "NONE") begin : ocb_full_flag_enabled
-  /* verilator lint_on WIDTH */
+  // verilator lint_on WIDTH
     assign full_o = ptr_curr[NUM_TAPS];
   end
   else begin : ocb_full_flag_disabled
@@ -217,6 +215,7 @@ module mor1kx_ocb_marocchino
   assign ocb_bus[NUM_TAPS] = default_value_i;
 
 endmodule // mor1kx_ocb_marocchino
+*/
 
 
 
@@ -394,6 +393,314 @@ module mor1kx_ocb_miss_marocchino
   assign ocb_bus[NUM_TAPS] = default_value_i;
 
 endmodule // mor1kx_ocb_miss_marocchino
+
+
+
+//------------------------------------------------------//
+// Order Control Buffer (RAM + REG)                     //
+//------------------------------------------------------//
+//   It based on combination of RAM and output register //
+///  and quite similar to store buffer.                 //
+//------------------------------------------------------//
+
+module mor1kx_ocbuff_marocchino
+#(
+  parameter NUM_TAPS      = 8,  // range : 2 ... 32
+  parameter DATA_WIDTH    = 2,
+  parameter FULL_FLAG     = "NONE", // "ENABLED" / "NONE"
+  parameter EMPTY_FLAG    = "NONE",  // "ENABLED" / "NONE"
+  parameter CLEAR_ON_INIT = 0
+)
+(
+  // clocks, resets
+  input                         cpu_clk,
+  input                         cpu_rst,
+  // pipe controls
+  input                         pipeline_flush_i, // flush controls
+  input                         write_i,
+  input                         read_i,
+  // value at reset/flush
+  input                         reset_ocbo_i, // logic for clean up output register
+  // data input
+  input      [(DATA_WIDTH-1):0] ocbi_i,
+  // "OCB is empty" flag
+  output                        empty_o,
+  // "OCB is full" flag
+  //   (a) external control logic must stop the "writing without reading"
+  //       operation if OCB is full
+  //   (b) however, the "writing + reading" is possible
+  //       because it just pushes OCB and keeps it full
+  output                        full_o,
+  // output register
+  output reg [(DATA_WIDTH-1):0] ocbo_o
+);
+
+  generate
+  if ((NUM_TAPS < 2) || (NUM_TAPS > 32)) begin
+    initial begin
+      $display("OCB ERROR: Incorrect number of taps");
+      $finish;
+    end
+  end
+  endgenerate
+
+  // Compute number of taps implemented in RAM
+  // (one tap is output register)
+  localparam NUM_RAM_TAPS = NUM_TAPS - 1;
+
+  // Compute RAM address width (the approach avoids clog2 call)
+  // (averall (with output register) taps number must be from 2 to 32)
+  localparam RAM_AW = (NUM_RAM_TAPS > 16) ? 5 :
+                      (NUM_RAM_TAPS >  8) ? 4 :
+                      (NUM_RAM_TAPS >  4) ? 3 :
+                      (NUM_RAM_TAPS >  2) ? 2 : 1;
+
+  // size of counter of booked cells (the approach avoids clog2 call)
+  //  - averall (with output register) taps number must be from 2 to 32
+  //  - zero means "no booked cells", "buffer is empty"
+  localparam BOOKED_CNT_SZ  = (NUM_TAPS > 31) ? 6 :
+                              (NUM_TAPS > 15) ? 5 :
+                              (NUM_TAPS >  7) ? 4 :
+                              (NUM_TAPS >  3) ? 3 : 2;
+  // for shorter notation
+  localparam BOOKED_CNT_MSB = BOOKED_CNT_SZ - 1;
+
+  // special points of counter of booked cells
+  localparam [BOOKED_CNT_MSB:0] FIFO_EMPTY     = 0;
+  localparam [BOOKED_CNT_MSB:0] BOOKED_OUT_REG = 1;
+  localparam [BOOKED_CNT_MSB:0] BOOKED_OUT_RAM = 2;
+  localparam [BOOKED_CNT_MSB:0] FIFO_FULL      = NUM_TAPS;
+
+
+  // counter of booked cells
+  reg  [BOOKED_CNT_MSB:0] booked_cnt_r;
+  wire [BOOKED_CNT_MSB:0] booked_cnt_inc;
+  wire [BOOKED_CNT_MSB:0] booked_cnt_dec;
+  reg  [BOOKED_CNT_MSB:0] booked_cnt_nxt; // combinatorial
+  // registered FIFO states (driven by counter of booked cells)
+  reg                     booked_outreg_r; // output register is booked
+  reg                     booked_outram_r; // FIFO-RAM outputs is valid
+  reg                     booked_intram_r; // Internally cell in FIFO-RAM is booked
+
+
+  // RAM_FIFO related
+  // pointer for write
+  reg      [(RAM_AW-1):0] write_pointer_r;
+  wire     [(RAM_AW-1):0] write_pointer_inc;
+  reg      [(RAM_AW-1):0] write_pointer_nxt; // combinatorial
+  // pointer for read
+  reg      [(RAM_AW-1):0] read_pointer_r;
+  wire     [(RAM_AW-1):0] read_pointer_inc;
+  reg      [(RAM_AW-1):0] read_pointer_nxt; // combinatorial
+  // FIFO-RAM ports (combinatorial)
+  reg                     rwp_en;   // "read / write" port enable
+  reg                     rwp_we;   // "read / write" port writes
+  reg      [(RAM_AW-1):0] rwp_addr;
+  reg                     wp_en;    // "write only" port enabled
+  // packed data
+  wire [(DATA_WIDTH-1):0] ram_dout; // FIFO_RAM output
+
+
+  // Output register related
+  reg  [(DATA_WIDTH-1):0] ocbo_mux; // combinatorial
+
+
+  // counter of booked cells
+  assign booked_cnt_inc = booked_cnt_r + 1'b1;
+  assign booked_cnt_dec = booked_cnt_r - 1'b1;
+
+  // pointers increment
+  assign write_pointer_inc = write_pointer_r + 1'b1;
+  assign read_pointer_inc  = read_pointer_r  + 1'b1;
+
+
+  // combinatorial computatition
+  always @(read_i          or write_i           or
+           booked_cnt_r    or booked_cnt_inc    or booked_cnt_dec  or
+           booked_outreg_r or booked_outram_r   or booked_intram_r or
+           write_pointer_r or write_pointer_inc or
+           read_pointer_r  or read_pointer_inc  or
+           ocbi_i          or ram_dout          or ocbo_o) begin
+    // synthesis parallel_case
+    case ({read_i, write_i})
+      // keep state
+      2'b00: begin
+        // counter of booked cells
+        booked_cnt_nxt = booked_cnt_r;
+        // next values for read/write pointers
+        write_pointer_nxt = write_pointer_r;
+        read_pointer_nxt  = read_pointer_r;
+        // FIFO-RAM ports
+        rwp_en   = 1'b0;
+        rwp_we   = 1'b0;
+        rwp_addr = read_pointer_r;
+        wp_en    = 1'b0;
+        // Output register related
+        ocbo_mux = ocbo_o;
+      end // keep state
+
+      // "write only"
+      2'b01: begin
+        // counter of booked cells
+        booked_cnt_nxt = booked_cnt_inc;
+        // next values for read/write pointers
+        write_pointer_nxt = booked_outreg_r ? write_pointer_inc : write_pointer_r;
+        read_pointer_nxt  = ((~booked_outram_r) & booked_outreg_r) ? read_pointer_inc : read_pointer_r;
+        // FIFO-RAM ports
+        rwp_en   = (~booked_outram_r) & booked_outreg_r;
+        rwp_we   = (~booked_outram_r) & booked_outreg_r;
+        rwp_addr = write_pointer_r;
+        wp_en    = booked_outram_r;
+        // Output register related
+        ocbo_mux = booked_outreg_r ? ocbo_o : ocbi_i;
+      end // "write only"
+
+      // "read only"
+      2'b10: begin
+        // counter of booked cells
+        booked_cnt_nxt = booked_cnt_dec;
+        // next values for read/write pointers
+        write_pointer_nxt = write_pointer_r;
+        read_pointer_nxt  = booked_intram_r ? read_pointer_inc : read_pointer_r;
+        // FIFO-RAM ports
+        rwp_en   = 1'b1;
+        rwp_we   = 1'b0;
+        rwp_addr = read_pointer_r;
+        wp_en    = 1'b0;
+        // Output register related
+        ocbo_mux = booked_outram_r ? ram_dout : {DATA_WIDTH{1'b0}};
+      end // "read only"
+
+      // "read & write"
+      2'b11: begin
+        // counter of booked cells
+        booked_cnt_nxt = booked_cnt_r;
+        // next values for read/write pointers
+        write_pointer_nxt = booked_outram_r ? write_pointer_inc : write_pointer_r;
+        read_pointer_nxt  = booked_outram_r ? read_pointer_inc  : read_pointer_r;
+        // FIFO-RAM ports
+        rwp_en   = booked_outram_r;
+        rwp_we   = (~booked_intram_r) & booked_outram_r;
+        rwp_addr = read_pointer_r; // eq. write pointer for the write case here
+        wp_en    = booked_intram_r;
+        // Output register related
+        ocbo_mux = booked_outram_r ? ram_dout : ocbi_i;
+      end // "read & write"
+    endcase
+  end
+
+
+  // registering of new states
+  always @(posedge cpu_clk) begin
+    if (cpu_rst | pipeline_flush_i) begin
+      // counter of booked cells
+      booked_cnt_r    <= {BOOKED_CNT_SZ{1'b0}}; // reset / pipe flushing
+      // registered FIFO states
+      booked_outreg_r <= 1'b0; // reset / pipe flushing
+      booked_outram_r <= 1'b0; // reset / pipe flushing
+      booked_intram_r <= 1'b0; // reset / pipe flushing
+      // write / read pointers
+      write_pointer_r <= {RAM_AW{1'b0}}; // reset / pipe flushing
+      read_pointer_r  <= {RAM_AW{1'b0}}; // reset / pipe flushing
+    end
+    else begin
+      // counter of booked cells
+      booked_cnt_r    <= booked_cnt_nxt; // update
+      // registered FIFO states
+      booked_outreg_r <= (booked_cnt_nxt > FIFO_EMPTY); // update
+      booked_outram_r <= (booked_cnt_nxt > BOOKED_OUT_REG); // update
+      booked_intram_r <= (booked_cnt_nxt > BOOKED_OUT_RAM); // update
+      // write / read pointers
+      write_pointer_r <= write_pointer_nxt; // update
+      read_pointer_r  <= read_pointer_nxt; // update
+    end
+  end
+
+
+  // "OCB is empty" flag
+  generate
+  /* verilator lint_off WIDTH */
+  if (EMPTY_FLAG != "NONE") begin : ocb_empty_flag_enabled
+  /* verilator lint_on WIDTH */
+
+    reg    empty_r;
+    assign empty_o = empty_r;
+    // ---
+    always @(posedge cpu_clk) begin
+      if (cpu_rst | pipeline_flush_i)
+        empty_r <= 1'b0; // reset / pipe flushing
+      else 
+        empty_r <= (booked_cnt_nxt == FIFO_EMPTY); // update
+    end // cpu-clock
+
+  end
+  else begin : ocb_empty_flag_disabled
+
+    assign empty_o = 1'b0;
+
+  end
+  endgenerate
+
+
+  // "OCB is full" flag
+  generate
+  /* verilator lint_off WIDTH */
+  if (FULL_FLAG != "NONE") begin : ocb_full_flag_enabled
+  /* verilator lint_on WIDTH */
+
+    reg    full_r;
+    assign full_o = full_r;
+    // ---
+    always @(posedge cpu_clk) begin
+      if (cpu_rst | pipeline_flush_i)
+        full_r <= 1'b0; // reset / pipe flushing
+      else 
+        full_r <= (booked_cnt_nxt == FIFO_FULL); // update
+    end // cpu-clock
+
+  end
+  else begin : ocb_full_flag_disabled
+
+    assign full_o = 1'b0;
+
+  end
+  endgenerate
+
+
+  // instance RAM as FIFO
+  mor1kx_dpram_en_w1st_sclk
+  #(
+    .ADDR_WIDTH     (RAM_AW),
+    .DATA_WIDTH     (DATA_WIDTH),
+    .CLEAR_ON_INIT  (CLEAR_ON_INIT)
+  )
+  u_ocb_ram
+  (
+    // common clock
+    .clk    (cpu_clk),
+    // port "a": Read/Write
+    .en_a   (rwp_en),
+    .we_a   (rwp_we),
+    .addr_a (rwp_addr),
+    .din_a  (ocbi_i),
+    .dout_a (ram_dout),
+    // port "b": Write
+    .en_b   (wp_en),
+    .we_b   (1'b1),
+    .addr_b (write_pointer_r),
+    .din_b  (ocbi_i),
+    .dout_b ()            // not used
+  );
+
+  // registered output
+  always @(posedge cpu_clk) begin
+    if (reset_ocbo_i)
+      ocbo_o <= {DATA_WIDTH{1'b0}};
+    else
+      ocbo_o <= ocbo_mux;
+  end // at clock
+
+endmodule // mor1kx_store_buffer_marocchino
 
 
 

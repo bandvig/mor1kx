@@ -485,26 +485,25 @@ module mor1kx_oman_marocchino
   wire ocbc_full, ocbc_empty;
 
   // --- OCB-Controls instance ---
-  mor1kx_ocb_marocchino
+  mor1kx_ocbuff_marocchino
   #(
-    .NUM_TAPS   (INSN_OCB_NUM_TAPS),  // INSN_CTRL_OCB
-    .NUM_OUTS   (1),                  // INSN_CTRL_OCB
-    .DATA_SIZE  (OCBTC_WIDTH),        // INSN_CTRL_OCB
-    .FULL_FLAG  ("ENABLED"),          // INSN_CTRL_OCB
-    .EMPTY_FLAG ("ENABLED")           // INSN_CTRL_OCB
+    .NUM_TAPS      (INSN_OCB_NUM_TAPS), // INSN_CTRL_OCB
+    .DATA_WIDTH    (OCBTC_WIDTH), // INSN_CTRL_OCB
+    .FULL_FLAG     ("ENABLED"), // INSN_CTRL_OCB
+    .EMPTY_FLAG    ("ENABLED"), // INSN_CTRL_OCB
+    .CLEAR_ON_INIT (0) // INSN_CTRL_OCB <- MAROCCHINO_TODO
   )
   u_ocbc
   (
     // clocks, resets
-    .clk              (cpu_clk), // INSN_CTRL_OCB
-    .rst              (cpu_rst), // INSN_CTRL_OCB
+    .cpu_clk          (cpu_clk), // INSN_CTRL_OCB
+    .cpu_rst          (cpu_rst), // INSN_CTRL_OCB
     // pipe controls
     .pipeline_flush_i (pipeline_flush_i), // INSN_CTRL_OCB
     .write_i          (padv_exec_i), // INSN_CTRL_OCB
     .read_i           (padv_wb_i), // INSN_CTRL_OCB
     // value at reset/flush
-    .reset_taps       (cpu_rst | pipeline_flush_i), // INSN_CTRL_OCB
-    .default_value_i  ({OCBTC_WIDTH{1'b0}}), // INSN_CTRL_OCB
+    .reset_ocbo_i     (cpu_rst | pipeline_flush_i), // INSN_CTRL_OCB
     // data input
     .ocbi_i           (ocbci), // INSN_CTRL_OCB
     // "OCB is empty" flag
@@ -515,8 +514,7 @@ module mor1kx_oman_marocchino
     //   (b) however, the "writing + reading" is possible
     //       because it just pushes OCB and keeps it full
     .full_o           (ocbc_full), // INSN_CTRL_OCB
-    // output layout
-    // { out[n-1], out[n-2], ... out[0] } : DECODE (entrance) -> EXECUTE (exit)
+    // output register
     .ocbo_o           (ocbco) // INSN_CTRL_OCB
   );
 
@@ -570,26 +568,25 @@ module mor1kx_oman_marocchino
   wire [OCBTA_MSB:0] ocbao;
 
   // --- OCB-Attribute instance ---
-  mor1kx_ocb_marocchino
+  mor1kx_ocbuff_marocchino
   #(
-    .NUM_TAPS   (INSN_OCB_NUM_TAPS),  // INSN_ATTR_OCB
-    .NUM_OUTS   (1),                  // INSN_ATTR_OCB
-    .DATA_SIZE  (OCBTA_WIDTH),        // INSN_ATTR_OCB
-    .FULL_FLAG  ("NONE"),             // INSN_ATTR_OCB
-    .EMPTY_FLAG ("NONE")              // INSN_ATTR_OCB
+    .NUM_TAPS      (INSN_OCB_NUM_TAPS), // INSN_ATTR_OCB
+    .DATA_WIDTH    (OCBTA_WIDTH), // INSN_ATTR_OCB
+    .FULL_FLAG     ("NONE"), // INSN_ATTR_OCB
+    .EMPTY_FLAG    ("NONE"), // INSN_ATTR_OCB
+    .CLEAR_ON_INIT (0) // INSN_ATTR_OCB <- MAROCCHINO_TODO
   )
   u_ocba
   (
     // clocks, resets
-    .clk              (cpu_clk), // INSN_ATTR_OCB
-    .rst              (cpu_rst), // INSN_ATTR_OCB
+    .cpu_clk          (cpu_clk), // INSN_ATTR_OCB
+    .cpu_rst          (cpu_rst), // INSN_ATTR_OCB
     // pipe controls
     .pipeline_flush_i (pipeline_flush_i), // INSN_ATTR_OCB
     .write_i          (padv_exec_i), // INSN_ATTR_OCB
     .read_i           (padv_wb_i), // INSN_ATTR_OCB
     // value at reset/flush
-    .reset_taps       (1'b0), // INSN_ATTR_OCB
-    .default_value_i  ({OCBTA_WIDTH{1'b0}}), // INSN_ATTR_OCB
+    .reset_ocbo_i     (1'b0), // INSN_ATTR_OCB
     // data input
     .ocbi_i           (ocbai), // INSN_ATTR_OCB
     // "OCB is empty" flag
@@ -600,8 +597,7 @@ module mor1kx_oman_marocchino
     //   (b) however, the "writing + reading" is possible
     //       because it just pushes OCB and keeps it full
     .full_o           (), // INSN_ATTR_OCB
-    // output layout
-    // { out[n-1], out[n-2], ... out[0] } : DECODE (entrance) -> EXECUTE (exit)
+    // output register
     .ocbo_o           (ocbao) // INSN_ATTR_OCB
   );
 
@@ -1253,26 +1249,25 @@ module mor1kx_oman_marocchino
     };
 
   // --- JB-ATTR-C-OCB instance ---
-  mor1kx_ocb_marocchino
+  mor1kx_ocbuff_marocchino
   #(
-    .NUM_TAPS   (JB_ATTR_OCB_NUM_TAPS), // JB-ATTR-C-OCB: extention bits "0" is reserved as "not used"
-    .NUM_OUTS   (1),                    // JB-ATTR-C-OCB
-    .DATA_SIZE  (JB_ATTR_C_WIDTH),      // JB-ATTR-C-OCB
-    .FULL_FLAG  ("NONE"),               // JB-ATTR-C-OCB
-    .EMPTY_FLAG ("NONE")                // JB-ATTR-C-OCB
+    .NUM_TAPS      (JB_ATTR_OCB_NUM_TAPS), // JB-ATTR-C-OCB: extention bits "0" is reserved as "not used"
+    .DATA_WIDTH    (JB_ATTR_C_WIDTH), // JB-ATTR-C-OCB
+    .FULL_FLAG     ("NONE"), // JB-ATTR-C-OCB
+    .EMPTY_FLAG    ("NONE"), // JB-ATTR-C-OCB
+    .CLEAR_ON_INIT (0) // JB-ATTR-C-OCB <- MAROCCHINO_TODO
   )
   u_jb_attr_c_ocb
   (
     // clocks, resets
-    .clk              (cpu_clk), // JB-ATTR-C-OCB
-    .rst              (cpu_rst), // JB-ATTR-C-OCB
+    .cpu_clk          (cpu_clk), // JB-ATTR-C-OCB
+    .cpu_rst          (cpu_rst), // JB-ATTR-C-OCB
     // pipe controls
     .pipeline_flush_i (pipeline_flush_i), // JB-ATTR-C-OCB
     .write_i          (jb_attr_ocb_write), // JB-ATTR-C-OCB
     .read_i           (jb_attr_ocb_read), // JB-ATTR-C-OCB
     // value at reset/flush
-    .reset_taps       (cpu_rst | pipeline_flush_i), // JB-ATTR-C-OCB
-    .default_value_i  ({JB_ATTR_C_WIDTH{1'b0}}), // JB-ATTR-C-OCB
+    .reset_ocbo_i     (cpu_rst | pipeline_flush_i), // JB-ATTR-C-OCB
     // data input
     .ocbi_i           (jb_attr_c_ocbi), // JB-ATTR-C-OCB
     // "OCB is empty" flag
@@ -1283,8 +1278,7 @@ module mor1kx_oman_marocchino
     //   (b) however, the "writing + reading" is possible
     //       because it just pushes OCB and keeps it full
     .full_o           (), // JB-ATTR-C-OCB
-    // output layout
-    // { out[n-1], out[n-2], ... out[0] } : DECODE (entrance) -> EXECUTE (exit)
+    // output register
     .ocbo_o           (jb_attr_c_ocbo) // JB-ATTR-C-OCB
   );
 
@@ -1305,26 +1299,25 @@ module mor1kx_oman_marocchino
   assign jb_attr_d_ocbi = jb_attr_target_r;
 
   // --- JB-ATTR-D-OCB instance ---
-  mor1kx_ocb_marocchino
+  mor1kx_ocbuff_marocchino
   #(
-    .NUM_TAPS   (JB_ATTR_OCB_NUM_TAPS), // JB-ATTR-D-OCB: extention bits "0" is reserved as "not used"
-    .NUM_OUTS   (1),                    // JB-ATTR-D-OCB
-    .DATA_SIZE  (JB_ATTR_D_WIDTH),      // JB-ATTR-D-OCB
-    .FULL_FLAG  ("NONE"),               // JB-ATTR-D-OCB
-    .EMPTY_FLAG ("NONE")                // JB-ATTR-D-OCB
+    .NUM_TAPS      (JB_ATTR_OCB_NUM_TAPS), // JB-ATTR-D-OCB
+    .DATA_WIDTH    (JB_ATTR_D_WIDTH), // JB-ATTR-D-OCB
+    .FULL_FLAG     ("NONE"), // JB-ATTR-D-OCB
+    .EMPTY_FLAG    ("NONE"), // JB-ATTR-D-OCB
+    .CLEAR_ON_INIT (0) // JB-ATTR-D-OCB <- MAROCCHINO_TODO
   )
   u_jb_attr_d_ocb
   (
     // clocks, resets
-    .clk              (cpu_clk), // JB-ATTR-D-OCB
-    .rst              (cpu_rst), // JB-ATTR-D-OCB
+    .cpu_clk          (cpu_clk), // JB-ATTR-D-OCB
+    .cpu_rst          (cpu_rst), // JB-ATTR-D-OCB
     // pipe controls
     .pipeline_flush_i (pipeline_flush_i), // JB-ATTR-D-OCB
     .write_i          (jb_attr_ocb_write), // JB-ATTR-D-OCB
     .read_i           (jb_attr_ocb_read), // JB-ATTR-D-OCB
     // value at reset/flush
-    .reset_taps       (1'b0), // JB-ATTR-D-OCB
-    .default_value_i  ({JB_ATTR_D_WIDTH{1'b0}}), // JB-ATTR-D-OCB
+    .reset_ocbo_i     (1'b0), // JB-ATTR-D-OCB
     // data input
     .ocbi_i           (jb_attr_d_ocbi), // JB-ATTR-D-OCB
     // "OCB is empty" flag
@@ -1335,8 +1328,7 @@ module mor1kx_oman_marocchino
     //   (b) however, the "writing + reading" is possible
     //       because it just pushes OCB and keeps it full
     .full_o           (), // JB-ATTR-D-OCB
-    // output layout
-    // { out[n-1], out[n-2], ... out[0] } : DECODE (entrance) -> EXECUTE (exit)
+    // output register
     .ocbo_o           (jb_attr_d_ocbo) // JB-ATTR-D-OCB
   );
 
