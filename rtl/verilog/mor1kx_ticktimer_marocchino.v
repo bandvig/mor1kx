@@ -116,10 +116,8 @@ module mor1kx_ticktimer_marocchino
       spr_tt_stb_r <= spr_bus_stb_r1;
   end // at cb-clock
 
-  // Chip selects / WE
+  // Chip selects
   wire spr_tt_cs = spr_tt_stb_r & (spr_bus_addr_r1[14:11] == `OR1K_SPR_TT_BASE); // `SPR_BASE
-  wire spr_tt_we;
-  wire spr_tt_re;
   reg  spr_ttmr_cs_r;
   reg  spr_ttcr_cs_r;
 
@@ -131,8 +129,8 @@ module mor1kx_ticktimer_marocchino
 
   // SPR FSM state register and particular states
   reg  [3:0] spr_tt_state;
-  assign     spr_tt_we  = spr_tt_state[1];
-  assign     spr_tt_re  = spr_tt_state[2];
+  wire       spr_tt_we  = spr_tt_state[1];
+  wire       spr_tt_re  = spr_tt_state[2];
   assign     spr_tt_ack = spr_tt_state[3];
 
   // SPR FSM

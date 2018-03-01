@@ -120,10 +120,8 @@ module mor1kx_pic_marocchino
       spr_pic_stb_r <= spr_bus_stb_r1;
   end // at cb-clock
 
-  // Chip selects / WE
+  // Chip selects
   wire spr_pic_cs = spr_pic_stb_r & (spr_bus_addr_r1[14:11] == `OR1K_SPR_PIC_BASE); // `SPR_BASE
-  wire spr_pic_we;
-  wire spr_pic_re;
   reg  spr_picmr_cs_r;
   reg  spr_picsr_cs_r;
 
@@ -135,8 +133,8 @@ module mor1kx_pic_marocchino
 
   // SPR FSM state register and particular states
   reg  [3:0] spr_pic_state;
-  assign     spr_pic_we  = spr_pic_state[1];
-  assign     spr_pic_re  = spr_pic_state[2];
+  wire       spr_pic_we  = spr_pic_state[1];
+  wire       spr_pic_re  = spr_pic_state[2];
   assign     spr_pic_ack = spr_pic_state[3];
 
   // SPR FSM

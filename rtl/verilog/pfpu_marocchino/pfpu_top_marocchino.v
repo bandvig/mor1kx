@@ -312,7 +312,38 @@ u_pfpu_ocb
                         grant_rnd_to_add, grant_rnd_to_mul, grant_rnd_to_div, grant_rnd_to_i2f, grant_rnd_to_f2i, // PFPU_OCB
                         ocb_inv, ocb_inf, ocb_snan, ocb_qnan, ocb_anan_sign}) // PFPU_OCB
 );
-
+/*
+mor1kx_ocbuff_miss_marocchino
+#(
+  .NUM_TAPS            (4), // PFPU_OCB
+  .DATA_WIDTH         (11), // PFPU_OCB
+  .FULL_FLAG          ("ENABLED"), // PFPU_OCB
+  .CLEAR_ON_INIT       (0) // PFPU_OCB
+)
+u_pfpu_ocb
+(
+  // clocks, resets
+  .cpu_clk            (cpu_clk), // PFPU_OCB
+  .cpu_rst            (cpu_rst), // PFPU_OCB
+  // pipe controls
+  .pipeline_flush_i   (pipeline_flush_i), // PFPU_OCB
+  .write_i            (taking_op_fpxx_arith), // PFPU_OCB
+  .read_i             (rnd_taking_op), // PFPU_OCB
+  // value at reset/flush
+  .reset_ocbo_i       (cpu_rst | pipeline_flush_i), // PFPU_OCB
+  // data input
+  .is_miss_i          (~exec_op_fpxx_any_i),
+  .ocbi_i             ({exec_op_fp64_arith_i, // PFPU_OCB
+                        add_start, mul_start, div_start, i2f_start, f2i_start, // PFPU_OCB
+                        res_inv, res_inf, res_snan, res_qnan, res_anan_sign}), // PFPU_OCB
+  // full flag
+  .full_o             (pfpu_ocb_full), // PFPU_OCB
+  // data ouputs
+  .ocbo_o             ({rnd_op_fp64_arith, // PFPU_OCB
+                        grant_rnd_to_add, grant_rnd_to_mul, grant_rnd_to_div, grant_rnd_to_i2f, grant_rnd_to_f2i, // PFPU_OCB
+                        ocb_inv, ocb_inf, ocb_snan, ocb_qnan, ocb_anan_sign}) // PFPU_OCB
+);
+*/
 
 // Addition / Substruction
 //   connection wires

@@ -206,50 +206,46 @@ module pfpu_cmp_marocchino
               s1o_signa or     s1o_signb or
              s1o_exp_eq or    s1o_exp_gt or    exp_lt or
            s1o_fract_eq or  s1o_fract_gt or  fract_lt or  all_zero) begin
-    // synthesis parallel_case full_case
-    casez( {    s1o_qnan,      s1o_snan,
-                s1o_infa,      s1o_infb,
-               s1o_signa,     s1o_signb,
-              s1o_exp_eq,    s1o_exp_gt,    exp_lt,
-            s1o_fract_eq,  s1o_fract_gt,  fract_lt,
-                all_zero})
-      13'b1?_??_??_???_???_?: {blta, altb, aeqb} = 3'b000; // qnan
-      13'b?1_??_??_???_???_?: {blta, altb, aeqb} = 3'b000; // snan
+    casez( {(s1o_qnan | s1o_snan),
+                         s1o_infa,      s1o_infb,
+                        s1o_signa,     s1o_signb,
+                       s1o_exp_eq,    s1o_exp_gt,    exp_lt,
+                     s1o_fract_eq,  s1o_fract_gt,  fract_lt,
+                                                   all_zero})
+      12'b0_11_00_???_???_?: {blta, altb, aeqb} = 3'b001; // both op INF comparisson
+      12'b0_11_01_???_???_?: {blta, altb, aeqb} = 3'b100;
+      12'b0_11_10_???_???_?: {blta, altb, aeqb} = 3'b010;
+      12'b0_11_11_???_???_?: {blta, altb, aeqb} = 3'b001;
 
-      13'b00_11_00_???_???_?: {blta, altb, aeqb} = 3'b001; // both op INF comparisson
-      13'b00_11_01_???_???_?: {blta, altb, aeqb} = 3'b100;
-      13'b00_11_10_???_???_?: {blta, altb, aeqb} = 3'b010;
-      13'b00_11_11_???_???_?: {blta, altb, aeqb} = 3'b001;
+      12'b0_10_00_???_???_?: {blta, altb, aeqb} = 3'b100; // opa_i INF comparisson
+      12'b0_10_01_???_???_?: {blta, altb, aeqb} = 3'b100;
+      12'b0_10_10_???_???_?: {blta, altb, aeqb} = 3'b010;
+      12'b0_10_11_???_???_?: {blta, altb, aeqb} = 3'b010;
 
-      13'b00_10_00_???_???_?: {blta, altb, aeqb} = 3'b100; // opa_i INF comparisson
-      13'b00_10_01_???_???_?: {blta, altb, aeqb} = 3'b100;
-      13'b00_10_10_???_???_?: {blta, altb, aeqb} = 3'b010;
-      13'b00_10_11_???_???_?: {blta, altb, aeqb} = 3'b010;
+      12'b0_01_00_???_???_?: {blta, altb, aeqb} = 3'b010; // opb_i INF comparisson
+      12'b0_01_01_???_???_?: {blta, altb, aeqb} = 3'b100;
+      12'b0_01_10_???_???_?: {blta, altb, aeqb} = 3'b010;
+      12'b0_01_11_???_???_?: {blta, altb, aeqb} = 3'b100;
 
-      13'b00_01_00_???_???_?: {blta, altb, aeqb} = 3'b010; // opb_i INF comparisson
-      13'b00_01_01_???_???_?: {blta, altb, aeqb} = 3'b100;
-      13'b00_01_10_???_???_?: {blta, altb, aeqb} = 3'b010;
-      13'b00_01_11_???_???_?: {blta, altb, aeqb} = 3'b100;
+      12'b0_00_10_???_???_0: {blta, altb, aeqb} = 3'b010; //compare base on sign
+      12'b0_00_01_???_???_0: {blta, altb, aeqb} = 3'b100; //compare base on sign
 
-      13'b00_00_10_???_???_0: {blta, altb, aeqb} = 3'b010; //compare base on sign
-      13'b00_00_01_???_???_0: {blta, altb, aeqb} = 3'b100; //compare base on sign
+      12'b0_00_??_???_???_1: {blta, altb, aeqb} = 3'b001; //compare base on sign both are zero
 
-      13'b00_00_??_???_???_1: {blta, altb, aeqb} = 3'b001; //compare base on sign both are zero
+      12'b0_00_00_010_???_?: {blta, altb, aeqb} = 3'b100; // cmp exp, equal sign
+      12'b0_00_00_001_???_?: {blta, altb, aeqb} = 3'b010;
+      12'b0_00_11_010_???_?: {blta, altb, aeqb} = 3'b010;
+      12'b0_00_11_001_???_?: {blta, altb, aeqb} = 3'b100;
 
-      13'b00_00_00_010_???_?: {blta, altb, aeqb} = 3'b100; // cmp exp, equal sign
-      13'b00_00_00_001_???_?: {blta, altb, aeqb} = 3'b010;
-      13'b00_00_11_010_???_?: {blta, altb, aeqb} = 3'b010;
-      13'b00_00_11_001_???_?: {blta, altb, aeqb} = 3'b100;
+      12'b0_00_00_100_010_?: {blta, altb, aeqb} = 3'b100; // compare fractions, equal sign, equal exp
+      12'b0_00_00_100_001_?: {blta, altb, aeqb} = 3'b010;
+      12'b0_00_11_100_010_?: {blta, altb, aeqb} = 3'b010;
+      12'b0_00_11_100_001_?: {blta, altb, aeqb} = 3'b100;
 
-      13'b00_00_00_100_010_?: {blta, altb, aeqb} = 3'b100; // compare fractions, equal sign, equal exp
-      13'b00_00_00_100_001_?: {blta, altb, aeqb} = 3'b010;
-      13'b00_00_11_100_010_?: {blta, altb, aeqb} = 3'b010;
-      13'b00_00_11_100_001_?: {blta, altb, aeqb} = 3'b100;
+      12'b0_00_00_100_100_?: {blta, altb, aeqb} = 3'b001;
+      12'b0_00_11_100_100_?: {blta, altb, aeqb} = 3'b001;
 
-      13'b00_00_00_100_100_?: {blta, altb, aeqb} = 3'b001;
-      13'b00_00_11_100_100_?: {blta, altb, aeqb} = 3'b001;
-
-      default: {blta, altb, aeqb} = 3'b000;
+      default: {blta, altb, aeqb} = 3'b000; // including NaNs
     endcase
   end // @ clock
 
