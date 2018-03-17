@@ -723,31 +723,31 @@ module mor1kx_rf_marocchino
   end // at clock
 
   // Muxing and forwarding RFA1-output
-  assign dcod_rfa1_o = dcod_op_jal_i          ? pc_decode_i  :
-                       dcod_wb2dec_d1a1_fwd_i ? wb_result1_i :
-                       dcod_wb2dec_d2a1_fwd_i ? wb_result2_i :
-                       dcod_rfa1_adr_odd      ? rfa_odd_dout :
-                                                rfa_even_dout;
+  assign dcod_rfa1_o =  dcod_op_jal_i          ? pc_decode_i  :
+                       (dcod_wb2dec_d1a1_fwd_i ? wb_result1_i :
+                       (dcod_wb2dec_d2a1_fwd_i ? wb_result2_i :
+                       (dcod_rfa1_adr_odd      ? rfa_odd_dout :
+                                                 rfa_even_dout)));
 
   // Muxing and forwarding RFB1-output
-  assign dcod_rfb1_o = dcod_op_jal_i          ? 4'd8             : // (FEATURE_DELAY_SLOT == "ENABLED")
-                       dcod_immediate_sel_i   ? dcod_immediate_i :
-                       dcod_wb2dec_d1b1_fwd_i ? wb_result1_i     :
-                       dcod_wb2dec_d2b1_fwd_i ? wb_result2_i     :
-                       dcod_rfb1_adr_odd      ? rfb_odd_dout     :
-                                                rfb_even_dout;
+  assign dcod_rfb1_o =  dcod_op_jal_i          ? 4'd8             : // (FEATURE_DELAY_SLOT == "ENABLED")
+                       (dcod_immediate_sel_i   ? dcod_immediate_i :
+                       (dcod_wb2dec_d1b1_fwd_i ? wb_result1_i     :
+                       (dcod_wb2dec_d2b1_fwd_i ? wb_result2_i     :
+                       (dcod_rfb1_adr_odd      ? rfb_odd_dout     :
+                                                 rfb_even_dout))));
 
   // Muxing and forwarding RFA2-output
-  assign dcod_rfa2_o = dcod_wb2dec_d1a2_fwd_i ? wb_result1_i :
-                       dcod_wb2dec_d2a2_fwd_i ? wb_result2_i :
-                       dcod_rfa2_adr_odd      ? rfa_odd_dout :
-                                                rfa_even_dout;
+  assign dcod_rfa2_o =  dcod_wb2dec_d1a2_fwd_i ? wb_result1_i :
+                       (dcod_wb2dec_d2a2_fwd_i ? wb_result2_i :
+                       (dcod_rfa2_adr_odd      ? rfa_odd_dout :
+                                                 rfa_even_dout));
 
   // Muxing and forwarding RFB2-output
-  assign dcod_rfb2_o = dcod_wb2dec_d1b2_fwd_i ? wb_result1_i :
-                       dcod_wb2dec_d2b2_fwd_i ? wb_result2_i :
-                       dcod_rfb2_adr_odd      ? rfb_odd_dout :
-                                                rfb_even_dout;
+  assign dcod_rfb2_o =  dcod_wb2dec_d1b2_fwd_i ? wb_result1_i :
+                       (dcod_wb2dec_d2b2_fwd_i ? wb_result2_i :
+                       (dcod_rfb2_adr_odd      ? rfb_odd_dout :
+                                                 rfb_even_dout));
 
 
   // Special case for l.jr/l.jalr

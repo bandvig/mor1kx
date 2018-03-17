@@ -1358,11 +1358,11 @@ module mor1kx_rsrvs_marocchino
   end // @clock
   //---
   //  operand A1
-  assign busy_rfa1 = busy_hazard_d1a1_r ? wb_result1_i :
-                     busy_hazard_d2a1_r ? wb_result2_i : busy_rfa1_r;
+  assign busy_rfa1 =  busy_hazard_d1a1_r ? wb_result1_i :
+                     (busy_hazard_d2a1_r ? wb_result2_i : busy_rfa1_r);
   //  operand B1
-  assign busy_rfb1 = busy_hazard_d1b1_r ? wb_result1_i :
-                     busy_hazard_d2b1_r ? wb_result2_i : busy_rfb1_r;
+  assign busy_rfb1 =  busy_hazard_d1b1_r ? wb_result1_i :
+                     (busy_hazard_d2b1_r ? wb_result2_i : busy_rfb1_r);
 
 
   // exclusive latches for FPU3264 reservation station
@@ -1460,11 +1460,11 @@ module mor1kx_rsrvs_marocchino
     end // @clock
     // ---
     //  operand A2
-    assign busy_rfa2_w = busy_hazard_d1a2_r ? wb_result1_i :
-                         busy_hazard_d2a2_r ? wb_result2_i : busy_rfa2_r;
+    assign busy_rfa2_w =  busy_hazard_d1a2_r ? wb_result1_i :
+                         (busy_hazard_d2a2_r ? wb_result2_i : busy_rfa2_r);
     //  operand B2
-    assign busy_rfb2_w = busy_hazard_d1b2_r ? wb_result1_i :
-                         busy_hazard_d2b2_r ? wb_result2_i : busy_rfb2_r;
+    assign busy_rfb2_w =  busy_hazard_d1b2_r ? wb_result1_i :
+                         (busy_hazard_d2b2_r ? wb_result2_i : busy_rfb2_r);
   end
   else begin : busy_fpxx_disabled
     //  # relative operand A2
@@ -1650,11 +1650,11 @@ module mor1kx_rsrvs_marocchino
   end // @clock
   // last forward (from WB)
   //  operand A1
-  assign exec_rfa1 = exec_hazard_d1a1_r ? wb_result1_i :
-                     exec_hazard_d2a1_r ? wb_result2_i : exec_rfa1_r;
+  assign exec_rfa1 =  exec_hazard_d1a1_r ? wb_result1_i :
+                     (exec_hazard_d2a1_r ? wb_result2_i : exec_rfa1_r);
   //  operand B1
-  assign exec_rfb1 = exec_hazard_d1b1_r ? wb_result1_i :
-                     exec_hazard_d2b1_r ? wb_result2_i : exec_rfb1_r;
+  assign exec_rfb1 =  exec_hazard_d1b1_r ? wb_result1_i :
+                     (exec_hazard_d2b1_r ? wb_result2_i : exec_rfb1_r);
 
   //  ## for FPU3264
   generate
@@ -1763,11 +1763,11 @@ module mor1kx_rsrvs_marocchino
     end // @clock
     // last forward (from WB)
     //  operand A2
-    assign exec_rfa2_w = exec_hazard_d1a2_r ? wb_result1_i :
-                         exec_hazard_d2a2_r ? wb_result2_i : exec_rfa2_r;
+    assign exec_rfa2_w =  exec_hazard_d1a2_r ? wb_result1_i :
+                         (exec_hazard_d2a2_r ? wb_result2_i : exec_rfa2_r);
     //  operand B2
-    assign exec_rfb2_w = exec_hazard_d1b2_r ? wb_result1_i :
-                         exec_hazard_d2b2_r ? wb_result2_i : exec_rfb2_r;
+    assign exec_rfb2_w =  exec_hazard_d1b2_r ? wb_result1_i :
+                         (exec_hazard_d2b2_r ? wb_result2_i : exec_rfb2_r);
   end
   else begin : exec_fpxx_disabled
     assign exec_rfa2_w  = {OPTION_OPERAND_WIDTH{1'b0}}; // not FPU3264

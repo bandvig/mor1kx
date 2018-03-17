@@ -64,8 +64,6 @@ module mor1kx_decode_marocchino
   input      [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfd2_adr_i,
 
   // for RAT
-  //  # allocation SR[F]
-  output                                fetch_flag_wb_o,  // any instruction which affects comparison flag
   //  # allocated as D1
   output                                ratin_rfd1_wb_o,
   output     [OPTION_RF_ADDR_WIDTH-1:0] ratin_rfd1_adr_o,
@@ -743,8 +741,6 @@ module mor1kx_decode_marocchino
   // for RAT //
   //---------//
 
-  //  # allocation SR[F]
-  assign fetch_flag_wb_o  = op_setflag | op_fpxx_cmp | (opc_insn == `OR1K_OPCODE_SWA);
   //  # allocated as D1
   assign ratin_rfd1_wb_o  = attr_rfd1_wb;
   assign ratin_rfd1_adr_o = op_jal ? JAL_RFD1_ADR : fetch_rfd1_adr_i;
@@ -778,6 +774,10 @@ module mor1kx_decode_marocchino
       dcod_op_mXspr_o     <= 1'b0;
       dcod_op_push_exec_o <= 1'b0;
       dcod_op_push_wb_o   <= 1'b0;
+      // for correct tracking data dependacy
+      dcod_rfd1_wb_o      <= 1'b0;
+      dcod_rfd2_wb_o      <= 1'b0;
+      dcod_flag_wb_o      <= 1'b0;
     end
     else if (padv_dcod_i) begin
       dcod_empty_o        <= (~fetch_valid_i);
@@ -792,6 +792,10 @@ module mor1kx_decode_marocchino
       dcod_op_push_wb_o   <= fetch_an_except_i   |                                // PUSH WRITE-BACK
                              attr_except_illegal | except_syscall | except_trap | // PUSH WRITE-BACK
                              op_nop | op_rfe | op_msync | op_mfspr | op_mtspr;    // PUSH WRITE-BACK
+      // for correct tracking data dependacy
+      dcod_rfd1_wb_o      <= ratin_rfd1_wb_o;
+      dcod_rfd2_wb_o      <= ratin_rfd2_wb_o;
+      dcod_flag_wb_o      <= op_setflag | op_fpxx_cmp | (opc_insn == `OR1K_OPCODE_SWA);
     end
     else if (padv_exec_i) begin
       dcod_empty_o        <= 1'b1;
@@ -802,6 +806,10 @@ module mor1kx_decode_marocchino
       dcod_op_mXspr_o     <= 1'b0;
       dcod_op_push_exec_o <= 1'b0;
       dcod_op_push_wb_o   <= 1'b0;
+      // for correct tracking data dependacy
+      dcod_rfd1_wb_o      <= 1'b0;
+      dcod_rfd2_wb_o      <= 1'b0;
+      dcod_flag_wb_o      <= 1'b0;
     end
   end // at clock
 
@@ -811,10 +819,8 @@ module mor1kx_decode_marocchino
       dcod_delay_slot_o         <= fetch_delay_slot_i;
       // destiny D1
       dcod_rfd1_adr_o           <= ratin_rfd1_adr_o;
-      dcod_rfd1_wb_o            <= ratin_rfd1_wb_o;
       // destiny D2 (for FPU64)
       dcod_rfd2_adr_o           <= ratin_rfd2_adr_o;
-      dcod_rfd2_wb_o            <= ratin_rfd2_wb_o;
       // IMM
       dcod_immediate_o          <= immediate;
       dcod_immediate_sel_o      <= immediate_sel;
@@ -873,8 +879,6 @@ module mor1kx_decode_marocchino
       dcod_op_rfe_o             <= op_rfe;
       // various attributes
       dcod_except_illegal_o     <= attr_except_illegal;
-      // Which instructions writes comparison flag?
-      dcod_flag_wb_o            <= fetch_flag_wb_o;
       // Which instruction writes carry flag?
       dcod_carry_wb_o           <= op_add | op_div;
       // INSN PC

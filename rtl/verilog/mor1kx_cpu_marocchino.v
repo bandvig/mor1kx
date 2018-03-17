@@ -179,8 +179,6 @@ module mor1kx_cpu_marocchino
 
 
   // for RAT
-  //  # allocation SR[F]
-  wire                            fetch_flag_wb;  // any instruction which affects comparison flag
   //  # allocated as D1
   wire                            ratin_rfd1_wb;
   wire [OPTION_RF_ADDR_WIDTH-1:0] ratin_rfd1_adr;
@@ -837,8 +835,6 @@ module mor1kx_cpu_marocchino
     .fetch_rfd1_adr_i                 (fetch_rfd1_adr), // DECODE
     .fetch_rfd2_adr_i                 (fetch_rfd2_adr), // DECODE
     // for RAT
-    //  # allocation SR[F]
-    .fetch_flag_wb_o                  (fetch_flag_wb), // DECODE
     //  # allocated as D1
     .ratin_rfd1_wb_o                  (ratin_rfd1_wb), // DECODE
     .ratin_rfd1_adr_o                 (ratin_rfd1_adr), // DECODE
@@ -969,8 +965,6 @@ module mor1kx_cpu_marocchino
     .fetch_delay_slot_i         (fetch_delay_slot), // OMAN
 
     // for RAT
-    //  # allocation SR[F]
-    .fetch_flag_wb_i            (fetch_flag_wb),  // any instruction which affects comparison flag
     //  # allocated as D1
     .ratin_rfd1_wb_i            (ratin_rfd1_wb), // OMAN
     .ratin_rfd1_adr_i           (ratin_rfd1_adr), // OMAN
