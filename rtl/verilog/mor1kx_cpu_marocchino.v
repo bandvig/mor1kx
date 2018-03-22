@@ -10,7 +10,7 @@
 //   Copyright (C) 2012 Julius Baxter                                 //
 //                      juliusbaxter@gmail.com                        //
 //                                                                    //
-//   Copyright (C) 2015 - 2016 Andrey Bacherov                        //
+//   Copyright (C) 2015 - 2018 Andrey Bacherov                        //
 //                             avbacherov@opencores.org               //
 //                                                                    //
 //      This Source Code Form is subject to the terms of the          //
@@ -144,7 +144,7 @@ module mor1kx_cpu_marocchino
   input                             snoop_en_i
 );
 
-  localparam DEST_EXT_ADDR_WIDTH  = 3; // log2(Order Control Buffer depth)
+  localparam DEST_EXTADR_WIDTH  = 3; // log2(Order Control Buffer depth)
 
   // branch predictor parameters
   localparam GSHARE_BITS_NUM      = 12;
@@ -307,23 +307,19 @@ module mor1kx_cpu_marocchino
   //  # relative operand A1
   wire                            omn2dec_hazard_d1a1;
   wire                            omn2dec_hazard_d2a1;
-  wire                            omn2dec_hazard_dxa1;
-  wire  [DEST_EXT_ADDR_WIDTH-1:0] omn2dec_hazard_dxa1_adr;
+  wire    [DEST_EXTADR_WIDTH-1:0] omn2dec_extadr_dxa1;
   //  # relative operand B1
   wire                            omn2dec_hazard_d1b1;
   wire                            omn2dec_hazard_d2b1;
-  wire                            omn2dec_hazard_dxb1;
-  wire  [DEST_EXT_ADDR_WIDTH-1:0] omn2dec_hazard_dxb1_adr;
+  wire    [DEST_EXTADR_WIDTH-1:0] omn2dec_extadr_dxb1;
   //  # relative operand A2
   wire                            omn2dec_hazard_d1a2;
   wire                            omn2dec_hazard_d2a2;
-  wire                            omn2dec_hazard_dxa2;
-  wire  [DEST_EXT_ADDR_WIDTH-1:0] omn2dec_hazard_dxa2_adr;
+  wire    [DEST_EXTADR_WIDTH-1:0] omn2dec_extadr_dxa2;
   //  # relative operand B2
   wire                            omn2dec_hazard_d1b2;
   wire                            omn2dec_hazard_d2b2;
-  wire                            omn2dec_hazard_dxb2;
-  wire  [DEST_EXT_ADDR_WIDTH-1:0] omn2dec_hazard_dxb2_adr;
+  wire    [DEST_EXTADR_WIDTH-1:0] omn2dec_extadr_dxb2;
   // Hazard could be resolving
   //  ## FLAG or CARRY
   wire                            wb_flag_wb;
@@ -331,7 +327,7 @@ module mor1kx_cpu_marocchino
   //  ## A or B operand
   wire                            wb_rfd1_odd;
   //  ## for hazards resolution in RSRVS
-  wire  [DEST_EXT_ADDR_WIDTH-1:0] wb_ext_bits;
+  wire    [DEST_EXTADR_WIDTH-1:0] wb_extadr;
 
   // Special WB-controls for RF
   wire [OPTION_RF_ADDR_WIDTH-1:0] wb_rf_even_addr;
@@ -944,7 +940,7 @@ module mor1kx_cpu_marocchino
   #(
     .OPTION_OPERAND_WIDTH       (OPTION_OPERAND_WIDTH), // OMAN
     .OPTION_RF_ADDR_WIDTH       (OPTION_RF_ADDR_WIDTH), // OMAN
-    .DEST_EXT_ADDR_WIDTH        (DEST_EXT_ADDR_WIDTH), // OMAN
+    .DEST_EXTADR_WIDTH          (DEST_EXTADR_WIDTH), // OMAN
     // branch predictor parameters
     .GSHARE_BITS_NUM            (GSHARE_BITS_NUM) // OMAN
   )
@@ -1057,23 +1053,19 @@ module mor1kx_cpu_marocchino
     //  # relative operand A1
     .omn2dec_hazard_d1a1_o      (omn2dec_hazard_d1a1), // OMAN
     .omn2dec_hazard_d2a1_o      (omn2dec_hazard_d2a1), // OMAN
-    .omn2dec_hazard_dxa1_o      (omn2dec_hazard_dxa1), // OMAN
-    .omn2dec_hazard_dxa1_adr_o  (omn2dec_hazard_dxa1_adr), // OMAN
+    .omn2dec_extadr_dxa1_o      (omn2dec_extadr_dxa1), // OMAN
     //  # relative operand B1
     .omn2dec_hazard_d1b1_o      (omn2dec_hazard_d1b1), // OMAN
     .omn2dec_hazard_d2b1_o      (omn2dec_hazard_d2b1), // OMAN
-    .omn2dec_hazard_dxb1_o      (omn2dec_hazard_dxb1), // OMAN
-    .omn2dec_hazard_dxb1_adr_o  (omn2dec_hazard_dxb1_adr), // OMAN
+    .omn2dec_extadr_dxb1_o      (omn2dec_extadr_dxb1), // OMAN
     //  # relative operand A2
     .omn2dec_hazard_d1a2_o      (omn2dec_hazard_d1a2), // OMAN
     .omn2dec_hazard_d2a2_o      (omn2dec_hazard_d2a2), // OMAN
-    .omn2dec_hazard_dxa2_o      (omn2dec_hazard_dxa2), // OMAN
-    .omn2dec_hazard_dxa2_adr_o  (omn2dec_hazard_dxa2_adr), // OMAN
+    .omn2dec_extadr_dxa2_o      (omn2dec_extadr_dxa2), // OMAN
     //  # relative operand B2
     .omn2dec_hazard_d1b2_o      (omn2dec_hazard_d1b2), // OMAN
     .omn2dec_hazard_d2b2_o      (omn2dec_hazard_d2b2), // OMAN
-    .omn2dec_hazard_dxb2_o      (omn2dec_hazard_dxb2), // OMAN
-    .omn2dec_hazard_dxb2_adr_o  (omn2dec_hazard_dxb2_adr), // OMAN
+    .omn2dec_extadr_dxb2_o      (omn2dec_extadr_dxb2), // OMAN
 
     // DECODE result could be processed by EXECUTE
     .dcod_free_o                (dcod_free), // OMAN
@@ -1152,7 +1144,7 @@ module mor1kx_cpu_marocchino
     .wb_flag_wb_o               (wb_flag_wb), // OMAN
     .wb_carry_wb_o              (wb_carry_wb), // OMAN
     // for hazards resolution in RSRVS
-    .wb_ext_bits_o              (wb_ext_bits) // OMAN
+    .wb_extadr_o                (wb_extadr) // OMAN
   );
 
 
@@ -1198,7 +1190,7 @@ module mor1kx_cpu_marocchino
     .OPTION_OPERAND_WIDTH         (OPTION_OPERAND_WIDTH), // 1CLK_RSVRS
     .OP_WIDTH                     (ONE_CLK_OP_WIDTH), // 1CLK_RSVRS
     .OPC_WIDTH                    (ONE_CLK_OPC_WIDTH), // 1CLK_RSVRS
-    .DEST_EXT_ADDR_WIDTH          (DEST_EXT_ADDR_WIDTH), // 1CLK_RSVRS
+    .DEST_EXTADR_WIDTH            (DEST_EXTADR_WIDTH), // 1CLK_RSVRS
     // Reservation station is used for 1-clock execution module.
     // As 1-clock pushed if only it is granted by write-back access
     // all input operandes already forwarder. So we don't use
@@ -1218,17 +1210,17 @@ module mor1kx_cpu_marocchino
     //  # FPU:    {rfb2, rfa2, rfb1, rfa1}
     .DCOD_RFXX_WIDTH              (2 * OPTION_OPERAND_WIDTH), // 1CLK_RSRVS
     // OMAN-to-DECODE hazard flags layout for various reservation stations:
-    //  # LSU :   {   x,    x,    x,     x,    x,    x,  dxb1, d2b1, d1b1,  dxa1, d2a1, d1a1 }
-    //  # 1CLK:   {   x,    x,    x,     x,    x,    x,  dxb1, d2b1, d1b1,  dxa1, d2a1, d1a1 }
-    //  # MULDIV: {   x,    x,    x,     x,    x,    x,  dxb1, d2b1, d1b1,  dxa1, d2a1, d1a1 }
-    //  # FPU:    {dxb2, d2b2, d1b2,  dxa2, d2a2, d1a2,  dxb1, d2b1, d1b1,  dxa1, d2a1, d1a1 }
-    .OMN2DEC_HAZARDS_FLAGS_WIDTH  (6), // 1CLK_RSVRS
+    //  # LSU :   {   x,    x,     x,    x,  d2b1, d1b1,  d2a1, d1a1 }
+    //  # 1CLK:   {   x,    x,     x,    x,  d2b1, d1b1,  d2a1, d1a1 }
+    //  # MULDIV: {   x,    x,     x,    x,  d2b1, d1b1,  d2a1, d1a1 }
+    //  # FPU:    {d2b2, d1b2,  d2a2, d1a2,  d2b1, d1b1,  d2a1, d1a1 }
+    .OMN2DEC_HAZARDS_FLAGS_WIDTH  (4), // 1CLK_RSVRS
     // OMAN-to-DECODE hazard id layout for various reservation stations:
     //  # LSU :   {   x,    x, dxb1, dxa1 }
     //  # 1CLK:   {   x,    x, dxb1, dxa1 }
     //  # MULDIV: {   x,    x, dxb1, dxa1 }
     //  # FPU:    {dxb2, dxa2, dxb1, dxa1 }
-    .OMN2DEC_HAZARDS_ADDRS_WIDTH  (2 * DEST_EXT_ADDR_WIDTH) // 1CLK_RSVRS
+    .OMN2DEC_HAZARDS_ADDRS_WIDTH  (2 * DEST_EXTADR_WIDTH) // 1CLK_RSVRS
   )
   u_1clk_rsrvs
   (
@@ -1243,13 +1235,13 @@ module mor1kx_cpu_marocchino
     .dcod_rfxx_i                ({dcod_rfb1, dcod_rfa1}), // 1CLK_RSVRS
     // OMAN-to-DECODE hazards
     //  # hazards flags
-    .omn2dec_hazards_flags_i    ({omn2dec_hazard_dxb1, omn2dec_hazard_d2b1, omn2dec_hazard_d1b1, // 1CLK_RSVRS
-                                  omn2dec_hazard_dxa1, omn2dec_hazard_d2a1, omn2dec_hazard_d1a1}), // 1CLK_RSVRS
+    .omn2dec_hazards_flags_i    ({omn2dec_hazard_d2b1, omn2dec_hazard_d1b1, // 1CLK_RSVRS
+                                  omn2dec_hazard_d2a1, omn2dec_hazard_d1a1}), // 1CLK_RSVRS
     //  # hasards addresses
-    .omn2dec_hazards_addrs_i    ({omn2dec_hazard_dxb1_adr, omn2dec_hazard_dxa1_adr}), // 1CLK_RSVRS
+    .omn2dec_hazards_addrs_i    ({omn2dec_extadr_dxb1, omn2dec_extadr_dxa1}), // 1CLK_RSVRS
     // Hazard could be resolving
     //  ## write-back attributes
-    .wb_ext_bits_i              (wb_ext_bits), // 1CLK_RSVRS
+    .wb_extadr_i                (wb_extadr), // 1CLK_RSVRS
     //  ## forwarding results
     .wb_result1_i               (wb_result1_cp1), // 1CLK_RSVRS
     .wb_result2_i               (wb_result2_cp1), // 1CLK_RSVRS
@@ -1377,7 +1369,7 @@ module mor1kx_cpu_marocchino
     .OPTION_OPERAND_WIDTH         (OPTION_OPERAND_WIDTH), // MULDIV_RSRVS
     .OP_WIDTH                     (MULDIV_OP_WIDTH), // MULDIV_RSRVS
     .OPC_WIDTH                    (MULDIV_OPC_WIDTH), // MULDIV_RSRVS
-    .DEST_EXT_ADDR_WIDTH          (DEST_EXT_ADDR_WIDTH), // MULDIV_RSRVS
+    .DEST_EXTADR_WIDTH            (DEST_EXTADR_WIDTH), // MULDIV_RSRVS
     // Reservation station is used for 1-clock execution module.
     // As 1-clock pushed if only it is granted by write-back access
     // all input operandes already forwarder. So we don't use
@@ -1397,17 +1389,17 @@ module mor1kx_cpu_marocchino
     //  # FPU:    {rfb2, rfa2, rfb1, rfa1}
     .DCOD_RFXX_WIDTH              (2 * OPTION_OPERAND_WIDTH), // MULDIV_RSRVS
     // OMAN-to-DECODE hazard flags layout for various reservation stations:
-    //  # LSU :   {   x,    x,    x,     x,    x,    x,  dxb1, d2b1, d1b1,  dxa1, d2a1, d1a1 }
-    //  # 1CLK:   {   x,    x,    x,     x,    x,    x,  dxb1, d2b1, d1b1,  dxa1, d2a1, d1a1 }
-    //  # MULDIV: {   x,    x,    x,     x,    x,    x,  dxb1, d2b1, d1b1,  dxa1, d2a1, d1a1 }
-    //  # FPU:    {dxb2, d2b2, d1b2,  dxa2, d2a2, d1a2,  dxb1, d2b1, d1b1,  dxa1, d2a1, d1a1 }
-    .OMN2DEC_HAZARDS_FLAGS_WIDTH  (6), // MULDIV_RSRVS
+    //  # LSU :   {   x,    x,     x,    x,  d2b1, d1b1,  d2a1, d1a1 }
+    //  # 1CLK:   {   x,    x,     x,    x,  d2b1, d1b1,  d2a1, d1a1 }
+    //  # MULDIV: {   x,    x,     x,    x,  d2b1, d1b1,  d2a1, d1a1 }
+    //  # FPU:    {d2b2, d1b2,  d2a2, d1a2,  d2b1, d1b1,  d2a1, d1a1 }
+    .OMN2DEC_HAZARDS_FLAGS_WIDTH  (4), // MULDIV_RSRVS
     // OMAN-to-DECODE hazard id layout for various reservation stations:
     //  # LSU :   {   x,    x, dxb1, dxa1 }
     //  # 1CLK:   {   x,    x, dxb1, dxa1 }
     //  # MULDIV: {   x,    x, dxb1, dxa1 }
     //  # FPU:    {dxb2, dxa2, dxb1, dxa1 }
-    .OMN2DEC_HAZARDS_ADDRS_WIDTH  (2 * DEST_EXT_ADDR_WIDTH) // MULDIV_RSRVS
+    .OMN2DEC_HAZARDS_ADDRS_WIDTH  (2 * DEST_EXTADR_WIDTH) // MULDIV_RSRVS
   )
   u_muldiv_rsrvs
   (
@@ -1422,13 +1414,13 @@ module mor1kx_cpu_marocchino
     .dcod_rfxx_i                ({dcod_rfb1, dcod_rfa1}), // MULDIV_RSRVS
     // OMAN-to-DECODE hazards
     //  # hazards flags
-    .omn2dec_hazards_flags_i    ({omn2dec_hazard_dxb1,  omn2dec_hazard_d2b1, omn2dec_hazard_d1b1, // MULDIV_RSRVS
-                                  omn2dec_hazard_dxa1,  omn2dec_hazard_d2a1, omn2dec_hazard_d1a1}), // MULDIV_RSRVS
+    .omn2dec_hazards_flags_i    ({omn2dec_hazard_d2b1, omn2dec_hazard_d1b1, // MULDIV_RSRVS
+                                  omn2dec_hazard_d2a1, omn2dec_hazard_d1a1}), // MULDIV_RSRVS
     //  # hasards addresses
-    .omn2dec_hazards_addrs_i    ({omn2dec_hazard_dxb1_adr, omn2dec_hazard_dxa1_adr}), // MULDIV_RSRVS
+    .omn2dec_hazards_addrs_i    ({omn2dec_extadr_dxb1, omn2dec_extadr_dxa1}), // MULDIV_RSRVS
     // Hazard could be resolving
     //  ## write-back attributes
-    .wb_ext_bits_i              (wb_ext_bits), // MULDIV_RSRVS
+    .wb_extadr_i                (wb_extadr), // MULDIV_RSRVS
     //  ## forwarding results
     .wb_result1_i               (wb_result1_cp2), // MULDIV_RSRVS
     .wb_result2_i               (wb_result2_cp2), // MULDIV_RSRVS
@@ -1577,7 +1569,7 @@ module mor1kx_cpu_marocchino
     .OPTION_OPERAND_WIDTH         (OPTION_OPERAND_WIDTH), // FPU_RSRVS
     .OP_WIDTH                     (FPU_OP_WIDTH), // FPU_RSRVS
     .OPC_WIDTH                    (FPU_OPC_WIDTH), // FPU_RSRVS
-    .DEST_EXT_ADDR_WIDTH          (DEST_EXT_ADDR_WIDTH), // FPU_RSRVS
+    .DEST_EXTADR_WIDTH            (DEST_EXTADR_WIDTH), // FPU_RSRVS
     // Reservation station is used for 1-clock execution module.
     // As 1-clock pushed if only it is granted by write-back access
     // all input operandes already forwarder. So we don't use
@@ -1597,17 +1589,17 @@ module mor1kx_cpu_marocchino
     //  # FPU:    {rfb2, rfa2, rfb1, rfa1}
     .DCOD_RFXX_WIDTH              (4 * OPTION_OPERAND_WIDTH), // FPU_RSRVS
     // OMAN-to-DECODE hazard flags layout for various reservation stations:
-    //  # LSU :   {   x,    x,    x,     x,    x,    x,  dxb1, d2b1, d1b1,  dxa1, d2a1, d1a1 }
-    //  # 1CLK:   {   x,    x,    x,     x,    x,    x,  dxb1, d2b1, d1b1,  dxa1, d2a1, d1a1 }
-    //  # MULDIV: {   x,    x,    x,     x,    x,    x,  dxb1, d2b1, d1b1,  dxa1, d2a1, d1a1 }
-    //  # FPU:    {dxb2, d2b2, d1b2,  dxa2, d2a2, d1a2,  dxb1, d2b1, d1b1,  dxa1, d2a1, d1a1 }
-    .OMN2DEC_HAZARDS_FLAGS_WIDTH  (12), // FPU_RSRVS
+    //  # LSU :   {   x,    x,     x,    x,  d2b1, d1b1,  d2a1, d1a1 }
+    //  # 1CLK:   {   x,    x,     x,    x,  d2b1, d1b1,  d2a1, d1a1 }
+    //  # MULDIV: {   x,    x,     x,    x,  d2b1, d1b1,  d2a1, d1a1 }
+    //  # FPU:    {d2b2, d1b2,  d2a2, d1a2,  d2b1, d1b1,  d2a1, d1a1 }
+    .OMN2DEC_HAZARDS_FLAGS_WIDTH  (8), // FPU_RSRVS
     // OMAN-to-DECODE hazard id layout for various reservation stations:
     //  # LSU :   {   x,    x, dxb1, dxa1 }
     //  # 1CLK:   {   x,    x, dxb1, dxa1 }
     //  # MULDIV: {   x,    x, dxb1, dxa1 }
     //  # FPU:    {dxb2, dxa2, dxb1, dxa1 }
-    .OMN2DEC_HAZARDS_ADDRS_WIDTH  (4 * DEST_EXT_ADDR_WIDTH) // FPU_RSRVS
+    .OMN2DEC_HAZARDS_ADDRS_WIDTH  (4 * DEST_EXTADR_WIDTH) // FPU_RSRVS
   )
   u_fpxx_rsrvs
   (
@@ -1622,16 +1614,16 @@ module mor1kx_cpu_marocchino
     .dcod_rfxx_i                ({dcod_rfb2, dcod_rfa2, dcod_rfb1, dcod_rfa1}), // FPU_RSRVS
     // OMAN-to-DECODE hazards
     //  # hazards flags
-    .omn2dec_hazards_flags_i    ({omn2dec_hazard_dxb2,  omn2dec_hazard_d2b2, omn2dec_hazard_d1b2,  // FPU_RSRVS
-                                  omn2dec_hazard_dxa2,  omn2dec_hazard_d2a2, omn2dec_hazard_d1a2, // FPU_RSRVS
-                                  omn2dec_hazard_dxb1,  omn2dec_hazard_d2b1, omn2dec_hazard_d1b1, // FPU_RSRVS
-                                  omn2dec_hazard_dxa1,  omn2dec_hazard_d2a1, omn2dec_hazard_d1a1}), // FPU_RSRVS
+    .omn2dec_hazards_flags_i    ({omn2dec_hazard_d2b2, omn2dec_hazard_d1b2,  // FPU_RSRVS
+                                  omn2dec_hazard_d2a2, omn2dec_hazard_d1a2, // FPU_RSRVS
+                                  omn2dec_hazard_d2b1, omn2dec_hazard_d1b1, // FPU_RSRVS
+                                  omn2dec_hazard_d2a1, omn2dec_hazard_d1a1}), // FPU_RSRVS
     //  # hasards addresses
-    .omn2dec_hazards_addrs_i    ({omn2dec_hazard_dxb2_adr, omn2dec_hazard_dxa2_adr, // FPU_RSRVS
-                                  omn2dec_hazard_dxb1_adr, omn2dec_hazard_dxa1_adr}), // FPU_RSRVS
+    .omn2dec_hazards_addrs_i    ({omn2dec_extadr_dxb2, omn2dec_extadr_dxa2, // FPU_RSRVS
+                                  omn2dec_extadr_dxb1, omn2dec_extadr_dxa1}), // FPU_RSRVS
     // Hazard could be resolving
     //  ## write-back attributes
-    .wb_ext_bits_i              (wb_ext_bits), // FPU_RSRVS
+    .wb_extadr_i                (wb_extadr), // FPU_RSRVS
     //  ## forwarding results
     .wb_result1_i               (wb_result1_cp2), // FPU_RSRVS
     .wb_result2_i               (wb_result2_cp2), // FPU_RSRVS
@@ -1777,7 +1769,7 @@ module mor1kx_cpu_marocchino
     .OPTION_OPERAND_WIDTH         (OPTION_OPERAND_WIDTH), // LSU_RSRVS
     .OP_WIDTH                     (LSU_OP_WIDTH), // LSU_RSRVS
     .OPC_WIDTH                    (LSU_OPC_WIDTH), // LSU_RSRVS
-    .DEST_EXT_ADDR_WIDTH          (DEST_EXT_ADDR_WIDTH), // LSU_RSRVS
+    .DEST_EXTADR_WIDTH            (DEST_EXTADR_WIDTH), // LSU_RSRVS
     // Reservation station is used for 1-clock execution module.
     // As 1-clock pushed if only it is granted by write-back access
     // all input operandes already forwarder. So we don't use
@@ -1797,17 +1789,17 @@ module mor1kx_cpu_marocchino
     //  # FPU:    {rfb2, rfa2, rfb1, rfa1}
     .DCOD_RFXX_WIDTH              (2 * OPTION_OPERAND_WIDTH), // LSU_RSRVS
     // OMAN-to-DECODE hazard flags layout for various reservation stations:
-    //  # LSU :   {   x,    x,    x,     x,    x,    x,  dxb1, d2b1, d1b1,  dxa1, d2a1, d1a1 }
-    //  # 1CLK:   {   x,    x,    x,     x,    x,    x,  dxb1, d2b1, d1b1,  dxa1, d2a1, d1a1 }
-    //  # MULDIV: {   x,    x,    x,     x,    x,    x,  dxb1, d2b1, d1b1,  dxa1, d2a1, d1a1 }
-    //  # FPU:    {dxb2, d2b2, d1b2,  dxa2, d2a2, d1a2,  dxb1, d2b1, d1b1,  dxa1, d2a1, d1a1 }
-    .OMN2DEC_HAZARDS_FLAGS_WIDTH  (6), // LSU_RSRVS
+    //  # LSU :   {   x,    x,     x,    x,  d2b1, d1b1,  d2a1, d1a1 }
+    //  # 1CLK:   {   x,    x,     x,    x,  d2b1, d1b1,  d2a1, d1a1 }
+    //  # MULDIV: {   x,    x,     x,    x,  d2b1, d1b1,  d2a1, d1a1 }
+    //  # FPU:    {d2b2, d1b2,  d2a2, d1a2,  d2b1, d1b1,  d2a1, d1a1 }
+    .OMN2DEC_HAZARDS_FLAGS_WIDTH  (4), // LSU_RSRVS
     // OMAN-to-DECODE hazard id layout for various reservation stations:
     //  # LSU :   {   x,    x, dxb1, dxa1 }
     //  # 1CLK:   {   x,    x, dxb1, dxa1 }
     //  # MULDIV: {   x,    x, dxb1, dxa1 }
     //  # FPU:    {dxb2, dxa2, dxb1, dxa1 }
-    .OMN2DEC_HAZARDS_ADDRS_WIDTH  (2 * DEST_EXT_ADDR_WIDTH) // LSU_RSRVS
+    .OMN2DEC_HAZARDS_ADDRS_WIDTH  (2 * DEST_EXTADR_WIDTH) // LSU_RSRVS
   )
   u_lsu_rsrvs
   (
@@ -1822,13 +1814,13 @@ module mor1kx_cpu_marocchino
     .dcod_rfxx_i                ({dcod_rfb1, dcod_rfa1}), // LSU_RSVRS
     // OMAN-to-DECODE hazards
     //  # hazards flags
-    .omn2dec_hazards_flags_i    ({omn2dec_hazard_dxb1, omn2dec_hazard_d2b1, omn2dec_hazard_d1b1, // LSU_RSVRS
-                                  omn2dec_hazard_dxa1, omn2dec_hazard_d2a1, omn2dec_hazard_d1a1}), // LSU_RSVRS
+    .omn2dec_hazards_flags_i    ({omn2dec_hazard_d2b1, omn2dec_hazard_d1b1, // LSU_RSVRS
+                                  omn2dec_hazard_d2a1, omn2dec_hazard_d1a1}), // LSU_RSVRS
     //  # hasards addresses
-    .omn2dec_hazards_addrs_i    ({omn2dec_hazard_dxb1_adr, omn2dec_hazard_dxa1_adr}), // LSU_RSVRS
+    .omn2dec_hazards_addrs_i    ({omn2dec_extadr_dxb1, omn2dec_extadr_dxa1}), // LSU_RSVRS
     // Hazard could be resolving
     //  ## write-back attributes
-    .wb_ext_bits_i              (wb_ext_bits), // LSU_RSVRS
+    .wb_extadr_i                (wb_extadr), // LSU_RSVRS
     //  ## forwarding results
     .wb_result1_i               (wb_result1_cp3), // LSU_RSVRS
     .wb_result2_i               (wb_result2_cp3), // LSU_RSVRS

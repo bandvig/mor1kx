@@ -249,8 +249,12 @@ module mor1kx_ctrl_marocchino
   output      [`OR1K_FPCSR_RM_SIZE-1:0] ctrl_fpu_round_mode_o
 );
 
-  // Internal signals
+  // Status Register
   reg [SPR_SR_WIDTH-1:0]            spr_sr;
+  // Copies of SR[F] to simplify routing
+  reg                               flag_1clk_r; // feed-back to 1-CLOCK execution unit
+  reg                               flag_oman_r; // feed-bach to OMAN for branch processing
+  
   reg [SPR_SR_WIDTH-1:0]            spr_esr;
   reg [OPTION_OPERAND_WIDTH-1:0]    spr_epcr;
   reg [OPTION_OPERAND_WIDTH-1:0]    spr_eear;
@@ -336,9 +340,9 @@ module mor1kx_ctrl_marocchino
   wire   ctrl_flag_clear = wb_int_flag_clear_i | wb_fpxx_flag_clear_i | wb_atomic_flag_clear_i;
   wire   ctrl_flag_set   = wb_int_flag_set_i   | wb_fpxx_flag_set_i   | wb_atomic_flag_set_i;
   // ---
-  assign ctrl_flag_o     = (~ctrl_flag_clear) & (ctrl_flag_set | spr_sr[`OR1K_SPR_SR_F]);
+  assign ctrl_flag_o     = (~ctrl_flag_clear) & (ctrl_flag_set | flag_1clk_r);
   // ---
-  assign ctrl_flag_sr_o  = spr_sr[`OR1K_SPR_SR_F];
+  assign ctrl_flag_sr_o  = flag_oman_r;
 
 
   // Carry output
@@ -652,50 +656,64 @@ module mor1kx_ctrl_marocchino
   assign  supervisor_mode_o = spr_sr[`OR1K_SPR_SR_SM];
   // ---
   always @(posedge cpu_clk) begin
-    if (cpu_rst)
-      spr_sr <= SPR_SR_RESET_VALUE;
+    if (cpu_rst) begin
+      spr_sr                    <= SPR_SR_RESET_VALUE;
+      // Copies of SR[F] to simplify routing
+      flag_1clk_r               <= 1'b0; // reset
+      flag_oman_r               <= 1'b0; // reset
+    end
     else if (wb_an_except_i) begin
       // Go into supervisor mode, disable interrupts, MMUs
       // it doesn't matter if the next features are enabled or not
-      spr_sr[`OR1K_SPR_SR_SM ] <= 1'b1; // supervisor mode
-      spr_sr[`OR1K_SPR_SR_TEE] <= 1'b0; // block interrupt from timer
-      spr_sr[`OR1K_SPR_SR_IEE] <= 1'b0; // block interrupt from PIC
-      spr_sr[`OR1K_SPR_SR_DME] <= 1'b0; // D-MMU is off
-      spr_sr[`OR1K_SPR_SR_IME] <= 1'b0; // I-MMU is off
-      spr_sr[`OR1K_SPR_SR_OVE] <= 1'b0; // block overflow excep.
-      spr_sr[`OR1K_SPR_SR_OV ] <= wb_except_overflow_div_i | wb_except_overflow_1clk_i;
-      spr_sr[`OR1K_SPR_SR_DSX] <= wb_delay_slot_i;
+      spr_sr[`OR1K_SPR_SR_SM ]  <= 1'b1; // supervisor mode
+      spr_sr[`OR1K_SPR_SR_TEE]  <= 1'b0; // block interrupt from timer
+      spr_sr[`OR1K_SPR_SR_IEE]  <= 1'b0; // block interrupt from PIC
+      spr_sr[`OR1K_SPR_SR_DME]  <= 1'b0; // D-MMU is off
+      spr_sr[`OR1K_SPR_SR_IME]  <= 1'b0; // I-MMU is off
+      spr_sr[`OR1K_SPR_SR_OVE]  <= 1'b0; // block overflow excep.
+      spr_sr[`OR1K_SPR_SR_OV ]  <= wb_except_overflow_div_i | wb_except_overflow_1clk_i;
+      spr_sr[`OR1K_SPR_SR_DSX]  <= wb_delay_slot_i;
     end
     else if ((`SPR_OFFSET(spr_sys_group_wadr_r) == `SPR_OFFSET(`OR1K_SPR_SR_ADDR)) &
              spr_sys_group_we &
              spr_sr[`OR1K_SPR_SR_SM]) begin
       // from SPR bus
-      spr_sr[`OR1K_SPR_SR_SM ] <= spr_sys_group_wdat_r[`OR1K_SPR_SR_SM ];
-      spr_sr[`OR1K_SPR_SR_F  ] <= spr_sys_group_wdat_r[`OR1K_SPR_SR_F  ];
-      spr_sr[`OR1K_SPR_SR_TEE] <= spr_sys_group_wdat_r[`OR1K_SPR_SR_TEE];
-      spr_sr[`OR1K_SPR_SR_IEE] <= spr_sys_group_wdat_r[`OR1K_SPR_SR_IEE];
-      spr_sr[`OR1K_SPR_SR_DCE] <= spr_sys_group_wdat_r[`OR1K_SPR_SR_DCE];
-      spr_sr[`OR1K_SPR_SR_ICE] <= spr_sys_group_wdat_r[`OR1K_SPR_SR_ICE];
-      spr_sr[`OR1K_SPR_SR_DME] <= spr_sys_group_wdat_r[`OR1K_SPR_SR_DME];
-      spr_sr[`OR1K_SPR_SR_IME] <= spr_sys_group_wdat_r[`OR1K_SPR_SR_IME];
-      spr_sr[`OR1K_SPR_SR_CE ] <= 1'b0;
-      spr_sr[`OR1K_SPR_SR_CY ] <= spr_sys_group_wdat_r[`OR1K_SPR_SR_CY ];
-      spr_sr[`OR1K_SPR_SR_OV ] <= spr_sys_group_wdat_r[`OR1K_SPR_SR_OV ];
-      spr_sr[`OR1K_SPR_SR_OVE] <= spr_sys_group_wdat_r[`OR1K_SPR_SR_OVE];
-      spr_sr[`OR1K_SPR_SR_DSX] <= spr_sys_group_wdat_r[`OR1K_SPR_SR_DSX];
-      spr_sr[`OR1K_SPR_SR_EPH] <= spr_sys_group_wdat_r[`OR1K_SPR_SR_EPH];
+      spr_sr[`OR1K_SPR_SR_SM ]  <= spr_sys_group_wdat_r[`OR1K_SPR_SR_SM ];
+      spr_sr[`OR1K_SPR_SR_F  ]  <= spr_sys_group_wdat_r[`OR1K_SPR_SR_F  ];
+      spr_sr[`OR1K_SPR_SR_TEE]  <= spr_sys_group_wdat_r[`OR1K_SPR_SR_TEE];
+      spr_sr[`OR1K_SPR_SR_IEE]  <= spr_sys_group_wdat_r[`OR1K_SPR_SR_IEE];
+      spr_sr[`OR1K_SPR_SR_DCE]  <= spr_sys_group_wdat_r[`OR1K_SPR_SR_DCE];
+      spr_sr[`OR1K_SPR_SR_ICE]  <= spr_sys_group_wdat_r[`OR1K_SPR_SR_ICE];
+      spr_sr[`OR1K_SPR_SR_DME]  <= spr_sys_group_wdat_r[`OR1K_SPR_SR_DME];
+      spr_sr[`OR1K_SPR_SR_IME]  <= spr_sys_group_wdat_r[`OR1K_SPR_SR_IME];
+      spr_sr[`OR1K_SPR_SR_CE ]  <= 1'b0;
+      spr_sr[`OR1K_SPR_SR_CY ]  <= spr_sys_group_wdat_r[`OR1K_SPR_SR_CY ];
+      spr_sr[`OR1K_SPR_SR_OV ]  <= spr_sys_group_wdat_r[`OR1K_SPR_SR_OV ];
+      spr_sr[`OR1K_SPR_SR_OVE]  <= spr_sys_group_wdat_r[`OR1K_SPR_SR_OVE];
+      spr_sr[`OR1K_SPR_SR_DSX]  <= spr_sys_group_wdat_r[`OR1K_SPR_SR_DSX];
+      spr_sr[`OR1K_SPR_SR_EPH]  <= spr_sys_group_wdat_r[`OR1K_SPR_SR_EPH];
+      // Copies of SR[F] to simplify routing
+      flag_1clk_r               <= spr_sys_group_wdat_r[`OR1K_SPR_SR_F]; // l.mtspr
+      flag_oman_r               <= spr_sys_group_wdat_r[`OR1K_SPR_SR_F]; // l.mtspr
     end
     else if (wb_op_rfe_i) begin
       // Skip FO. TODO: make this even more selective.
-      spr_sr[14:0] <= spr_esr[14:0];
+      spr_sr[14:0]              <= spr_esr[14:0];
+      // Copies of SR[F] to simplify routing
+      flag_1clk_r               <= spr_esr[`OR1K_SPR_SR_F]; // l.rfe
+      flag_oman_r               <= spr_esr[`OR1K_SPR_SR_F]; // l.rfe
     end
     else begin
       // OVERFLOW field update
       if (ctrl_spr_wb_r)                           // OVERFLOW field update
         spr_sr[`OR1K_SPR_SR_OV] <= ctrl_overflow;
       // FLAG field update (taking into accaunt specualtive WB for LSU)
-      if (wb_flag_wb_i)                            // FLAG field update
-        spr_sr[`OR1K_SPR_SR_F]  <= ctrl_flag_o;
+      if (wb_flag_wb_i) begin                      // FLAG field update
+        spr_sr[`OR1K_SPR_SR_F]  <= ctrl_flag_set;  // write-back (either set or clear)
+        // Copies of SR[F] to simplify routing
+        flag_1clk_r             <= ctrl_flag_set;  // write-back (either set or clear)
+        flag_oman_r             <= ctrl_flag_set;  // write-back (either set or clear)
+      end
       // CARRY field update
       if (wb_carry_wb_i)                           // CARRY field update
         spr_sr[`OR1K_SPR_SR_CY] <= ctrl_carry_o;

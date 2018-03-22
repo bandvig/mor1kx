@@ -629,7 +629,7 @@ module mor1kx_ocbuff_marocchino
     always @(posedge cpu_clk) begin
       if (cpu_rst | pipeline_flush_i)
         empty_r <= 1'b0; // reset / pipe flushing
-      else 
+      else
         empty_r <= (booked_cnt_nxt == FIFO_EMPTY); // update
     end // cpu-clock
 
@@ -654,7 +654,7 @@ module mor1kx_ocbuff_marocchino
     always @(posedge cpu_clk) begin
       if (cpu_rst | pipeline_flush_i)
         full_r <= 1'b0; // reset / pipe flushing
-      else 
+      else
         full_r <= (booked_cnt_nxt == FIFO_FULL); // update
     end // cpu-clock
 
@@ -998,7 +998,7 @@ module mor1kx_ocbuff_miss_marocchino
     always @(posedge cpu_clk) begin
       if (cpu_rst | pipeline_flush_i)
         full_r <= 1'b0; // reset / pipe flushing
-      else 
+      else
         full_r <= (booked_cnt_nxt == FIFO_FULL); // update
     end // cpu-clock
 
@@ -1057,7 +1057,7 @@ module mor1kx_rsrvs_marocchino
   parameter OPTION_OPERAND_WIDTH = 32,
   parameter OP_WIDTH             =  1, // width of command set
   parameter OPC_WIDTH            =  1, // width of additional attributes
-  parameter DEST_EXT_ADDR_WIDTH  =  3, // log2(Order Control Buffer depth)
+  parameter DEST_EXTADR_WIDTH    =  3, // log2(Order Control Buffer depth)
   // Reservation station is used for 1-clock execution module.
   // As 1-clock pushed if only it is granted by write-back access
   // all input operandes already forwarder. So we don't use
@@ -1077,17 +1077,17 @@ module mor1kx_rsrvs_marocchino
   //  # FPU:    {rfb2, rfa2, rfb1, rfa1}
   parameter DCOD_RFXX_WIDTH      = 64, // (2 * OPTION_OPERAND_WIDTH) for LSU; etc...
   // OMAN-to-DECODE hazard flags layout for various reservation stations:
-  //  # LSU :   {   x,    x,    x,     x,    x,    x,  dxb1, d2b1, d1b1,  dxa1, d2a1, d1a1 }
-  //  # 1CLK:   {   x,    x,    x,     x,    x,    x,  dxb1, d2b1, d1b1,  dxa1, d2a1, d1a1 }
-  //  # MULDIV: {   x,    x,    x,     x,    x,    x,  dxb1, d2b1, d1b1,  dxa1, d2a1, d1a1 }
-  //  # FPU:    {dxb2, d2b2, d1b2,  dxa2, d2a2, d1a2,  dxb1, d2b1, d1b1,  dxa1, d2a1, d1a1 }
-  parameter OMN2DEC_HAZARDS_FLAGS_WIDTH = 6, // 6: for 1CLK, MUL/DIV and LSU;  12: for FPU3264
+  //  # LSU :   {   x,    x,     x,    x,  d2b1, d1b1,  d2a1, d1a1 }
+  //  # 1CLK:   {   x,    x,     x,    x,  d2b1, d1b1,  d2a1, d1a1 }
+  //  # MULDIV: {   x,    x,     x,    x,  d2b1, d1b1,  d2a1, d1a1 }
+  //  # FPU:    {d2b2, d1b2,  d2a2, d1a2,  d2b1, d1b1,  d2a1, d1a1 }
+  parameter OMN2DEC_HAZARDS_FLAGS_WIDTH = 4, // 4: for 1CLK, MUL/DIV and LSU;  8: for FPU3264
   // OMAN-to-DECODE hazard id layout for various reservation stations:
   //  # LSU :   {   x,    x, dxb1, dxa1 }
   //  # 1CLK:   {   x,    x, dxb1, dxa1 }
   //  # MULDIV: {   x,    x, dxb1, dxa1 }
   //  # FPU:    {dxb2, dxa2, dxb1, dxa1 }
-  parameter OMN2DEC_HAZARDS_ADDRS_WIDTH = 6  // (2 * DEST_EXT_ADDR_WIDTH) for LSU; etc...
+  parameter OMN2DEC_HAZARDS_ADDRS_WIDTH = 6  // (2 * DEST_EXTADR_WIDTH) for LSU; etc...
 )
 (
   // clocks and resets
@@ -1110,7 +1110,7 @@ module mor1kx_rsrvs_marocchino
 
   // Hazard could be resolving
   //  ## write-back attributes
-  input         [(DEST_EXT_ADDR_WIDTH-1):0] wb_ext_bits_i,
+  input           [(DEST_EXTADR_WIDTH-1):0] wb_extadr_i,
   //  ## forwarding results
   input        [(OPTION_OPERAND_WIDTH-1):0] wb_result1_i,
   input        [(OPTION_OPERAND_WIDTH-1):0] wb_result2_i,
@@ -1137,10 +1137,11 @@ module mor1kx_rsrvs_marocchino
 
   /**** parameters for fields extruction ****/
 
-  //  # operands layouts for various reservation stations:
-  //  # LSU : {   x,    x, rfb1, rfa1}
-  //  # 1CLK: {   x,    x, rfb1, rfa1}
-  //  # FPU3264: {rfb2, rfa2, rfb1, rfa1}
+  // Packed operands for various reservation stations:
+  //  # LSU :   {   x,    x, rfb1, rfa1}
+  //  # 1CLK:   {   x,    x, rfb1, rfa1}
+  //  # MULDIV: {   x,    x, rfb1, rfa1}
+  //  # FPU:    {rfb2, rfa2, rfb1, rfa1}
   //    A1
   localparam  RFA1_LSB = 0;
   localparam  RFA1_MSB = OPTION_OPERAND_WIDTH - 1;
@@ -1155,42 +1156,40 @@ module mor1kx_rsrvs_marocchino
   localparam  RFB2_MSB = 4 * OPTION_OPERAND_WIDTH - 1;
 
   // OMAN-to-DECODE hazard flags layout for various reservation stations:
-  //  # LSU : {   x,    x,    x,     x,    x,    x,  dxb1, d2b1, d1b1,  dxa1, d2a1, d1a1 }
-  //  # 1CLK: {   x,    x,    x,     x,    x,    x,  dxb1, d2b1, d1b1,  dxa1, d2a1, d1a1 }
-  //  # FPU3264: {dxb2, d2b2, d1b2,  dxa2, d2a2, d1a2,  dxb1, d2b1, d1b1,  dxa1, d2a1, d1a1 }
+  //  # LSU :   {   x,    x,     x,    x,  d2b1, d1b1,  d2a1, d1a1 }
+  //  # 1CLK:   {   x,    x,     x,    x,  d2b1, d1b1,  d2a1, d1a1 }
+  //  # MULDIV: {   x,    x,     x,    x,  d2b1, d1b1,  d2a1, d1a1 }
+  //  # FPU:    {d2b2, d1b2,  d2a2, d1a2,  d2b1, d1b1,  d2a1, d1a1 }
   //  # relative operand A1
   localparam  HAZARD_D1A1_FLG_POS =  0;
   localparam  HAZARD_D2A1_FLG_POS =  1;
-  localparam  HAZARD_DxA1_FLG_POS =  2;
   //  # relative operand B1
-  localparam  HAZARD_D1B1_FLG_POS =  3;
-  localparam  HAZARD_D2B1_FLG_POS =  4;
-  localparam  HAZARD_DxB1_FLG_POS =  5;
+  localparam  HAZARD_D1B1_FLG_POS =  2;
+  localparam  HAZARD_D2B1_FLG_POS =  3;
   //  # relative operand A2
-  localparam  HAZARD_D1A2_FLG_POS =  6;
-  localparam  HAZARD_D2A2_FLG_POS =  7;
-  localparam  HAZARD_DxA2_FLG_POS =  8;
+  localparam  HAZARD_D1A2_FLG_POS =  4;
+  localparam  HAZARD_D2A2_FLG_POS =  5;
   //  # relative operand B2
-  localparam  HAZARD_D1B2_FLG_POS =  9;
-  localparam  HAZARD_D2B2_FLG_POS = 10;
-  localparam  HAZARD_DxB2_FLG_POS = 11;
+  localparam  HAZARD_D1B2_FLG_POS =  6;
+  localparam  HAZARD_D2B2_FLG_POS =  7;
 
   // OMAN-to-DECODE hazard id layout for various reservation stations:
-  //  # LSU : {   x,    x, dxb1, dxa1 }
-  //  # 1CLK: {   x,    x, dxb1, dxa1 }
-  //  # FPU3264: {dxb2, dxa2, dxb1, dxa1 }
+  //  # LSU :   {   x,    x, dxb1, dxa1 }
+  //  # 1CLK:   {   x,    x, dxb1, dxa1 }
+  //  # MULDIV: {   x,    x, dxb1, dxa1 }
+  //  # FPU:    {dxb2, dxa2, dxb1, dxa1 }
   //  # relative operand A1
-  localparam  HAZARD_DxA1_ADR_LSB = 0;
-  localparam  HAZARD_DxA1_ADR_MSB = DEST_EXT_ADDR_WIDTH - 1;
+  localparam  EXTADR_DxA1_LSB = 0;
+  localparam  EXTADR_DxA1_MSB = DEST_EXTADR_WIDTH - 1;
   //  # relative operand B1
-  localparam  HAZARD_DxB1_ADR_LSB = DEST_EXT_ADDR_WIDTH;
-  localparam  HAZARD_DxB1_ADR_MSB = 2 * DEST_EXT_ADDR_WIDTH - 1;
+  localparam  EXTADR_DxB1_LSB = DEST_EXTADR_WIDTH;
+  localparam  EXTADR_DxB1_MSB = 2 * DEST_EXTADR_WIDTH - 1;
   //  # relative operand A2
-  localparam  HAZARD_DxA2_ADR_LSB = 2 * DEST_EXT_ADDR_WIDTH;
-  localparam  HAZARD_DxA2_ADR_MSB = 3 * DEST_EXT_ADDR_WIDTH - 1;
+  localparam  EXTADR_DxA2_LSB = 2 * DEST_EXTADR_WIDTH;
+  localparam  EXTADR_DxA2_MSB = 3 * DEST_EXTADR_WIDTH - 1;
   //  # relative operand B2
-  localparam  HAZARD_DxB2_ADR_LSB = 3 * DEST_EXT_ADDR_WIDTH;
-  localparam  HAZARD_DxB2_ADR_MSB = 4 * DEST_EXT_ADDR_WIDTH - 1;
+  localparam  EXTADR_DxB2_LSB = 3 * DEST_EXTADR_WIDTH;
+  localparam  EXTADR_DxB2_MSB = 4 * DEST_EXTADR_WIDTH - 1;
 
 
   // execute: command and attributes latches
@@ -1256,26 +1255,26 @@ module mor1kx_rsrvs_marocchino
   reg                                 busy_hazard_d1a1_r;
   reg                                 busy_hazard_d2a1_r;
   reg                                 busy_hazard_dxa1_r;
-  reg       [DEST_EXT_ADDR_WIDTH-1:0] busy_hazard_dxa1_adr_r;
+  reg         [DEST_EXTADR_WIDTH-1:0] busy_extadr_dxa1_r;
   wire                                busy_dxa1_muxing_wb;
   //  # relative operand B1
   reg                                 busy_hazard_d1b1_r;
   reg                                 busy_hazard_d2b1_r;
   reg                                 busy_hazard_dxb1_r;
-  reg       [DEST_EXT_ADDR_WIDTH-1:0] busy_hazard_dxb1_adr_r;
+  reg         [DEST_EXTADR_WIDTH-1:0] busy_extadr_dxb1_r;
   wire                                busy_dxb1_muxing_wb;
   // # exclusively for FPU3264 reservation station
   //  # relative operand A2
   wire                                busy_hazard_d1a2_w;
   wire                                busy_hazard_d2a2_w;
   wire                                busy_hazard_dxa2_w;
-  wire      [DEST_EXT_ADDR_WIDTH-1:0] busy_hazard_dxa2_adr_w;
+  wire        [DEST_EXTADR_WIDTH-1:0] busy_extadr_dxa2_w;
   wire                                busy_dxa2_muxing_wb;
   //  # relative operand B2
   wire                                busy_hazard_d1b2_w;
   wire                                busy_hazard_d2b2_w;
   wire                                busy_hazard_dxb2_w;
-  wire      [DEST_EXT_ADDR_WIDTH-1:0] busy_hazard_dxb2_adr_w;
+  wire        [DEST_EXTADR_WIDTH-1:0] busy_extadr_dxb2_w;
   wire                                busy_dxb2_muxing_wb;
 
   // busy: operands
@@ -1305,11 +1304,13 @@ module mor1kx_rsrvs_marocchino
       //  # relative operand A1
       busy_hazard_d1a1_r <= omn2dec_hazards_flags_i[HAZARD_D1A1_FLG_POS];
       busy_hazard_d2a1_r <= omn2dec_hazards_flags_i[HAZARD_D2A1_FLG_POS];
-      busy_hazard_dxa1_r <= omn2dec_hazards_flags_i[HAZARD_DxA1_FLG_POS];
+      busy_hazard_dxa1_r <= omn2dec_hazards_flags_i[HAZARD_D1A1_FLG_POS] |
+                            omn2dec_hazards_flags_i[HAZARD_D2A1_FLG_POS];
       //  # relative operand B1
       busy_hazard_d1b1_r <= omn2dec_hazards_flags_i[HAZARD_D1B1_FLG_POS];
       busy_hazard_d2b1_r <= omn2dec_hazards_flags_i[HAZARD_D2B1_FLG_POS];
-      busy_hazard_dxb1_r <= omn2dec_hazards_flags_i[HAZARD_DxB1_FLG_POS];
+      busy_hazard_dxb1_r <= omn2dec_hazards_flags_i[HAZARD_D1B1_FLG_POS] |
+                            omn2dec_hazards_flags_i[HAZARD_D2B1_FLG_POS];
     end
     else begin
       //  # relative operand A1
@@ -1330,14 +1331,14 @@ module mor1kx_rsrvs_marocchino
   //  # they make sence only with rized hazard flags
   always @(posedge cpu_clk) begin
     if (dcod_pushing_busy) begin
-      busy_hazard_dxa1_adr_r <= omn2dec_hazards_addrs_i[HAZARD_DxA1_ADR_MSB:HAZARD_DxA1_ADR_LSB];
-      busy_hazard_dxb1_adr_r <= omn2dec_hazards_addrs_i[HAZARD_DxB1_ADR_MSB:HAZARD_DxB1_ADR_LSB];
+      busy_extadr_dxa1_r <= omn2dec_hazards_addrs_i[EXTADR_DxA1_MSB:EXTADR_DxA1_LSB];
+      busy_extadr_dxb1_r <= omn2dec_hazards_addrs_i[EXTADR_DxB1_MSB:EXTADR_DxB1_LSB];
     end
   end // @cpu-clock
 
   // muxing write-back
-  assign busy_dxa1_muxing_wb = busy_hazard_dxa1_r & (busy_hazard_dxa1_adr_r == wb_ext_bits_i);
-  assign busy_dxb1_muxing_wb = busy_hazard_dxb1_r & (busy_hazard_dxb1_adr_r == wb_ext_bits_i);
+  assign busy_dxa1_muxing_wb = busy_hazard_dxa1_r & (busy_extadr_dxa1_r == wb_extadr_i);
+  assign busy_dxb1_muxing_wb = busy_hazard_dxb1_r & (busy_extadr_dxb1_r == wb_extadr_i);
 
   // forwarding operands A1 & B1
   always @(posedge cpu_clk) begin
@@ -1374,12 +1375,12 @@ module mor1kx_rsrvs_marocchino
     reg                             busy_hazard_d1a2_r;
     reg                             busy_hazard_d2a2_r;
     reg                             busy_hazard_dxa2_r;
-    reg   [DEST_EXT_ADDR_WIDTH-1:0] busy_hazard_dxa2_adr_r;
+    reg     [DEST_EXTADR_WIDTH-1:0] busy_extadr_dxa2_r;
     //  # relative operand B2
     reg                             busy_hazard_d1b2_r;
     reg                             busy_hazard_d2b2_r;
     reg                             busy_hazard_dxb2_r;
-    reg   [DEST_EXT_ADDR_WIDTH-1:0] busy_hazard_dxb2_adr_r;
+    reg     [DEST_EXTADR_WIDTH-1:0] busy_extadr_dxb2_r;
     // ---
     always @(posedge cpu_clk) begin
       if (cpu_rst | pipeline_flush_i) begin
@@ -1396,11 +1397,13 @@ module mor1kx_rsrvs_marocchino
         //  # relative operand A2
         busy_hazard_d1a2_r <= omn2dec_hazards_flags_i[HAZARD_D1A2_FLG_POS];
         busy_hazard_d2a2_r <= omn2dec_hazards_flags_i[HAZARD_D2A2_FLG_POS];
-        busy_hazard_dxa2_r <= omn2dec_hazards_flags_i[HAZARD_DxA2_FLG_POS];
+        busy_hazard_dxa2_r <= omn2dec_hazards_flags_i[HAZARD_D1A2_FLG_POS] |
+                              omn2dec_hazards_flags_i[HAZARD_D2A2_FLG_POS];
         //  # relative operand B2
         busy_hazard_d1b2_r <= omn2dec_hazards_flags_i[HAZARD_D1B2_FLG_POS];
         busy_hazard_d2b2_r <= omn2dec_hazards_flags_i[HAZARD_D2B2_FLG_POS];
-        busy_hazard_dxb2_r <= omn2dec_hazards_flags_i[HAZARD_DxB2_FLG_POS];
+        busy_hazard_dxb2_r <= omn2dec_hazards_flags_i[HAZARD_D1B2_FLG_POS] |
+                              omn2dec_hazards_flags_i[HAZARD_D2B2_FLG_POS];
       end
       else begin
         //  # relative operand A2
@@ -1420,23 +1423,23 @@ module mor1kx_rsrvs_marocchino
     // ---
     always @(posedge cpu_clk) begin
       if (dcod_pushing_busy) begin
-        busy_hazard_dxa2_adr_r <= omn2dec_hazards_addrs_i[HAZARD_DxA2_ADR_MSB:HAZARD_DxA2_ADR_LSB];
-        busy_hazard_dxb2_adr_r <= omn2dec_hazards_addrs_i[HAZARD_DxB2_ADR_MSB:HAZARD_DxB2_ADR_LSB];
+        busy_extadr_dxa2_r <= omn2dec_hazards_addrs_i[EXTADR_DxA2_MSB:EXTADR_DxA2_LSB];
+        busy_extadr_dxb2_r <= omn2dec_hazards_addrs_i[EXTADR_DxB2_MSB:EXTADR_DxB2_LSB];
       end
     end
     // ---
     //  # relative operand A2
-    assign busy_hazard_d1a2_w     = busy_hazard_d1a2_r;     // FPU3264
-    assign busy_hazard_d2a2_w     = busy_hazard_d2a2_r;     // FPU3264
-    assign busy_hazard_dxa2_w     = busy_hazard_dxa2_r;     // FPU3264
-    assign busy_hazard_dxa2_adr_w = busy_hazard_dxa2_adr_r; // FPU3264
-    assign busy_dxa2_muxing_wb    = busy_hazard_dxa2_r & (busy_hazard_dxa2_adr_r == wb_ext_bits_i);
+    assign busy_hazard_d1a2_w   = busy_hazard_d1a2_r; // FPU3264
+    assign busy_hazard_d2a2_w   = busy_hazard_d2a2_r; // FPU3264
+    assign busy_hazard_dxa2_w   = busy_hazard_dxa2_r; // FPU3264
+    assign busy_extadr_dxa2_w   = busy_extadr_dxa2_r; // FPU3264
+    assign busy_dxa2_muxing_wb  = busy_hazard_dxa2_r & (busy_extadr_dxa2_r == wb_extadr_i);
     //  # relative operand B2
-    assign busy_hazard_d1b2_w     = busy_hazard_d1b2_r;     // FPU3264
-    assign busy_hazard_d2b2_w     = busy_hazard_d2b2_r;     // FPU3264
-    assign busy_hazard_dxb2_w     = busy_hazard_dxb2_r;     // FPU3264
-    assign busy_hazard_dxb2_adr_w = busy_hazard_dxb2_adr_r; // FPU3264
-    assign busy_dxb2_muxing_wb    = busy_hazard_dxb2_r & (busy_hazard_dxb2_adr_r == wb_ext_bits_i);
+    assign busy_hazard_d1b2_w   = busy_hazard_d1b2_r; // FPU3264
+    assign busy_hazard_d2b2_w   = busy_hazard_d2b2_r; // FPU3264
+    assign busy_hazard_dxb2_w   = busy_hazard_dxb2_r; // FPU3264
+    assign busy_extadr_dxb2_w   = busy_extadr_dxb2_r; // FPU3264
+    assign busy_dxb2_muxing_wb  = busy_hazard_dxb2_r & (busy_extadr_dxb2_r == wb_extadr_i);
 
     // A2 & B2 operands
     reg [OPTION_OPERAND_WIDTH-1:0] busy_rfa2_r;
@@ -1468,17 +1471,17 @@ module mor1kx_rsrvs_marocchino
   end
   else begin : busy_fpxx_disabled
     //  # relative operand A2
-    assign busy_hazard_d1a2_w     = 1'b0; // not FPU3264
-    assign busy_hazard_d2a2_w     = 1'b0; // not FPU3264
-    assign busy_hazard_dxa2_w     = 1'b0; // not FPU3264
-    assign busy_hazard_dxa2_adr_w = {DEST_EXT_ADDR_WIDTH{1'b0}}; // not FPU3264
-    assign busy_dxa2_muxing_wb    = 1'b0; // not FPU3264
+    assign busy_hazard_d1a2_w   = 1'b0; // not FPU3264
+    assign busy_hazard_d2a2_w   = 1'b0; // not FPU3264
+    assign busy_hazard_dxa2_w   = 1'b0; // not FPU3264
+    assign busy_extadr_dxa2_w   = {DEST_EXTADR_WIDTH{1'b0}}; // not FPU3264
+    assign busy_dxa2_muxing_wb  = 1'b0; // not FPU3264
     //  # relative operand B2
-    assign busy_hazard_d1b2_w     = 1'b0; // not FPU3264
-    assign busy_hazard_d2b2_w     = 1'b0; // not FPU3264
-    assign busy_hazard_dxb2_w     = 1'b0; // not FPU3264
-    assign busy_hazard_dxb2_adr_w = {DEST_EXT_ADDR_WIDTH{1'b0}}; // not FPU3264
-    assign busy_dxb2_muxing_wb    = 1'b0; // not FPU3264
+    assign busy_hazard_d1b2_w   = 1'b0; // not FPU3264
+    assign busy_hazard_d2b2_w   = 1'b0; // not FPU3264
+    assign busy_hazard_dxb2_w   = 1'b0; // not FPU3264
+    assign busy_extadr_dxb2_w   = {DEST_EXTADR_WIDTH{1'b0}}; // not FPU3264
+    assign busy_dxb2_muxing_wb  = 1'b0; // not FPU3264
     // operands
     assign busy_rfa2_w = {OPTION_OPERAND_WIDTH{1'b0}}; // not FPU3264
     assign busy_rfb2_w = {OPTION_OPERAND_WIDTH{1'b0}}; // not FPU3264
@@ -1494,13 +1497,13 @@ module mor1kx_rsrvs_marocchino
   reg                             exec_hazard_d1a1_r;
   reg                             exec_hazard_d2a1_r;
   reg                             exec_hazard_dxa1_r;
-  reg   [DEST_EXT_ADDR_WIDTH-1:0] exec_hazard_dxa1_adr_r;
+  reg     [DEST_EXTADR_WIDTH-1:0] exec_extadr_dxa1_r;
   wire                            exec_dxa1_muxing_wb;
   //  # relative operand B1
   reg                             exec_hazard_d1b1_r;
   reg                             exec_hazard_d2b1_r;
   reg                             exec_hazard_dxb1_r;
-  reg   [DEST_EXT_ADDR_WIDTH-1:0] exec_hazard_dxb1_adr_r;
+  reg     [DEST_EXTADR_WIDTH-1:0] exec_extadr_dxb1_r;
   wire                            exec_dxb1_muxing_wb;
   // # exclusively for FPU3264 reservation station
   //  # relative operand A2
@@ -1577,11 +1580,13 @@ module mor1kx_rsrvs_marocchino
       //  # relative operand A1
       exec_hazard_d1a1_r <= omn2dec_hazards_flags_i[HAZARD_D1A1_FLG_POS];
       exec_hazard_d2a1_r <= omn2dec_hazards_flags_i[HAZARD_D2A1_FLG_POS];
-      exec_hazard_dxa1_r <= omn2dec_hazards_flags_i[HAZARD_DxA1_FLG_POS];
+      exec_hazard_dxa1_r <= omn2dec_hazards_flags_i[HAZARD_D1A1_FLG_POS] |
+                            omn2dec_hazards_flags_i[HAZARD_D2A1_FLG_POS];
       //  # relative operand B1
       exec_hazard_d1b1_r <= omn2dec_hazards_flags_i[HAZARD_D1B1_FLG_POS];
       exec_hazard_d2b1_r <= omn2dec_hazards_flags_i[HAZARD_D2B1_FLG_POS];
-      exec_hazard_dxb1_r <= omn2dec_hazards_flags_i[HAZARD_DxB1_FLG_POS];
+      exec_hazard_dxb1_r <= omn2dec_hazards_flags_i[HAZARD_D1B1_FLG_POS] |
+                            omn2dec_hazards_flags_i[HAZARD_D2B1_FLG_POS];
     end
     else if (busy_pushing_exec) begin
       //  # relative operand A1
@@ -1614,18 +1619,18 @@ module mor1kx_rsrvs_marocchino
   //  # they make sence only with rized hazard flags
   always @(posedge cpu_clk) begin
     if (dcod_pushing_exec) begin
-      exec_hazard_dxa1_adr_r <= omn2dec_hazards_addrs_i[HAZARD_DxA1_ADR_MSB:HAZARD_DxA1_ADR_LSB];
-      exec_hazard_dxb1_adr_r <= omn2dec_hazards_addrs_i[HAZARD_DxB1_ADR_MSB:HAZARD_DxB1_ADR_LSB];
+      exec_extadr_dxa1_r <= omn2dec_hazards_addrs_i[EXTADR_DxA1_MSB:EXTADR_DxA1_LSB];
+      exec_extadr_dxb1_r <= omn2dec_hazards_addrs_i[EXTADR_DxB1_MSB:EXTADR_DxB1_LSB];
     end
     else if (busy_pushing_exec) begin
-      exec_hazard_dxa1_adr_r <= busy_hazard_dxa1_adr_r;
-      exec_hazard_dxb1_adr_r <= busy_hazard_dxb1_adr_r;
+      exec_extadr_dxa1_r <= busy_extadr_dxa1_r;
+      exec_extadr_dxb1_r <= busy_extadr_dxb1_r;
     end
   end // @cpu-clock
 
   // ---
-  assign exec_dxa1_muxing_wb = exec_hazard_dxa1_r & (exec_hazard_dxa1_adr_r == wb_ext_bits_i);
-  assign exec_dxb1_muxing_wb = exec_hazard_dxb1_r & (exec_hazard_dxb1_adr_r == wb_ext_bits_i);
+  assign exec_dxa1_muxing_wb = exec_hazard_dxa1_r & (exec_extadr_dxa1_r == wb_extadr_i);
+  assign exec_dxb1_muxing_wb = exec_hazard_dxb1_r & (exec_extadr_dxb1_r == wb_extadr_i);
 
   // ---
   always @(posedge cpu_clk) begin
@@ -1666,12 +1671,12 @@ module mor1kx_rsrvs_marocchino
     reg                           exec_hazard_d1a2_r;
     reg                           exec_hazard_d2a2_r;
     reg                           exec_hazard_dxa2_r;
-    reg [DEST_EXT_ADDR_WIDTH-1:0] exec_hazard_dxa2_adr_r;
+    reg   [DEST_EXTADR_WIDTH-1:0] exec_extadr_dxa2_r;
     //  # relative operand B2
     reg                           exec_hazard_d1b2_r;
     reg                           exec_hazard_d2b2_r;
     reg                           exec_hazard_dxb2_r;
-    reg [DEST_EXT_ADDR_WIDTH-1:0] exec_hazard_dxb2_adr_r;
+    reg   [DEST_EXTADR_WIDTH-1:0] exec_extadr_dxb2_r;
     // registers for operands A & B
     reg [OPTION_OPERAND_WIDTH-1:0] exec_rfa2_r;
     reg [OPTION_OPERAND_WIDTH-1:0] exec_rfb2_r;
@@ -1691,11 +1696,13 @@ module mor1kx_rsrvs_marocchino
         //  # relative operand A2
         exec_hazard_d1a2_r <= omn2dec_hazards_flags_i[HAZARD_D1A2_FLG_POS];
         exec_hazard_d2a2_r <= omn2dec_hazards_flags_i[HAZARD_D2A2_FLG_POS];
-        exec_hazard_dxa2_r <= omn2dec_hazards_flags_i[HAZARD_DxA2_FLG_POS];
+        exec_hazard_dxa2_r <= omn2dec_hazards_flags_i[HAZARD_D1A2_FLG_POS] |
+                              omn2dec_hazards_flags_i[HAZARD_D2A2_FLG_POS];
         //  # relative operand B2
         exec_hazard_d1b2_r <= omn2dec_hazards_flags_i[HAZARD_D1B2_FLG_POS];
         exec_hazard_d2b2_r <= omn2dec_hazards_flags_i[HAZARD_D2B2_FLG_POS];
-        exec_hazard_dxb2_r <= omn2dec_hazards_flags_i[HAZARD_DxB2_FLG_POS];
+        exec_hazard_dxb2_r <= omn2dec_hazards_flags_i[HAZARD_D1B2_FLG_POS] |
+                              omn2dec_hazards_flags_i[HAZARD_D2B2_FLG_POS];
       end
       else if (busy_pushing_exec) begin
         //  # relative operand A2
@@ -1725,21 +1732,21 @@ module mor1kx_rsrvs_marocchino
     // ---
     always @(posedge cpu_clk) begin
       if (dcod_pushing_exec) begin
-        exec_hazard_dxa2_adr_r <= omn2dec_hazards_addrs_i[HAZARD_DxA2_ADR_MSB:HAZARD_DxA2_ADR_LSB];
-        exec_hazard_dxb2_adr_r <= omn2dec_hazards_addrs_i[HAZARD_DxB2_ADR_MSB:HAZARD_DxB2_ADR_LSB];
+        exec_extadr_dxa2_r <= omn2dec_hazards_addrs_i[EXTADR_DxA2_MSB:EXTADR_DxA2_LSB];
+        exec_extadr_dxb2_r <= omn2dec_hazards_addrs_i[EXTADR_DxB2_MSB:EXTADR_DxB2_LSB];
       end
       else if (busy_pushing_exec) begin
-        exec_hazard_dxa2_adr_r <= busy_hazard_dxa2_adr_w;
-        exec_hazard_dxb2_adr_r <= busy_hazard_dxb2_adr_w;
+        exec_extadr_dxa2_r <= busy_extadr_dxa2_w;
+        exec_extadr_dxb2_r <= busy_extadr_dxb2_w;
       end
     end
     // ---
     //  # relative operand A2
     assign exec_hazard_dxa2_w  = exec_hazard_dxa2_r; // FPU3264
-    assign exec_dxa2_muxing_wb = exec_hazard_dxa2_r & (exec_hazard_dxa2_adr_r == wb_ext_bits_i);
+    assign exec_dxa2_muxing_wb = exec_hazard_dxa2_r & (exec_extadr_dxa2_r == wb_extadr_i);
     //  # relative operand B2
     assign exec_hazard_dxb2_w  = exec_hazard_dxb2_r; // FPU3264
-    assign exec_dxb2_muxing_wb = exec_hazard_dxb2_r & (exec_hazard_dxb2_adr_r == wb_ext_bits_i);
+    assign exec_dxb2_muxing_wb = exec_hazard_dxb2_r & (exec_extadr_dxb2_r == wb_extadr_i);
     // ---
     always @(posedge cpu_clk) begin
       if (dcod_pushing_exec) begin
