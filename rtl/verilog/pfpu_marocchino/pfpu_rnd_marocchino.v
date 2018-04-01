@@ -127,14 +127,14 @@ module pfpu_rnd_marocchino
 );
 
   // constants for double precision
-  localparam INF_D  = 63'b111111111110000000000000000000000000000000000000000000000000000;
-  localparam QNAN_D = 63'b111111111111000000000000000000000000000000000000000000000000000;
-  localparam SNAN_D = 63'b111111111110111111111111111111111111111111111111111111111111111;
+  localparam [62:0] INF_D  = 63'b111111111110000000000000000000000000000000000000000000000000000;
+  localparam [62:0] QNAN_D = 63'b111111111111000000000000000000000000000000000000000000000000000;
+  localparam [62:0] SNAN_D = 63'b111111111110111111111111111111111111111111111111111111111111111;
 
   // constants for single precision
-  localparam INF_S  = 31'b1111111100000000000000000000000;
-  localparam QNAN_S = 31'b1111111110000000000000000000000;
-  localparam SNAN_S = 31'b1111111101111111111111111111111;
+  localparam [30:0] INF_S  = 31'b1111111100000000000000000000000;
+  localparam [30:0] QNAN_S = 31'b1111111110000000000000000000000;
+  localparam [30:0] SNAN_S = 31'b1111111101111111111111111111111;
 
   // Bit-reverse on left shift, perform right shift,
   // bit-reverse result on left shift.
@@ -241,7 +241,7 @@ module pfpu_rnd_marocchino
   // stage #0 output registers
   reg         s0o_sign;
   reg         s0o_is_shr;
-  reg   [5:0] s0o_shr;    // for correct computation of sticky 
+  reg   [5:0] s0o_shr;    // for correct computation of sticky
   reg   [5:0] s0o_shl;    // for correct computation of sticky
   reg   [5:0] s0o_sh6;    // for shift
   reg  [12:0] s0o_exp13;
@@ -256,9 +256,10 @@ module pfpu_rnd_marocchino
   // DIV specials
   reg         s0o_div_op;
   reg         s0o_div_dbz;
-  // I2F specials
-  reg         s0o_f2i_ovf;
+  // F2I specials
   reg         s0o_f2i;
+  reg         s0o_f2i_sign;
+  reg         s0o_f2i_ovf;
   // ---
   always @(posedge cpu_clk) begin
     if (s0_adv) begin
@@ -279,9 +280,10 @@ module pfpu_rnd_marocchino
       // DIV specials
       s0o_div_op        <= div_rdy_i;
       s0o_div_dbz       <= div_dbz_i;
-      // I2F specials
-      s0o_f2i_ovf       <= f2i_ovf_i;
+      // F2I specials
       s0o_f2i           <= f2i_rdy_i;
+      s0o_f2i_sign      <= f2i_sign_i;
+      s0o_f2i_ovf       <= f2i_ovf_i;
     end
   end // @cpu-clock
 
@@ -399,8 +401,14 @@ module pfpu_rnd_marocchino
   reg        s1o_snan;
   reg        s1o_qnan;
   reg        s1o_anan_sign;
+  // DIV specials
   reg        s1o_div_op, s1o_div_dbz;
-  reg        s1o_f2i_ovf, s1o_f2i;
+  // F2I specials
+  reg        s1o_f2i;
+  reg        s1o_f2i_sign;
+  reg        s1o_f2i_sign_cp;
+  reg        s1o_f2i_ovf;
+  reg        s1o_op_fp64_f2i;
   // registering
   always @(posedge cpu_clk) begin
     if(s1_adv) begin
@@ -418,9 +426,12 @@ module pfpu_rnd_marocchino
       // DIV specials
       s1o_div_op        <= s0o_div_op;
       s1o_div_dbz       <= s0o_div_dbz;
-      // I2F specials
-      s1o_f2i_ovf       <= s0o_f2i_ovf;
+      // F2I specials
       s1o_f2i           <= s0o_f2i;
+      s1o_f2i_sign      <= s0o_f2i_sign; // copy for P&R
+      s1o_f2i_sign_cp   <= s0o_f2i_sign; // copy for P&R
+      s1o_f2i_ovf       <= s0o_f2i_ovf;
+      s1o_op_fp64_f2i   <= s0o_op_fp64_arith; // copy for P&R
     end // advance
   end // @clock
 
@@ -462,6 +473,17 @@ module pfpu_rnd_marocchino
   // rounded fractional
   wire [63:0] s2t_fract64_rnd = s1o_fract64 + {63'd0,s2t_set_rnd_up};
 
+  // rounding analysis for F2I further processing
+  //  # F2I invalid result (overflow)
+  wire s2t_f2i_carry_rnd = s1o_op_fp64_f2i ? s2t_fract64_rnd[63] : s2t_fract64_rnd[31];
+  wire s2t_f2i_inv       = ((~s1o_f2i_sign) & s2t_f2i_carry_rnd) | s1o_f2i_ovf;
+  //  # prepare to tow's complement conversion (left aligned)
+  //  #  if invalid (i.e. overflow) return maximum signed integer
+  wire [63:0] s2t_int64_rnd;
+  assign s2t_int64_rnd = {64{s1o_f2i_sign_cp}} ^
+                         (s2t_f2i_inv ? 64'h7fffffffffffffff :
+                           (s1o_op_fp64_f2i ? s2t_fract64_rnd :
+                                              {s2t_fract64_rnd[31:0],32'd0}));
 
   // output of rounding stage
   reg        s2o_sign;
@@ -474,8 +496,13 @@ module pfpu_rnd_marocchino
   reg        s2o_snan;
   reg        s2o_qnan;
   reg        s2o_anan_sign;
+  // DIV specials
   reg        s2o_dbz;
-  reg        s2o_f2i_ovf, s2o_f2i;
+  // F2I specials
+  reg        s2o_f2i;
+  reg        s2o_f2i_sign;
+  reg        s2o_f2i_inv;
+  reg [63:0] s2o_int64_rnd;
   // registering
   always @(posedge cpu_clk) begin
     if(s2_adv) begin
@@ -492,9 +519,11 @@ module pfpu_rnd_marocchino
       s2o_anan_sign     <= s1o_anan_sign;
       // DIV specials
       s2o_dbz           <= s1o_div_dbz;
-      // I2F specials
-      s2o_f2i_ovf       <= s1o_f2i_ovf;
+      // F2I specials
       s2o_f2i           <= s1o_f2i;
+      s2o_f2i_sign      <= (~s2t_f2i_inv) & s1o_f2i_sign;
+      s2o_f2i_inv       <= s2t_f2i_inv;
+      s2o_int64_rnd     <= s2t_int64_rnd;
     end // advance
   end // @clock
 
@@ -534,37 +563,30 @@ module pfpu_rnd_marocchino
   wire s3t_fxx_ovf = (s3t_fxx_exp13 > (s2o_op_fp64_arith ? 13'd2046 : 13'd254)) | s2o_inf | s2o_dbz;
 
 
-  // integer output (f2i)
-  wire s3t_ixx_carry_rnd = s2o_op_fp64_arith ? s2o_fract64_rnd[63] : s2o_fract64_rnd[31];
-  wire s3t_ixx_inv       = ((~s2o_sign) & s3t_ixx_carry_rnd) | s2o_f2i_ovf;
-  // two's complement for negative number
-  wire [63:0] s3t_ixx_value = (s2o_fract64_rnd ^ {64{s2o_sign}}) + {63'd0,s2o_sign};
-  // zero
-  wire s3t_ixx_value_00 = (~s3t_ixx_inv) & (~(|s2o_fract64_rnd));
-  // maximum signed integer:
-  //   i32/i64 are right aligned
-  wire [63:0] s3t_ixx_max = s2o_op_fp64_arith ? (64'h7fffffffffffffff ^ {64{s2o_sign}}) :
-                                                {32'd0,(32'h7fffffff ^ {32{s2o_sign}})};
-  // int output
-  wire [63:0] s3t_ixx_opc = s3t_ixx_inv ? s3t_ixx_max : s3t_ixx_value;
+  // F2I complete conversion to two's complement
+  //  # left aligned
+  //  # maximum signed value if overflaw
+  wire [63:0] s3t_ixx_opc = s2o_int64_rnd + {63'd0,s2o_f2i_sign};
+  // zero flag
+  wire s3t_ixx_00 = (~s2o_f2i_inv) & (~(|s2o_fract64_rnd));
 
 
   // Multiplexing flags
   wire s3t_ine, s3t_ovf, s3t_inf, s3t_unf, s3t_zer;
   // ---
   assign {s3t_ine,s3t_ovf,s3t_inf,s3t_unf,s3t_zer} =
-    // f2i          ine  ovf  inf  unf              zer
-    s2o_f2i ? {s2o_lost,1'b0,1'b0,1'b0,s3t_ixx_value_00} :
+    // f2i          ine  ovf  inf  unf        zer
+    s2o_f2i ? {s2o_lost,1'b0,1'b0,1'b0,s3t_ixx_00} :
     // qnan output            ine  ovf  inf  unf  zer
-    (s2o_snan | s2o_qnan) ? {1'b0,1'b0,1'b0,1'b0,1'b0} :
+   ((s2o_snan | s2o_qnan) ? {1'b0,1'b0,1'b0,1'b0,1'b0} :
     // snan output            ine  ovf  inf  unf  zer
-    s2o_inv ?               {1'b0,1'b0,1'b0,1'b0,1'b0} :
+   (s2o_inv ?               {1'b0,1'b0,1'b0,1'b0,1'b0} :
     // overflow and infinity                          ine                       ovf  inf  unf  zer
-    s3t_fxx_ovf ? {((s2o_lost | (~s2o_inf)) & (~s2o_dbz)),((~s2o_inf) & (~s2o_dbz)),1'b1,1'b0,1'b0} :
+   (s3t_fxx_ovf ? {((s2o_lost | (~s2o_inf)) & (~s2o_dbz)),((~s2o_inf) & (~s2o_dbz)),1'b1,1'b0,1'b0} :
     // denormalized or zero      ine  ovf  inf                             unf                 zer
-    (s3t_fxx_fract53_dn) ? {s2o_lost,1'b0,1'b0,(s2o_lost & s3t_fxx_fract53_dn),~(|s3t_fxx_fract53)} :
+   ((s3t_fxx_fract53_dn) ? {s2o_lost,1'b0,1'b0,(s2o_lost & s3t_fxx_fract53_dn),~(|s3t_fxx_fract53)} :
     // normal result             ine  ovf  inf  unf  zer
-                           {s2o_lost,1'b0,1'b0,1'b0,1'b0};
+                           {s2o_lost,1'b0,1'b0,1'b0,1'b0}))));
 
   // Multiplexing double precision
   wire [63:0] s3t_opc64;
@@ -572,36 +594,36 @@ module pfpu_rnd_marocchino
     // f2i
     s2o_f2i ? s3t_ixx_opc :
     // qnan output
-    (s2o_snan | s2o_qnan) ? {s2o_anan_sign,QNAN_D} :
+   ((s2o_snan | s2o_qnan) ? {s2o_anan_sign,QNAN_D} :
     // snan output
-    s2o_inv ? {s2o_sign,SNAN_D} :
+   (s2o_inv ? {s2o_sign,SNAN_D} :
     // overflow and infinity
-    s3t_fxx_ovf ? {s2o_sign,INF_D} :
+   (s3t_fxx_ovf ? {s2o_sign,INF_D} :
     // denormalized or zero
-    (s3t_fxx_fract53_dn) ? {s2o_sign,11'd0,s3t_fxx_fract53[51:0]} :
+   ((s3t_fxx_fract53_dn) ? {s2o_sign,11'd0,s3t_fxx_fract53[51:0]} :
     // normal result
-                           {s2o_sign,s3t_fxx_exp13[10:0],s3t_fxx_fract53[51:0]};
+                           {s2o_sign,s3t_fxx_exp13[10:0],s3t_fxx_fract53[51:0]}))));
 
   // Multiplexing single precision
   wire [31:0] s3t_opc32;
   assign s3t_opc32 =
     // f2i
-    s2o_f2i ? s3t_ixx_opc[31:0] :
+    s2o_f2i ? s3t_ixx_opc[63:32] :
     // qnan output
-    (s2o_snan | s2o_qnan) ? {s2o_anan_sign,QNAN_S} :
+   ((s2o_snan | s2o_qnan) ? {s2o_anan_sign,QNAN_S} :
     // snan output
-    s2o_inv ? {s2o_sign,SNAN_S} :
+   (s2o_inv ? {s2o_sign,SNAN_S} :
     // overflow and infinity
-    s3t_fxx_ovf ? {s2o_sign,INF_S} :
+   (s3t_fxx_ovf ? {s2o_sign,INF_S} :
     // denormalized or zero
-    (s3t_fxx_fract53_dn) ? {s2o_sign,8'd0,s3t_fxx_fract53[22:0]} :
+   ((s3t_fxx_fract53_dn) ? {s2o_sign,8'd0,s3t_fxx_fract53[22:0]} :
     // normal result
-                           {s2o_sign,s3t_fxx_exp13[7:0],s3t_fxx_fract53[22:0]};
+                           {s2o_sign,s3t_fxx_exp13[7:0],s3t_fxx_fract53[22:0]}))));
 
 
   // EXECUTE level FP32 arithmetic flags
   wire [`OR1K_FPCSR_ALLF_SIZE-1:0] exec_fpxx_arith_fpcsr =
-    {s2o_dbz, s3t_inf, (s2o_inv | (s3t_ixx_inv & s2o_f2i) | s2o_snan),
+    {s2o_dbz, s3t_inf, (s2o_inv | (s2o_f2i_inv & s2o_f2i) | s2o_snan),
      s3t_ine, s3t_zer, s2o_qnan,
      (s2o_inv | (s2o_snan & s2o_f2i)), s3t_unf, s3t_ovf} & fpu_mask_flags_i;
 

@@ -90,11 +90,11 @@ module mor1kx_rf_marocchino
   input                            dcod_wb2dec_d1b2_fwd_i,
   input                            dcod_wb2dec_d2b2_fwd_i,
 
-  // outputs
-  output [OPTION_OPERAND_WIDTH-1:0] dcod_rfa1_o,
-  output [OPTION_OPERAND_WIDTH-1:0] dcod_rfb1_o,
-  output [OPTION_OPERAND_WIDTH-1:0] dcod_rfa2_o,
-  output [OPTION_OPERAND_WIDTH-1:0] dcod_rfb2_o,
+  // outputs (combinatoreal)
+  output reg [OPTION_OPERAND_WIDTH-1:0] dcod_rfa1_o,
+  output reg [OPTION_OPERAND_WIDTH-1:0] dcod_rfb1_o,
+  output reg [OPTION_OPERAND_WIDTH-1:0] dcod_rfa2_o,
+  output reg [OPTION_OPERAND_WIDTH-1:0] dcod_rfb2_o,
 
   // we use adder for l.jl/l.jalr to compute return address: (pc+8)
   input                             dcod_op_jal_i,
@@ -723,31 +723,68 @@ module mor1kx_rf_marocchino
   end // at clock
 
   // Muxing and forwarding RFA1-output
-  assign dcod_rfa1_o =  dcod_op_jal_i          ? pc_decode_i  :
-                       (dcod_wb2dec_d1a1_fwd_i ? wb_result1_i :
-                       (dcod_wb2dec_d2a1_fwd_i ? wb_result2_i :
-                       (dcod_rfa1_adr_odd      ? rfa_odd_dout :
-                                                 rfa_even_dout)));
+  always @(dcod_op_jal_i          or pc_decode_i  or
+           dcod_wb2dec_d1a1_fwd_i or wb_result1_i or
+           dcod_wb2dec_d2a1_fwd_i or wb_result2_i or
+           dcod_rfa1_adr_odd      or rfa_odd_dout or rfa_even_dout) begin
+    // synthesis parallel_case full_case
+    casez ({dcod_op_jal_i,
+            dcod_wb2dec_d1a1_fwd_i, dcod_wb2dec_d2a1_fwd_i,
+            dcod_rfa1_adr_odd})
+      4'b1???: dcod_rfa1_o = pc_decode_i;
+      4'b01??: dcod_rfa1_o = wb_result1_i;
+      4'b001?: dcod_rfa1_o = wb_result2_i;
+      4'b0001: dcod_rfa1_o = rfa_odd_dout;
+      default: dcod_rfa1_o = rfa_even_dout;
+    endcase
+  end
 
   // Muxing and forwarding RFB1-output
-  assign dcod_rfb1_o =  dcod_op_jal_i          ? 4'd8             : // (FEATURE_DELAY_SLOT == "ENABLED")
-                       (dcod_immediate_sel_i   ? dcod_immediate_i :
-                       (dcod_wb2dec_d1b1_fwd_i ? wb_result1_i     :
-                       (dcod_wb2dec_d2b1_fwd_i ? wb_result2_i     :
-                       (dcod_rfb1_adr_odd      ? rfb_odd_dout     :
-                                                 rfb_even_dout))));
+  always @(dcod_op_jal_i          or
+           dcod_immediate_sel_i   or dcod_immediate_i or
+           dcod_wb2dec_d1b1_fwd_i or wb_result1_i     or
+           dcod_wb2dec_d2b1_fwd_i or wb_result2_i     or
+           dcod_rfb1_adr_odd      or rfb_odd_dout     or rfb_even_dout) begin
+    // synthesis parallel_case full_case
+    casez ({dcod_op_jal_i,          dcod_immediate_sel_i,
+            dcod_wb2dec_d1b1_fwd_i, dcod_wb2dec_d2b1_fwd_i,
+            dcod_rfb1_adr_odd})
+      5'b1????: dcod_rfb1_o = 4'd8; // (FEATURE_DELAY_SLOT == "ENABLED")
+      5'b01???: dcod_rfb1_o = dcod_immediate_i;
+      5'b001??: dcod_rfb1_o = wb_result1_i;
+      5'b0001?: dcod_rfb1_o = wb_result2_i;
+      5'b00001: dcod_rfb1_o = rfb_odd_dout;
+      default:  dcod_rfb1_o = rfb_even_dout;
+    endcase
+  end
 
   // Muxing and forwarding RFA2-output
-  assign dcod_rfa2_o =  dcod_wb2dec_d1a2_fwd_i ? wb_result1_i :
-                       (dcod_wb2dec_d2a2_fwd_i ? wb_result2_i :
-                       (dcod_rfa2_adr_odd      ? rfa_odd_dout :
-                                                 rfa_even_dout));
+  always @(dcod_wb2dec_d1a2_fwd_i or wb_result1_i or
+           dcod_wb2dec_d2a2_fwd_i or wb_result2_i or
+           dcod_rfa2_adr_odd      or rfa_odd_dout or rfa_even_dout) begin
+    // synthesis parallel_case full_case
+    casez ({dcod_wb2dec_d1a2_fwd_i, dcod_wb2dec_d2a2_fwd_i,
+            dcod_rfa2_adr_odd})
+      3'b1??:  dcod_rfa2_o = wb_result1_i;
+      3'b01?:  dcod_rfa2_o = wb_result2_i;
+      3'b001:  dcod_rfa2_o = rfa_odd_dout;
+      default: dcod_rfa2_o = rfa_even_dout;
+    endcase
+  end
 
   // Muxing and forwarding RFB2-output
-  assign dcod_rfb2_o =  dcod_wb2dec_d1b2_fwd_i ? wb_result1_i :
-                       (dcod_wb2dec_d2b2_fwd_i ? wb_result2_i :
-                       (dcod_rfb2_adr_odd      ? rfb_odd_dout :
-                                                 rfb_even_dout));
+  always @(dcod_wb2dec_d1b2_fwd_i or wb_result1_i or
+           dcod_wb2dec_d2b2_fwd_i or wb_result2_i or
+           dcod_rfb2_adr_odd      or rfb_odd_dout or rfb_even_dout) begin
+    // synthesis parallel_case full_case
+    casez ({dcod_wb2dec_d1b2_fwd_i, dcod_wb2dec_d2b2_fwd_i,
+            dcod_rfb2_adr_odd})
+      3'b1??:  dcod_rfb2_o = wb_result1_i;
+      3'b01?:  dcod_rfb2_o = wb_result2_i;
+      3'b001:  dcod_rfb2_o = rfb_odd_dout;
+      default: dcod_rfb2_o = rfb_even_dout;
+    endcase
+  end
 
 
   // Special case for l.jr/l.jalr

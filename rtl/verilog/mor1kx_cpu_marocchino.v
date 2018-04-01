@@ -169,10 +169,10 @@ module mor1kx_cpu_marocchino
   wire [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfa2_adr;
   wire [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfb2_adr;
   //  # copy #1 of operand addresses
-  wire [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfa1_adr_cp1;
-  wire [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfb1_adr_cp1;
-  wire [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfa2_adr_cp1;
-  wire [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfb2_adr_cp1;
+  wire [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfa1_adr_rf;
+  wire [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfb1_adr_rf;
+  wire [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfa2_adr_rf;
+  wire [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfb2_adr_rf;
   //  # destiny addresses
   wire [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfd1_adr;
   wire [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfd2_adr;
@@ -704,10 +704,10 @@ module mor1kx_cpu_marocchino
     .fetch_rfa2_adr_o                 (fetch_rfa2_adr), // FETCH
     .fetch_rfb2_adr_o                 (fetch_rfb2_adr), // FETCH
     //  # copy #1 of operand addresses
-    .fetch_rfa1_adr_cp1_o             (fetch_rfa1_adr_cp1), // FETCH
-    .fetch_rfb1_adr_cp1_o             (fetch_rfb1_adr_cp1), // FETCH
-    .fetch_rfa2_adr_cp1_o             (fetch_rfa2_adr_cp1), // FETCH
-    .fetch_rfb2_adr_cp1_o             (fetch_rfb2_adr_cp1), // FETCH
+    .fetch_rfa1_adr_rf_o              (fetch_rfa1_adr_rf), // FETCH
+    .fetch_rfb1_adr_rf_o              (fetch_rfb1_adr_rf), // FETCH
+    .fetch_rfa2_adr_rf_o              (fetch_rfa2_adr_rf), // FETCH
+    .fetch_rfb2_adr_rf_o              (fetch_rfb2_adr_rf), // FETCH
     //  # destiny addresses
     .fetch_rfd1_adr_o                 (fetch_rfd1_adr), // FETCH
     .fetch_rfd2_adr_o                 (fetch_rfd2_adr), // FETCH
@@ -754,11 +754,11 @@ module mor1kx_cpu_marocchino
     .spr_bus_ack_gprS_o               (spr_bus_ack_gprS), // RF
     .spr_bus_dat_gprS_o               (spr_bus_dat_gprS), // RF
     // from FETCH
-    .fetch_rfa1_adr_i                 (fetch_rfa1_adr_cp1), // RF
-    .fetch_rfb1_adr_i                 (fetch_rfb1_adr_cp1), // RF
+    .fetch_rfa1_adr_i                 (fetch_rfa1_adr_rf), // RF
+    .fetch_rfb1_adr_i                 (fetch_rfb1_adr_rf), // RF
     // for FPU64
-    .fetch_rfa2_adr_i                 (fetch_rfa2_adr_cp1), // RF
-    .fetch_rfb2_adr_i                 (fetch_rfb2_adr_cp1), // RF
+    .fetch_rfa2_adr_i                 (fetch_rfa2_adr_rf), // RF
+    .fetch_rfb2_adr_i                 (fetch_rfb2_adr_rf), // RF
     // from DECODE
     .dcod_immediate_i                 (dcod_immediate), // RF
     .dcod_immediate_sel_i             (dcod_immediate_sel), // RF
