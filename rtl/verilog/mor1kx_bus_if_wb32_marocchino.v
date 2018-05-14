@@ -250,6 +250,9 @@ module mor1kx_bus_if_wb32_marocchino
   // STB, CYC, WE, SEL, DAT for DBUS/IBUS bridges //
   //----------------------------------------------//
 
+  reg  to_wbm_stb_r; // IBUS/DBUS bridges
+  reg  to_wbm_cyc_r; // IBUS/DBUS bridges
+
   //
   // Here we declare states for DBUS control FSM
   // because some of EDA tools deprecate localparam
@@ -291,7 +294,7 @@ module mor1kx_bus_if_wb32_marocchino
 
 
     // DBUS request states
-    reg  [2:0] dbus_state_r;
+    reg  [2:0] dbus_state_r; // DBUS bridge
     // Byte select and write enable
     reg  [3:0] to_wbm_sel_r;
     reg        to_wbm_we_r;
@@ -301,6 +304,8 @@ module mor1kx_bus_if_wb32_marocchino
     always @(posedge wb_clk) begin
       if (wb_rst) begin
         to_wbm_we_r  <= 1'b0;
+        to_wbm_stb_r <= 1'b0; // IBUS bridge: reset
+        to_wbm_cyc_r <= 1'b0; // IBUS bridge: reset
         dbus_state_r <= DBUS_WAITING_CPU_REQ;
       end
       else begin
@@ -313,6 +318,8 @@ module mor1kx_bus_if_wb32_marocchino
           DBUS_WAITING_CPU_REQ: begin
             if (cpu_req_pulse) begin
               to_wbm_we_r  <= stna_cmd;
+              to_wbm_stb_r <= (~swa_cmd); // IBUS bridge
+              to_wbm_cyc_r <= (~swa_cmd); // IBUS bridge
               dbus_state_r <= swa_cmd ? DBUS_PENDING_SWA : DBUS_WAITING_WBM_ACQ;
             end
           end
@@ -323,14 +330,20 @@ module mor1kx_bus_if_wb32_marocchino
           DBUS_WAITING_WBM_ACQ: begin
             if (wbm_err_i) begin
               to_wbm_we_r  <= 1'b0;
+              to_wbm_stb_r <= 1'b0; // IBUS bridge
+              to_wbm_cyc_r <= 1'b0; // IBUS bridge
               dbus_state_r <= DBUS_WAITING_CPU_REQ;
             end
             else if (wbm_ack_i) begin
               to_wbm_we_r  <= 1'b0; // DCACHE is write through, no write burst
+              to_wbm_stb_r <= burst_keep; // IBUS bridge
+              to_wbm_cyc_r <= burst_keep; // IBUS bridge
               dbus_state_r <= burst_keep ? DBUS_WAITING_WBM_ACQ : DBUS_WAITING_CPU_REQ;
             end
             else if (snoop_en_i & swa_cmd) begin
               to_wbm_we_r  <= 1'b0;
+              to_wbm_stb_r <= 1'b0; // IBUS bridge
+              to_wbm_cyc_r <= 1'b0; // IBUS bridge
               dbus_state_r <= DBUS_PENDING_SWA;
             end
           end
@@ -342,6 +355,8 @@ module mor1kx_bus_if_wb32_marocchino
           DBUS_PENDING_SWA: begin
             if ((~snoop_en_i) & (~snoop_en_l)) begin
               to_wbm_we_r  <= atomic_flg;
+              to_wbm_stb_r <= 1'b1; // IBUS bridge
+              to_wbm_cyc_r <= 1'b1; // IBUS bridge
               dbus_state_r <= DBUS_WAITING_WBM_ACQ;
             end
           end
@@ -367,34 +382,46 @@ module mor1kx_bus_if_wb32_marocchino
     end // @wb-clock
 
     // --- DBUS bridge output assignenment ---
-    assign wbm_stb_o = dbus_state_r[1]; // DBUS bridge
-    assign wbm_cyc_o = dbus_state_r[1]; // DBUS bridge
-    assign wbm_we_o  = to_wbm_we_r;     // DBUS bridge
-    assign wbm_sel_o = to_wbm_sel_r;    // DBUS bridge
-    assign wbm_dat_o = to_wbm_dat_r;    // DBUS bridge
+    assign wbm_stb_o = to_wbm_stb_r; // DBUS bridge
+    assign wbm_cyc_o = to_wbm_cyc_r; // DBUS bridge
+    assign wbm_we_o  = to_wbm_we_r;  // DBUS bridge
+    assign wbm_sel_o = to_wbm_sel_r; // DBUS bridge
+    assign wbm_dat_o = to_wbm_dat_r; // DBUS bridge
 
   end
   else begin : ibus_specific
 
     // STB and CYC for IBUS bridge
-    reg  to_wbm_req_r;
+    reg  dbus_state_r;  // IBUS bridge
     // ---
     always @(posedge wb_clk) begin
-      if (wb_rst)
-        to_wbm_req_r <= 1'b0;
-      else if (wbm_cyc_o) begin // MAROCCHINO_TODO : redundant?
-        if (wbm_err_i)
-          to_wbm_req_r <= 1'b0;
-        else if (wbm_ack_i)
-          to_wbm_req_r <= burst_keep;
+      if (wb_rst) begin
+        dbus_state_r <= 1'b0; // DBUS bridge: reset
+        to_wbm_stb_r <= 1'b0; // DBUS bridge: reset
+        to_wbm_cyc_r <= 1'b0; // DBUS bridge: reset
       end
-      else if (cpu_req_pulse) // rise CYC/STB in IBUS bridge
-        to_wbm_req_r <= 1'b1;
+      else if (dbus_state_r) begin // MAROCCHINO_TODO : redundant?
+        if (wbm_err_i) begin
+          dbus_state_r <= 1'b0; // DBUS bridge
+          to_wbm_stb_r <= 1'b0; // DBUS bridge
+          to_wbm_cyc_r <= 1'b0; // DBUS bridge
+        end
+        else if (wbm_ack_i) begin
+          dbus_state_r <= burst_keep; // DBUS bridge
+          to_wbm_stb_r <= burst_keep; // DBUS bridge
+          to_wbm_cyc_r <= burst_keep; // DBUS bridge
+        end
+      end
+      else if (cpu_req_pulse) begin // rise CYC/STB in IBUS bridge
+        dbus_state_r <= 1'b1; // DBUS bridge
+        to_wbm_stb_r <= 1'b1; // DBUS bridge
+        to_wbm_cyc_r <= 1'b1; // DBUS bridge
+      end
     end // @wb-clock
 
     // --- IBUS bridge output assignenment ---
-    assign wbm_stb_o = to_wbm_req_r;  // IBUS bridge
-    assign wbm_cyc_o = to_wbm_req_r;  // IBUS bridge
+    assign wbm_stb_o = to_wbm_stb_r;  // IBUS bridge
+    assign wbm_cyc_o = to_wbm_cyc_r;  // IBUS bridge
     assign wbm_we_o  =  1'b0;         // IBUS bridge
     assign wbm_sel_o =  4'hf;         // IBUS bridge
     assign wbm_dat_o = 32'd0;         // IBUS bridge
@@ -481,10 +508,9 @@ module mor1kx_bus_if_wb32_marocchino
     end
   end // at cpu-clock
 
-  // To CPU DATA (without reset control)
+  // To CPU DATA
   always @(posedge cpu_clk) begin
-    if (wbm2cpu_rdy_pulse)
-      cpu_dat_o <= wbm_dat_r;
+    cpu_dat_o <= wbm_dat_r;
   end // at cpu-clock
 
 
