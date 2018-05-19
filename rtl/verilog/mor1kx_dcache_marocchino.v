@@ -71,7 +71,8 @@ module mor1kx_dcache_marocchino
   input      [OPTION_OPERAND_WIDTH-1:0] dbus_sdat_i,
   input      [OPTION_OPERAND_WIDTH-1:0] dc_dat_s2o_i,
   input                                 dc_store_allowed_i,
-  input                                 dc_store_cancel_i,
+  // !!! (mor1kx_lsu_marocchino.dc_store_cancel == dc_cancel) !!!
+  //input                                 dc_store_cancel_i,
   //  # Atomics
   input                                 s1o_op_lsu_atomic_i,
 
@@ -88,13 +89,11 @@ module mor1kx_dcache_marocchino
   output                                dbus_read_req_o,
 
   // SNOOP
-  // Snoop address
   input      [OPTION_OPERAND_WIDTH-1:0] snoop_adr_i,
-  // Snoop event in this cycle
-  input                                 snoop_event_i,
-  // Whether the snoop hit. If so, there will be no tag memory write
-  // this cycle. The LSU may need to stall the pipeline.
-  output                                snoop_hit_o,
+  input                                 snoop_en_i,
+  output                                s2o_snoop_proc_o,
+  input                                 dc_snoop2refill_i,
+  input                                 dc_snoop2write_i,
 
   // SPR interface
   input                          [15:0] spr_bus_addr_i,
@@ -102,7 +101,7 @@ module mor1kx_dcache_marocchino
   input                                 spr_bus_stb_i,
   input      [OPTION_OPERAND_WIDTH-1:0] spr_bus_dat_i,
   output     [OPTION_OPERAND_WIDTH-1:0] spr_bus_dat_o,
-  output                                spr_bus_ack_o
+  output reg                            spr_bus_ack_o
 );
 
   // Address space in bytes for a way
@@ -141,27 +140,29 @@ module mor1kx_dcache_marocchino
 
 
   // States
-  localparam  [6:0] DC_CHECK         = 7'b0000001,
-                    DC_WRITE         = 7'b0000010,
-                    DC_REFILL        = 7'b0000100,
-                    DC_INV_BY_MTSPR  = 7'b0001000,
-                    DC_INV_BY_ATOMIC = 7'b0010000,
-                    DC_RST           = 7'b0100000,
-                    DC_SPR_ACK       = 7'b1000000;
+  localparam  [7:0] DC_CHECK         = 8'b00000001,
+                    DC_WRITE         = 8'b00000010,
+                    DC_REFILL        = 8'b00000100,
+                    DC_INV_BY_MTSPR  = 8'b00001000,
+                    DC_INV_BY_ATOMIC = 8'b00010000,
+                    DC_INV_BY_SNOOP  = 8'b00100000,
+                    DC_SPR_ACK       = 8'b01000000,
+                    DC_RST           = 8'b10000000;
+
   // FSM state register
-  reg [6:0] dc_state;
+  reg [7:0] dc_state;
   // FSM state signals
   wire   dc_check         = dc_state[0];
+  wire   dc_write         = dc_state[1];
   wire   dc_refill        = dc_state[2];
   wire   dc_inv_by_mtspr  = dc_state[3];
   wire   dc_inv_by_atomic = dc_state[4];
-  assign spr_bus_ack_o    = dc_state[6];
-
+  wire   dc_inv_by_snoop  = dc_state[5];
 
 
   // The index we read and write from tag memory
   wire [OPTION_DCACHE_SET_WIDTH-1:0] tag_rindex;
-  reg  [OPTION_DCACHE_SET_WIDTH-1:0] tag_windex;
+  wire [OPTION_DCACHE_SET_WIDTH-1:0] tag_windex;
 
   // The data from the tag memory
   wire       [TAGMEM_WIDTH-1:0] tag_dout;
@@ -206,27 +207,17 @@ module mor1kx_dcache_marocchino
 
 
 
-  // Extract index to read from snooped address
-  wire [OPTION_DCACHE_SET_WIDTH-1:0] snoop_index;
-  assign snoop_index = snoop_adr_i[WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH];
-
-  // Register that is high one cycle after the actual snoop event to
-  // drive the comparison
-  reg                                snoop_check;
-  // Register that stores the tag for one cycle
-  reg                [TAG_WIDTH-1:0] snoop_tag;
-  // Also store the index for one cycle, for the succeeding write access
-  reg  [OPTION_DCACHE_SET_WIDTH-1:0] snoop_windex;
-  // Snoop Tag RAM input
-  wire [OPTION_DCACHE_SET_WIDTH-1:0] snoop_rindex;
-
-  // Snoop tag memory interface
-  // Data out of tag memory
-  wire       [TAGMEM_WIDTH-1:0] snoop_dout;
+  // Snoop-Invalidation interface to TAG-RAM
+  // Snoop-Hit flag (1-clok length)
+  wire s2o_snoop_hit;
   // Each ways information in the tag memory
-  wire   [TAGMEM_WAY_WIDTH-1:0] snoop_way_out [OPTION_DCACHE_WAYS-1:0];
+  wire   [TAGMEM_WAY_WIDTH-1:0] inv_snoop_dout_way [OPTION_DCACHE_WAYS-1:0];
   // Whether the way hits
-  wire [OPTION_DCACHE_WAYS-1:0] snoop_way_hit;
+  wire [OPTION_DCACHE_WAYS-1:0] inv_snoop_hit_way;
+  // Indexing TAG-RAM and SNOOP-TAG-RAM during invalidation
+  wire [OPTION_OPERAND_WIDTH-1:0] s2o_snoop_adr;
+  // Drop write-hit if it is snooped
+  wire inv_snoop_dc_ack_write;
 
 
   genvar i;
@@ -279,39 +270,25 @@ module mor1kx_dcache_marocchino
     // compare stored tag with incoming tag and check valid bit
     assign dc_hit_way[i] = tag_dout_way[i][TAGMEM_WAY_VALID] &
       (tag_dout_way[i][TAG_WIDTH-1:0] == phys_addr_s2t_i[OPTION_DCACHE_LIMIT_WIDTH-1:WAY_WIDTH]); // hit detection
-
-    // The same for the snoop tag memory
-    if (OPTION_DCACHE_SNOOP != "NONE") begin
-      assign snoop_way_out[i] = snoop_dout[(i+1)*TAGMEM_WAY_WIDTH-1:i*TAGMEM_WAY_WIDTH];
-      // compare stored tag with incoming tag and check valid bit
-      assign snoop_way_hit[i] = snoop_way_out[i][TAGMEM_WAY_VALID] &
-        (snoop_way_out[i][TAG_WIDTH-1:0] == snoop_tag);
-    end // DCACHE snoop
-    else begin
-      assign snoop_way_hit[i] = 1'b0; // no snoop
-      assign snoop_way_out[i] = {TAGMEM_WAY_WIDTH{1'b0}}; // no snoop
-    end
   end // loop by ways
   endgenerate
 
   assign dc_hit = |dc_hit_way;
-
-  assign snoop_hit_o = (|snoop_way_hit) & snoop_check;
 
 
   // Is the area cachable?
   wire   is_cacheble     = dc_enable_r & dc_check_limit_width & (~dmmu_cache_inhibit_i);
 
   // for write processing
-  wire   dc_ack_write    = s1o_op_lsu_store_i & (~s1o_op_lsu_atomic_i) & is_cacheble &   dc_hit  & (~snoop_hit_o);
+  wire   dc_ack_write    = s1o_op_lsu_store_i & (~s1o_op_lsu_atomic_i) & is_cacheble &   dc_hit;
   reg    s2o_dc_ack_write;
 
   // if requested data were fetched before snoop-hit, it is valid
-  assign dc_ack_read_o   = s1o_op_lsu_load_i  & (~s1o_op_lsu_atomic_i) & is_cacheble &   dc_hit  & (~snoop_hit_o);
+  assign dc_ack_read_o   = s1o_op_lsu_load_i  & (~s1o_op_lsu_atomic_i) & is_cacheble &   dc_hit;
   reg    s2o_dc_ack_read;
 
   // re-fill reqest
-  assign dc_refill_req_o = s1o_op_lsu_load_i  & (~s1o_op_lsu_atomic_i) & is_cacheble & (~dc_hit) & (~snoop_hit_o);
+  assign dc_refill_req_o = s1o_op_lsu_load_i  & (~s1o_op_lsu_atomic_i) & is_cacheble & (~dc_hit);
 
   // DBUS access request
   assign dbus_read_req_o = s1o_op_lsu_load_i  & (s1o_op_lsu_atomic_i | (~is_cacheble));
@@ -376,7 +353,8 @@ module mor1kx_dcache_marocchino
    * DCACHE FSM controls
    */
 
-  // go to idle and block update WAY/TAG RAM
+  // Cancel operation by pipe flusing or an address related exception
+  // !!! (mor1kx_lsu_marocchino.dc_store_cancel == dc_cancel) !!!
   wire dc_cancel = s2o_excepts_addr_i | pipeline_flush_i;
 
 
@@ -387,16 +365,20 @@ module mor1kx_dcache_marocchino
   // DCACHE FSM: state switching
   always @(posedge cpu_clk) begin
     if (cpu_rst) begin
-      dc_state <= DC_RST; // on reset
+      dc_state      <= DC_RST; // on reset
+      spr_bus_ack_o <= 1'b0; // on reset
     end
     else begin
       // synthesis parallel_case full_case
       case (dc_state)
         DC_CHECK: begin
-          if (dc_refill_allowed_i) begin // check -> re-fill
+          if (s2o_snoop_hit) begin // check -> snoop-inv
+            dc_state <= DC_INV_BY_SNOOP; // check -> snoop-inv
+          end
+          else if (dc_refill_allowed_i) begin // check -> re-fill
             dc_state <= DC_REFILL; // check -> re-fill
           end
-          else if (dc_cancel | snoop_hit_o) begin // keep check
+          else if (dc_cancel) begin // keep check
             dc_state <= DC_CHECK;
           end
           else if (spr_dc_cs) begin // check -> invalidate by l.mtspr
@@ -409,38 +391,55 @@ module mor1kx_dcache_marocchino
         end // check
 
         DC_WRITE: begin
-          // stage #2 advance is impossible till either
-          // write completion or DBUS error (for l.swa)
-          if (dc_store_allowed_i | dc_store_cancel_i) // done / abort dc-write
+          // (1) stage #2 advance is impossible till either
+          //     write completion or DBUS error (for l.swa)
+          // (2) !!! (mor1kx_lsu_marocchino.dc_store_cancel == dc_cancel) !!!
+          if (s2o_snoop_hit) // write -> snoop-inv
+            dc_state <= DC_INV_BY_SNOOP; // write -> snoop-inv
+          else if (dc_store_allowed_i | dc_cancel) // done / abort dc-write
             dc_state <= DC_CHECK; // done / abort write
         end // write
 
         DC_REFILL: begin
-          // 1) Abort re-fill on snoop-hit
-          //    TODO: only abort on snoop-hits to re-fill address
-          // 2) In according with WISHBONE-B3 rule 3.45:
-          //    "SLAVE MUST NOT assert more than one of ACK, ERR or RTY"
-          if (snoop_hit_o) begin
-            dc_state <= DC_CHECK;  // on snoop-hit during re-fill
-          end
-          else if (dbus_err_i | (dbus_ack_i & dbus_burst_last_i)) begin  // abort re-fill
-            dc_state <= DC_CHECK;     // on dbus error during re-fill
-          end
+          // In according with WISHBONE-B3 rule 3.45:
+          //  "SLAVE MUST NOT assert more than one of ACK, ERR or RTY"
+          if (s2o_snoop_hit) // re-fill -> snoop-inv
+            dc_state <= DC_INV_BY_SNOOP; // re-fill -> snoop-inv
+          else if (dbus_err_i | (dbus_ack_i & dbus_burst_last_i)) // abort / done re-fill
+            dc_state <= DC_CHECK;        // abort / done re-fill
         end // re-fill
 
         DC_INV_BY_MTSPR: begin
-          if (~snoop_hit_o) begin // wait till snoop-inv completion
-            dc_state <= DC_SPR_ACK; // invalidate by l.mtspr -> ack for SPR BUS
-          end
+          // next state
+          dc_state <= (s2o_snoop_hit ? DC_INV_BY_SNOOP : DC_SPR_ACK); // invalidate by l.mtspr
+          // rize SPR BUS ACK any case
+          spr_bus_ack_o <= 1'b1; // invalidate by l.mtspr
         end
 
         DC_INV_BY_ATOMIC: begin
-          dc_state <= DC_CHECK; // invalidate by lwa/swa -> check
+          dc_state <= (s2o_snoop_hit ? DC_INV_BY_SNOOP : DC_CHECK); // invalidate by lwa/swa
         end
 
-        DC_SPR_ACK,
+        DC_INV_BY_SNOOP: begin
+          // !!! (mor1kx_lsu_marocchino.dc_store_cancel == dc_cancel) !!!
+          if (~s2o_snoop_hit) begin // snoop-inv -> back
+            dc_state <= dc_snoop2refill_i ? DC_REFILL : // snoop-inv -> re-fill
+                          ((dc_snoop2write_i & (~dc_cancel)) ? DC_WRITE : // snoop-inv -> write
+                                                               DC_CHECK); // snoop-inv -> check
+          end
+          // force drop SPR BUS ACK
+          spr_bus_ack_o <= 1'b0; // snoop-inv
+        end
+
+        DC_SPR_ACK: begin
+          // next state
+          dc_state <= (s2o_snoop_hit ? DC_INV_BY_SNOOP : DC_CHECK); // l.mtspr ack
+          // drop SPR BUS ACK
+          spr_bus_ack_o <= 1'b0; // l.mtspr ack
+        end
+
         DC_RST: begin
-          dc_state <= DC_CHECK;  // on doing reset or ack for SPR BUS
+          dc_state <= DC_CHECK; // on doing reset
         end
 
         default:;
@@ -452,31 +451,18 @@ module mor1kx_dcache_marocchino
   // DCACHE FSM: various data
   //
   always @(posedge cpu_clk) begin
-    // snoop processing
-    if (snoop_event_i) begin
-      //
-      // If there is a snoop event, we need to store this
-      // information. This happens independent of whether we
-      // have a snoop tag memory or not.
-      //
-      snoop_check  <= 1'b1;
-      snoop_windex <= snoop_index; // on snoop-event
-      snoop_tag    <= snoop_adr_i[OPTION_DCACHE_LIMIT_WIDTH-1:WAY_WIDTH];
-    end
-    else begin
-      snoop_check  <= 1'b0;
-    end
-
     // states switching
     // synthesis parallel_case full_case
     case (dc_state)
       DC_CHECK: begin
         // next states
-        if (dc_refill_allowed_i) begin
+        if (s2o_snoop_hit) begin
+        end
+        else if (dc_refill_allowed_i) begin
           lru_way_refill_r <= lru_way;    // check -> re-fill
           refill_first_o   <= 1'b1;       // check -> re-fill
         end
-        else if (dc_cancel | snoop_hit_o) begin // keep check
+        else if (dc_cancel) begin // keep check
         end
         else if (lsu_s2_adv_i) begin // check -> write / keep check
           s2o_dc_ack_write <= dc_ack_write; // check -> write / keep check
@@ -484,21 +470,15 @@ module mor1kx_dcache_marocchino
       end // check
 
       DC_WRITE: begin
-        if (dc_store_allowed_i | dc_store_cancel_i) begin // done / abort dc-write
+        // !!! (mor1kx_lsu_marocchino.dc_store_cancel == dc_cancel) !!!
+        if (dc_store_allowed_i | dc_cancel) // done / abort dc-write
           s2o_dc_ack_write <= 1'b0;     // done / abort dc-write
-        end
       end // write
 
       DC_REFILL: begin
-        // 1) Abort re-fill on snoop-hit
-        //    TODO: only abort on snoop-hits to re-fill address
-        // 2) In according with WISHBONE-B3 rule 3.45:
-        //    "SLAVE MUST NOT assert more than one of ACK, ERR or RTY"
-        if (snoop_hit_o) begin
-          refill_first_o   <= 1'b0;     // on snoop-hit during re-fill
-          lru_way_refill_r <= {OPTION_DCACHE_WAYS{1'b0}};  // on snoop-hit during re-fill
-        end
-        else if (dbus_err_i) begin  // abort re-fill
+        // In according with WISHBONE-B3 rule 3.45:
+        //   "SLAVE MUST NOT assert more than one of ACK, ERR or RTY"
+        if (dbus_err_i) begin  // abort re-fill
           refill_first_o   <= 1'b0; // on dbus error during re-fill
           lru_way_refill_r <= {OPTION_DCACHE_WAYS{1'b0}};  // on dbus error during re-fill
         end
@@ -510,13 +490,23 @@ module mor1kx_dcache_marocchino
         end // snoop-hit / dbus-ack
       end // re-fill
 
+      DC_INV_BY_SNOOP: begin
+        // drop write hit if write position is snooped
+        if (inv_snoop_dc_ack_write)
+          s2o_dc_ack_write <= 1'b0; // snoop hit at same address
+        // restore state after snoop hit processing
+        if (~s2o_snoop_hit) begin // data
+          if (dc_snoop2refill_i) begin
+            lru_way_refill_r <= lru_way; // snoop-inv -> re-fill
+            refill_first_o   <= 1'b1;    // snoop-inv -> re-fill
+          end
+        end
+      end
+
       DC_RST: begin
         refill_first_o   <= 1'b0; // on default
         lru_way_refill_r <= {OPTION_DCACHE_WAYS{1'b0}}; // on default
         s2o_dc_ack_write <= 1'b0; // on default
-        snoop_check      <= 1'b0; // on default
-        snoop_tag        <= {TAG_WIDTH{1'b0}}; // on default
-        snoop_windex     <= {OPTION_DCACHE_SET_WIDTH{1'b0}}; // on default
       end
 
       default:;
@@ -540,18 +530,30 @@ module mor1kx_dcache_marocchino
     // synthesis parallel_case full_case
     case (dc_state)
       DC_CHECK: begin // re-fill address register
-        if (spr_dc_cs)          // set re-fill address register to invaldate by l.mtspr
+        if (s2o_snoop_hit)      // set re-fill address register to invaldate by snoop-hit
+          virt_addr_rfl_r <= s2o_snoop_adr;   // invaldate by snoop-hit
+        else if (spr_dc_cs)     // set re-fill address register to invaldate by l.mtspr
           virt_addr_rfl_r <= spr_bus_dat_r;   // invaldate by l.mtspr
         else if (lsu_s2_adv_i)  // set re-fill address register to initial re-fill address
           virt_addr_rfl_r <= virt_addr_s1o_i; // prepare to re-fill (copy of LSU::s2o_virt_addr)
       end // check
+
       DC_REFILL: begin
         if (dbus_ack_i)
           virt_addr_rfl_r <= virt_addr_rfl_next;  // re-fill in progress
       end // re-fill
+
+      DC_INV_BY_SNOOP: begin
+        if (s2o_snoop_hit)
+          virt_addr_rfl_r <= s2o_snoop_adr; // continue snoop-inv
+        else
+          virt_addr_rfl_r <= virt_addr_s2o_i; // snoop-inv -> back
+      end // snoop-inv
+
       DC_SPR_ACK: begin // re-fill address register
-        virt_addr_rfl_r <= virt_addr_s2o_i; // restore after invalidation by l.mtspr
+        virt_addr_rfl_r <= virt_addr_s2o_i; // invalidation by l.mtspr -> check
       end
+
       default:;
     endcase
   end // @ clock
@@ -589,16 +591,19 @@ module mor1kx_dcache_marocchino
 
 
   //
-  // This is the combinational part of the state machine that
-  // interfaces the tag and way memories.
+  // This is the combinational part of the state machine
+  // that interfaces the tag and way memories.
   //
 
-  // TAG READ ADDR
+  // TAG WRITE INDEX
+  assign  tag_windex = virt_addr_rfl_r[WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH];
+
+  // TAG READ INDEX
   assign tag_rindex = lsu_s1_adv_i ?
                         virt_addr_idx_i[WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH] : // TAG READ ADDR if advance stage #1
                         virt_addr_s1o_i[WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH];  // TAG READ ADDR if stall   stage #1
 
-  // WAY READ ADDR
+  // WAY READ INDEX
   assign way_rindex = lsu_s1_adv_i ?
                         virt_addr_idx_i[WAY_WIDTH-1:2] :  // WAY READ ADDR if advance stage #1
                         virt_addr_s1o_i[WAY_WIDTH-1:2];   // WAY READ ADDR if stall   stage #1
@@ -621,7 +626,6 @@ module mor1kx_dcache_marocchino
 
     // TAG-RAM
     tag_we     = 1'b0; // default
-    tag_windex = virt_addr_rfl_r[WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH]; // default: write-hit / re-fill / invalidate_by_any
 
     // WAYS-RAM
     way_we     = {OPTION_DCACHE_WAYS{1'b0}};      // default
@@ -629,104 +633,103 @@ module mor1kx_dcache_marocchino
     way_windex = virt_addr_rfl_r[WAY_WIDTH-1:2];  // default: for write-hit / re-fill
 
 
-    if (snoop_hit_o) begin
-      // This is the write access
-      tag_we     = 1'b1; // on snoop-hit
-      tag_windex = snoop_windex;
-      for (w2 = 0; w2 < OPTION_DCACHE_WAYS; w2 = w2 + 1) begin
-        tag_din_way[w2] = snoop_way_out[w2] & {TAGMEM_WAY_WIDTH{~snoop_way_hit[w2]}}; // zero where hit
+    // synthesis parallel_case full_case
+    case (dc_state)
+      DC_CHECK: begin
+        if (s2o_dc_ack_read & (~s2o_excepts_addr_i)) begin // on read-hit
+          tag_we = 1'b1; // on read-hit
+        end
       end
-    end
-    else begin
-      // synthesis parallel_case full_case
-      case (dc_state)
-        DC_CHECK: begin
-          if (s2o_dc_ack_read & (~s2o_excepts_addr_i)) begin // on read-hit
-            tag_we = 1'b1; // on read-hit
-          end
-        end
 
-        DC_WRITE: begin
-          // prepare data for write ahead
-          if (~dbus_bsel_i[3]) way_din[31:24] = dc_dat_s2o_i[31:24]; // on write-hit
-          if (~dbus_bsel_i[2]) way_din[23:16] = dc_dat_s2o_i[23:16]; // on write-hit
-          if (~dbus_bsel_i[1]) way_din[15:8]  = dc_dat_s2o_i[15: 8]; // on write-hit
-          if (~dbus_bsel_i[0]) way_din[7:0]   = dc_dat_s2o_i[ 7: 0]; // on write-hit
-          // real update on write-hit only
-          //  # pipeline flush and address exceptions are in "allowed" flag
-          if (s2o_dc_ack_write & dc_store_allowed_i & (~dc_store_cancel_i)) begin // on write-hit
-            way_we = s2o_hit_way; // on write-hit
-            tag_we = 1'b1;        // on write-hit
-          end
+      DC_WRITE: begin
+        // prepare data for write ahead
+        if (~dbus_bsel_i[3]) way_din[31:24] = dc_dat_s2o_i[31:24]; // on write-hit
+        if (~dbus_bsel_i[2]) way_din[23:16] = dc_dat_s2o_i[23:16]; // on write-hit
+        if (~dbus_bsel_i[1]) way_din[15:8]  = dc_dat_s2o_i[15: 8]; // on write-hit
+        if (~dbus_bsel_i[0]) way_din[7:0]   = dc_dat_s2o_i[ 7: 0]; // on write-hit
+        // real update on write-hit only
+        // !!! (mor1kx_lsu_marocchino.dc_store_cancel == dc_cancel) !!!
+        if (s2o_dc_ack_write & dc_store_allowed_i & (~dc_cancel)) begin // on write-hit
+          way_we = s2o_hit_way; // on write-hit
+          tag_we = 1'b1;        // on write-hit
         end
+      end
 
-        DC_REFILL: begin
-          // WAYs
-          way_din = dbus_dat_i; // on re-fill
-          // TAGs
-          // For re-fill (tag_windex == virt_addr_rfl_r) is default setting
-          //  (a) In according with WISHBONE-B3 rule 3.45:
-          // "SLAVE MUST NOT assert more than one of ACK, ERR or RTY"
-          //  (b) We don't interrupt re-fill on flushing, so the only reason
-          // for invalidation is DBUS error occurence
-          if (dbus_err_i) begin // during re-fill
+      DC_REFILL: begin
+        // WAYs
+        way_din = dbus_dat_i; // on re-fill
+        // TAGs
+        //  (a) In according with WISHBONE-B3 rule 3.45:
+        // "SLAVE MUST NOT assert more than one of ACK, ERR or RTY"
+        //  (b) We don't interrupt re-fill on flushing, so the only reason
+        // for invalidation is DBUS error occurence
+        if (dbus_err_i) begin // during re-fill
+          for (w2 = 0; w2 < OPTION_DCACHE_WAYS; w2 = w2 + 1) begin
+            if (lru_way_refill_r[w2])
+              tag_din_way[w2][TAGMEM_WAY_VALID] = 1'b0; // DBUS error  during re-fill
+          end
+          // MAROCCHINO_TODO: how to handle LRU in the case?
+          // ---
+          tag_we = 1'b1; // invalidate by DBUS error during re-fill
+        end
+        else if (dbus_ack_i) begin
+          // LRU WAY content update each DBUS ACK
+          way_we = lru_way_refill_r; // on re-fill: write the data to the way that is replaced (which is the LRU)
+          // After re-fill update the tag memory entry of the
+          // filled way with the LRU history, the tag and set
+          // valid to 1.
+          if (dbus_burst_last_i) begin
             for (w2 = 0; w2 < OPTION_DCACHE_WAYS; w2 = w2 + 1) begin
               if (lru_way_refill_r[w2])
-                tag_din_way[w2][TAGMEM_WAY_VALID] = 1'b0; // DBUS error  during re-fill
+                tag_din_way[w2] = {1'b1, phys_addr_s2o_i[OPTION_DCACHE_LIMIT_WIDTH-1:WAY_WIDTH]};
             end
-            // MAROCCHINO_TODO: how to handle LRU in the case?
+            lru_hit_way = lru_way_refill_r; // last re-fill
             // ---
-            tag_we = 1'b1; // invalidate by DBUS error during re-fill
-          end
-          else if (dbus_ack_i) begin
-            // LRU WAY content update each DBUS ACK
-            way_we = lru_way_refill_r; // on re-fill: write the data to the way that is replaced (which is the LRU)
-            // After re-fill update the tag memory entry of the
-            // filled way with the LRU history, the tag and set
-            // valid to 1.
-            if (dbus_burst_last_i) begin
-              for (w2 = 0; w2 < OPTION_DCACHE_WAYS; w2 = w2 + 1) begin
-                if (lru_way_refill_r[w2])
-                  tag_din_way[w2] = {1'b1, phys_addr_s2o_i[OPTION_DCACHE_LIMIT_WIDTH-1:WAY_WIDTH]};
-              end
-              lru_hit_way = lru_way_refill_r; // last re-fill
-              // ---
-              tag_we = 1'b1; // last re-fill
-            end
-          end
-        end // re-fill
-
-        DC_INV_BY_MTSPR: begin
-          //
-          // Lazy invalidation, invalidate everything that matches tag address
-          //  # Pay attention we needn't to take into accaunt exceptions or
-          //    pipe flusing here. It because, MARROCCHINO executes
-          //    l.mf(t)spr commands after successfull completion of
-          //    all previous instructions.
-          //
-          tag_we      = 1'b1;     // on invalidate by l.mtspr
-          tag_din_lru = 0;        // on invalidate by l.mtspr
-          for (w2 = 0; w2 < OPTION_DCACHE_WAYS; w2 = w2 + 1) begin
-            tag_din_way[w2] = 0;  // on invalidate by l.mtspr
+            tag_we = 1'b1; // last re-fill
           end
         end
+      end // re-fill
 
-        DC_INV_BY_ATOMIC: begin
-          //
-          // With the simplest approach we just force linked
-          // address to be not cachable.
-          // MAROCCHINO_TODO: more accurate processing if linked address is cachable.
-          //
-          tag_we = 1'b1;                                  // on invalidate by lwa/swa
-          for (w2 = 0; w2 < OPTION_DCACHE_WAYS; w2 = w2 + 1) begin
-            if (s2o_hit_way[w2])                          // on invalidate by lwa/swa
-              tag_din_way[w2][TAGMEM_WAY_VALID] = 1'b0;   // on invalidate by lwa/swa
-          end
+      DC_INV_BY_MTSPR: begin
+        //
+        // Lazy invalidation, invalidate everything that matches tag address
+        //  # Pay attention we needn't to take into accaunt exceptions or
+        //    pipe flusing here. It because, MARROCCHINO executes
+        //    l.mf(t)spr commands after successfull completion of
+        //    all previous instructions.
+        //
+        tag_we      = 1'b1;     // on invalidate by l.mtspr
+        tag_din_lru = 0;        // on invalidate by l.mtspr
+        for (w2 = 0; w2 < OPTION_DCACHE_WAYS; w2 = w2 + 1) begin
+          tag_din_way[w2] = 0;  // on invalidate by l.mtspr
         end
+      end
 
-        default:;
-      endcase
-    end
+      DC_INV_BY_ATOMIC: begin
+        //
+        // With the simplest approach we just force linked
+        // address to be not cachable.
+        // MAROCCHINO_TODO: more accurate processing if linked address is cachable.
+        //
+        tag_we = 1'b1;                                  // on invalidate by lwa/swa
+        for (w2 = 0; w2 < OPTION_DCACHE_WAYS; w2 = w2 + 1) begin
+          if (s2o_hit_way[w2])                          // on invalidate by lwa/swa
+            tag_din_way[w2][TAGMEM_WAY_VALID] = 1'b0;   // on invalidate by lwa/swa
+        end
+      end
+
+      DC_INV_BY_SNOOP: begin
+        //
+        // Lazy invalidation, invalidate everything that matches tag address
+        //
+        tag_we     = 1'b1;              // on snoop-hit
+        for (w2 = 0; w2 < OPTION_DCACHE_WAYS; w2 = w2 + 1) begin
+          tag_din_way[w2] = inv_snoop_hit_way[w2] ? {TAGMEM_WAY_WIDTH{1'b0}} : inv_snoop_dout_way[w2]; // on snoop-hit
+        end
+      end
+
+      default:;
+    endcase
   end
 
 
@@ -809,11 +812,11 @@ module mor1kx_dcache_marocchino
 
 
   // Read/Write port (*_rwp_*) controls
-  wire tag_rwp_we = tag_we & (tag_rindex == tag_windex);
+  wire tag_rwp_we = tag_we & (tag_windex == tag_rindex);
   wire tag_rwp_en = lsu_s1_adv_i | tag_rwp_we;
 
   // Write-only port (*_wp_*) enable
-  wire tag_wp_en = tag_we & (tag_rindex != tag_windex);
+  wire tag_wp_en = tag_we & (tag_windex != tag_rindex);
 
   // TAG-RAM instance
   mor1kx_dpram_en_w1st_sclk
@@ -846,24 +849,146 @@ module mor1kx_dcache_marocchino
   /* verilator lint_off WIDTH */
   if (OPTION_DCACHE_SNOOP != "NONE") begin : st_ram
   /* verilator lint_on WIDTH */
-    // snoop RAM read & write
-    //  # we force snoop invalidation through RW-port
-    //    to provide snoop-hit off
-    wire str_re = (snoop_event_i & ~snoop_check) | snoop_hit_o;
-    wire str_we = dc_inv_by_mtspr | snoop_hit_o;
 
-    // address for Read/Write port
-    //  # for soop-hit case tag-windex is equal to snoop-windex
-    assign snoop_rindex = snoop_hit_o ? tag_windex : snoop_index;
+    genvar sw1;
 
-    // same addresses for read and write
-    wire str_rw_same_addr = (tag_windex == snoop_rindex);
+    //------------------------------//
+    // Stage #1: read SNOOP-TAG-RAM //
+    //------------------------------//
+
+    // registering input snoop data
+    reg  [OPTION_OPERAND_WIDTH-1:0] s1o_snoop_adr;
+    reg                             s1o_snoop_en;
+    // ---
+    always @(posedge cpu_clk) begin
+      s1o_snoop_adr <= snoop_adr_i;
+    end
+    // ---
+    always @(posedge cpu_clk) begin
+      if (cpu_rst)
+        s1o_snoop_en <= 1'b0;
+      else
+        s1o_snoop_en <= snoop_en_i;
+    end
+
+
+    //-------------------------------------//
+    // Stage #2: latch Snoop-Hit detection //
+    //-------------------------------------//
+
+    // Data out of tag memory
+    wire       [TAGMEM_WIDTH-1:0] s2t_snoop_dout;
+    // Each ways information in the tag memory
+    wire   [TAGMEM_WAY_WIDTH-1:0] s2t_snoop_dout_way [OPTION_DCACHE_WAYS-1:0];
+    // Whether the way hits
+    wire [OPTION_DCACHE_WAYS-1:0] s2t_snoop_hit_way;
+
+    // Shoop-Hit per way
+    for (sw1=0; sw1<OPTION_DCACHE_WAYS; sw1=sw1+1) begin : gen_snoop_per_way_hit
+      // split by ways
+      assign s2t_snoop_dout_way[sw1] = s2t_snoop_dout[(sw1+1)*TAGMEM_WAY_WIDTH-1:sw1*TAGMEM_WAY_WIDTH];
+      // check for hit
+      assign s2t_snoop_hit_way[sw1] = s1o_snoop_en &
+        s2t_snoop_dout_way[sw1][TAGMEM_WAY_VALID] &
+        (s2t_snoop_dout_way[sw1][TAG_WIDTH-1:0] ==
+         s1o_snoop_adr[OPTION_DCACHE_LIMIT_WIDTH-1:WAY_WIDTH]);
+    end
+
+    // Each ways information in the tag memory
+    reg      [TAGMEM_WAY_WIDTH-1:0] s2o_snoop_dout_way [OPTION_DCACHE_WAYS-1:0];
+    reg      [TAGMEM_WAY_WIDTH-1:0] s3o_snoop_dout_way [OPTION_DCACHE_WAYS-1:0];
+    // Whether the way hits
+    reg    [OPTION_DCACHE_WAYS-1:0] s2o_snoop_hit_way;
+    reg    [OPTION_DCACHE_WAYS-1:0] s3o_snoop_hit_way;
+    // Indexing TAG-RAM and SNOOP-TAG-RAM during invalidation
+    reg  [OPTION_OPERAND_WIDTH-1:0] s2o_snoop_adr_r;
+
+    // --- propagation ---
+    // SNOOP-TAG-RAM data and Snoop-Hit per way
+    for (sw1=0; sw1<OPTION_DCACHE_WAYS; sw1=sw1+1) begin : gen_s2o_snoop_latches
+      always @(posedge cpu_clk) begin
+        s2o_snoop_dout_way[sw1] <= s2t_snoop_dout_way[sw1];
+        s2o_snoop_hit_way[sw1]  <= s2t_snoop_hit_way[sw1];
+        s3o_snoop_dout_way[sw1] <= s2o_snoop_dout_way[sw1];
+        s3o_snoop_hit_way[sw1]  <= s2o_snoop_hit_way[sw1];
+      end
+    end
+
+    // Indexing TAG-RAM and SNOOP-TAG-RAM during invalidation
+    always @(posedge cpu_clk) begin
+      s2o_snoop_adr_r <= s1o_snoop_adr;
+    end
+    // ---
+    assign s2o_snoop_adr = s2o_snoop_adr_r;
+
+    // --- applying ---
+    // SNOOP-TAG-RAM data and Snoop-Hit per way
+    for (sw1=0; sw1<OPTION_DCACHE_WAYS; sw1=sw1+1) begin : gen_inv_snoop_assignement
+      assign inv_snoop_dout_way[sw1] = s3o_snoop_dout_way[sw1];
+      assign inv_snoop_hit_way[sw1]  = s3o_snoop_hit_way[sw1];
+    end
+
+    // Snoop-Hit flag (1-clok length)
+    wire   s2t_snoop_hit   = (|s2t_snoop_hit_way);
+    reg    s2o_snoop_hit_r;
+    assign s2o_snoop_hit   = s2o_snoop_hit_r; // SNOOP-EANBLED
+    // ---
+    always @(posedge cpu_clk) begin
+      if (cpu_rst)
+        s2o_snoop_hit_r <= 1'b0;
+      else
+        s2o_snoop_hit_r <= s2t_snoop_hit;
+    end
+
+    // Do Snoop-Invalidation flag (lock LSU)
+    reg    s2o_snoop_proc_r;
+    assign s2o_snoop_proc_o = s2o_snoop_proc_r; // SNOOP-EANBLED
+    // ---
+    always @(posedge cpu_clk) begin
+      if (cpu_rst)
+        s2o_snoop_proc_r <= 1'b0;
+      else if (s2t_snoop_hit)
+        s2o_snoop_proc_r <= 1'b1;
+      else if (dc_inv_by_snoop & (~s2o_snoop_hit))
+        s2o_snoop_proc_r <= 1'b0;
+    end
+
+    // Drop write-hit if it is snooped
+    //  local copy of physical address
+    reg [OPTION_OPERAND_WIDTH-1:0] s2o_phys_addr;
+    // ---
+    always @(posedge cpu_clk) begin
+      if (lsu_s2_adv_i)
+        s2o_phys_addr <= phys_addr_s2t_i;
+    end // @clock
+    // ---
+    reg    inv_snoop_dc_ack_write_r;
+    assign inv_snoop_dc_ack_write = inv_snoop_dc_ack_write_r;
+    // --- byte / half-word / word invalidation ----
+    always @(posedge cpu_clk) begin
+      if (cpu_rst)
+        inv_snoop_dc_ack_write_r <= 1'b0;
+      else
+        inv_snoop_dc_ack_write_r <= s2o_snoop_hit &     // INV-SNOOP-DC-ACK-WRITE
+          (s2o_phys_addr[OPTION_OPERAND_WIDTH-1:2] ==   // INV-SNOOP-DC-ACK-WRITE
+           s2o_snoop_adr[OPTION_OPERAND_WIDTH-1:2]);    // INV-SNOOP-DC-ACK-WRITE
+    end
+
+
+    //----------------//
+    // Snoop TAGs RAM //
+    //----------------//
+
+    // Read indexing of SNOOP-TAG-RAM
+    wire [OPTION_DCACHE_SET_WIDTH-1:0] snoop_rindex;
+    assign snoop_rindex = snoop_adr_i[WAY_WIDTH-1:OPTION_DCACHE_BLOCK_WIDTH];
 
     // Read / Write port (*_rwp_*) controls
-    wire str_rwp_we = str_we & str_re & str_rw_same_addr;
+    wire str_rwp_we = tag_we & (tag_windex == snoop_rindex);
+    wire str_rwp_en = str_rwp_we | snoop_en_i;
 
     // Write-only port (*_wp_*) controls
-    wire str_wp_en  = str_we & (~str_re | ~str_rw_same_addr);
+    wire str_wp_en  = tag_we & (tag_windex != snoop_rindex);
 
     // SNOOP-TAG-RAM instance
     mor1kx_dpram_en_w1st_sclk
@@ -877,11 +1002,11 @@ module mor1kx_dcache_marocchino
       // clock
       .clk    (cpu_clk), // DCACHE_SNOOP_TAG_RAM
       // port "a": Read / Write (for RW-conflict case)
-      .en_a   (str_re), // DCACHE_SNOOP_TAG_RAM
+      .en_a   (str_rwp_en), // DCACHE_SNOOP_TAG_RAM
       .we_a   (str_rwp_we), // DCACHE_SNOOP_TAG_RAM
       .addr_a (snoop_rindex), // DCACHE_SNOOP_TAG_RAM
       .din_a  (tag_din), // DCACHE_SNOOP_TAG_RAM
-      .dout_a (snoop_dout), // DCACHE_SNOOP_TAG_RAM
+      .dout_a (s2t_snoop_dout), // DCACHE_SNOOP_TAG_RAM
       // port "b": Write if no RW-conflict
       .en_b   (str_wp_en), // DCACHE_SNOOP_TAG_RAM
       .we_b   (1'b1), // DCACHE_SNOOP_TAG_RAM
@@ -889,6 +1014,25 @@ module mor1kx_dcache_marocchino
       .din_b  (tag_din), // DCACHE_SNOOP_TAG_RAM
       .dout_b () // DCACHE_SNOOP_TAG_RAM
     );
+
+  end
+  else begin
+
+    genvar sw2;
+
+    assign s2o_snoop_hit = 1'b0; // SNOOP-DISANBLED
+    assign s2o_snoop_proc_o = 1'b0; // SNOOP-DISANBLED
+
+    for (sw2=0; sw2<OPTION_DCACHE_WAYS; sw2=sw2+1) begin : zero_inv_snoop_data
+      assign inv_snoop_dout_way[sw2] = {TAGMEM_WAY_WIDTH{1'b0}};  // SNOOP-DISANBLED
+      assign inv_snoop_hit_way[sw2]  = 1'b0;                      // SNOOP-DISANBLED
+    end
+
+    assign s2o_snoop_adr = {OPTION_OPERAND_WIDTH{1'b0}}; // SNOOP-DISANBLED
+
+    // Drop write-hit if it is snooped
+    assign inv_snoop_dc_ack_write = 1'b0; // SNOOP-DISANBLED
+
   end
   endgenerate
 

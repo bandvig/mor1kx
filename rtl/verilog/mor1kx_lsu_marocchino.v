@@ -188,6 +188,10 @@ module mor1kx_lsu_marocchino
   //    ## combined store ACK
   wire              s3t_store_ack;
 
+  //  # snoop-invalidation
+  wire              dc_snoop2refill; // snoop-inv -> restore re-fill
+  wire              dc_snoop2write;  // snoop-inv -> restore write
+
   //  # combined DBUS-load/SBUFF-store ACK
   reg               s3o_ls_ack;
 
@@ -237,8 +241,7 @@ module mor1kx_lsu_marocchino
 
 
   // Snoop (for multicore SoC)
-  wire              snoop_event;
-  wire              snoop_hit;
+  wire              s2o_snoop_proc;
 
 
   // Exceptions detected on DCACHE/DBUS access stage
@@ -271,7 +274,7 @@ module mor1kx_lsu_marocchino
   wire   lsu_s2_busy = s2o_dc_refill_req | s2o_dbus_read_req | // stage #2 is busy
                        s2o_op_lsu_store                      | // stage #2 is busy
                        (lsu_s2_rdy & lsu_wb_miss)            | // stage #2 is busy
-                       s2o_excepts_any;                        // stage #2 is busy, MAROCCHINO_TODO: "& (~snoop_hit)" -??
+                       s2o_excepts_any   | s2o_snoop_proc;     // stage #2 is busy
   //  ---
   wire   lsu_s1_busy = (s1o_op_lsu_ls & lsu_s2_busy) |  // stage #1 is busy
                        s1o_op_msync;                    // stage #1 is busy
@@ -292,7 +295,8 @@ module mor1kx_lsu_marocchino
   assign s3t_store_ack    = sbuf_write |  dbus_swa_ack;
   //  # for DCAHCE
   wire   dc_store_allowed = sbuf_write;
-  wire   dc_store_cancel  = (pipeline_flush_i | s2o_excepts_addr); // cancel write-hit in DCACHE, MAROCCHINO_TODO: "| snoop_hit" -??
+  // !!! (dc_store_cancel == mor1kx_dcache_marocchino.dc_cancel) !!!
+  //wire   dc_store_cancel  = (pipeline_flush_i | s2o_excepts_addr); // cancel write-hit in DCACHE
 
 
   // DBUS error not related to store buffer
@@ -485,6 +489,17 @@ module mor1kx_lsu_marocchino
   // Instance of cache //
   //-------------------//
 
+  // Condition to restore re-fill state in DCACHE
+  // after snoop invalidation completion.
+  //  Pay attention that if re-fiil once initiated
+  // it could not be interrupted by pipe flushing
+  assign dc_snoop2refill = dc_refill_allowed | dc_refill_state;
+
+  // Condition to restore write state in DCACHE
+  // after snoop invalidation completion.
+  //  !!! keep consistency with s2o_stna_req logic !!!
+  assign dc_snoop2write = s2o_stna_req;
+
   mor1kx_dcache_marocchino
   #(
     .OPTION_OPERAND_WIDTH         (OPTION_OPERAND_WIDTH), // DCACHE
@@ -526,7 +541,8 @@ module mor1kx_lsu_marocchino
     .dbus_sdat_i                (s2o_sdat), // DCACHE
     .dc_dat_s2o_i               (s2o_dc_dat), // DCACHE
     .dc_store_allowed_i         (dc_store_allowed), // DCACHE
-    .dc_store_cancel_i          (dc_store_cancel), // DCACHE
+    // !!! (dc_store_cancel == mor1kx_dcache_marocchino.dc_cancel) !!!
+    //.dc_store_cancel_i          (dc_store_cancel), // DCACHE
     //  # Atomics
     .s1o_op_lsu_atomic_i        (s1o_op_lsu_atomic), // DCACHE
     // re-fill
@@ -540,9 +556,11 @@ module mor1kx_lsu_marocchino
     // DBUS read request
     .dbus_read_req_o            (s2t_dbus_read_req), // DCACHE
     // SNOOP
-    .snoop_adr_i                (snoop_adr_i[31:0]), // DCACHE
-    .snoop_event_i              (snoop_event), // DCACHE
-    .snoop_hit_o                (snoop_hit), // DCACHE
+    .snoop_adr_i                (snoop_adr_i), // DCACHE
+    .snoop_en_i                 (snoop_en_i), // DCACHE
+    .s2o_snoop_proc_o           (s2o_snoop_proc), // DCACHE
+    .dc_snoop2refill_i          (dc_snoop2refill), // DCACHE
+    .dc_snoop2write_i           (dc_snoop2write), // DCACHE
     // SPR interface
     .spr_bus_addr_i             (spr_bus_addr_i[15:0]), // DCACHE
     .spr_bus_we_i               (spr_bus_we_i), // DCACHE
@@ -733,7 +751,9 @@ module mor1kx_lsu_marocchino
   //-----------------------//
 
   // store buffer write controls
-  assign sbuf_write = s2o_stna_req & (~sbuf_full) & (~lsu_wb_miss) & grant_wb_to_lsu_i;
+  assign sbuf_write = s2o_stna_req & (~sbuf_full) &       // STORE-BUFFER WRITE
+                      (~s2o_snoop_proc) &                 // STORE-BUFFER WRITE
+                      (~lsu_wb_miss) & grant_wb_to_lsu_i; // STORE-BUFFER WRITE
   // include exceptions and pipe flushing
   assign sbuf_we    = sbuf_write & (~s2o_excepts_addr) & (~pipeline_flush_i);
 
@@ -769,12 +789,6 @@ module mor1kx_lsu_marocchino
     .full_o               (sbuf_full), // STORE_BUFFER
     .empty_o              (sbuf_empty) // STORE_BUFFER
   );
-
-
-  // We have to mask out our own snooped bus access
-  // MAROCCHINO_TODO: not correct for CDC
-  assign snoop_event = (snoop_en_i & ~((snoop_adr_i == dbus_adr_o) & dbus_ack_i)) &
-                       (OPTION_DCACHE_SNOOP != "NONE");
 
 
   //-------------------------//
@@ -836,6 +850,7 @@ module mor1kx_lsu_marocchino
   end // @clock
 
   // none-atomic store command
+  //  !!! keep dc_snoop2write in consistency with this !!!
   wire deassert_s2o_stna_req = sbuf_write | pipeline_flush_i | s2o_excepts_addr;
   // ---
   always @(posedge cpu_clk) begin

@@ -175,6 +175,9 @@ module mor1kx_marocchino_alone
   // Other connections for lwa/swa support
   wire                            pipeline_flush;
   wire                            dbus2cpu_atomic_flg;
+  // For DCACHE snoop-invalidate
+  wire [OPTION_OPERAND_WIDTH-1:0] dbus2cpu_snoop_adr;
+  wire                            dbus2cpu_snoop_en;
 
 
   // IBUS-Bridge <-> CPU instruction port
@@ -227,6 +230,9 @@ module mor1kx_marocchino_alone
     .cpu_burst_i      (cpu2ibus_burst), // IBUS_BRIDGE
     // Other connections for lwa/swa support
     .cpu_atomic_flg_o (), // IBUS_BRIDGE
+    // For DCACHE snoop-invalidate
+    .cpu_snoop_adr_o  (), // IBUS_BRIDGE
+    .cpu_snoop_en_o   (), // IBUS_BRIDGE
     // Wishbone side
     .wbm_adr_o        (iwbm_adr_o), // IBUS_BRIDGE
     .wbm_stb_o        (iwbm_stb_o), // IBUS_BRIDGE
@@ -279,6 +285,9 @@ module mor1kx_marocchino_alone
     .cpu_burst_i      (cpu2dbus_burst), // DBUS_BRIDGE
     // Other connections for lwa/swa support
     .cpu_atomic_flg_o (dbus2cpu_atomic_flg), // DBUS_BRIDGE
+    // For DCACHE snoop-invalidate
+    .cpu_snoop_adr_o  (dbus2cpu_snoop_adr), // DBUS_BRIDGE
+    .cpu_snoop_en_o   (dbus2cpu_snoop_en), // DBUS_BRIDGE
     // Wishbone side
     .wbm_adr_o        (dwbm_adr_o), // DBUS_BRIDGE
     .wbm_stb_o        (dwbm_stb_o), // DBUS_BRIDGE
@@ -409,8 +418,8 @@ module mor1kx_marocchino_alone
     // multi-core
     .multicore_coreid_i       (multicore_coreid_i), // CPU
     .multicore_numcores_i     (multicore_numcores_i), // CPU
-    .snoop_adr_i              (snoop_adr_i), // CPU
-    .snoop_en_i               (snoop_en_i) // CPU
+    .snoop_adr_i              (dbus2cpu_snoop_adr), // CPU
+    .snoop_en_i               (dbus2cpu_snoop_en) // CPU
   ); // pipe instance
 
 endmodule // mor1kx_marocchino_alone

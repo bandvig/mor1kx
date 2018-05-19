@@ -61,6 +61,9 @@ module mor1kx_bus_if_wb32_marocchino
   input             cpu_burst_i,
   // Other connections for lwa/swa support
   output            cpu_atomic_flg_o,
+  // For DCACHE snoop-invalidate
+  output     [31:0] cpu_snoop_adr_o,
+  output            cpu_snoop_en_o,
 
   // Wishbone side
   output     [31:0] wbm_adr_o,
@@ -118,11 +121,14 @@ module mor1kx_bus_if_wb32_marocchino
   //
   wire        atomic_flg;
   //
-  // Latched attributes of swa snoop event.
-  // Self snoop event is equvivalent for success l.swa completion.
+  // Locally used snoop event attributes.
   //
-  wire        snoop_en_l;
-  wire [29:0] snoop_adr_l; // [31:2] of snooped address
+  wire        snoop_en_l;  // latched snoop event flag
+  wire [29:0] snoop_adr_l; // latched [31:2] of snooped address
+  //
+  // Locally generated DCACHE Snoop invalidation ACK
+  //
+  wire        cpu_snoop_inv_ack;
 
 
   //-------------------------//
@@ -261,7 +267,7 @@ module mor1kx_bus_if_wb32_marocchino
 
   localparam [2:0] DBUS_WAITING_CPU_REQ = 3'b001,
                    DBUS_WAITING_WBM_ACQ = 3'b010,
-                   DBUS_PENDING_SWA     = 3'b100;
+                   DBUS_PENDING_WBM_REQ = 3'b100;
 
   generate
   /* verilator lint_off WIDTH */
@@ -292,6 +298,8 @@ module mor1kx_bus_if_wb32_marocchino
     assign stna_cmd = cpu_stna_cmd_r1; // DBUS bridge
     assign swa_cmd  = cpu_swa_cmd_r1;  // DBUS bridge
 
+    // For snoop event processing
+    wire snoop_en_any = snoop_en_i | ((~cpu_snoop_inv_ack) & snoop_en_l); // DBUS bridge
 
     // DBUS request states
     reg  [2:0] dbus_state_r; // DBUS bridge
@@ -317,10 +325,18 @@ module mor1kx_bus_if_wb32_marocchino
           // "another l.swa" checking
           DBUS_WAITING_CPU_REQ: begin
             if (cpu_req_pulse) begin
-              to_wbm_we_r  <= stna_cmd;
-              to_wbm_stb_r <= (~swa_cmd); // IBUS bridge
-              to_wbm_cyc_r <= (~swa_cmd); // IBUS bridge
-              dbus_state_r <= swa_cmd ? DBUS_PENDING_SWA : DBUS_WAITING_WBM_ACQ;
+              if (snoop_en_any) begin
+                to_wbm_we_r  <= 1'b0;
+                to_wbm_stb_r <= 1'b0; // IBUS bridge
+                to_wbm_cyc_r <= 1'b0; // IBUS bridge
+                dbus_state_r <= DBUS_PENDING_WBM_REQ;
+              end
+              else begin
+                to_wbm_we_r  <= stna_cmd;
+                to_wbm_stb_r <= (~swa_cmd); // IBUS bridge
+                to_wbm_cyc_r <= (~swa_cmd); // IBUS bridge
+                dbus_state_r <= swa_cmd ? DBUS_PENDING_WBM_REQ : DBUS_WAITING_WBM_ACQ;
+              end
             end
           end
 
@@ -340,21 +356,21 @@ module mor1kx_bus_if_wb32_marocchino
               to_wbm_cyc_r <= burst_keep; // IBUS bridge
               dbus_state_r <= burst_keep ? DBUS_WAITING_WBM_ACQ : DBUS_WAITING_CPU_REQ;
             end
-            else if (snoop_en_i & swa_cmd) begin
+            else if (snoop_en_i) begin
               to_wbm_we_r  <= 1'b0;
               to_wbm_stb_r <= 1'b0; // IBUS bridge
               to_wbm_cyc_r <= 1'b0; // IBUS bridge
-              dbus_state_r <= DBUS_PENDING_SWA;
+              dbus_state_r <= DBUS_PENDING_WBM_REQ;
             end
           end
 
-          // pending l.swa
+          // pending request by l.swa or snoop-inv
           // (1) here we wait till completion of all snoop events
           // (2) if link has been broken while we was waiting here,
           //     the bus access is still performed as a (discarded) read.
-          DBUS_PENDING_SWA: begin
-            if ((~snoop_en_i) & (~snoop_en_l)) begin
-              to_wbm_we_r  <= atomic_flg;
+          DBUS_PENDING_WBM_REQ: begin
+            if (~snoop_en_any) begin
+              to_wbm_we_r  <= stna_cmd | (swa_cmd & atomic_flg);
               to_wbm_stb_r <= 1'b1; // IBUS bridge
               to_wbm_cyc_r <= 1'b1; // IBUS bridge
               dbus_state_r <= DBUS_WAITING_WBM_ACQ;
@@ -459,7 +475,7 @@ module mor1kx_bus_if_wb32_marocchino
   end // @wb-clock
   // ---
   always @(posedge wb_clk) begin
-    if (wbm_cyc_o & (wbm_err_i | wbm_ack_i))
+    if (wbm_cyc_o & (wbm_err_i | wbm_ack_i)) // MAROCCHINO_TODO: reundant condition?
       wbm_dat_r <= wbm_dat_i;
   end // @wb-clock
 
@@ -514,9 +530,9 @@ module mor1kx_bus_if_wb32_marocchino
   end // at cpu-clock
 
 
-  //------------------------------//
-  // Atomic (l.lwa/l.swa) support //
-  //------------------------------//
+  //----------------------------------------------------------//
+  // Atomic (l.lwa/l.swa) and DCACHE snoop-invalidate support //
+  //----------------------------------------------------------//
 
   // snoop hit for l.swa in multicore machine
   generate
@@ -525,11 +541,11 @@ module mor1kx_bus_if_wb32_marocchino
   /* verilator lint_on WIDTH */
 
     //
-    // Latched attributes of swa snoop event.
-    // Self snoop event is equvivalent for success l.swa completion.
+    // Latched attributes of snoop event.
     //
+    wire       snoop_en_f = snoop_en_i & (~wbm_ack_i) & (~wbm_err_i);  // DBUS multi core bridge
     reg        snoop_en_r;
-    reg [29:0] snoop_adr_r; // [31:2] of snooped address
+    reg [31:0] snoop_adr_r;
     //
     // We don't care about self-snoop because:
     //  (a) for atomic reservation flag it operates in the same way
@@ -539,26 +555,118 @@ module mor1kx_bus_if_wb32_marocchino
     always @(posedge wb_clk) begin
       if (wb_rst)
         snoop_en_r <= 1'b0; // at reset
+      else if (snoop_en_f)  // rise local register, DBUS multi core bridge
+        snoop_en_r <= 1'b1;
       else
-        snoop_en_r <= snoop_en_i;
+        snoop_en_r <= (~cpu_snoop_inv_ack) & snoop_en_r;
     end
     //
     // latch snooped address
     //
     always @(posedge wb_clk) begin
-      snoop_adr_r <= snoop_adr_i[31:2];
+      snoop_adr_r <= snoop_adr_i;
     end
     //
-    // output assignement
+    // local snoop data for atomic reservation check
     //
-    assign snoop_en_l  = snoop_en_r;  // DBUS multi core bridge
-    assign snoop_adr_l = snoop_adr_r; // DBUS multi core bridge
+    assign snoop_en_l  = snoop_en_r;        // DBUS multi core bridge
+    assign snoop_adr_l = snoop_adr_r[31:2]; // DBUS multi core bridge
+
+
+    //
+    // Snoop Event -> DCACHE
+    //
+    // Pseudo CDC disclaimer:
+    // As positive edges of wb-clock and cpu-clock assumed be aligned,
+    // we use simplest clock domain pseudo-synchronizers.
+    //
+    // --- toggle ---
+    reg  snoop_en_toggle_r;
+    // ---
+    always @(posedge wb_clk) begin
+      if (wb_rst)
+        snoop_en_toggle_r <= 1'b0;
+      else if (snoop_en_f)
+        snoop_en_toggle_r <= ~snoop_en_toggle_r;
+    end
+    // --- to CPU pulse ---
+    reg  wbm2cpu_snoop_en_r;
+    wire wbm2cpu_snoop_en_pulse = wbm2cpu_snoop_en_r ^ snoop_en_toggle_r;
+    // ---
+    always @(posedge cpu_clk) begin
+      if (cpu_rst)
+        wbm2cpu_snoop_en_r <= 1'b0;
+      else
+        wbm2cpu_snoop_en_r <= snoop_en_toggle_r;
+    end
+    // --- CPU visibility ---
+    reg         cpu_snoop_en_r;
+    reg  [31:0] cpu_snoop_adr_r;
+    // ---
+    always @(posedge cpu_clk) begin
+      if (cpu_rst)
+        cpu_snoop_en_r <= 1'b0;
+      else
+        cpu_snoop_en_r <= wbm2cpu_snoop_en_pulse;
+    end
+    // ---
+    always @(posedge cpu_clk) begin
+      cpu_snoop_adr_r <= snoop_adr_r;
+    end
+    // --- ports assignement ---
+    assign cpu_snoop_adr_o = cpu_snoop_adr_r; // DBUS multi core bridge
+    assign cpu_snoop_en_o  = cpu_snoop_en_r;  // DBUS multi core bridge
+
+
+    //
+    // DCACHE Snoop ACK ->  DBUS Bridge
+    // We implement the ACK here without routing in DCACHE because
+    // it's timing guaranties that the chain:
+    //    DCAHCE Snoop ACK ->
+    //      Restoring DBUS request ->
+    //        DBUS Brige ACK ->
+    //          Provide DBUS Brige ACK to DCACHE
+    // completes even later than DCACHE Snoop invalidation even for
+    // fastest "DBUS Brige ACK" and ("CPU clock" == "WB clock")
+    //
+    // Pseudo CDC disclaimer:
+    // As positive edges of wb-clock and cpu-clock assumed be aligned,
+    // we use simplest clock domain pseudo-synchronizers.
+    //
+    // --- toggle ---
+    reg  dc_snoop_inv_ack_toggle_r;
+    // ---
+    always @(posedge cpu_clk) begin
+      if (cpu_rst)
+        dc_snoop_inv_ack_toggle_r <= 1'b0;
+      else if (cpu_snoop_en_o)              // Toggle DCAHCE Snoop ACK
+        dc_snoop_inv_ack_toggle_r <= ~dc_snoop_inv_ack_toggle_r;
+    end
+    // --- DCAHCE Snoop ACK pulse (eq. to others CPU side signals) ---
+    reg    cpu_snoop_inv_ack_r1, cpu_snoop_inv_ack_r2;
+    assign cpu_snoop_inv_ack = cpu_snoop_inv_ack_r1 ^ cpu_snoop_inv_ack_r2;
+    // ---
+    always @(posedge wb_clk) begin
+      if (wb_rst) begin
+        cpu_snoop_inv_ack_r2 <= 1'b0;
+        cpu_snoop_inv_ack_r1 <= 1'b0;
+      end
+      else begin
+        cpu_snoop_inv_ack_r2 <= cpu_snoop_inv_ack_r1;
+        cpu_snoop_inv_ack_r1 <= dc_snoop_inv_ack_toggle_r;
+      end
+    end
 
   end
   else begin: dbus_single_core
 
     assign snoop_en_l  =  1'b0; // IBUS bridge or Single Core machine
     assign snoop_adr_l = 30'd0; // IBUS bridge or Single Core machine
+
+    assign cpu_snoop_adr_o = 32'd0; // IBUS bridge or Single Core machine
+    assign cpu_snoop_en_o  =  1'b0; // IBUS bridge or Single Core machine
+
+    assign cpu_snoop_inv_ack = 1'b1; // IBUS bridge or Single Core machine
 
   end
   endgenerate
