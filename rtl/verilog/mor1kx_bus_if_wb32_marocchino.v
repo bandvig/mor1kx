@@ -202,19 +202,17 @@ module mor1kx_bus_if_wb32_marocchino
       // for burst control
       burst_done_r <= {BURST_LENGTH{1'b0}};
     end
-    else if (wbm_cyc_o) begin // MAROCCHINO_TODO: redundant?
-      if (wbm_err_i) begin
-        to_wbm_cti_r <=  3'd0;
-        to_wbm_bte_r <=  2'd0;
-        // for burst control
-        burst_done_r <= {BURST_LENGTH{1'b0}};
-      end
-      else if (wbm_ack_i) begin
-        to_wbm_cti_r <= (burst_proc ? (burst_done_r[1] ? 3'b111 : 3'b010) : 3'b000);
-        to_wbm_bte_r <= burst_keep ? to_wbm_bte_r : 2'd0;
-        // for burst control
-        burst_done_r <= {1'b0, burst_done_r[(BURST_LENGTH-1):1]};
-      end
+    else if (wbm_err_i) begin
+      to_wbm_cti_r <=  3'd0;
+      to_wbm_bte_r <=  2'd0;
+      // for burst control
+      burst_done_r <= {BURST_LENGTH{1'b0}};
+    end
+    else if (wbm_ack_i) begin
+      to_wbm_cti_r <= (burst_proc ? (burst_done_r[1] ? 3'b111 : 3'b010) : 3'b000);
+      to_wbm_bte_r <= burst_keep ? to_wbm_bte_r : 2'd0;
+      // for burst control
+      burst_done_r <= {1'b0, burst_done_r[(BURST_LENGTH-1):1]};
     end
     else if (cpu_req_pulse) begin // a bridge latches address and controls
       to_wbm_cti_r <= {1'b0, cpu_burst_r1, 1'b0}; // 010 if burst
@@ -233,12 +231,10 @@ module mor1kx_bus_if_wb32_marocchino
     {to_wbm_adr_r[31:4], to_wbm_adr_r[3:0] + 4'd4};  // 16 byte = (4 words x 32 bits/word)
   // ---
   always @(posedge wb_clk) begin
-    if (wbm_cyc_o) begin // wait complete transaction
-      if (wbm_ack_i & burst_keep) begin // next burst address to WB
-        // pay attention:
-        // as DCACHE is write through, "data" and "we" are irrelevant for read burst
-        to_wbm_adr_r <= burst_next_adr;
-      end
+    if (wbm_ack_i & burst_keep) begin // next burst address to WB
+      // pay attention:
+      // as DCACHE is write through, "data" and "we" are irrelevant for read burst
+      to_wbm_adr_r <= burst_next_adr;
     end
     else if (cpu_req_pulse) begin // start transaction : address
       to_wbm_adr_r <= cpu_adr_r1;
@@ -399,29 +395,20 @@ module mor1kx_bus_if_wb32_marocchino
   end
   else begin : ibus_specific
 
-    // STB and CYC for IBUS bridge
-    reg  dbus_state_r;  // IBUS bridge
-    // ---
     always @(posedge wb_clk) begin
       if (wb_rst) begin
-        dbus_state_r <= 1'b0; // IBUS bridge: reset
         to_wbm_stb_r <= 1'b0; // IBUS bridge: reset
         to_wbm_cyc_r <= 1'b0; // IBUS bridge: reset
       end
-      else if (dbus_state_r) begin // MAROCCHINO_TODO : redundant?
-        if (wbm_err_i) begin
-          dbus_state_r <= 1'b0; // IBUS bridge
-          to_wbm_stb_r <= 1'b0; // IBUS bridge
-          to_wbm_cyc_r <= 1'b0; // IBUS bridge
-        end
-        else if (wbm_ack_i) begin
-          dbus_state_r <= burst_keep; // IBUS bridge
-          to_wbm_stb_r <= burst_keep; // IBUS bridge
-          to_wbm_cyc_r <= burst_keep; // IBUS bridge
-        end
+      else if (wbm_err_i) begin
+        to_wbm_stb_r <= 1'b0; // IBUS bridge
+        to_wbm_cyc_r <= 1'b0; // IBUS bridge
+      end
+      else if (wbm_ack_i) begin
+        to_wbm_stb_r <= burst_keep; // IBUS bridge
+        to_wbm_cyc_r <= burst_keep; // IBUS bridge
       end
       else if (cpu_req_pulse) begin // rise CYC/STB in IBUS bridge
-        dbus_state_r <= 1'b1; // IBUS bridge
         to_wbm_stb_r <= 1'b1; // IBUS bridge
         to_wbm_cyc_r <= 1'b1; // IBUS bridge
       end
@@ -467,8 +454,7 @@ module mor1kx_bus_if_wb32_marocchino
   end // @wb-clock
   // ---
   always @(posedge wb_clk) begin
-    if (wbm_cyc_o & (wbm_err_i | wbm_ack_i)) // MAROCCHINO_TODO: reundant condition?
-      wbm_dat_r <= wbm_dat_i;
+    wbm_dat_r <= wbm_dat_i;
   end // @wb-clock
 
   // --- signaling to CPU ---
