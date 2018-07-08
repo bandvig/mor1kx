@@ -1168,15 +1168,14 @@ module mor1kx_oman_marocchino
   // Jump/Branch attributes valid instantly
   wire jb_attr_valid_instant = fetch_op_jimm_i;
 
-  // Jump/Branch valid after miss by various reasons
+  // Jump/Branch valid after JB-attrubutes buffer miss
   // !!! each case is 1-clock length
   wire jb_attr_valid_after_miss = predict_hit | jb_fsm_predict_miss_state | jb_fsm_doing_jr_state;
 
   // Jump/Branch : do branch flag
-  wire jb_attr_do_branch = fetch_op_jimm_i |                                    // JB ATTR DO BRANCH FLAG
-                           (predict_hit               ?   predict_bc_taken_r  : // JB ATTR DO BRANCH FLAG
-                            jb_fsm_predict_miss_state ? (~predict_bc_taken_r) : // JB ATTR DO BRANCH FLAG
-                                                        jb_fsm_doing_jr_state); // JB ATTR DO BRANCH FLAG
+  wire jb_attr_do_branch = predict_hit                ?   predict_bc_taken_r  : // JB ATTR DO BRANCH FLAG
+                           (jb_fsm_predict_miss_state ? (~predict_bc_taken_r) : // JB ATTR DO BRANCH FLAG
+                                    (jb_fsm_doing_jr_state | fetch_op_jimm_i)); // JB ATTR DO BRANCH FLAG
 
   // Jump/Branch target (makes sence only if do branch flag is raized)
   reg [OPTION_OPERAND_WIDTH-1:0] jb_attr_target_r;
