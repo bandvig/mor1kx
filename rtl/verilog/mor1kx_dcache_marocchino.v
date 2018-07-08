@@ -167,13 +167,13 @@ module mor1kx_dcache_marocchino
   // The data from the tag memory
   wire       [TAGMEM_WIDTH-1:0] tag_dout;
   wire   [TAGMEM_WAY_WIDTH-1:0] tag_dout_way [OPTION_DCACHE_WAYS-1:0];
+  reg    [TAGMEM_WAY_WIDTH-1:0] tag_dout_way_s2o [OPTION_DCACHE_WAYS-1:0];
 
   // The data to the tag memory
   wire      [TAGMEM_WIDTH-1:0] tag_din;
   reg   [TAGMEM_WAY_WIDTH-1:0] tag_din_way [OPTION_DCACHE_WAYS-1:0];
   reg [TAG_LRU_WIDTH_BITS-1:0] tag_din_lru;
 
-  reg   [TAGMEM_WAY_WIDTH-1:0] tag_s2o_way [OPTION_DCACHE_WAYS-1:0];
 
   // Whether to write to the tag memory in this cycle
   reg                          tag_we;
@@ -565,7 +565,7 @@ module mor1kx_dcache_marocchino
   always @(posedge cpu_clk) begin
     if (lsu_s2_adv_i) begin
       for (w1 = 0; w1 < OPTION_DCACHE_WAYS; w1 = w1 + 1) begin
-        tag_s2o_way[w1] <= tag_dout_way[w1];
+        tag_dout_way_s2o[w1] <= tag_dout_way[w1];
       end
     end
   end // @clock
@@ -618,7 +618,7 @@ module mor1kx_dcache_marocchino
     tag_din_lru = lru_history_next; // default
     //  -- other TAG-RAM fields
     for (w2 = 0; w2 < OPTION_DCACHE_WAYS; w2 = w2 + 1) begin
-      tag_din_way[w2] = tag_s2o_way[w2]; // default
+      tag_din_way[w2] = tag_dout_way_s2o[w2]; // default
     end
 
     //   As way size is equal to page one we able to use either
@@ -666,10 +666,9 @@ module mor1kx_dcache_marocchino
         if (dbus_err_i) begin // during re-fill
           for (w2 = 0; w2 < OPTION_DCACHE_WAYS; w2 = w2 + 1) begin
             if (lru_way_refill_r[w2])
-              tag_din_way[w2][TAGMEM_WAY_VALID] = 1'b0; // DBUS error  during re-fill
+              tag_din_way[w2] = {TAGMEM_WAY_WIDTH{1'b0}}; // DBUS error  during re-fill
           end
           // MAROCCHINO_TODO: how to handle LRU in the case?
-          // ---
           tag_we = 1'b1; // invalidate by DBUS error during re-fill
         end
         else if (dbus_ack_i) begin
@@ -684,8 +683,7 @@ module mor1kx_dcache_marocchino
                 tag_din_way[w2] = {1'b1, phys_addr_s2o_i[OPTION_DCACHE_LIMIT_WIDTH-1:WAY_WIDTH]};
             end
             lru_hit_way = lru_way_refill_r; // last re-fill
-            // ---
-            tag_we = 1'b1; // last re-fill
+            tag_we      = 1'b1; // last re-fill
           end
         end
       end // re-fill
@@ -701,7 +699,7 @@ module mor1kx_dcache_marocchino
         tag_we      = 1'b1;     // on invalidate by l.mtspr
         tag_din_lru = 0;        // on invalidate by l.mtspr
         for (w2 = 0; w2 < OPTION_DCACHE_WAYS; w2 = w2 + 1) begin
-          tag_din_way[w2] = 0;  // on invalidate by l.mtspr
+          tag_din_way[w2] = {TAGMEM_WAY_WIDTH{1'b0}};  // on invalidate by l.mtspr
         end
       end
 
@@ -714,7 +712,7 @@ module mor1kx_dcache_marocchino
         tag_we = 1'b1;                                  // on invalidate by lwa/swa
         for (w2 = 0; w2 < OPTION_DCACHE_WAYS; w2 = w2 + 1) begin
           if (s2o_hit_way[w2])                          // on invalidate by lwa/swa
-            tag_din_way[w2][TAGMEM_WAY_VALID] = 1'b0;   // on invalidate by lwa/swa
+            tag_din_way[w2] = {TAGMEM_WAY_WIDTH{1'b0}}; // on invalidate by lwa/swa
         end
       end
 

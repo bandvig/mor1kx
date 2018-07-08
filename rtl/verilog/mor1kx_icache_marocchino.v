@@ -139,13 +139,13 @@ module mor1kx_icache_marocchino
   // The data from the tag memory
   wire       [TAGMEM_WIDTH-1:0] tag_dout;
   wire   [TAGMEM_WAY_WIDTH-1:0] tag_dout_way [OPTION_ICACHE_WAYS-1:0];
+  reg    [TAGMEM_WAY_WIDTH-1:0] tag_dout_way_s2o [OPTION_ICACHE_WAYS-1:0];
 
   // The data to the tag memory
   wire       [TAGMEM_WIDTH-1:0] tag_din;
   reg    [TAGMEM_WAY_WIDTH-1:0] tag_din_way [OPTION_ICACHE_WAYS-1:0];
   reg  [TAG_LRU_WIDTH_BITS-1:0] tag_din_lru;
 
-  reg    [TAGMEM_WAY_WIDTH-1:0] tag_way_fetcho_r [OPTION_ICACHE_WAYS-1:0];
 
   // Whether to write to the tag memory in this cycle
   reg                           tag_we;
@@ -160,15 +160,16 @@ module mor1kx_icache_marocchino
   // This is the least recently used value before access the memory.
   // Those are one hot encoded.
   wire [OPTION_ICACHE_WAYS-1:0] lru_way;          // computed by mor1kx_cache_lru
+  reg  [OPTION_ICACHE_WAYS-1:0] lru_way_s2o;      // for TAG invalidation at go to re-fill
   reg  [OPTION_ICACHE_WAYS-1:0] lru_way_refill_r; // register for re-fill process
 
   // The access vector to update the LRU history is the way that has
   // a hit or is refilled. It is also one-hot encoded.
   reg  [OPTION_ICACHE_WAYS-1:0] access_way_for_lru;
-  reg  [OPTION_ICACHE_WAYS-1:0] access_way_for_lru_fetcho_r; // register on IFETCH output
+  reg  [OPTION_ICACHE_WAYS-1:0] access_way_for_lru_s2o; // register on IFETCH output
   // The current LRU history as read from tag memory.
   reg  [TAG_LRU_WIDTH_BITS-1:0] current_lru_history;
-  reg  [TAG_LRU_WIDTH_BITS-1:0] current_lru_history_fetcho_r; // register on IFETCH output
+  reg  [TAG_LRU_WIDTH_BITS-1:0] current_lru_history_s2o; // register on IFETCH output
   // The update value after we accessed it to write back to tag memory.
   wire [TAG_LRU_WIDTH_BITS-1:0] next_lru_history;          // computed by mor1kx_cache_lru
 
@@ -483,8 +484,9 @@ module mor1kx_icache_marocchino
   // LRU related data registered on IFETCH output
   always @(posedge cpu_clk) begin
     if (padv_s1s2_i) begin
-      access_way_for_lru_fetcho_r  <= hit_way;
-      current_lru_history_fetcho_r <= tag_dout[TAG_LRU_MSB:TAG_LRU_LSB];
+      lru_way_s2o             <= lru_way;
+      access_way_for_lru_s2o  <= hit_way;
+      current_lru_history_s2o <= tag_dout[TAG_LRU_MSB:TAG_LRU_LSB];
     end
   end // @clock
 
@@ -507,7 +509,7 @@ module mor1kx_icache_marocchino
   always @(posedge cpu_clk) begin
     if (padv_s1s2_i) begin
       for (w1 = 0; w1 < OPTION_ICACHE_WAYS; w1 = w1 + 1) begin
-        tag_way_fetcho_r[w1] <= tag_dout_way[w1];
+        tag_dout_way_s2o[w1] <= tag_dout_way[w1];
       end
     end
   end // @clock
@@ -520,13 +522,13 @@ module mor1kx_icache_marocchino
 
     // by default prepare data for LRU update at hit or for re-fill initiation
     //  -- input for LRU calculator
-    access_way_for_lru  = access_way_for_lru_fetcho_r; // by default
-    current_lru_history = current_lru_history_fetcho_r; // by default
+    access_way_for_lru  = access_way_for_lru_s2o; // by default
+    current_lru_history = current_lru_history_s2o; // by default
     //  -- output of LRU calculator
     tag_din_lru = next_lru_history; // by default
     //  -- other TAG-RAM fields
     for (w2 = 0; w2 < OPTION_ICACHE_WAYS; w2 = w2 + 1) begin
-      tag_din_way[w2] = tag_way_fetcho_r[w2]; // by default
+      tag_din_way[w2] = tag_dout_way_s2o[w2]; // by default
     end
 
     // synthesis parallel_case full_case
@@ -536,6 +538,15 @@ module mor1kx_icache_marocchino
         if (s2o_ic_ack & (~s2o_immu_an_except_i)) begin // on read-hit
           tag_we = 1'b1; // on read-hit
         end
+        else if (to_refill_i) begin
+          for (w2 = 0; w2 < OPTION_ICACHE_WAYS; w2 = w2 + 1) begin
+            if (lru_way_s2o[w2]) begin
+              tag_din_way[w2] = {TAGMEM_WAY_WIDTH{1'b0}}; // to re-fill
+            end
+          end
+          // MAROCCHINO_TODO: how to handle LRU in the case?
+          tag_we = 1'b1;
+        end
       end
 
       IC_REFILL: begin
@@ -543,16 +554,7 @@ module mor1kx_icache_marocchino
         // "SLAVE MUST NOT assert more than one of ACK, ERR or RTY"
         //  (b) We don't interrupt re-fill on flushing, so the only reason
         // for invalidation is IBUS error occurence
-        if (ibus_err_i) begin
-          for (w2 = 0; w2 < OPTION_ICACHE_WAYS; w2 = w2 + 1) begin
-            if (lru_way_refill_r[w2]) begin
-              tag_din_way[w2][TAGMEM_WAY_VALID] = 1'b0;
-            end
-          end
-          tag_we = 1'b1;
-          // MAROCCHINO_TODO: how to handle LRU in the case?
-        end
-        else if (ibus_ack_i & ibus_burst_last_i) begin
+        if (ibus_ack_i & ibus_burst_last_i) begin
           // After refill update the tag memory entry of the
           // filled way with the LRU history, the tag and set
           // valid to 1.
@@ -570,7 +572,7 @@ module mor1kx_icache_marocchino
         // Lazy invalidation, invalidate everything that matches tag address
         tag_din_lru = 0; // by invalidate
         for (w2 = 0; w2 < OPTION_ICACHE_WAYS; w2 = w2 + 1) begin
-          tag_din_way[w2] = 0;
+          tag_din_way[w2] = {TAGMEM_WAY_WIDTH{1'b0}};
         end
         tag_we = 1'b1;
       end
