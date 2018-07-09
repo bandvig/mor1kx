@@ -155,12 +155,8 @@ module mor1kx_fetch_marocchino
 
   /**** Stage #1 (IMMU/ICACHE access) registers and wires ****/
 
-  // Stage #1 access is valid (regular address update or valid branching)
-  //   To minimize logic for control padv-s1s2 computation we don't
-  // stop IFETCH stages #1 and #2 even so jump/branch target
-  // is not ready. So we rise "hit" if virtual address is valid.
-  reg                             s1o_fetch_req_hit;
-  reg                             s1o_fetch_req_hit_cp;
+  // Stage #1 is valid
+  reg                             s1o_ready;
   // IMMU's registered input(s)
   reg                 [IFOOW-1:0] s1o_virt_addr; // for comparison in IMMU
   reg                 [IFOOW-1:0] s2o_virt_addr; // i.e. pc_fetch_o
@@ -211,8 +207,6 @@ module mor1kx_fetch_marocchino
   // Indicates IBUS ACK for IBUS direct access only
   // (not ACKs for ICACHE refill):
   wire              ibus_ack;
-  // IBUS FSM statuses
-  wire              ibus_fsm_free;
   // IBUS access state machine
   localparam  [3:0] IBUS_IDLE         = 4'b0001,
                     IBUS_READ         = 4'b0010,
@@ -247,9 +241,18 @@ module mor1kx_fetch_marocchino
 
   /**** IFETCH pipe controls ****/
 
+  // Conditions to stall stage #1
+  wire stall_s1 = s2o_ic_refill_req | s2o_ibus_read_req | // stalling stage #1
+                  fetch_an_except_o;                      // stalling stage #1
+  // Advance stage #1
+  wire padv_s1  = padv_fetch_i & (~stall_s1); 
 
-  // Advance stage #1 and #2 simultaneously
-  wire padv_s1s2 = padv_fetch_i & ibus_fsm_free;
+  // For advancing both stages simultaneously
+  wire s2_en = s1o_ready &                                   // advansing stage #2 is enabled
+               (~s2o_ic_refill_req) & (~s2o_ibus_read_req) & // advansing stage #2 is enabled
+               (~fetch_an_except_o);                         // advansing stage #2 is enabled
+  // Advance stage #2
+  wire padv_s2 = padv_fetch_i & s2_en;
 
 
   //-----------------------------------------------//
@@ -287,7 +290,7 @@ module mor1kx_fetch_marocchino
       fetch_exception_taken_o <= 1'b0;
     else if (fetch_exception_taken_o)
       fetch_exception_taken_o <= 1'b0;
-    else if (padv_s1s2)
+    else if (padv_s1)
       fetch_exception_taken_o <= ctrl_branch_exception_i;
   end // @ clock
   // ---
@@ -307,11 +310,8 @@ module mor1kx_fetch_marocchino
     if (flush_by_predict_miss) begin // next address to fetch
       s1r_virt_addr_next <= predict_miss_target_i;
     end
-    else if (padv_s1s2) begin // next address to fetch
-      if (jr_gathering_target_i)
-        s1r_virt_addr_next <= s1r_virt_addr_next;
-      else
-        s1r_virt_addr_next <= virt_addr_mux + 3'd4;
+    else if (padv_s1) begin // next address to fetch
+      s1r_virt_addr_next <= virt_addr_mux + 3'd4;
     end
     else if (do_branch_i) begin // next address to fetch
       s1r_virt_addr_next <= do_branch_target_i;
@@ -320,23 +320,17 @@ module mor1kx_fetch_marocchino
 
   // IMMU match address store register
   always @(posedge cpu_clk) begin
-    if (padv_s1s2)
+    if (padv_s1)
       s1o_virt_addr <= virt_addr_mux;
   end // @ clock
 
 
   // new fetch request is valid
-  wire s1t_fetch_req_hit = ~jr_gathering_target_i;
-  // ---
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i | predict_miss_i) begin // drop "s1o-fetch-req-hit"
-      s1o_fetch_req_hit    <= 1'b0;
-      s1o_fetch_req_hit_cp <= 1'b0;
-    end
-    else if (padv_s1s2) begin  // latch s1o-fetch-req-hit
-      s1o_fetch_req_hit    <= s1t_fetch_req_hit;
-      s1o_fetch_req_hit_cp <= s1t_fetch_req_hit;
-    end
+    if (cpu_rst | pipeline_flush_i | predict_miss_i) // drop "s1o-ready"
+      s1o_ready <= 1'b0;
+    else if (padv_s1)  // latch s1o-ready
+      s1o_ready <= (~jr_gathering_target_i);
   end // @ clock
 
 
@@ -365,7 +359,7 @@ module mor1kx_fetch_marocchino
     .cpu_clk                        (cpu_clk), // IMMU
     .cpu_rst                        (cpu_rst), // IMMU
     // controls
-    .padv_immu_i                    (padv_s1s2), // IMMU
+    .padv_s1_i                      (padv_s1), // IMMU
     .pipeline_flush_i               (pipeline_flush_i), // IMMU
     // configuration
     .enable_i                       (immu_enable_i), // IMMU
@@ -373,7 +367,6 @@ module mor1kx_fetch_marocchino
     // address translation
     .virt_addr_mux_i                (virt_addr_mux), // IMMU
     .virt_addr_tag_i                (s1o_virt_addr), // IMMU
-    .fetch_req_hit_i                (s1o_fetch_req_hit), // IMMU: enables IMMU's exceptions
     .phys_addr_o                    (s2t_phys_addr), // IMMU
     // flags
     .cache_inhibit_o                (s2t_cache_inhibit), // IMMU
@@ -417,7 +410,8 @@ module mor1kx_fetch_marocchino
     .cpu_clk                  (cpu_clk), // ICACHE
     .cpu_rst                  (cpu_rst), // ICACHE
     // pipe controls
-    .padv_s1s2_i              (padv_s1s2), // ICACHE
+    .padv_s1_i                (padv_s1), // ICACHE
+    .padv_s2_i                (padv_s2), // ICACHE
     .pipeline_flush_i         (pipeline_flush_i), // ICACHE
     .predict_miss_i           (predict_miss_i), // ICACHE
     // fetch exceptions
@@ -430,7 +424,6 @@ module mor1kx_fetch_marocchino
     .virt_addr_s1o_i          (s1o_virt_addr), // ICACHE
     .virt_addr_s2o_i          (s2o_virt_addr), // ICACHE
     .phys_addr_s2t_i          (s2t_phys_addr), // ICACHE
-    .fetch_req_hit_i          (s1o_fetch_req_hit_cp), // ICACHE: enables ICACHE's ACK
     .immu_cache_inhibit_i     (s2t_cache_inhibit), // ICACHE
     .ic_ack_o                 (s2t_ic_ack), // ICACHE
     .ic_dat_o                 (s2t_ic_dat), // ICACHE
@@ -461,23 +454,19 @@ module mor1kx_fetch_marocchino
 
   // IMMU match address store register
   always @(posedge cpu_clk) begin
-    if (padv_s1s2)
+    if (padv_s2)
       s2o_virt_addr <= s1o_virt_addr;
   end // @ clock
 
   // registered physical address
   always @(posedge cpu_clk) begin
-    if (padv_s1s2)
+    if (padv_s2)
       s2o_phys_addr <= s2t_phys_addr;
   end
 
   //--------------------//
   // IBUS state machine //
   //--------------------//
-
-  // IBUS FSM is free to process next request
-  assign ibus_fsm_free = (~s2o_ic_refill_req) & (~s2o_ibus_read_req) & // IBUS FSM is free
-                         (~fetch_an_except_o);                         // IBUS FSM is free
 
   // IBUS output ready (no bus error case)
   //  (a) read none-cached area
@@ -595,7 +584,7 @@ module mor1kx_fetch_marocchino
       s2o_imem_ack_rf <= 1'b1;         // IBUS ack
     end
     else if (padv_fetch_i) begin
-      if (ibus_fsm_free) begin           // eq. padv_s1s2, latch IMEM ACK
+      if (s2_en) begin                 // eq. padv_s2, latch IMEM ACK
         s2o_imem_ack    <= s2t_ic_ack;
         s2o_imem_ack_cp <= s2t_ic_ack;
         s2o_imem_ack_rf <= s2t_ic_ack;
@@ -627,7 +616,7 @@ module mor1kx_fetch_marocchino
       fetch_an_except_cp      <= 1'b1;  // IBUS error
       fetch_an_except_rf      <= 1'b1;  // IBUS error
     end
-    else if (padv_s1s2) begin           // latch "an except" and "IBUS err"
+    else if (padv_s2) begin           // latch "an except" and "IBUS err"
       fetch_except_ibus_err_o <= 1'b0;  // s1/s2 advancing
       fetch_an_except_o       <= s2t_immu_an_except; // s1/s2 advancing
       fetch_an_except_cp      <= s2t_immu_an_except; // s1/s2 advancing
@@ -645,7 +634,7 @@ module mor1kx_fetch_marocchino
       // IMMU combined exception flag
       s2o_immu_an_except        <= 1'b0;  // reset / flush
     end
-    else if (padv_s1s2) begin           // latch IMMU related flags
+    else if (padv_s2) begin           // latch IMMU related flags
       // separate exceptions
       fetch_except_itlb_miss_o  <= s2t_tlb_miss; // s1/s2 advancing
       fetch_except_ipagefault_o <= s2t_pagefault; // s1/s2 advancing
@@ -670,12 +659,12 @@ module mor1kx_fetch_marocchino
       s2o_ic_refill_req <= 1'b0;  // reset / flush
     else if (deassert_s2o_ic_refill_req)
       s2o_ic_refill_req <= 1'b0;  // de-assert
-    else if (padv_s1s2)
+    else if (padv_s2)
       s2o_ic_refill_req <= s2t_ic_refill_req;
   end // @ clock
   // --- ICACHE data ---
   always @(posedge cpu_clk) begin
-    if (padv_s1s2) begin
+    if (padv_s2) begin
       s2o_ic_dat             <= s2t_ic_dat;
       s2o_ic_dat_cp          <= s2t_ic_dat;
       s2o_ic_dat_rfa1_adr_rf <= s2t_ic_dat[`OR1K_RA_SELECT];
@@ -694,7 +683,7 @@ module mor1kx_fetch_marocchino
       s2o_ibus_read_req <= 1'b0;  // reset / flush
     else if (deassert_s2o_ibus_read_req)
       s2o_ibus_read_req <= 1'b0;  // de-assert
-    else if (padv_s1s2)
+    else if (padv_s2)
       s2o_ibus_read_req <= s2t_ibus_read_req;
   end // @ clock
   // --- IBUS ack ---
@@ -812,19 +801,19 @@ module mor1kx_fetch_marocchino
   assign s1t_bc_cnt_radr = virt_addr_mux[GSHARE_BITS_NUM+1:2] ^ bc_hist_taken_r;
   // ---
   always @(posedge cpu_clk) begin
-    if (padv_s1s2)
+    if (padv_s1)
       s1o_bc_cnt_radr <= s1t_bc_cnt_radr;
   end // at clock
 
   // saturatin counter read address
   wire [GSHARE_BITS_NUM-1:0] bc_cnt_radr;
-  assign bc_cnt_radr = (padv_s1s2 ? s1t_bc_cnt_radr : s1o_bc_cnt_radr);
+  assign bc_cnt_radr = (padv_s1 ? s1t_bc_cnt_radr : s1o_bc_cnt_radr);
 
   // Read/Write port (*_rwp_*) write
   // !!! In short loop it is possible simultaneous
   // !!! update and reading the same counter
   wire bc_cnt_rwp_we = bc_cnt_we_i & (bc_cnt_wadr_i == bc_cnt_radr); // BC-CNT-RWP-WE
-  wire bc_cnt_rwp_en = padv_s1s2 | bc_cnt_rwp_we;
+  wire bc_cnt_rwp_en = padv_s1 | bc_cnt_rwp_we;
 
   // Write-only port (*_wp_*) enable
   wire bc_cnt_wp_en = bc_cnt_we_i & (bc_cnt_wadr_i != bc_cnt_radr); // BC-CNT-WP-WE
@@ -866,7 +855,7 @@ module mor1kx_fetch_marocchino
   always @(posedge cpu_clk) begin
     if (cpu_rst)
       s2o_bc_cnt_value <= 2'd0;
-    else if (padv_s1s2)
+    else if (padv_s2)
       s2o_bc_cnt_value <= s2t_bc_cnt_value;
   end
   // ---
@@ -876,7 +865,7 @@ module mor1kx_fetch_marocchino
   reg  [GSHARE_BITS_NUM-1:0] s2o_bc_cnt_radr;
   // ---
   always @(posedge cpu_clk) begin
-    if (padv_s1s2)
+    if (padv_s2)
       s2o_bc_cnt_radr <= s1o_bc_cnt_radr;
   end // at clock
   // ---

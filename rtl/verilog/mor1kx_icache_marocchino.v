@@ -42,7 +42,8 @@ module mor1kx_icache_marocchino
   input                                 cpu_rst,
 
   // pipe controls
-  input                                 padv_s1s2_i,
+  input                                 padv_s1_i,
+  input                                 padv_s2_i,
   input                                 pipeline_flush_i,
   input                                 predict_miss_i,
   // fetch exceptions
@@ -57,7 +58,6 @@ module mor1kx_icache_marocchino
   input      [OPTION_OPERAND_WIDTH-1:0] virt_addr_s1o_i,
   input      [OPTION_OPERAND_WIDTH-1:0] virt_addr_s2o_i,
   input      [OPTION_OPERAND_WIDTH-1:0] phys_addr_s2t_i,
-  input                                 fetch_req_hit_i,
   input                                 immu_cache_inhibit_i,
   output                                ic_ack_o,
   output reg     [`OR1K_INSN_WIDTH-1:0] ic_dat_o,
@@ -235,12 +235,12 @@ module mor1kx_icache_marocchino
   // Is the area cachable?
   wire   is_cacheble  = ic_enable_r & ic_check_limit_width & (~immu_cache_inhibit_i);
   // ICACHE ACK
-  assign ic_ack_o     = is_cacheble & fetch_req_hit_i & ic_read &   hit;
+  assign ic_ack_o     = is_cacheble & ic_read &   hit;
   // RE-FILL request
-  assign refill_req_o = is_cacheble & fetch_req_hit_i & ic_read & (~hit);
+  assign refill_req_o = is_cacheble & ic_read & (~hit);
 
   // IBUS access request
-  assign ibus_read_req_o = (~is_cacheble) & fetch_req_hit_i;
+  assign ibus_read_req_o = (~is_cacheble);
 
 
   // read result if success
@@ -368,7 +368,7 @@ module mor1kx_icache_marocchino
       IC_READ: begin // re-fill address register
         if (spr_ic_cs)        // set re-fill address register to invaldate by l.mtspr
           virt_addr_rfl_r <= spr_bus_dat_r;   // invaldate by l.mtspr
-        else if (padv_s1s2_i) // set re-fill address register to initial re-fill address
+        else if (padv_s2_i) // set re-fill address register to initial re-fill address
           virt_addr_rfl_r <= virt_addr_s1o_i; // prepare to re-fill (copy of LSU::s2o_virt_addr)
       end // check
       IC_REFILL: begin
@@ -406,7 +406,7 @@ module mor1kx_icache_marocchino
     // Controls for read/write port.
     // We activate RW-port during re-fill only.
     assign way_rwp_we[i] = ibus_ack_i & lru_way_refill_r[i] & way_rwp_same_addr;
-    assign way_rwp_en[i] = padv_s1s2_i | way_rwp_we[i];
+    assign way_rwp_en[i] = padv_s1_i | way_rwp_we[i];
 
     // Controls for write-only port
     assign way_wp_we[i] = ibus_ack_i & lru_way_refill_r[i] & way_wp_diff_addr;
@@ -449,7 +449,7 @@ module mor1kx_icache_marocchino
   always @(posedge cpu_clk) begin
     if (cpu_rst | pipeline_flush_i | predict_miss_i)
       s2o_ic_ack <= 1'b0;
-    else if (padv_s1s2_i)
+    else if (padv_s2_i)
       s2o_ic_ack <= ic_ack_o;
     else
       s2o_ic_ack <= 1'b0;
@@ -483,7 +483,7 @@ module mor1kx_icache_marocchino
 
   // LRU related data registered on IFETCH output
   always @(posedge cpu_clk) begin
-    if (padv_s1s2_i) begin
+    if (padv_s2_i) begin
       lru_way_s2o             <= lru_way;
       access_way_for_lru_s2o  <= hit_way;
       current_lru_history_s2o <= tag_dout[TAG_LRU_MSB:TAG_LRU_LSB];
@@ -507,7 +507,7 @@ module mor1kx_icache_marocchino
   // store tag state
   integer w1;
   always @(posedge cpu_clk) begin
-    if (padv_s1s2_i) begin
+    if (padv_s2_i) begin
       for (w1 = 0; w1 < OPTION_ICACHE_WAYS; w1 = w1 + 1) begin
         tag_dout_way_s2o[w1] <= tag_dout_way[w1];
       end
@@ -604,12 +604,12 @@ module mor1kx_icache_marocchino
   assign tag_windex = virt_addr_rfl_r[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH]; // TAG_WR_ADDR at invalidate / re-fill / update LRU
 
   // TAG read address
-  assign tag_rindex = padv_s1s2_i ? virt_addr_mux_i[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH] : // TAG_RE_ADDR at regular advance
-                                    virt_addr_s1o_i[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH];  // TAG_RE_ADDR at re-fill, invalidate
+  assign tag_rindex = padv_s1_i ? virt_addr_mux_i[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH] : // TAG_RE_ADDR at regular advance
+                                  virt_addr_s1o_i[WAY_WIDTH-1:OPTION_ICACHE_BLOCK_WIDTH];  // TAG_RE_ADDR at re-fill, invalidate
 
   // Read/Write port (*_rwp_*) write
   wire tag_rwp_we = tag_we & (tag_rindex == tag_windex);
-  wire tag_rwp_en = padv_s1s2_i | tag_rwp_we;
+  wire tag_rwp_en = padv_s1_i | tag_rwp_we;
 
   // Write-only port (*_wp_*) enable
   wire tag_wp_en = tag_we & (tag_rindex != tag_windex);
