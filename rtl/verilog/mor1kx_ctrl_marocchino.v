@@ -75,7 +75,7 @@ module mor1kx_ctrl_marocchino
   input                                 dcod_free_i,
   input                                 dcod_valid_i,
   input                                 exec_valid_i,
-  output reg                            pipeline_flush_o,
+  output                                pipeline_flush_o,
   output                                padv_fetch_o,
   output                                padv_dcod_o,
   output                                padv_exec_o,
@@ -222,7 +222,6 @@ module mor1kx_ctrl_marocchino
   //  # Branch to exception/rfe processing address
   output                                ctrl_branch_exception_o,
   output     [OPTION_OPERAND_WIDTH-1:0] ctrl_branch_except_pc_o,
-  input                                 fetch_exception_taken_i,
   //  # l.rfe
   input                                 exec_op_rfe_i, // to generate registered pipeline-flush
   input                                 wb_op_rfe_i,
@@ -455,10 +454,7 @@ module mor1kx_ctrl_marocchino
 
   // Store exception vector
   always @(posedge cpu_clk) begin
-    if (cpu_rst) begin
-      exception_pc_addr <= OPTION_RESET_PC;
-    end
-    else if (wb_an_except_i) begin
+    if (wb_an_except_i) begin
       // synthesis parallel_case full_case
       casez({wb_except_itlb_miss_i,
              wb_except_ipagefault_i,
@@ -495,37 +491,107 @@ module mor1kx_ctrl_marocchino
   end // @ clock
 
 
-  // flag to select l.rfe related branch vector
-  reg doing_rfe_r;
-  // ---
+  //-------------------------------------------------------------//
+  // State Machine To Collect Exception PC and Push it to IFETCH //
+  //-------------------------------------------------------------//
+
+  localparam [4:0] EXCEPT_PROC_FSM_WAITING    = 5'b00001,
+                   EXCEPT_PROC_FSM_GET_NPC    = 5'b00010, // DU unstall processing
+                   EXCEPT_PROC_FSM_GET_EPC    = 5'b00100, // an exception processing
+                   EXCEPT_PROC_FSM_GET_EPCR   = 5'b01000, // l.rfe processing
+                   EXCEPT_PROC_FSM_TO_IFETCH  = 5'b10000; // put collected target to IFETCH
+
+  reg                       [4:0] except_proc_fsm_state;
+  reg  [OPTION_OPERAND_WIDTH-1:0] ctrl_branch_except_pc_r;
+  reg                             ctrl_branch_exception_r;
+
+  wire except_proc_fsm_get_npc  = except_proc_fsm_state[1];
+  wire except_proc_fsm_get_epc  = except_proc_fsm_state[2];
+//wire except_proc_fsm_get_epcr = except_proc_fsm_state[3];
+
+  assign ctrl_branch_exception_o = ctrl_branch_exception_r;
+  assign ctrl_branch_except_pc_o = ctrl_branch_except_pc_r;
+
   always @(posedge cpu_clk) begin
-    if (cpu_rst)
-      doing_rfe_r <= 1'b0;
-    else if ((doing_rfe_r | du_cpu_unstall) & fetch_exception_taken_i)
-      doing_rfe_r <= 1'b0;
-    else if (wb_op_rfe_i)
-      doing_rfe_r <= 1'b1;
+    if (cpu_rst) begin
+      ctrl_branch_exception_r <= 1'b1; // at reset
+      ctrl_branch_except_pc_r <= OPTION_RESET_PC; // at reset
+      except_proc_fsm_state   <= EXCEPT_PROC_FSM_TO_IFETCH; // at reset
+    end
+    else begin
+      // synthesis parallel_case full_case
+      case (except_proc_fsm_state)
+        EXCEPT_PROC_FSM_WAITING: begin
+          except_proc_fsm_state <= du_cpu_unstall ? EXCEPT_PROC_FSM_GET_NPC :
+                                    (wb_an_except_i ? EXCEPT_PROC_FSM_GET_EPC :
+                                        (wb_op_rfe_i ? EXCEPT_PROC_FSM_GET_EPCR :
+                                                       EXCEPT_PROC_FSM_WAITING));
+        end // waiting
+        EXCEPT_PROC_FSM_GET_NPC,
+        EXCEPT_PROC_FSM_GET_EPC,
+        EXCEPT_PROC_FSM_GET_EPCR: begin
+          ctrl_branch_exception_r <= 1'b1; // collect exception target
+          ctrl_branch_except_pc_r <= except_proc_fsm_get_npc ? spr_npc : // collect exception target
+                                      (except_proc_fsm_get_epc ? exception_pc_addr : // collect exception target
+                                                                 spr_epcr); // collect exception target
+          except_proc_fsm_state   <= EXCEPT_PROC_FSM_TO_IFETCH;  // collect exception target
+        end // collect exception target
+        EXCEPT_PROC_FSM_TO_IFETCH: begin
+          ctrl_branch_exception_r <= 1'b0; // put collected target to IFETCH
+          except_proc_fsm_state   <= EXCEPT_PROC_FSM_WAITING; // put collected target to IFETCH
+        end // put collected target to IFETCH
+      endcase
+    end
   end // @ clock
 
-  // flag to select exception related branch vector
-  reg doing_exception_r;
+
+  //------------------------//
+  // Pipeline control logic //
+  //------------------------//
+
+  // Pipeline flush by DU/exceptions/rfe (l.rfe is in wb-an-except)
+  localparam [2:0] FLUSH_FSM_WAITING   = 3'b001,
+                   FLUSH_FSM_BY_DU     = 3'b010,
+                   FLUSH_FSM_BY_EXCEPT = 3'b100;
+  // ---
+  reg  [2:0] flush_fsm_state;
+  // ---
+  reg    pipeline_flush_r;
+  assign pipeline_flush_o = pipeline_flush_r;
   // ---
   always @(posedge cpu_clk) begin
-    if (cpu_rst)
-      doing_exception_r <= 1'b1; // by reset
-    else if ((doing_exception_r | du_cpu_unstall) & fetch_exception_taken_i)
-      doing_exception_r <= 1'b0;
-    else if (wb_an_except_i)
-      doing_exception_r <= 1'b1;
+    if (cpu_rst) begin
+      pipeline_flush_r <= 1'b1; // at reset
+      flush_fsm_state  <= FLUSH_FSM_BY_EXCEPT; // at reset
+    end
+    else begin
+      // synthesis parallel_case full_case
+      case (flush_fsm_state)
+        FLUSH_FSM_WAITING: begin
+          if (du_cpu_flush) begin
+            pipeline_flush_r <= 1'b1;
+            flush_fsm_state  <= FLUSH_FSM_BY_DU;
+          end
+          else if (padv_wb_o) begin
+            if (exec_an_except_i | exec_op_rfe_i) begin
+              pipeline_flush_r <= 1'b1;
+              flush_fsm_state  <= FLUSH_FSM_BY_EXCEPT;
+            end
+          end
+        end // waiting
+        FLUSH_FSM_BY_DU: begin
+          pipeline_flush_r <= 1'b0;
+          flush_fsm_state  <= FLUSH_FSM_WAITING;
+        end // flush by DU request
+        FLUSH_FSM_BY_EXCEPT: begin
+          if (ctrl_branch_exception_r) begin
+            pipeline_flush_r <= 1'b0;
+            flush_fsm_state  <= FLUSH_FSM_WAITING;
+          end // flush by exception / l.rfe
+        end
+      endcase
+    end
   end // @ clock
-
-  // To FETCH:
-  //   Flag to use DU/exceptions/rfe provided address
-  assign ctrl_branch_exception_o = du_cpu_unstall | doing_exception_r | doing_rfe_r;
-  //   DU/exceptions/rfe provided address itself
-  assign ctrl_branch_except_pc_o = du_cpu_unstall    ? spr_npc           :
-                                   doing_exception_r ? exception_pc_addr :
-                                                       spr_epcr;
 
 
   //--------------------------------//
@@ -536,31 +602,12 @@ module mor1kx_ctrl_marocchino
   reg  ctrl_spr_wb_r;
   // ---
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_o)
+    if (cpu_rst | pipeline_flush_r)
       ctrl_spr_wb_r <= 1'b0;
     else if (padv_wb_o)
       ctrl_spr_wb_r <= 1'b1;
     else
       ctrl_spr_wb_r <= 1'b0;
-  end // @ clock
-
-
-  //------------------------//
-  // Pipeline control logic //
-  //------------------------//
-
-  // initial value of pipeline-flush for simulations
- `ifndef SYNTHESIS
-  // synthesis translate_off
-  initial pipeline_flush_o = 1'b0;
-  // synthesis translate_on
- `endif // !synth
-  // Pipeline flush by DU/exceptions/rfe (l.rfe is in wb-an-except)
-  always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_o)
-      pipeline_flush_o <= 1'b0;
-    else if (padv_wb_o | du_cpu_flush)
-      pipeline_flush_o <= (exec_an_except_i | exec_op_rfe_i | du_cpu_flush);
   end // @ clock
 
 
@@ -947,7 +994,7 @@ module mor1kx_ctrl_marocchino
       case (spr_bus_state)
         // wait SPR BUS access request
         SPR_BUS_WAIT_REQ: begin
-          if (~pipeline_flush_o) begin
+          if (~pipeline_flush_r) begin // prevent execution l.mf(t)spr
             spr_bus_state <= take_op_mXspr  ? SPR_BUS_RUN_MXSPR  :
                              take_access_du ? SPR_BUS_RUN_DU_REQ :
                                               SPR_BUS_WAIT_REQ;
@@ -1399,20 +1446,18 @@ module mor1kx_ctrl_marocchino
         du_cpu_unstall_r <= 1'b0;
       end
       else if (du_cpu_unstall_r) begin
-        if (fetch_exception_taken_i) begin
+        if (ctrl_branch_exception_r) begin
           du_cpu_stall_r   <= 1'b0;
           du_cpu_unstall_r <= 1'b0;
         end
       end
       else if (du_cpu_stall_r) begin
         if (~du_stall_i) begin
-          du_cpu_stall_r   <= 1'b0;
           du_cpu_unstall_r <= 1'b1;
         end
       end
       else if (du_cpu_stall_by_cmd | du_cpu_stall_by_stepping | du_cpu_stall_by_trap) begin
-        du_cpu_stall_r   <= 1'b1;
-        du_cpu_unstall_r <= 1'b0;
+        du_cpu_stall_r <= 1'b1;
       end
     end // @ clock
     // ---
@@ -1428,7 +1473,7 @@ module mor1kx_ctrl_marocchino
     always @(posedge cpu_clk) begin
       if (cpu_rst)
         du_npc_hold_r <= 1'b0;
-      else if (du_cpu_unstall & fetch_exception_taken_i)
+      else if (du_cpu_unstall & ctrl_branch_exception_r)
         du_npc_hold_r <= 1'b0;
       else if (du_npc_we)
         du_npc_hold_r <= 1'b1;

@@ -137,7 +137,6 @@ module mor1kx_fetch_marocchino
   output reg                            fetch_except_itlb_miss_o,
   output reg                            fetch_except_ipagefault_o,
   output reg                            fetch_an_except_o,
-  output reg                            fetch_exception_taken_o,
 
   //  Instruction PC
   output     [OPTION_OPERAND_WIDTH-1:0] pc_fetch_o
@@ -282,31 +281,17 @@ module mor1kx_fetch_marocchino
   /* Stage #1: PC update and IMMU / ICACHE access */
   /************************************************/
 
-
-  // 1-clock fetch-exception-taken
-  always @(posedge cpu_clk) begin
-    if (cpu_rst | flush_by_ctrl)
-      fetch_exception_taken_o <= 1'b0;
-    else if (fetch_exception_taken_o)
-      fetch_exception_taken_o <= 1'b0;
-    else if (padv_s1)
-      fetch_exception_taken_o <= ctrl_branch_exception_i;
-  end // @ clock
-  // ---
-  wire do_except = ctrl_branch_exception_i & (~fetch_exception_taken_o);
-
-
   // Select the PC for next fetch:
   wire [IFOOW-1:0] virt_addr_mux;
-  //                     use DU/exceptions/rfe provided address
-  assign virt_addr_mux = do_except   ? ctrl_branch_except_pc_i :
-  //                     regular update of IFETCH
-                         do_branch_i ? do_branch_target_i      :
-                                       s1r_virt_addr_next;
+  // ---
+  assign virt_addr_mux = do_branch_i ? do_branch_target_i : s1r_virt_addr_next;
 
   // register next virtual address
   always @(posedge cpu_clk) begin
-    if (padv_s1) begin // next address to fetch
+    if (ctrl_branch_exception_i) begin  // next address to fetch
+      s1r_virt_addr_next <= ctrl_branch_except_pc_i;
+    end
+    else if (padv_s1) begin // next address to fetch
       s1r_virt_addr_next <= virt_addr_mux + 3'd4;
     end
     else if (do_branch_i) begin // next address to fetch

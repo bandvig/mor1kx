@@ -593,8 +593,6 @@ module mor1kx_cpu_marocchino
   reg  wb_op_rfe_r;
   wire ctrl_branch_exception;
   wire [OPTION_OPERAND_WIDTH-1:0] ctrl_branch_except_pc;
-  //   exeptions process: fetch->ctrl
-  wire fetch_ecxeption_taken;
 
 
   // Combined exception/interrupt flag
@@ -715,7 +713,6 @@ module mor1kx_cpu_marocchino
     .fetch_except_itlb_miss_o         (fetch_except_itlb_miss), // FETCH
     .fetch_except_ipagefault_o        (fetch_except_ipagefault), // FETCH
     .fetch_an_except_o                (fetch_an_except), // FETCH
-    .fetch_exception_taken_o          (fetch_ecxeption_taken), // FETCH
 
     // Instruction PC
     .pc_fetch_o                       (pc_fetch) // FETCH
@@ -2290,7 +2287,6 @@ module mor1kx_cpu_marocchino
     //  # Branch to exception/rfe processing address
     .ctrl_branch_exception_o          (ctrl_branch_exception), // CTRL
     .ctrl_branch_except_pc_o          (ctrl_branch_except_pc), // CTRL
-    .fetch_exception_taken_i          (fetch_ecxeption_taken), // CTRL
     //  # l.rfe
     .exec_op_rfe_i                    (exec_op_rfe), // CTRL
     .wb_op_rfe_i                      (wb_op_rfe_r), // CTRL
