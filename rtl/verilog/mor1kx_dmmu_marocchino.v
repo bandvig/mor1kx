@@ -42,7 +42,7 @@ module mor1kx_dmmu_marocchino
   input                                 pipeline_flush_i,
 
   // configuration
-  input                                 enable_i,
+  input                                 dmmu_enable_i,
   input                                 supervisor_mode_i,
 
   // commnads
@@ -137,13 +137,13 @@ module mor1kx_dmmu_marocchino
 
   // Local copy of SR[DME]
   // (for masking DMMU output flags, but not for advancing)
-  reg enable_r;
+  reg dmmu_enable_r;
   // ---
   always @(posedge cpu_clk) begin
     if (cpu_rst | pipeline_flush_i)
-      enable_r <= 1'b0;
+      dmmu_enable_r <= 1'b0;
     else if (lsu_s1_adv_i)
-      enable_r <= enable_i;
+      dmmu_enable_r <= dmmu_enable_i;
   end // @ clock
 
   // Local copy of SR[SM] - makes sence only if DMMU enabled
@@ -292,11 +292,11 @@ module mor1kx_dmmu_marocchino
     assign way_hit[i] = (dtlb_match_dout[i][31:13] == virt_addr_tag_i[31:13]) & // address match
                         ~(&dtlb_match_huge_dout[i][1:0]) &                      // ~ huge valid
                          dtlb_match_dout[i][0] &                                // valid bit
-                         enable_r;                                              // mmu enabled
+                         dmmu_enable_r;                                         // mmu enabled
     // Huge page hit
     assign way_huge_hit[i] = (dtlb_match_huge_dout[i][31:24] == virt_addr_tag_i[31:24]) & // address match
                              (&dtlb_match_huge_dout[i][1:0]) &                            // ~ huge valid
-                             enable_r;                                                    // mmu enabled
+                             dmmu_enable_r;                                               // mmu enabled
   end
   endgenerate
 
@@ -306,7 +306,7 @@ module mor1kx_dmmu_marocchino
   integer j;
 
   always @(*) begin
-    tlb_miss_o      = ~tlb_reload_pagefault & enable_r;
+    tlb_miss_o      = ~tlb_reload_pagefault & dmmu_enable_r;
     phys_addr       = virt_addr_tag_i;
     ure             = 1'b0;
     uwe             = 1'b0;
@@ -351,7 +351,7 @@ module mor1kx_dmmu_marocchino
 
   assign pagefault_o = (supervisor_mode_r ? ((~swe & s1o_op_lsu_store_i) | (~sre & s1o_op_lsu_load_i)) :
                                             ((~uwe & s1o_op_lsu_store_i) | (~ure & s1o_op_lsu_load_i))) &
-                       ~tlb_reload_busy_o & enable_r;
+                       ~tlb_reload_busy_o & dmmu_enable_r;
 
  `ifdef SIM_SMPL_SOC // MAROCCHINO_TODO
   assign phys_addr_o = phys_addr;
@@ -414,9 +414,9 @@ module mor1kx_dmmu_marocchino
     reg [3:0] tlb_reload_state = TLB_IDLE;
     wire      do_reload;
 
-    assign do_reload = enable_r & tlb_miss_o & (dmmucr[31:10] != 0) & (s1o_op_lsu_load_i | s1o_op_lsu_store_i);
+    assign do_reload = dmmu_enable_r & tlb_miss_o & (dmmucr[31:10] != 0) & (s1o_op_lsu_load_i | s1o_op_lsu_store_i);
 
-    assign tlb_reload_busy_o = enable_r & (tlb_reload_state != TLB_IDLE) | do_reload;
+    assign tlb_reload_busy_o = dmmu_enable_r & (tlb_reload_state != TLB_IDLE) | do_reload;
 
     assign tlb_reload_pagefault_o = tlb_reload_pagefault & ~tlb_reload_pagefault_clear_i;
 
@@ -519,7 +519,7 @@ module mor1kx_dmmu_marocchino
       endcase
 
       // Abort if enable deasserts in the middle of a reload
-      if (~enable_r | (dmmucr[31:10] == 0))
+      if (~dmmu_enable_r | (dmmucr[31:10] == 0))
         tlb_reload_state <= TLB_IDLE;
     end
     */

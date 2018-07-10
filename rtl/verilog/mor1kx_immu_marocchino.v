@@ -42,7 +42,7 @@ module mor1kx_immu_marocchino
   input                                 pipeline_flush_i,   // drop stored "IMMU enable"
 
   // configuration
-  input                                 enable_i,
+  input                                 immu_enable_i,
   input                                 supervisor_mode_i,
 
   // address translation
@@ -129,13 +129,13 @@ module mor1kx_immu_marocchino
 
   // Local copy of SR[IME]
   // (for masking IMMU output flags, but not for advancing)
-  reg enable_r;
+  reg immu_enable_r;
   // ---
   always @(posedge cpu_clk) begin
     if (cpu_rst | pipeline_flush_i)
-      enable_r <= 1'b0;
+      immu_enable_r <= 1'b0;
     else if (padv_s1_i)
-      enable_r <= enable_i;
+      immu_enable_r <= immu_enable_i;
   end // @ clock
 
   // Local copy of SR[SM] - makes sence only if IMMU enabled
@@ -284,18 +284,18 @@ module mor1kx_immu_marocchino
     assign way_hit[i] = (itlb_match_dout[i][31:13] == virt_addr_tag_i[31:13]) & // address hit
                         ~(&itlb_match_huge_dout[i][1:0]) &                      // not valid huge
                         itlb_match_dout[i][0] &                                 // valid bit
-                        enable_r;                                               // mmu enabled
+                        immu_enable_r;                                          // mmu enabled
     // Huge page hit
     assign way_huge_hit[i] = (itlb_match_huge_dout[i][31:24] == virt_addr_tag_i[31:24]) & // address hit
                              itlb_match_huge_dout[i][1] & itlb_match_huge_dout[i][0] &    // valid huge
-                             enable_r;                                                    // mmu enabled
+                             immu_enable_r;                                               // mmu enabled
   end
   endgenerate
 
   reg [OPTION_OPERAND_WIDTH-1:0] phys_addr;
 
   always @(*) begin
-    tlb_miss_o        = (~tlb_reload_pagefault) & enable_r; // initially "miss"
+    tlb_miss_o        = (~tlb_reload_pagefault) & immu_enable_r; // initially "miss"
     phys_addr         = virt_addr_tag_i;
     sxe               = 1'b0;
     uxe               = 1'b0;
@@ -332,7 +332,7 @@ module mor1kx_immu_marocchino
     end
   end // loop by ways
 
-  assign pagefault_o = (supervisor_mode_r ? ~sxe : ~uxe) & (~tlb_reload_busy_o) & enable_r;
+  assign pagefault_o = (supervisor_mode_r ? ~sxe : ~uxe) & (~tlb_reload_busy_o) & immu_enable_r;
 
   assign phys_addr_o = phys_addr;
 

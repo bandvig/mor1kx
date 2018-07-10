@@ -357,7 +357,6 @@ module mor1kx_cpu_marocchino
   //  ## branch prediction support
   wire [OPTION_OPERAND_WIDTH-1:0] after_ds_target;
   wire                            predict_miss;
-  wire [OPTION_OPERAND_WIDTH-1:0] predict_miss_target;
   wire                      [1:0] bc_cnt_value;  // current value of saturation counter
   wire      [GSHARE_BITS_NUM-1:0] bc_cnt_radr;   // saturation counter ID
   wire                            bc_cnt_we;     // update saturation counter
@@ -679,7 +678,6 @@ module mor1kx_cpu_marocchino
     //  # branch prediction support
     .after_ds_target_o                (after_ds_target), // FETCH
     .predict_miss_i                   (predict_miss), // FETCH
-    .predict_miss_target_i            (predict_miss_target), // FETCH
     .bc_cnt_value_o                   (bc_cnt_value), // FETCH
     .bc_cnt_radr_o                    (bc_cnt_radr), // FETCH
     .bc_cnt_we_i                      (bc_cnt_we), // FETCH
@@ -1103,7 +1101,6 @@ module mor1kx_cpu_marocchino
     //  # branch prediction support
     .after_ds_target_i          (after_ds_target), // OMAN
     .predict_miss_o             (predict_miss), // OMAN
-    .predict_miss_target_o      (predict_miss_target), // OMAN
     .bc_cnt_value_i             (bc_cnt_value), // OMAN
     .bc_cnt_radr_i              (bc_cnt_radr), // OMAN
     .bc_cnt_we_o                (bc_cnt_we), // OMAN

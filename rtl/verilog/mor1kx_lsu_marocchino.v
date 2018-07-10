@@ -452,7 +452,7 @@ module mor1kx_lsu_marocchino
     .lsu_s1_adv_i                     (lsu_s1_adv), // DMMU
     .pipeline_flush_i                 (pipeline_flush_i), // DMMU
     // configuration and commands
-    .enable_i                         (dmmu_enable), // DMMU
+    .dmmu_enable_i                    (dmmu_enable), // DMMU
     .supervisor_mode_i                (supervisor_mode_i), // DMMU
     .s1o_op_lsu_store_i               (s1o_op_lsu_store), // DMMU
     .s1o_op_lsu_load_i                (s1o_op_lsu_load), // DMMU

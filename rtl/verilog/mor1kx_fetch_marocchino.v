@@ -100,7 +100,6 @@ module mor1kx_fetch_marocchino
   //  # branch prediction support
   output     [OPTION_OPERAND_WIDTH-1:0] after_ds_target_o,
   input                                 predict_miss_i,
-  input      [OPTION_OPERAND_WIDTH-1:0] predict_miss_target_i,
   output                          [1:0] bc_cnt_value_o,  // current value of saturation counter
   output          [GSHARE_BITS_NUM-1:0] bc_cnt_radr_o,   // saturation counter ID
   input                                 bc_cnt_we_i,     // update saturation counter
@@ -307,10 +306,7 @@ module mor1kx_fetch_marocchino
 
   // register next virtual address
   always @(posedge cpu_clk) begin
-    if (flush_by_predict_miss) begin // next address to fetch
-      s1r_virt_addr_next <= predict_miss_target_i;
-    end
-    else if (padv_s1) begin // next address to fetch
+    if (padv_s1) begin // next address to fetch
       s1r_virt_addr_next <= virt_addr_mux + 3'd4;
     end
     else if (do_branch_i) begin // next address to fetch
@@ -327,10 +323,12 @@ module mor1kx_fetch_marocchino
 
   // new fetch request is valid
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i | predict_miss_i) // drop "s1o-ready"
+    if (cpu_rst | pipeline_flush_i) // drop "s1o-ready"
       s1o_ready <= 1'b0;
-    else if (padv_s1)  // latch s1o-ready
-      s1o_ready <= (~jr_gathering_target_i);
+    else if (padv_s1)               // latch s1o-ready
+      s1o_ready <= predict_miss_i | (~jr_gathering_target_i);
+    else if (predict_miss_i)        // drop s1o-ready if no stage #1 advance
+      s1o_ready <= 1'b0;
   end // @ clock
 
 
@@ -358,11 +356,12 @@ module mor1kx_fetch_marocchino
   (
     .cpu_clk                        (cpu_clk), // IMMU
     .cpu_rst                        (cpu_rst), // IMMU
-    // controls
-    .padv_s1_i                      (padv_s1), // IMMU
+    // whole CPU pipe controls
     .pipeline_flush_i               (pipeline_flush_i), // IMMU
+    // IFETCH's stages advancing controls
+    .padv_s1_i                      (padv_s1), // IMMU
     // configuration
-    .enable_i                       (immu_enable_i), // IMMU
+    .immu_enable_i                  (immu_enable_i), // IMMU
     .supervisor_mode_i              (supervisor_mode_i), // IMMU
     // address translation
     .virt_addr_mux_i                (virt_addr_mux), // IMMU
@@ -560,7 +559,7 @@ module mor1kx_fetch_marocchino
       predict_miss_r <= 1'b0;         // cpu-rst / pipeline-flush
     else if (deassert_predict_miss_r)
       predict_miss_r <= 1'b0;         // de-assert
-    else if (predict_miss_i)
+    else if (predict_miss_i)          // assert predict miss register
       predict_miss_r <= 1'b1;
   end // at clock
 

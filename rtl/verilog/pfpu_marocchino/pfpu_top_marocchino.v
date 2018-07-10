@@ -544,7 +544,6 @@ localparam [`OR1K_FPCSR_RM_SIZE-1:0] RM_NEAREST = 0;
 localparam [`OR1K_FPCSR_RM_SIZE-1:0] RM_TO_INFP = 2;
 localparam [`OR1K_FPCSR_RM_SIZE-1:0] RM_TO_INFM = 3;
 
-reg   [`OR1K_FPCSR_RM_SIZE-1:0] fpu_round_mode_r;
 reg                             rm_nearest_r;
 //reg                           rm_to_zero_r; -- not used, see PFPU_RND
 reg                             rm_to_infp_r;
@@ -552,44 +551,13 @@ reg                             rm_to_infm_r;
 reg                             except_fpu_enable_r;
 reg [`OR1K_FPCSR_ALLF_SIZE-1:0] fpu_mask_flags_r;
 
-// initial values for simulations
-`ifndef SYNTHESIS
-// synthesis translate_off
-initial begin
-  fpu_round_mode_r    = {`OR1K_FPCSR_RM_SIZE{1'b0}};
-  rm_nearest_r        = 1'b1;
-  rm_to_infp_r        = 1'b0;
-  rm_to_infm_r        = 1'b0;
-  except_fpu_enable_r = 1'b0;
-  fpu_mask_flags_r    = {`OR1K_FPCSR_ALLF_SIZE{1'b1}};
-end
-// synthesis translate_on
-`endif // !syhth
-
-// for FPU's exceptions enable flag
-always @(posedge cpu_clk) begin
-  if (cpu_rst)
-    except_fpu_enable_r <= 1'b0;
-  else if (except_fpu_enable_r ^ except_fpu_enable_i)
-    except_fpu_enable_r <= except_fpu_enable_i;
-end
-
-// for FPU's exceptions masking flags
-always @(posedge cpu_clk) begin
-  if (fpu_mask_flags_r != fpu_mask_flags_i)
-    fpu_mask_flags_r <= fpu_mask_flags_i;
-end
-
-// for rounging mode
-wire rm_nearest_w = (fpu_round_mode_i == RM_NEAREST);
 // ---
 always @(posedge cpu_clk) begin
-  if ((fpu_round_mode_r != fpu_round_mode_i) | (rm_nearest_r ^ rm_nearest_w)) begin
-    fpu_round_mode_r <= fpu_round_mode_i;
-    rm_nearest_r     <= rm_nearest_w;
-    rm_to_infp_r     <= (fpu_round_mode_i == RM_TO_INFP);
-    rm_to_infm_r     <= (fpu_round_mode_i == RM_TO_INFM);
-  end
+  rm_nearest_r        <= (fpu_round_mode_i == RM_NEAREST);
+  rm_to_infp_r        <= (fpu_round_mode_i == RM_TO_INFP);
+  rm_to_infm_r        <= (fpu_round_mode_i == RM_TO_INFM);
+  except_fpu_enable_r <= except_fpu_enable_i;
+  fpu_mask_flags_r    <= fpu_mask_flags_i;
 end
 
 

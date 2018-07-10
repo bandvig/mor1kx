@@ -288,7 +288,6 @@ module mor1kx_oman_marocchino
   //  # branch prediction support
   input      [OPTION_OPERAND_WIDTH-1:0] after_ds_target_i,
   output                                predict_miss_o,
-  output     [OPTION_OPERAND_WIDTH-1:0] predict_miss_target_o,
   input                           [1:0] bc_cnt_value_i,  // current value of saturation counter
   input           [GSHARE_BITS_NUM-1:0] bc_cnt_radr_i,   // saturation counter ID
   output reg                            bc_cnt_we_o,     // update saturation counter
@@ -1131,21 +1130,21 @@ module mor1kx_oman_marocchino
   // --- Feedback to IFETCH --- //
 
 
-  // "Do branch"
-  assign do_branch_o = fetch_op_jimm_i       |  // do jump to immediate
-                       do_bc_predict         |  // do branch conditional
-                       jb_fsm_doing_jr_state;   // do jump to register (B1)
-  // branch target
-  assign do_branch_target_o = jb_fsm_doing_jr_state ? jr_target_p :          // branch target selection
-                                                      fetch_to_imm_target_i; // branch target selection
+  // branch prediction missed
+  assign predict_miss_o = jb_fsm_predict_miss_state;
 
+  // "Do branch"
+  assign do_branch_o = fetch_op_jimm_i       |    // do jump to immediate
+                       do_bc_predict         |    // do branch conditional
+                       jb_fsm_doing_jr_state |    // do jump to register (B1)
+                       jb_fsm_predict_miss_state; // do jump to mispredict target
+  // branch target
+  assign do_branch_target_o = jb_fsm_predict_miss_state ? predict_miss_target_r :   // branch target selection
+                                   (jb_fsm_doing_jr_state ? jr_target_p :           // branch target selection
+                                                            fetch_to_imm_target_i); // branch target selection
 
   // we execute l.jr/l.jalr after registering target only
   assign jr_gathering_target_o = fetch_op_jr_i | jr_gathering_target_p;
-
-  // branch prediction missed
-  assign predict_miss_o        = jb_fsm_predict_miss_state;
-  assign predict_miss_target_o = predict_miss_target_r;
 
 
 
