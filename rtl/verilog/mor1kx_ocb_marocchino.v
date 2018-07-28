@@ -74,7 +74,6 @@ module mor1kx_ocb_marocchino
 (
   // clocks, resets
   input                  clk,
-  input                  rst,
   // pipe controls
   input                  pipeline_flush_i, // flush pipe
   input                  write_i,
@@ -151,7 +150,7 @@ module mor1kx_ocb_marocchino
 
   // update pointer on current tap
   always @(posedge clk) begin
-    if (rst | pipeline_flush_i) begin
+    if (pipeline_flush_i) begin
       ptr_prev <= {{(NUM_TAPS-1){1'b0}},1'b1};
       ptr_curr <= {{NUM_TAPS{1'b0}},1'b1};
     end
@@ -239,7 +238,6 @@ module mor1kx_ocb_miss_marocchino
 (
   // clocks, resets and other input controls
   input                  clk,
-  input                  rst,
   // pipe controls
   input                  pipeline_flush_i, // flush pipe
   input                  write_i,
@@ -276,7 +274,7 @@ module mor1kx_ocb_miss_marocchino
 
   // implementation latched "miss" flag
   always @(posedge clk) begin
-    if (rst | pipeline_flush_i)
+    if (pipeline_flush_i)
       is_miss_r <= 1'b0;
     else if (write_i | is_miss_r)
       is_miss_r <= is_miss_i;
@@ -308,7 +306,7 @@ module mor1kx_ocb_miss_marocchino
     reg full_r;
     // ---
     always @(posedge clk) begin
-      if (rst | pipeline_flush_i)
+      if (pipeline_flush_i)
         full_r <= 1'b0;
       else if (ptrs_inc)
         full_r <= (|ptr_curr[NUM_TAPS:(NUM_TAPS-1)]) & (~is_miss_i);
@@ -325,7 +323,7 @@ module mor1kx_ocb_miss_marocchino
 
   // update pointer on current tap
   always @(posedge clk) begin
-    if (rst | pipeline_flush_i) begin
+    if (pipeline_flush_i) begin
       ptr_prev <= {{(NUM_TAPS-1){1'b0}},1'b1};
       ptr_curr <= {{NUM_TAPS{1'b0}},1'b1};
     end
@@ -414,7 +412,6 @@ module mor1kx_ocbuff_marocchino
 (
   // clocks, resets
   input                         cpu_clk,
-  input                         cpu_rst,
   // pipe controls
   input                         pipeline_flush_i, // flush controls
   input                         write_i,
@@ -592,7 +589,7 @@ module mor1kx_ocbuff_marocchino
 
   // registering of new states
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i) begin
+    if (pipeline_flush_i) begin
       // counter of booked cells
       booked_cnt_r    <= {BOOKED_CNT_SZ{1'b0}}; // reset / pipe flushing
       // registered FIFO states
@@ -627,7 +624,7 @@ module mor1kx_ocbuff_marocchino
     assign empty_o = empty_r;
     // ---
     always @(posedge cpu_clk) begin
-      if (cpu_rst | pipeline_flush_i)
+      if (pipeline_flush_i)
         empty_r <= 1'b0; // reset / pipe flushing
       else
         empty_r <= (booked_cnt_nxt == FIFO_EMPTY); // update
@@ -652,7 +649,7 @@ module mor1kx_ocbuff_marocchino
     assign full_o = full_r;
     // ---
     always @(posedge cpu_clk) begin
-      if (cpu_rst | pipeline_flush_i)
+      if (pipeline_flush_i)
         full_r <= 1'b0; // reset / pipe flushing
       else
         full_r <= (booked_cnt_nxt == FIFO_FULL); // update
@@ -724,7 +721,6 @@ module mor1kx_ocbuff_miss_marocchino
 (
   // clocks, resets
   input                         cpu_clk,
-  input                         cpu_rst,
   // pipe controls
   input                         pipeline_flush_i, // flush controls
   input                         write_i,
@@ -784,7 +780,7 @@ module mor1kx_ocbuff_miss_marocchino
   reg  is_miss_r;
   // ---
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i)
+    if (pipeline_flush_i)
       is_miss_r <= 1'b0;
     else if (write_i | is_miss_r)
       is_miss_r <= is_miss_i;
@@ -959,7 +955,7 @@ module mor1kx_ocbuff_miss_marocchino
 
   // registering of new states
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i) begin
+    if (pipeline_flush_i) begin
       // counter of booked cells
       booked_cnt_r    <= {BOOKED_CNT_SZ{1'b0}}; // reset / pipe flushing
       // registered FIFO states
@@ -996,7 +992,7 @@ module mor1kx_ocbuff_miss_marocchino
     assign full_o = full_r;
     // ---
     always @(posedge cpu_clk) begin
-      if (cpu_rst | pipeline_flush_i)
+      if (pipeline_flush_i)
         full_r <= 1'b0; // reset / pipe flushing
       else
         full_r <= (booked_cnt_nxt == FIFO_FULL); // update
@@ -1092,7 +1088,6 @@ module mor1kx_rsrvs_marocchino
 (
   // clocks and resets
   input                                     cpu_clk,
-  input                                     cpu_rst,
 
   // pipeline control signals
   input                                     pipeline_flush_i,
@@ -1227,7 +1222,7 @@ module mor1kx_rsrvs_marocchino
 
   // latch command and its attributes
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i) begin
+    if (pipeline_flush_i) begin
       busy_op_any_r <= 1'b0;
       busy_op_r     <= {OP_WIDTH{1'b0}};
       busy_opc_r    <= {OPC_WIDTH{1'b0}};
@@ -1290,7 +1285,7 @@ module mor1kx_rsrvs_marocchino
   // latches for common part
   //  # hazard flags
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i) begin
+    if (pipeline_flush_i) begin
       //  # relative operand A1
       busy_hazard_d1a1_r <= 1'b0;
       busy_hazard_d2a1_r <= 1'b0;
@@ -1383,7 +1378,7 @@ module mor1kx_rsrvs_marocchino
     reg     [DEST_EXTADR_WIDTH-1:0] busy_extadr_dxb2_r;
     // ---
     always @(posedge cpu_clk) begin
-      if (cpu_rst | pipeline_flush_i) begin
+      if (pipeline_flush_i) begin
         //  # relative operand A2
         busy_hazard_d1a2_r <= 1'b0;
         busy_hazard_d2a2_r <= 1'b0;
@@ -1527,7 +1522,7 @@ module mor1kx_rsrvs_marocchino
 
   // --- execute: command and attributes latches ---
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i) begin
+    if (pipeline_flush_i) begin
       exec_op_any_r <= 1'b0;
       exec_op_r     <= {OP_WIDTH{1'b0}};
       exec_opc_r    <= {OPC_WIDTH{1'b0}};
@@ -1566,7 +1561,7 @@ module mor1kx_rsrvs_marocchino
 
   // ---
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i) begin
+    if (pipeline_flush_i) begin
       //  # relative operand A1
       exec_hazard_d1a1_r <= 1'b0;
       exec_hazard_d2a1_r <= 1'b0;
@@ -1682,7 +1677,7 @@ module mor1kx_rsrvs_marocchino
     reg [OPTION_OPERAND_WIDTH-1:0] exec_rfb2_r;
     // ---
     always @(posedge cpu_clk) begin
-      if (cpu_rst | pipeline_flush_i) begin
+      if (pipeline_flush_i) begin
         //  # relative operand A2
         exec_hazard_d1a2_r <= 1'b0;
         exec_hazard_d2a2_r <= 1'b0;

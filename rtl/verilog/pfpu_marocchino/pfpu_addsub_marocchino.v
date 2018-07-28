@@ -49,7 +49,6 @@ module pfpu_addsub_marocchino
 (
   // clocks and resets
   input             cpu_clk,
-  input             cpu_rst,
   // ADD/SUB pipe controls
   input             pipeline_flush_i,
   input             exec_op_fpxx_any_i,
@@ -159,7 +158,7 @@ module pfpu_addsub_marocchino
 
   // "stage #0 is ready" flag
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i)
+    if (pipeline_flush_i)
       s0o_ready <= 1'b0;
     else if (s0_adv)
       s0o_ready <= exec_op_fpxx_any_i;
@@ -171,7 +170,7 @@ module pfpu_addsub_marocchino
 
   // "there are pending data " flag
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i)
+    if (pipeline_flush_i)
       s0o_pending <= 1'b0;
     else if (s1_adv)
       s0o_pending <= 1'b0;
@@ -255,7 +254,7 @@ module pfpu_addsub_marocchino
 
   // ready is special case
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i)
+    if (pipeline_flush_i)
       s1o_ready <= 1'b0;
     else if (s1_adv)
       s1o_ready <= 1'b1;
@@ -359,7 +358,7 @@ module pfpu_addsub_marocchino
 
   // ready is special case
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i)
+    if (pipeline_flush_i)
       s2o_ready <= 1'b0;
     else if (s2_adv)
       s2o_ready <= 1'b1;
@@ -399,7 +398,7 @@ module pfpu_addsub_marocchino
 
   // ready is special case
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i)
+    if (pipeline_flush_i)
       s3o_ready <= 1'b0;
     else if (s3_adv)
       s3o_ready <= 1'b1;
@@ -518,7 +517,7 @@ module pfpu_addsub_marocchino
 
   // ready is special case
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i)
+    if (pipeline_flush_i)
       add_rdy_o <= 1'b0;
     else if (s4_adv)
       add_rdy_o <= 1'b1;

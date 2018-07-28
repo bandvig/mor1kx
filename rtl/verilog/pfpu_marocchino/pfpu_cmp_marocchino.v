@@ -50,7 +50,6 @@ module pfpu_cmp_marocchino
 (
   // clock and reset
   input              cpu_clk,
-  input              cpu_rst,
   // pipeline controls
   input              pipeline_flush_i,     // flush pipe
   output             taking_op_fpxx_cmp_o,
@@ -165,7 +164,7 @@ module pfpu_cmp_marocchino
 
   // ready is special case
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i)
+    if (pipeline_flush_i)
       s1o_ready <= 1'b0;
     else if (s1_adv)
       s1o_ready <= exec_op_fpxx_any_i;
@@ -175,7 +174,7 @@ module pfpu_cmp_marocchino
 
   //  valid flag
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i)
+    if (pipeline_flush_i)
       fpxx_cmp_valid_o <= 1'b0;
     else if (s1_adv)
       fpxx_cmp_valid_o <= exec_op_fpxx_any_i;
@@ -270,7 +269,7 @@ module pfpu_cmp_marocchino
   ////////////////////////////////////////////////////////////////////////
   // WB-miss flag
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i)
+    if (pipeline_flush_i)
       fpxx_cmp_wb_miss_r <= 1'b0;
     else if (padv_wb_i & grant_wb_to_fpxx_cmp_i)
       fpxx_cmp_wb_miss_r <= 1'b0;
@@ -311,7 +310,7 @@ module pfpu_cmp_marocchino
   ////////////////////////////////////////////////////////////////////////
   // WB latches: flag set/clear
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i) begin
+    if (pipeline_flush_i) begin
       wb_fpxx_flag_set_o   <= 1'b0;
       wb_fpxx_flag_clear_o <= 1'b0;
     end
@@ -346,7 +345,7 @@ module pfpu_cmp_marocchino
   ////////////////////////////////////////////////////////////////////////
   // WB latches: update FPCSR (1-clock to prevent extra writes into FPCSR)
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i)
+    if (pipeline_flush_i)
       wb_fpxx_cmp_wb_fpcsr_o <= 1'b0;
     else if (padv_wb_i)
       wb_fpxx_cmp_wb_fpcsr_o <= grant_wb_to_fpxx_cmp_i;
@@ -357,7 +356,7 @@ module pfpu_cmp_marocchino
   ////////////////////////////////////////////////////////////////////////
   // WB latches: an fp-comparison exception
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i)
+    if (pipeline_flush_i)
       wb_except_fpxx_cmp_o <= 1'b0;
     else if (padv_wb_i)
       wb_except_fpxx_cmp_o <= exec_except_fpxx_cmp_o;

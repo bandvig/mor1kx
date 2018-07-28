@@ -1,6 +1,6 @@
 ////////////////////////////////////////////////////////////////////////
 //                                                                    //
-//  mor1kx_icache_marocchino                                          //
+//  mor1kx_fetch_marocchino                                           //
 //                                                                    //
 //  Description: mor1kx fetch/address stage unit                      //
 //               for MAROCCHINO pipeline                              //
@@ -153,11 +153,12 @@ module mor1kx_fetch_marocchino
 
   /**** Stage #1 (IMMU/ICACHE access) registers and wires ****/
 
-  // Stage #1 is valid
-  reg                             s1o_ready;
   // IMMU's registered input(s)
   reg                 [IFOOW-1:0] s1o_virt_addr; // for comparison in IMMU
   reg                 [IFOOW-1:0] s2o_virt_addr; // i.e. pc_fetch_o
+  // IMMU's super-cache statuses
+  wire                            s1o_immu_rdy;
+  wire                            s1o_immu_upd;
   /* HW reload TLB related (MAROCCHINO_TODO : not implemented yet)
   wire                            tlb_reload_req;
   reg                             tlb_reload_ack;
@@ -240,13 +241,14 @@ module mor1kx_fetch_marocchino
   /**** IFETCH pipe controls ****/
 
   // Conditions to stall stage #1
-  wire stall_s1 = s2o_ic_refill_req | s2o_ibus_read_req | // stalling stage #1
+  wire stall_s1 = s1o_immu_upd |                          // stalling stage #1
+                  s2o_ic_refill_req | s2o_ibus_read_req | // stalling stage #1
                   fetch_an_except_o;                      // stalling stage #1
   // Advance stage #1
   wire padv_s1  = padv_fetch_i & (~stall_s1); 
 
   // For advancing both stages simultaneously
-  wire s2_en = s1o_ready &                                   // advansing stage #2 is enabled
+  wire s2_en = s1o_immu_rdy &                                // advansing stage #2 is enabled
                (~s2o_ic_refill_req) & (~s2o_ibus_read_req) & // advansing stage #2 is enabled
                (~fetch_an_except_o);                         // advansing stage #2 is enabled
   // Advance stage #2
@@ -306,17 +308,6 @@ module mor1kx_fetch_marocchino
   end // @ clock
 
 
-  // new fetch request is valid
-  always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i) // drop "s1o-ready"
-      s1o_ready <= 1'b0;
-    else if (padv_s1)               // latch s1o-ready
-      s1o_ready <= predict_miss_i | (~jr_gathering_target_i);
-    else if (predict_miss_i)        // drop s1o-ready if no stage #1 advance
-      s1o_ready <= 1'b0;
-  end // @ clock
-
-
   //------------------//
   // Instance of IMMU //
   //------------------//
@@ -344,13 +335,17 @@ module mor1kx_fetch_marocchino
     // whole CPU pipe controls
     .pipeline_flush_i               (pipeline_flush_i), // IMMU
     // IFETCH's stages advancing controls
+    .predict_miss_i                 (predict_miss_i), // IMMU
     .padv_s1_i                      (padv_s1), // IMMU
+    .jr_gathering_target_i          (jr_gathering_target_i), // IMMU
+    .s1o_immu_rdy_o                 (s1o_immu_rdy), // IMMU
+    .s1o_immu_upd_o                 (s1o_immu_upd), // IMMU
     // configuration
     .immu_enable_i                  (immu_enable_i), // IMMU
     .supervisor_mode_i              (supervisor_mode_i), // IMMU
     // address translation
     .virt_addr_mux_i                (virt_addr_mux), // IMMU
-    .virt_addr_tag_i                (s1o_virt_addr), // IMMU
+    .virt_addr_s1o_i                (s1o_virt_addr), // IMMU
     .phys_addr_o                    (s2t_phys_addr), // IMMU
     // flags
     .cache_inhibit_o                (s2t_cache_inhibit), // IMMU
@@ -397,9 +392,7 @@ module mor1kx_fetch_marocchino
     .padv_s1_i                (padv_s1), // ICACHE
     .padv_s2_i                (padv_s2), // ICACHE
     .pipeline_flush_i         (pipeline_flush_i), // ICACHE
-    .predict_miss_i           (predict_miss_i), // ICACHE
     // fetch exceptions
-    .s2o_immu_an_except_i     (s2o_immu_an_except), // ICACHE
     .ibus_err_i               (ibus_err_i), // ICACHE: cancel re-fill
     // configuration
     .ic_enable_i              (ic_enable_i), // ICACHE
@@ -540,7 +533,7 @@ module mor1kx_fetch_marocchino
                                  (ic_refill_state & ibus_ack_i & ibus_burst_last_i); // de-assert misprediction extender
   // ---
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i)
+    if (pipeline_flush_i)
       predict_miss_r <= 1'b0;         // cpu-rst / pipeline-flush
     else if (deassert_predict_miss_r)
       predict_miss_r <= 1'b0;         // de-assert
@@ -557,7 +550,7 @@ module mor1kx_fetch_marocchino
 
   // ACK from ICACHE or IBUS without exceptions
   always @(posedge cpu_clk) begin
-    if (cpu_rst | flush_by_ctrl | flush_by_predict_miss) begin // drop "s2o-imem-ack"
+    if (flush_by_ctrl | flush_by_predict_miss) begin // drop "s2o-imem-ack"
       s2o_imem_ack    <= 1'b0;         // reset / flush
       s2o_imem_ack_cp <= 1'b0;         // reset / flush
       s2o_imem_ack_rf <= 1'b0;         // reset / flush
@@ -588,7 +581,7 @@ module mor1kx_fetch_marocchino
 
   // Exceptions: IBUS error and combined
   always @(posedge cpu_clk) begin
-    if (cpu_rst | flush_by_ctrl | flush_by_predict_miss) begin // drop "IBUS error" and "fetch-an-except"
+    if (flush_by_ctrl | flush_by_predict_miss) begin // drop "IBUS error" and "fetch-an-except"
       fetch_except_ibus_err_o <= 1'b0;  // reset / flush
       fetch_an_except_o       <= 1'b0;  // reset / flush
       fetch_an_except_cp      <= 1'b0;  // reset / flush
@@ -611,7 +604,7 @@ module mor1kx_fetch_marocchino
 
   // Exceptions: IMMU related
   always @(posedge cpu_clk) begin
-    if (cpu_rst | flush_by_ctrl | flush_by_predict_miss) begin // drop "IMMU" exceptions
+    if (flush_by_ctrl | flush_by_predict_miss) begin // drop "IMMU" exceptions
       // separate exceptions
       fetch_except_itlb_miss_o  <= 1'b0;  // reset / flush
       fetch_except_ipagefault_o <= 1'b0;  // reset / flush
@@ -672,7 +665,7 @@ module mor1kx_fetch_marocchino
   end // @ clock
   // --- IBUS ack ---
   always @(posedge cpu_clk) begin
-    if (cpu_rst | flush_by_ctrl | flush_by_predict_miss) begin // drop "s2o-ibus-ack"
+    if (flush_by_ctrl | flush_by_predict_miss) begin // drop "s2o-ibus-ack"
       s2o_ibus_ack    <= 1'b0; // reset / flush
       s2o_ibus_ack_cp <= 1'b0; // reset / flush
       s2o_ibus_ack_rf <= 1'b0; // reset / flush
@@ -747,7 +740,7 @@ module mor1kx_fetch_marocchino
 
   // delay slot flag
   always @(posedge cpu_clk) begin
-    if (cpu_rst | flush_by_ctrl | flush_by_predict_miss) // drop "fetch-delay-slot"
+    if (flush_by_ctrl | flush_by_predict_miss) // drop "fetch-delay-slot"
       fetch_delay_slot_o <= 1'b0; // reset / flush
     else if (padv_fetch_i)
       fetch_delay_slot_o <= fetch_valid_o ? fetch_op_jb_o : fetch_delay_slot_o;
@@ -834,25 +827,21 @@ module mor1kx_fetch_marocchino
   // --- stage #2 latch current counter ---
 
   // output saturation counter value
-  reg  [1:0] s2o_bc_cnt_value;
+  reg    [1:0] s2o_bc_cnt_value;
+  assign       bc_cnt_value_o = s2o_bc_cnt_value;
   // ---
   always @(posedge cpu_clk) begin
-    if (cpu_rst)
-      s2o_bc_cnt_value <= 2'd0;
-    else if (padv_s2)
+    if (padv_s2)
       s2o_bc_cnt_value <= s2t_bc_cnt_value;
   end
-  // ---
-  assign bc_cnt_value_o = s2o_bc_cnt_value;
 
   // output saturation counter ID
-  reg  [GSHARE_BITS_NUM-1:0] s2o_bc_cnt_radr;
+  reg    [GSHARE_BITS_NUM-1:0] s2o_bc_cnt_radr;
+  assign                       bc_cnt_radr_o = s2o_bc_cnt_radr;
   // ---
   always @(posedge cpu_clk) begin
     if (padv_s2)
       s2o_bc_cnt_radr <= s1o_bc_cnt_radr;
   end // at clock
-  // ---
-  assign bc_cnt_radr_o = s2o_bc_cnt_radr;
 
 endmodule // mor1kx_fetch_marocchino

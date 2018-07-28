@@ -696,19 +696,7 @@ module mor1kx_rf_marocchino
 
   // update operand addresses
   always @(posedge cpu_clk) begin
-    if (cpu_rst) begin
-      // LSB of Ax/Bx operand addresses
-      dcod_rfa1_adr_odd <= 1'b0;
-      dcod_rfb1_adr_odd <= 1'b0;
-      dcod_rfa2_adr_odd <= 1'b1;
-      dcod_rfb2_adr_odd <= 1'b1;
-      // Even/Odd sorted operand addresses
-      dcod_rfa_even_adr <= {RF_AW{1'b0}};
-      dcod_rfa_odd_adr  <= {{(RF_AW-1){1'b0}},1'b1};
-      dcod_rfb_even_adr <= {RF_AW{1'b0}};
-      dcod_rfb_odd_adr  <= {{(RF_AW-1){1'b0}},1'b1};
-    end
-    else if (padv_dcod_i) begin
+    if (padv_dcod_i) begin
       // Ax/Bx operand addresses
       dcod_rfa1_adr_odd <= fetch_rfa1_adr_i[0];
       dcod_rfb1_adr_odd <= fetch_rfb1_adr_i[0];

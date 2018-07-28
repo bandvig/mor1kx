@@ -38,7 +38,6 @@ module rat_cell
 (
   // clock & reset
   input                                 cpu_clk,
-  input                                 cpu_rst,
 
   // pipeline control
   input                                 padv_exec_i,
@@ -79,7 +78,7 @@ module rat_cell
 
   // allocation flags
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i) begin
+    if (pipeline_flush_i) begin
       rat_rd1_alloc_o <= 1'b0;
       rat_rd2_alloc_o <= 1'b0;
     end
@@ -390,7 +389,7 @@ module mor1kx_oman_marocchino
   reg dcod_fetch_except_itlb_miss_r;
   // ---
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i) begin
+    if (pipeline_flush_i) begin
       dcod_fetch_except_ibus_err_r   <= 1'b0;
       dcod_fetch_except_ipagefault_r <= 1'b0;
       dcod_fetch_except_itlb_miss_r  <= 1'b0;
@@ -419,7 +418,7 @@ module mor1kx_oman_marocchino
   assign extadr_adder = (dcod_extadr_r == EXTADR_MAX) ? EXTADR_MIN : (dcod_extadr_r + 1'b1);
   // ---
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i)
+    if (pipeline_flush_i)
       dcod_extadr_r <= {DEST_EXTADR_WIDTH{1'b0}};
     else if (padv_dcod_i)
       dcod_extadr_r <= fetch_valid_i ? extadr_adder : dcod_extadr_r;
@@ -508,13 +507,12 @@ module mor1kx_oman_marocchino
   (
     // clocks, resets
     .cpu_clk          (cpu_clk), // INSN_OCB
-    .cpu_rst          (cpu_rst), // INSN_OCB
     // pipe controls
     .pipeline_flush_i (pipeline_flush_i), // INSN_OCB
     .write_i          (padv_exec_i), // INSN_OCB
     .read_i           (padv_wb_i), // INSN_OCB
     // value at reset/flush
-    .reset_ocbo_i     (cpu_rst | pipeline_flush_i), // INSN_OCB
+    .reset_ocbo_i     (pipeline_flush_i), // INSN_OCB
     // data input
     .ocbi_i           (ocbi), // INSN_OCB
     // "OCB is empty" flag
@@ -553,7 +551,7 @@ module mor1kx_oman_marocchino
 
   // requested operands in DECODE (request flags)
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i) begin
+    if (pipeline_flush_i) begin
       dcod_rfa1_req <= 1'b0;
       dcod_rfb1_req <= 1'b0;
       dcod_rfa2_req <= 1'b0;
@@ -608,34 +606,33 @@ module mor1kx_oman_marocchino
     // RAT cells instansence
     rat_cell
     #(
-      .OPTION_RF_ADDR_WIDTH   (OPTION_RF_ADDR_WIDTH), // RAT-CELL-NNN
-      .DEST_EXTADR_WIDTH      (DEST_EXTADR_WIDTH), // RAT-CELL-NNN
-      .GPR_ADDR               (ic) // RAT-CELL-NNN
+      .OPTION_RF_ADDR_WIDTH   (OPTION_RF_ADDR_WIDTH), // RAT-CELL
+      .DEST_EXTADR_WIDTH      (DEST_EXTADR_WIDTH), // RAT-CELL
+      .GPR_ADDR               (ic) // RAT-CELL
     )
     u_rat_cell
     (
       // clock & reset
-      .cpu_clk                (cpu_clk), // RAT-CELL-NNN
-      .cpu_rst                (cpu_rst), // RAT-CELL-NNN
+      .cpu_clk                (cpu_clk), // RAT-CELL
       // pipeline control
-      .padv_exec_i            (padv_exec_i), // RAT-CELL-NNN
-      .padv_wb_i              (padv_wb_i), // RAT-CELL-NNN
-      .pipeline_flush_i       (pipeline_flush_i), // RAT-CELL-NNN
+      .padv_exec_i            (padv_exec_i), // RAT-CELL
+      .padv_wb_i              (padv_wb_i), // RAT-CELL
+      .pipeline_flush_i       (pipeline_flush_i), // RAT-CELL
       // input allocation information
       //  # allocated as D1
-      .dcod_rfd1_wb_i         (dcod_rfd1_wb_i), // RAT-CELL-NNN
-      .dcod_rfd1_adr_i        (dcod_rfd1_adr_i), // RAT-CELL-NNN
+      .dcod_rfd1_wb_i         (dcod_rfd1_wb_i), // RAT-CELL
+      .dcod_rfd1_adr_i        (dcod_rfd1_adr_i), // RAT-CELL
       //  # allocated as D2
-      .dcod_rfd2_wb_i         (dcod_rfd2_wb_i), // RAT-CELL-NNN
-      .dcod_rfd2_adr_i        (dcod_rfd2_adr_i), // RAT-CELL-NNN
+      .dcod_rfd2_wb_i         (dcod_rfd2_wb_i), // RAT-CELL
+      .dcod_rfd2_adr_i        (dcod_rfd2_adr_i), // RAT-CELL
       //  # allocation id
-      .dcod_extadr_i          (dcod_extadr_r), // RAT-CELL-NNN
+      .dcod_extadr_i          (dcod_extadr_r), // RAT-CELL
       // input to clear allocation bits
-      .exec_extadr_i          (exec_extadr), // RAT-CELL-NNN
+      .exec_extadr_i          (exec_extadr), // RAT-CELL
       // output allocation information
-      .rat_rd1_alloc_o        (rat_rd1_alloc[ic]), // RAT-CELL-NNN
-      .rat_rd2_alloc_o        (rat_rd2_alloc[ic]), // RAT-CELL-NNN
-      .rat_extadr_o           (rat_extadr[ic]) // RAT-CELL-NNN
+      .rat_rd1_alloc_o        (rat_rd1_alloc[ic]), // RAT-CELL
+      .rat_rd2_alloc_o        (rat_rd2_alloc[ic]), // RAT-CELL
+      .rat_extadr_o           (rat_extadr[ic]) // RAT-CELL
     );
     end
   endgenerate
@@ -701,7 +698,7 @@ module mor1kx_oman_marocchino
 
   // OMAN-to-DECODE hazards flags by operands
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i) begin
+    if (pipeline_flush_i) begin
       //  # relative operand A1
       omn2dec_hazard_d1a1_o <= 1'b0;
       omn2dec_hazard_d2a1_o <= 1'b0;
@@ -793,70 +790,54 @@ module mor1kx_oman_marocchino
   wire exe2dcd_dxb2_fwd = (rat_extadr[dcod_rfb2_adr] == exec_extadr) & dcod_rfb2_req;
   // ---
   always @(posedge cpu_clk) begin
-    if (cpu_rst) begin
-      //  # relative operand A1
-      dcod_wb2dec_d1a1_fwd_o <= 1'b0;
-      dcod_wb2dec_d2a1_fwd_o <= 1'b0;
-      //  # relative operand B1
-      dcod_wb2dec_d1b1_fwd_o <= 1'b0;
-      dcod_wb2dec_d2b1_fwd_o <= 1'b0;
-      //  # relative operand A2
-      dcod_wb2dec_d1a2_fwd_o <= 1'b0;
-      dcod_wb2dec_d2a2_fwd_o <= 1'b0;
-      //  # relative operand B2
-      dcod_wb2dec_d1b2_fwd_o <= 1'b0;
-      dcod_wb2dec_d2b2_fwd_o <= 1'b0;
-    end
-    else begin
-      // synthesis parallel_case full_case
-      case ({padv_wb_i,padv_dcod_i})
-        // when write-back only
-        2'b10: begin
-          //  # relative operand A1
-          dcod_wb2dec_d1a1_fwd_o <= omn2dec_hazard_d1a1_o & exe2dcd_dxa1_fwd;
-          dcod_wb2dec_d2a1_fwd_o <= omn2dec_hazard_d2a1_o & exe2dcd_dxa1_fwd;
-          //  # relative operand B1
-          dcod_wb2dec_d1b1_fwd_o <= omn2dec_hazard_d1b1_o & exe2dcd_dxb1_fwd;
-          dcod_wb2dec_d2b1_fwd_o <= omn2dec_hazard_d2b1_o & exe2dcd_dxb1_fwd;
-          //  # relative operand A2
-          dcod_wb2dec_d1a2_fwd_o <= omn2dec_hazard_d1a2_o & exe2dcd_dxa2_fwd;
-          dcod_wb2dec_d2a2_fwd_o <= omn2dec_hazard_d1a2_o & exe2dcd_dxa2_fwd;
-          //  # relative operand B2
-          dcod_wb2dec_d1b2_fwd_o <= omn2dec_hazard_d1b2_o & exe2dcd_dxb2_fwd;
-          dcod_wb2dec_d2b2_fwd_o <= omn2dec_hazard_d2b2_o & exe2dcd_dxb2_fwd;
-        end
-        // when write-back overlapes FETCH->DECODE advance
-        2'b11: begin
-          //  # relative operand A1
-          dcod_wb2dec_d1a1_fwd_o <= omn2fth_hazard_d1a1 & exe2fth_dxa1_fwd;
-          dcod_wb2dec_d2a1_fwd_o <= omn2fth_hazard_d2a1 & exe2fth_dxa1_fwd;
-          //  # relative operand B1
-          dcod_wb2dec_d1b1_fwd_o <= omn2fth_hazard_d1b1 & exe2fth_dxb1_fwd;
-          dcod_wb2dec_d2b1_fwd_o <= omn2fth_hazard_d2b1 & exe2fth_dxb1_fwd;
-          //  # relative operand A2
-          dcod_wb2dec_d1a2_fwd_o <= omn2fth_hazard_d1a2 & exe2fth_dxa2_fwd;
-          dcod_wb2dec_d2a2_fwd_o <= omn2fth_hazard_d2a2 & exe2fth_dxa2_fwd;
-          //  # relative operand B2
-          dcod_wb2dec_d1b2_fwd_o <= omn2fth_hazard_d1b2 & exe2fth_dxb2_fwd;
-          dcod_wb2dec_d2b2_fwd_o <= omn2fth_hazard_d2b2 & exe2fth_dxb2_fwd;
-        end
-        // 1-clock length
-        default: begin
-          //  # relative operand A1
-          dcod_wb2dec_d1a1_fwd_o <= 1'b0;
-          dcod_wb2dec_d2a1_fwd_o <= 1'b0;
-          //  # relative operand B1
-          dcod_wb2dec_d1b1_fwd_o <= 1'b0;
-          dcod_wb2dec_d2b1_fwd_o <= 1'b0;
-          //  # relative operand A2
-          dcod_wb2dec_d1a2_fwd_o <= 1'b0;
-          dcod_wb2dec_d2a2_fwd_o <= 1'b0;
-          //  # relative operand B2
-          dcod_wb2dec_d1b2_fwd_o <= 1'b0;
-          dcod_wb2dec_d2b2_fwd_o <= 1'b0;
-        end
-      endcase
-    end
+    // synthesis parallel_case full_case
+    case ({padv_wb_i,padv_dcod_i})
+      // when write-back only
+      2'b10: begin
+        //  # relative operand A1
+        dcod_wb2dec_d1a1_fwd_o <= omn2dec_hazard_d1a1_o & exe2dcd_dxa1_fwd;
+        dcod_wb2dec_d2a1_fwd_o <= omn2dec_hazard_d2a1_o & exe2dcd_dxa1_fwd;
+        //  # relative operand B1
+        dcod_wb2dec_d1b1_fwd_o <= omn2dec_hazard_d1b1_o & exe2dcd_dxb1_fwd;
+        dcod_wb2dec_d2b1_fwd_o <= omn2dec_hazard_d2b1_o & exe2dcd_dxb1_fwd;
+        //  # relative operand A2
+        dcod_wb2dec_d1a2_fwd_o <= omn2dec_hazard_d1a2_o & exe2dcd_dxa2_fwd;
+        dcod_wb2dec_d2a2_fwd_o <= omn2dec_hazard_d1a2_o & exe2dcd_dxa2_fwd;
+        //  # relative operand B2
+        dcod_wb2dec_d1b2_fwd_o <= omn2dec_hazard_d1b2_o & exe2dcd_dxb2_fwd;
+        dcod_wb2dec_d2b2_fwd_o <= omn2dec_hazard_d2b2_o & exe2dcd_dxb2_fwd;
+      end
+      // when write-back overlapes FETCH->DECODE advance
+      2'b11: begin
+        //  # relative operand A1
+        dcod_wb2dec_d1a1_fwd_o <= omn2fth_hazard_d1a1 & exe2fth_dxa1_fwd;
+        dcod_wb2dec_d2a1_fwd_o <= omn2fth_hazard_d2a1 & exe2fth_dxa1_fwd;
+        //  # relative operand B1
+        dcod_wb2dec_d1b1_fwd_o <= omn2fth_hazard_d1b1 & exe2fth_dxb1_fwd;
+        dcod_wb2dec_d2b1_fwd_o <= omn2fth_hazard_d2b1 & exe2fth_dxb1_fwd;
+        //  # relative operand A2
+        dcod_wb2dec_d1a2_fwd_o <= omn2fth_hazard_d1a2 & exe2fth_dxa2_fwd;
+        dcod_wb2dec_d2a2_fwd_o <= omn2fth_hazard_d2a2 & exe2fth_dxa2_fwd;
+        //  # relative operand B2
+        dcod_wb2dec_d1b2_fwd_o <= omn2fth_hazard_d1b2 & exe2fth_dxb2_fwd;
+        dcod_wb2dec_d2b2_fwd_o <= omn2fth_hazard_d2b2 & exe2fth_dxb2_fwd;
+      end
+      // 1-clock length
+      default: begin
+        //  # relative operand A1
+        dcod_wb2dec_d1a1_fwd_o <= 1'b0;
+        dcod_wb2dec_d2a1_fwd_o <= 1'b0;
+        //  # relative operand B1
+        dcod_wb2dec_d1b1_fwd_o <= 1'b0;
+        dcod_wb2dec_d2b1_fwd_o <= 1'b0;
+        //  # relative operand A2
+        dcod_wb2dec_d1a2_fwd_o <= 1'b0;
+        dcod_wb2dec_d2a2_fwd_o <= 1'b0;
+        //  # relative operand B2
+        dcod_wb2dec_d1b2_fwd_o <= 1'b0;
+        dcod_wb2dec_d2b2_fwd_o <= 1'b0;
+      end
+    endcase
   end // @clock
 
 
@@ -937,7 +918,7 @@ module mor1kx_oman_marocchino
   wire   flag_alloc_at_wb = flag_alloc_r & (flag_alloc_ext_r != exec_extadr);
   // ---
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i)
+    if (pipeline_flush_i)
       flag_alloc_r <= 1'b0;
     else begin
       // synthesis parallel_case full_case
@@ -991,7 +972,7 @@ module mor1kx_oman_marocchino
 
   // Jump / Branch state machine
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i) begin
+    if (pipeline_flush_i) begin
       jb_fsm_state_r  <= JB_FSM_CATCHING_JB;
       // for prediction processing
       predict_bc_taken_r   <= 1'b0;
@@ -1111,7 +1092,7 @@ module mor1kx_oman_marocchino
   reg  dcod_locked_r;
   // ---
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i)
+    if (pipeline_flush_i)
       dcod_locked_r <= 1'b0;
     else if (dcod_locked_r) begin
       if ((jb_fsm_predict_waiting_flag_state & predict_hit_raw) | // UNLOCK DECODE
@@ -1223,13 +1204,12 @@ module mor1kx_oman_marocchino
   (
     // clocks, resets
     .cpu_clk          (cpu_clk), // JB-ATTR-OCB
-    .cpu_rst          (cpu_rst), // JB-ATTR-OCB
     // pipe controls
     .pipeline_flush_i (pipeline_flush_i), // JB-ATTR-OCB
     .write_i          (jb_attr_ocb_write), // JB-ATTR-OCB
     .read_i           (jb_attr_ocb_read), // JB-ATTR-OCB
     // value at reset/flush
-    .reset_ocbo_i     (cpu_rst | pipeline_flush_i), // JB-ATTR-OCB
+    .reset_ocbo_i     (pipeline_flush_i), // JB-ATTR-OCB
     // data input
     .ocbi_i           (jb_attr_ocbi), // JB-ATTR-OCB
     // "OCB is empty" flag
@@ -1307,7 +1287,7 @@ module mor1kx_oman_marocchino
   // WB JUMP or BRANCH attributes
   //  # flags
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i) begin
+    if (pipeline_flush_i) begin
       wb_jump_or_branch_o <= 1'b0;
       wb_do_branch_o      <= 1'b0;
     end
@@ -1360,7 +1340,7 @@ module mor1kx_oman_marocchino
   //  if A(B)'s address is odd than A2(B2)=A(B)+1 is even and vise verse
   //  1-clock WB-pulses
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i) begin
+    if (pipeline_flush_i) begin
       wb_rf_even_wb_o <= 1'b0;
       wb_rf_odd_wb_o  <= 1'b0;
     end
@@ -1384,7 +1364,7 @@ module mor1kx_oman_marocchino
 
   // OMAN WB-to-FLAG-request
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i)
+    if (pipeline_flush_i)
       wb_flag_wb_o <= 1'b0;
     else if (padv_wb_i)
       wb_flag_wb_o <= ocbo[OCBTA_FLAG_WB_POS];
@@ -1395,7 +1375,7 @@ module mor1kx_oman_marocchino
 
   // WB-to-CARRY-request (1-clock to prevent extra writes)
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i)
+    if (pipeline_flush_i)
       wb_carry_wb_o <= 1'b0;
     else if (padv_wb_i)
       wb_carry_wb_o <= ocbo[OCBTA_CARRY_WB_POS];
@@ -1406,7 +1386,7 @@ module mor1kx_oman_marocchino
 
   // WB delay slot
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i)
+    if (pipeline_flush_i)
       wb_delay_slot_o <= 1'b0;
     else if (padv_wb_i)
       wb_delay_slot_o <= ocbo[OCBTA_DELAY_SLOT_POS];
@@ -1423,7 +1403,7 @@ module mor1kx_oman_marocchino
   // extention bits: valid for 1-clock
   // to reolve hazards in rezervation stations
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i)
+    if (pipeline_flush_i)
       wb_extadr_o <= {DEST_EXTADR_WIDTH{1'b0}};
     else if (padv_wb_i)
       wb_extadr_o <= exec_extadr;

@@ -39,7 +39,6 @@ module pfpu_i2f_marocchino
 (
   // clocks and resets
   input             cpu_clk,
-  input             cpu_rst,
   // I2F pipe controls
   input             pipeline_flush_i,
   input             exec_op_fpxx_any_i,
@@ -99,7 +98,7 @@ module pfpu_i2f_marocchino
 
   // "stage #0 is ready" flag
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i)
+    if (pipeline_flush_i)
       s0o_ready <= 1'b0;
     else if (s0_adv)
       s0o_ready <= exec_op_fpxx_any_i;
@@ -111,7 +110,7 @@ module pfpu_i2f_marocchino
 
   // "there are pending data " flag
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i)
+    if (pipeline_flush_i)
       s0o_pending <= 1'b0;
     else if (s1_adv)
       s0o_pending <= 1'b0;
@@ -272,7 +271,7 @@ module pfpu_i2f_marocchino
 
   // ready is special case
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i)
+    if (pipeline_flush_i)
       i2f_rdy_o <= 1'b0;
     else if (s1_adv)
       i2f_rdy_o <= 1'b1;

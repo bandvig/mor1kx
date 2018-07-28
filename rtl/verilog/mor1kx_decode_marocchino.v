@@ -43,7 +43,6 @@ module mor1kx_decode_marocchino
 (
   // clocks ans reset
   input                                 cpu_clk,
-  input                                 cpu_rst,
 
   // pipeline controls
   input                                 padv_dcod_i,
@@ -765,7 +764,7 @@ module mor1kx_decode_marocchino
 
   // signals which affect pipeline control (see OMAN)
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i) begin
+    if (pipeline_flush_i) begin
       dcod_empty_o        <= 1'b1;
       dcod_op_1clk_o      <= 1'b0;
       dcod_op_muldiv_o    <= 1'b0;

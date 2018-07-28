@@ -70,7 +70,6 @@ module mor1kx_ctrl_marocchino
   input                                 cpu_rst,
 
   // Inputs / Outputs for pipeline control signals
-  input                                 fetch_valid_i,
   input                                 dcod_empty_i,
   input                                 dcod_free_i,
   input                                 dcod_valid_i,
@@ -293,7 +292,7 @@ module mor1kx_ctrl_marocchino
   wire                              du_cpu_unstall;
   // step-by-step execution
   wire                              stepping;
-  wire                        [4:0] pstep;
+  wire                        [3:0] pstep;
   wire                              stepped_into_delay_slot;
   wire                              stepped_into_exception;
   wire                              stepped_into_rfe;
@@ -519,14 +518,16 @@ module mor1kx_ctrl_marocchino
       except_proc_fsm_state   <= EXCEPT_PROC_FSM_TO_IFETCH; // at reset
     end
     else begin
-      // synthesis parallel_case full_case
+      // synthesis parallel_case
       case (except_proc_fsm_state)
+        // waiting
         EXCEPT_PROC_FSM_WAITING: begin
           except_proc_fsm_state <= du_cpu_unstall ? EXCEPT_PROC_FSM_GET_NPC :
                                     (wb_an_except_i ? EXCEPT_PROC_FSM_GET_EPC :
                                         (wb_op_rfe_i ? EXCEPT_PROC_FSM_GET_EPCR :
                                                        EXCEPT_PROC_FSM_WAITING));
         end // waiting
+        // collect exception target
         EXCEPT_PROC_FSM_GET_NPC,
         EXCEPT_PROC_FSM_GET_EPC,
         EXCEPT_PROC_FSM_GET_EPCR: begin
@@ -536,10 +537,13 @@ module mor1kx_ctrl_marocchino
                                                                  spr_epcr); // collect exception target
           except_proc_fsm_state   <= EXCEPT_PROC_FSM_TO_IFETCH;  // collect exception target
         end // collect exception target
+        // put collected target to IFETCH
         EXCEPT_PROC_FSM_TO_IFETCH: begin
           ctrl_branch_exception_r <= 1'b0; // put collected target to IFETCH
           except_proc_fsm_state   <= EXCEPT_PROC_FSM_WAITING; // put collected target to IFETCH
         end // put collected target to IFETCH
+        // by default
+        default:;
       endcase
     end
   end // @ clock
@@ -565,8 +569,9 @@ module mor1kx_ctrl_marocchino
       flush_fsm_state  <= FLUSH_FSM_BY_EXCEPT; // at reset
     end
     else begin
-      // synthesis parallel_case full_case
+      // synthesis parallel_case
       case (flush_fsm_state)
+        // waiting
         FLUSH_FSM_WAITING: begin
           if (du_cpu_flush) begin
             pipeline_flush_r <= 1'b1;
@@ -579,16 +584,20 @@ module mor1kx_ctrl_marocchino
             end
           end
         end // waiting
+        // flush by DU request
         FLUSH_FSM_BY_DU: begin
           pipeline_flush_r <= 1'b0;
           flush_fsm_state  <= FLUSH_FSM_WAITING;
         end // flush by DU request
+        // flush by exception / l.rfe
         FLUSH_FSM_BY_EXCEPT: begin
           if (ctrl_branch_exception_r) begin
             pipeline_flush_r <= 1'b0;
             flush_fsm_state  <= FLUSH_FSM_WAITING;
           end // flush by exception / l.rfe
         end
+        // by default
+        default:;
       endcase
     end
   end // @ clock
@@ -602,7 +611,7 @@ module mor1kx_ctrl_marocchino
   reg  ctrl_spr_wb_r;
   // ---
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_r)
+    if (pipeline_flush_r)
       ctrl_spr_wb_r <= 1'b0;
     else if (padv_wb_o)
       ctrl_spr_wb_r <= 1'b1;
@@ -613,20 +622,16 @@ module mor1kx_ctrl_marocchino
 
   // Advance IFETCH
   assign padv_fetch_o = (~spr_bus_cpu_stall_r) & (~du_cpu_stall) & // ADV. IFETCH
-    (((~stepping) & ((~fetch_valid_i) | (dcod_free_i & (dcod_empty_i | dcod_valid_i)))) | // ADV. IFETCH
-       (stepping  &  (~fetch_valid_i) & pstep[0])); // ADV. IFETCH
-  // Pass step from IFETCH to DECODE
-  wire   pass_step_to_decode = fetch_valid_i & pstep[0]; // for DU
+    (((~stepping) & dcod_free_i & (dcod_empty_i | dcod_valid_i)) | // ADV. IFETCH
+       (stepping  & (~dcod_valid_i) & pstep[0])); // ADV. IFETCH
 
 
   // Advance DECODE
   // In step-by-step mode DECODE could be advanced
   //  just by the fact it has got "step enabled"
-  assign padv_dcod_o = (~spr_bus_cpu_stall_r) & (~du_cpu_stall) & // ADV. DECODE
-    (((~stepping) & dcod_free_i & (dcod_empty_i | dcod_valid_i)) | // ADV. DECODE
-       (stepping   & pstep[1])); // ADV. DECODE
+  assign padv_dcod_o = padv_fetch_o; // ADV. DECODE
   // Pass step from DECODE to EXEC
-  wire   pass_step_to_exec = pstep[1];
+  wire   pass_step_to_exec = dcod_valid_i & pstep[0];
 
 
   // Advance EXECUTE (push RSRVS)
@@ -634,17 +639,17 @@ module mor1kx_ctrl_marocchino
   //  just by the fact it has got "step enabled"
   assign padv_exec_o = (~spr_bus_cpu_stall_r) & (~du_cpu_stall) & // ADV. EXECUTE (push RSRVS)
     (((~stepping) & dcod_valid_i) | // ADV. EXECUTE (push RSRVS)
-       (stepping   & pstep[2])); // ADV. EXECUTE (push RSRVS)
+       (stepping  & pstep[1])); // ADV. EXECUTE (push RSRVS)
   // Pass step from DECODE to WB
-  wire   pass_step_to_wb = pstep[2]; // for DU
+  wire   pass_step_to_wb = pstep[1]; // for DU
 
 
   // Advance Write Back latches
   assign padv_wb_o = (~spr_bus_cpu_stall_r) & (~du_cpu_stall) & // ADV. Write Back latches
     (((~stepping) & exec_valid_i) | // ADV. Write Back latches
-       (stepping   & exec_valid_i & pstep[3])); // ADV. Write Back latches
+       (stepping  & exec_valid_i & pstep[2])); // ADV. Write Back latches
   // Complete the step
-  wire   pass_step_to_stall = (~spr_bus_cpu_stall_r) & exec_valid_i & pstep[3]; // for DU
+  wire   pass_step_to_stall = (~spr_bus_cpu_stall_r) & exec_valid_i & pstep[2]; // for DU
 
 
   //-----------------------------------//
@@ -1416,7 +1421,7 @@ module mor1kx_ctrl_marocchino
     //       command or current step completion we generate pipe flushing
     //       AFTER the last instuction completes write back.
     //
-    wire doing_wb = pstep[4];
+    wire doing_wb = pstep[3];
     //
     wire du_cpu_stall_by_cmd      = doing_wb & du_stall_i;
     wire du_cpu_stall_by_stepping = doing_wb & stepping;
@@ -1484,24 +1489,24 @@ module mor1kx_ctrl_marocchino
     /* Indicate step-by-step execution */
     assign stepping = spr_dmr1_st & spr_dsr_te;
 
-    reg [4:0] pstep_r;
+    reg [3:0] pstep_r;
     assign    pstep = pstep_r; // DU enabled
 
     always @(posedge cpu_clk) begin
       if (cpu_rst)
-        pstep_r <= 5'b00000;
+        pstep_r <= 4'b0000;
       else if (stepping) begin
         if (du_cpu_stall & (~du_stall_i)) // the condition is equal to stall->unstall one
-          pstep_r <= 5'b00001;
-        else if (pass_step_to_decode | pass_step_to_exec  |
-                 pass_step_to_wb     | pass_step_to_stall | doing_wb)
-          pstep_r <= {pstep_r[3:0],1'b0};
+          pstep_r <= 4'b0001;
+        else if (pass_step_to_exec |
+                 pass_step_to_wb   | pass_step_to_stall | doing_wb)
+          pstep_r <= {pstep_r[2:0],1'b0};
       end
       else begin
         if (padv_wb_o)
-          pstep_r <= 5'b10000; // 1-clock delayed padv-wb on regular pipe advancing
+          pstep_r <= 4'b1000; // 1-clock delayed padv-wb on regular pipe advancing
         else
-          pstep_r <= 5'b00000; // 1-clock delayed padv-wb on regular pipe advancing
+          pstep_r <= 4'b0000; // 1-clock delayed padv-wb on regular pipe advancing
       end
     end // @ clock
 
@@ -1607,7 +1612,7 @@ module mor1kx_ctrl_marocchino
     // step-by-step
     // ---
     assign stepping = 1'b0; // DU disabled
-    assign pstep    = 5'd0; // DU disabled
+    assign pstep    = 4'd0; // DU disabled
     // ---
     assign stepped_into_delay_slot = 1'b0; // DU disabled
     assign stepped_into_exception  = 1'b0; // DU disabled

@@ -43,7 +43,6 @@ module pfpu_rnd_marocchino
 (
   // clocks, resets
   input                             cpu_clk,
-  input                             cpu_rst,
   // pipe controls
   input                             pipeline_flush_i,
   output                            rnd_taking_add_o,
@@ -289,7 +288,7 @@ module pfpu_rnd_marocchino
 
   // ready is special case
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i)
+    if (pipeline_flush_i)
       s0o_ready <= 1'b0;
     else if (s0_adv)
       s0o_ready <= 1'b1;
@@ -437,7 +436,7 @@ module pfpu_rnd_marocchino
 
   // ready is special case
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i)
+    if (pipeline_flush_i)
       s1o_ready <= 1'b0;
     else if (s1_adv)
       s1o_ready <= 1'b1;
@@ -529,7 +528,7 @@ module pfpu_rnd_marocchino
 
   // ready is special case
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i)
+    if (pipeline_flush_i)
       s2o_ready <= 1'b0;
     else if (s2_adv)
       s2o_ready <= 1'b1;
@@ -539,7 +538,7 @@ module pfpu_rnd_marocchino
 
   //  valid flag
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i)
+    if (pipeline_flush_i)
       fpxx_arith_valid_o <= 1'b0;
     else if (s2_adv)
       fpxx_arith_valid_o <= 1'b1;
@@ -635,7 +634,7 @@ module pfpu_rnd_marocchino
 
   // WB-miss flag
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i)
+    if (pipeline_flush_i)
       fpxx_arith_wb_miss_r <= 1'b0;
     else if (padv_wb_i & grant_wb_to_fpxx_arith_i)
       fpxx_arith_wb_miss_r <= 1'b0;
@@ -702,7 +701,7 @@ module pfpu_rnd_marocchino
 
   // WB: update FPCSR (1-clock to prevent extra writes into FPCSR)
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i)
+    if (pipeline_flush_i)
       wb_fpxx_arith_wb_fpcsr_o <= 1'b0;
     else if (padv_wb_i)
       wb_fpxx_arith_wb_fpcsr_o <= grant_wb_to_fpxx_arith_i;
@@ -712,7 +711,7 @@ module pfpu_rnd_marocchino
 
   // WB: an exception
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i)
+    if (pipeline_flush_i)
       wb_except_fpxx_arith_o <= 1'b0;
     else if (padv_wb_i)
       wb_except_fpxx_arith_o <= exec_except_fpxx_arith_o;

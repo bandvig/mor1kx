@@ -43,7 +43,6 @@ module pfpu_muldiv_marocchino
 (
   // clocks and resets
   input             cpu_clk,
-  input             cpu_rst,
   // pipe controls
   input             pipeline_flush_i,   // flushe pipe
   input             exec_op_fpxx_any_i,
@@ -150,7 +149,7 @@ module pfpu_muldiv_marocchino
 
   // "stage I is ready" flag
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i)
+    if (pipeline_flush_i)
       sIo_ready <= 1'b0;
     else if (sI_adv)
       sIo_ready <= exec_op_fpxx_any_i;
@@ -162,7 +161,7 @@ module pfpu_muldiv_marocchino
 
   // "there are pending data " flag
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i)
+    if (pipeline_flush_i)
       sIo_pending <= 1'b0;
     else if (s0_adv)
       sIo_pending <= 1'b0;
@@ -346,7 +345,7 @@ module pfpu_muldiv_marocchino
 
   // stage #0 is ready
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i) begin
+    if (pipeline_flush_i) begin
       s0o_div_ready <= 1'b0;
       s0o_mul_ready <= 1'b0;
     end
@@ -404,7 +403,7 @@ module pfpu_muldiv_marocchino
 
   // ready for MUL instruction
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i) begin
+    if (pipeline_flush_i) begin
       s1o_mul_ready <= 1'b0;
       s1o_div_ready <= 1'b0;
     end
@@ -451,7 +450,6 @@ module pfpu_muldiv_marocchino
   (
     // clocks and resets
     .cpu_clk              (cpu_clk), // FP64_MUL
-    .cpu_rst              (cpu_rst), // FP64_MUL
     // pipe controls
     .pipeline_flush_i     (pipeline_flush_i), // FP64_MUL
     .s1o_mul_ready_i      (s1o_mul_ready), // FP64_MUL
@@ -483,7 +481,6 @@ module pfpu_muldiv_marocchino
   (
     // clocks and resets
     .cpu_clk              (cpu_clk), // FP64_DIV
-    .cpu_rst              (cpu_rst), // FP64_DIV
     // pipe controls
     .pipeline_flush_i     (pipeline_flush_i), // FP64_DIV
     .s1o_div_ready_i      (s1o_div_ready), // FP64_DIV

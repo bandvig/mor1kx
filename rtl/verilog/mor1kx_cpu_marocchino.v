@@ -808,7 +808,6 @@ module mor1kx_cpu_marocchino
   (
     // clocks ans reset
     .cpu_clk                          (cpu_clk), // DECODE
-    .cpu_rst                          (cpu_rst), // DECODE
     // pipeline controls
     .padv_dcod_i                      (padv_dcod), // DECODE
     .padv_exec_i                      (padv_exec), // DECODE
@@ -1220,7 +1219,6 @@ module mor1kx_cpu_marocchino
   (
     // clocks and resets
     .cpu_clk                    (cpu_clk), // 1CLK_RSVRS
-    .cpu_rst                    (cpu_rst), // 1CLK_RSVRS
     // pipeline control signals in
     .pipeline_flush_i           (pipeline_flush), // 1CLK_RSVRS
     .padv_exec_i                (padv_exec), // 1CLK_RSVRS
@@ -1272,7 +1270,6 @@ module mor1kx_cpu_marocchino
   (
     // clocks & resets
     .cpu_clk                          (cpu_clk), // 1CLK_EXEC
-    .cpu_rst                          (cpu_rst), // 1CLK_EXEC
 
     // pipeline controls
     .pipeline_flush_i                 (pipeline_flush), // 1CLK_EXEC
@@ -1399,7 +1396,6 @@ module mor1kx_cpu_marocchino
   (
     // clocks and resets
     .cpu_clk                    (cpu_clk), // MULDIV_RSRVS
-    .cpu_rst                    (cpu_rst), // MULDIV_RSRVS
     // pipeline control signals in
     .pipeline_flush_i           (pipeline_flush), // MULDIV_RSRVS
     .padv_exec_i                (padv_exec), // MULDIV_RSRVS
@@ -1451,7 +1447,6 @@ module mor1kx_cpu_marocchino
   (
     // clocks & resets
     .cpu_clk                          (cpu_clk), // MUL
-    .cpu_rst                          (cpu_rst), // MUL
     // pipeline controls
     .pipeline_flush_i                 (pipeline_flush), // MUL
     .padv_wb_i                        (padv_wb), // MUL
@@ -1493,7 +1488,6 @@ module mor1kx_cpu_marocchino
   (
     // clocks & resets
     .cpu_clk                          (cpu_clk), // DIV
-    .cpu_rst                          (cpu_rst), // DIV
     // pipeline controls
     .pipeline_flush_i                 (pipeline_flush), // DIV
     .padv_wb_i                        (padv_wb), // DIV
@@ -1599,7 +1593,6 @@ module mor1kx_cpu_marocchino
   (
     // clocks and resets
     .cpu_clk                    (cpu_clk), // FPU_RSRVS
-    .cpu_rst                    (cpu_rst), // FPU_RSRVS
     // pipeline control signals in
     .pipeline_flush_i           (pipeline_flush), // FPU_RSRVS
     .padv_exec_i                (padv_exec), // FPU_RSRVS
@@ -1651,7 +1644,6 @@ module mor1kx_cpu_marocchino
   (
     // clock & reset
     .cpu_clk                    (cpu_clk), // FPU3264
-    .cpu_rst                    (cpu_rst), // FPU3264
 
     // pipeline control
     .pipeline_flush_i           (pipeline_flush), // FPU3264
@@ -1799,7 +1791,6 @@ module mor1kx_cpu_marocchino
   (
     // clocks and resets
     .cpu_clk                    (cpu_clk), // LSU_RSVRS
-    .cpu_rst                    (cpu_rst), // LSU_RSVRS
     // pipeline control signals in
     .pipeline_flush_i           (pipeline_flush), // LSU_RSVRS
     .padv_exec_i                (padv_exec), // LSU_RSVRS
@@ -1976,7 +1967,7 @@ module mor1kx_cpu_marocchino
   wire exec_pic_interrupt = pic_rdy & pic_interrupt_enable & exec_interrupts_en; // from "Programmble Interrupt Controller"
   // --- wb-latches ---
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush) begin  // WB: External Interrupts Collection
+    if (pipeline_flush) begin  // WB: External Interrupts Collection
       wb_tt_interrupt_r   <= 1'b0;
       wb_pic_interrupt_r  <= 1'b0;
     end
@@ -1992,7 +1983,7 @@ module mor1kx_cpu_marocchino
   //--------------------------------//
 
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush) begin
+    if (pipeline_flush) begin
       // RFE
       wb_op_rfe_r            <= 1'b0;
       // FETCH/DECODE exceptions
@@ -2033,7 +2024,7 @@ module mor1kx_cpu_marocchino
                           exec_tt_interrupt        | exec_pic_interrupt;          // EXEC-AN-EXCEPT
   // --- wb-latch ---
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush) // WB: combined exception/interrupt flag
+    if (pipeline_flush) // WB: combined exception/interrupt flag
       wb_an_except_r <= 1'b0;
     else if (padv_wb) // WB: combined exception/interrupt flag
       wb_an_except_r <= exec_an_except;
@@ -2137,7 +2128,6 @@ module mor1kx_cpu_marocchino
     .cpu_rst                          (cpu_rst), // CTRL
 
     // Inputs / Outputs for pipeline control signals
-    .fetch_valid_i                    (fetch_valid), // CTRL
     .dcod_empty_i                     (dcod_empty), // CTRL
     .dcod_free_i                      (dcod_free), // CTRL
     .dcod_valid_i                     (dcod_valid), // CTRL

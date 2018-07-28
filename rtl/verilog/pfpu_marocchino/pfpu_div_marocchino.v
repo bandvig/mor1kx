@@ -56,7 +56,6 @@ module srt4_fract58
 (
   // clock and reset
   input              cpu_clk,
-  input              cpu_rst,
   // pipeline controls
   input              pipeline_flush_i,
   input              div_start_i,      // take operands and start
@@ -215,7 +214,7 @@ module srt4_fract58
   reg [LOG2N2-1:0] div_count_r;
   // division controller
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i) begin
+    if (pipeline_flush_i) begin
       div_valid_o <= 1'b0;
       dbz_o       <= 1'b0;
       div_proc_o  <= 1'b0;
@@ -262,7 +261,6 @@ module pfpu_div_marocchino
 (
   // clocks and resets
   input             cpu_clk,
-  input             cpu_rst,
   // pipe controls
   input             pipeline_flush_i,
   input             s1o_div_ready_i,
@@ -343,7 +341,6 @@ module pfpu_div_marocchino
   (
     // clock and reset
     .cpu_clk              (cpu_clk), // SRT4-FRACT
-    .cpu_rst              (cpu_rst), // SRT4-FRACT
     // pipeline controls
     .pipeline_flush_i     (pipeline_flush_i), // SRT4-FRACT
     .div_start_i          (s2_adv), // SRT4-FRACT
@@ -408,7 +405,7 @@ module pfpu_div_marocchino
   end // @clock
   // division by zero flag
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i)
+    if (pipeline_flush_i)
       div_dbz_o <= 1'b0;
     else if (out_adv)
       div_dbz_o <= s2o_dbz;
@@ -417,7 +414,7 @@ module pfpu_div_marocchino
 
   // ready is special case
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i)
+    if (pipeline_flush_i)
       div_rdy_o <= 1'b0;
     else if (out_adv)
       div_rdy_o <= 1'b1;

@@ -52,7 +52,6 @@ module pfpu_top_marocchino
 (
   // clock & reset
   input                               cpu_clk,
-  input                               cpu_rst,
 
   // pipeline control
   input                               pipeline_flush_i,
@@ -292,13 +291,12 @@ u_pfpu_ocb
 (
   // clocks and resets
   .clk                (cpu_clk), // PFPU_OCB
-  .rst                (cpu_rst), // PFPU_OCB
   // pipe controls
   .pipeline_flush_i   (pipeline_flush_i), // PFPU_OCB
   .write_i            (taking_op_fpxx_arith), // PFPU_OCB
   .read_i             (rnd_taking_op), // PFPU_OCB
   // value at reset/flush
-  .reset_taps         (cpu_rst | pipeline_flush_i), // PFPU_OCB
+  .reset_taps         (pipeline_flush_i), // PFPU_OCB
   .default_value_i    (11'd0), // PFPU_OCB
   // data input
   .is_miss_i          (~exec_op_fpxx_any_i),
@@ -324,13 +322,12 @@ u_pfpu_ocb
 (
   // clocks, resets
   .cpu_clk            (cpu_clk), // PFPU_OCB
-  .cpu_rst            (cpu_rst), // PFPU_OCB
   // pipe controls
   .pipeline_flush_i   (pipeline_flush_i), // PFPU_OCB
   .write_i            (taking_op_fpxx_arith), // PFPU_OCB
   .read_i             (rnd_taking_op), // PFPU_OCB
   // value at reset/flush
-  .reset_ocbo_i       (cpu_rst | pipeline_flush_i), // PFPU_OCB
+  .reset_ocbo_i       (pipeline_flush_i), // PFPU_OCB
   // data input
   .is_miss_i          (~exec_op_fpxx_any_i),
   .ocbi_i             ({exec_op_fp64_arith_i, // PFPU_OCB
@@ -360,7 +357,6 @@ pfpu_addsub_marocchino u_pfpu_addsub
 (
   // clocks and resets
   .cpu_clk                (cpu_clk), // PFPU_ADDSUB
-  .cpu_rst                (cpu_rst), // PFPU_ADDSUB
   // ADD/SUB pipe controls
   .pipeline_flush_i       (pipeline_flush_i), // PFPU_ADDSUB
   .exec_op_fpxx_any_i     (exec_op_fpxx_any_i), // PFPU_ADDSUB
@@ -417,7 +413,6 @@ pfpu_muldiv_marocchino u_pfpu_muldiv
 (
   // clocks and resets
   .cpu_clk                (cpu_clk), // PFPU_MULDIV
-  .cpu_rst                (cpu_rst), // PFPU_MULDIV
   // pipe controls
   .pipeline_flush_i       (pipeline_flush_i), // PFPU_MULDIV
   .exec_op_fpxx_any_i     (exec_op_fpxx_any_i), // PFPU_MULDIV
@@ -472,7 +467,6 @@ pfpu_i2f_marocchino u_pfpu_i2f
 (
   // clocks and resets
   .cpu_clk                (cpu_clk), // PFPU_I2F
-  .cpu_rst                (cpu_rst), // PFPU_I2F
   // I2F pipe controls
   .pipeline_flush_i       (pipeline_flush_i), // PFPU_I2F
   .exec_op_fpxx_any_i     (exec_op_fpxx_any_i), // PFPU_I2F
@@ -505,7 +499,6 @@ pfpu_f2i_marocchino u_pfpu_f2i
 (
   // clocks and resets
   .cpu_clk              (cpu_clk), // PFPU_F2I
-  .cpu_rst              (cpu_rst), // PFPU_F2I
   // pipe controls
   .pipeline_flush_i     (pipeline_flush_i), // PFPU_F2I
   .exec_op_fpxx_any_i   (exec_op_fpxx_any_i), // PFPU_F2I
@@ -567,7 +560,6 @@ pfpu_rnd_marocchino u_pfpu_rnd
 (
   // clocks, resets
   .cpu_clk                  (cpu_clk), // PFPU_RND
-  .cpu_rst                  (cpu_rst), // PFPU_RND
   // pipe controls
   .pipeline_flush_i         (pipeline_flush_i), // PFPU_RND
   .rnd_taking_add_o         (rnd_taking_add), // PFPU_RND
@@ -656,7 +648,6 @@ pfpu_cmp_marocchino u_fpxx_cmp
 (
   // clock and reset
   .cpu_clk                    (cpu_clk), // PFPU_CMP
-  .cpu_rst                    (cpu_rst), // PFPU_CMP
   // pipeline controls
   .pipeline_flush_i           (pipeline_flush_i), // PFPU_CMP
   .taking_op_fpxx_cmp_o       (taking_op_fpxx_cmp), // PFPU_CMP

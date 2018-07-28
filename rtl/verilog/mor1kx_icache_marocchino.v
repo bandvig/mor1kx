@@ -45,9 +45,7 @@ module mor1kx_icache_marocchino
   input                                 padv_s1_i,
   input                                 padv_s2_i,
   input                                 pipeline_flush_i,
-  input                                 predict_miss_i,
   // fetch exceptions
-  input                                 s2o_immu_an_except_i,
   input                                 ibus_err_i,
 
   // configuration
@@ -160,7 +158,6 @@ module mor1kx_icache_marocchino
   // This is the least recently used value before access the memory.
   // Those are one hot encoded.
   wire [OPTION_ICACHE_WAYS-1:0] lru_way;          // computed by mor1kx_cache_lru
-  reg  [OPTION_ICACHE_WAYS-1:0] lru_way_s2o;      // for TAG invalidation at go to re-fill
   reg  [OPTION_ICACHE_WAYS-1:0] lru_way_refill_r; // register for re-fill process
 
   // The access vector to update the LRU history is the way that has
@@ -168,7 +165,6 @@ module mor1kx_icache_marocchino
   reg  [OPTION_ICACHE_WAYS-1:0] access_way_for_lru;
   reg  [OPTION_ICACHE_WAYS-1:0] access_way_for_lru_s2o; // register on IFETCH output
   // The current LRU history as read from tag memory.
-  reg  [TAG_LRU_WIDTH_BITS-1:0] current_lru_history;
   reg  [TAG_LRU_WIDTH_BITS-1:0] current_lru_history_s2o; // register on IFETCH output
   // The update value after we accessed it to write back to tag memory.
   wire [TAG_LRU_WIDTH_BITS-1:0] next_lru_history;          // computed by mor1kx_cache_lru
@@ -188,10 +184,7 @@ module mor1kx_icache_marocchino
   reg ic_enable_r;
   // ---
   always @(posedge cpu_clk) begin
-    if (cpu_rst)
-      ic_enable_r <= 1'b0;
-    else if (ic_enable_r ^ ic_enable_i) // pipeline_flush doesn't switch caches on/off
-      ic_enable_r <= ic_enable_i;
+    ic_enable_r <= ic_enable_i;
   end // @ clock
 
 
@@ -303,7 +296,7 @@ module mor1kx_icache_marocchino
     end
     else begin
       // states
-      // synthesis parallel_case full_case
+      // synthesis parallel_case
       case (ic_state)
         IC_READ: begin
           // to-re-fill or invalidate mean that neither
@@ -363,7 +356,7 @@ module mor1kx_icache_marocchino
     {virt_addr_rfl_r[31:4], virt_addr_rfl_r[3:0] + 4'd4};  // 16 byte = (4 words x 32 bits/word)
   // ---
   always @(posedge cpu_clk) begin
-    // synthesis parallel_case full_case
+    // synthesis parallel_case
     case (ic_state)
       IC_READ: begin // re-fill address register
         if (spr_ic_cs)        // set re-fill address register to invaldate by l.mtspr
@@ -375,18 +368,16 @@ module mor1kx_icache_marocchino
         if (ibus_ack_i)
           virt_addr_rfl_r <= virt_addr_rfl_next;  // re-fill in progress
       end // re-fill
-      IC_SPR_ACK: begin // re-fill address register
-        virt_addr_rfl_r <= virt_addr_s2o_i; // restore after invalidation by l.mtspr
-      end
       default:;
     endcase
   end // @ clock
 
-  // way indexing
-  wire [WAY_WIDTH-3:0] way_rindex = ic_refill ? virt_addr_rfl_r[WAY_WIDTH-1:2]: // WAY read address
-                                                virt_addr_mux_i[WAY_WIDTH-1:2]; // WAY read address
+  // WAY WRITE INDEX
+  wire [WAY_WIDTH-3:0] way_windex = virt_addr_rfl_r[WAY_WIDTH-1:2]; // makes sense at re-fill only
 
-  wire [WAY_WIDTH-3:0] way_windex = virt_addr_rfl_r[WAY_WIDTH-1:2]; // at re-fill only
+  // WAY READ INDEX
+  wire [WAY_WIDTH-3:0] way_rindex = ic_refill ? virt_addr_s1o_i[WAY_WIDTH-1:2]: // WAY READ INDEX at re-fill
+                                                virt_addr_mux_i[WAY_WIDTH-1:2]; // WAY READ INDEX at advance
 
   // Controls for read/write port.
   // We activate RW-port writting during re-fill only.
@@ -447,7 +438,7 @@ module mor1kx_icache_marocchino
   reg s2o_ic_ack;
   // ---
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i | predict_miss_i)
+    if (cpu_rst)
       s2o_ic_ack <= 1'b0;
     else if (padv_s2_i)
       s2o_ic_ack <= ic_ack_o;
@@ -471,20 +462,19 @@ module mor1kx_icache_marocchino
       .lru_pre     (lru_way), // ICACHE_LRU
       .lru_post    (), // ICACHE_LRU
       // Inputs
-      .current     (current_lru_history), // ICACHE_LRU
+      .current     (current_lru_history_s2o), // ICACHE_LRU
       .access      (access_way_for_lru) // ICACHE_LRU
     );
   end
   else begin // single way
-    assign next_lru_history = current_lru_history; // one way cache
-    assign lru_way          = 1'b1;                // one way cache
+    assign next_lru_history = 1'b0; // one way cache
+    assign lru_way          = 1'b1; // one way cache
   end
   endgenerate
 
   // LRU related data registered on IFETCH output
   always @(posedge cpu_clk) begin
     if (padv_s2_i) begin
-      lru_way_s2o             <= lru_way;
       access_way_for_lru_s2o  <= hit_way;
       current_lru_history_s2o <= tag_dout[TAG_LRU_MSB:TAG_LRU_LSB];
     end
@@ -523,7 +513,6 @@ module mor1kx_icache_marocchino
     // by default prepare data for LRU update at hit or for re-fill initiation
     //  -- input for LRU calculator
     access_way_for_lru  = access_way_for_lru_s2o; // by default
-    current_lru_history = current_lru_history_s2o; // by default
     //  -- output of LRU calculator
     tag_din_lru = next_lru_history; // by default
     //  -- other TAG-RAM fields
@@ -531,21 +520,12 @@ module mor1kx_icache_marocchino
       tag_din_way[w2] = tag_dout_way_s2o[w2]; // by default
     end
 
-    // synthesis parallel_case full_case
+    // synthesis parallel_case
     case (ic_state)
       IC_READ: begin
         // Update LRU data by read-hit only
-        if (s2o_ic_ack & (~s2o_immu_an_except_i)) begin // on read-hit
+        if (s2o_ic_ack) begin // on read-hit
           tag_we = 1'b1; // on read-hit
-        end
-        else if (to_refill_i) begin
-          for (w2 = 0; w2 < OPTION_ICACHE_WAYS; w2 = w2 + 1) begin
-            if (lru_way_s2o[w2]) begin
-              tag_din_way[w2] = {TAGMEM_WAY_WIDTH{1'b0}}; // to re-fill
-            end
-          end
-          // MAROCCHINO_TODO: how to handle LRU in the case?
-          tag_we = 1'b1;
         end
       end
 
@@ -554,12 +534,21 @@ module mor1kx_icache_marocchino
         // "SLAVE MUST NOT assert more than one of ACK, ERR or RTY"
         //  (b) We don't interrupt re-fill on flushing, so the only reason
         // for invalidation is IBUS error occurence
-        if (ibus_ack_i & ibus_burst_last_i) begin
+        if (ibus_err_i) begin
+          for (w2 = 0; w2 < OPTION_ICACHE_WAYS; w2 = w2 + 1) begin
+            if (lru_way_refill_r[w2]) begin // IBUS error at re-fill
+              tag_din_way[w2] = {TAGMEM_WAY_WIDTH{1'b0}}; // IBUS error at re-fill
+            end
+          end
+          // MAROCCHINO_TODO: how to handle LRU in the case?
+          tag_we = 1'b1;
+        end
+        else if (ibus_ack_i & ibus_burst_last_i) begin
           // After refill update the tag memory entry of the
           // filled way with the LRU history, the tag and set
           // valid to 1.
           for (w2 = 0; w2 < OPTION_ICACHE_WAYS; w2 = w2 + 1) begin
-            if (lru_way_refill_r[w2]) begin
+            if (lru_way_refill_r[w2]) begin // last re-fill
               tag_din_way[w2] = {1'b1,phys_addr_s2o_i[OPTION_ICACHE_LIMIT_WIDTH-1:WAY_WIDTH]}; // last re-fill
             end
           end

@@ -68,7 +68,7 @@ module mor1kx_lsu_marocchino
   input                           [1:0] exec_lsu_length_i,
   input                                 exec_lsu_zext_i,
   input           [`OR1K_IMM_WIDTH-1:0] exec_lsu_imm16_i, // immediate offset for address computation
-  input      [OPTION_OPERAND_WIDTH-1:0] exec_sbuf_epcr_i,       // for store buffer EPCR computation
+  input      [OPTION_OPERAND_WIDTH-1:0] exec_sbuf_epcr_i, // for store buffer EPCR computation
   input      [OPTION_OPERAND_WIDTH-1:0] exec_lsu_a1_i,   // operand "A" (part of address)
   input      [OPTION_OPERAND_WIDTH-1:0] exec_lsu_b1_i,   // operand "B" (value to store)
   // SPR interface
@@ -129,7 +129,7 @@ module mor1kx_lsu_marocchino
 
 
 
-  // input registers for DMMU stage
+  // output registers of DMMU stage
   reg               s1o_op_lsu_load;
   reg               s1o_op_lsu_store;   // any kind: atomic or regular
   reg               s1o_op_lsu_atomic;
@@ -140,6 +140,9 @@ module mor1kx_lsu_marocchino
   reg  [LSUOOW-1:0] s1o_sbuf_epcr;       // for store buffer EPCR computation
   reg         [1:0] s1o_lsu_length;
   reg               s1o_lsu_zext;
+  // IMMU's super-cache statuses
+  wire              s1o_dmmu_rdy;
+  wire              s1o_dmmu_upd;
   /* HW reload TLB related (MAROCCHINO_TODO : not implemented yet)
   wire              tlb_reload_req;
   wire              tlb_reload_busy;
@@ -277,11 +280,11 @@ module mor1kx_lsu_marocchino
                        s2o_excepts_any   | s2o_snoop_proc;     // stage #2 is busy
   //  ---
   wire   lsu_s1_busy = (s1o_op_lsu_ls & lsu_s2_busy) |  // stage #1 is busy
-                       s1o_op_msync;                    // stage #1 is busy
+                       s1o_op_msync | s1o_dmmu_upd;     // stage #1 is busy
   //  ## per stage advance signals
-  wire   lsu_s1_adv  = exec_op_lsu_any_i & (~lsu_s1_busy);
-  wire   lsu_s2_adv  = s1o_op_lsu_ls     & (~lsu_s2_busy);
-  wire   lsu_s3_adv  = lsu_s2_rdy        & (~lsu_wb_miss);
+  wire   lsu_s1_adv  = exec_op_lsu_any_i            & (~lsu_s1_busy);
+  wire   lsu_s2_adv  = s1o_op_lsu_ls & s1o_dmmu_rdy & (~lsu_s2_busy);
+  wire   lsu_s3_adv  = lsu_s2_rdy                   & (~lsu_wb_miss);
   //  ## to LSU_RSRVS
   assign lsu_taking_op_o = lsu_s1_adv;
 
@@ -322,16 +325,9 @@ module mor1kx_lsu_marocchino
   wire spr_bus_stb_lsu = spr_bus_stb_i & dbus_idle_state; // SPR access
 
 
-  //--------------------------//
-  // Load/Store input command //
-  //--------------------------//
-  wire exec_op_lsu_ls = exec_op_lsu_load_i | exec_op_lsu_store_i;
-
-
   /*********************************/
   /* Stage #1: address computation */
   /*********************************/
-
 
   // compute virtual address
   wire [LSUOOW-1:0] s1t_virt_addr = exec_lsu_a1_i + {{(LSUOOW-16){exec_lsu_imm16_i[15]}},exec_lsu_imm16_i};
@@ -339,7 +335,7 @@ module mor1kx_lsu_marocchino
 
   // load / store and "new command is in stage #1" flag
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i) begin
+    if (pipeline_flush_i) begin
       s1o_op_lsu_store  <= 1'b0;  // reset / flush
       s1o_op_lsu_load   <= 1'b0;  // reset / flush
       s1o_op_lsu_atomic <= 1'b0;  // reset / flush
@@ -349,7 +345,7 @@ module mor1kx_lsu_marocchino
       s1o_op_lsu_store  <= exec_op_lsu_store_i; // advance stage #1
       s1o_op_lsu_load   <= exec_op_lsu_load_i; // advance stage #1
       s1o_op_lsu_atomic <= exec_op_lsu_atomic_i; // advance stage #1
-      s1o_op_lsu_ls     <= exec_op_lsu_ls; // advance stage #1
+      s1o_op_lsu_ls     <= (exec_op_lsu_load_i | exec_op_lsu_store_i); // advance stage #1
     end
     else if (lsu_s2_adv) begin   // drop "new load command is in stage #1" flag
       s1o_op_lsu_store  <= 1'b0; // advance stage #2 only
@@ -428,9 +424,6 @@ module mor1kx_lsu_marocchino
   wire              s2t_tlb_miss;
   wire              s2t_pagefault;
 
-  // Enable DMUU for load/store only
-  wire dmmu_enable = dmmu_enable_i & exec_op_lsu_ls;
-
   //------------------//
   // Instance of DMMU //
   //------------------//
@@ -451,14 +444,18 @@ module mor1kx_lsu_marocchino
     // pipe controls
     .lsu_s1_adv_i                     (lsu_s1_adv), // DMMU
     .pipeline_flush_i                 (pipeline_flush_i), // DMMU
+    .s1o_dmmu_rdy_o                   (s1o_dmmu_rdy), // DMMU
+    .s1o_dmmu_upd_o                   (s1o_dmmu_upd), // DMMU
     // configuration and commands
-    .dmmu_enable_i                    (dmmu_enable), // DMMU
+    .dmmu_enable_i                    (dmmu_enable_i), // DMMU
     .supervisor_mode_i                (supervisor_mode_i), // DMMU
     .s1o_op_lsu_store_i               (s1o_op_lsu_store), // DMMU
     .s1o_op_lsu_load_i                (s1o_op_lsu_load), // DMMU
+    .s1o_op_lsu_ls_i                  (s1o_op_lsu_ls), // DMMU
+    .s1o_op_msync_i                   (s1o_op_msync), // DMMU
     // address translation
     .virt_addr_idx_i                  (s1t_virt_addr), // DMMU
-    .virt_addr_tag_i                  (s1o_virt_addr), // DMMU
+    .virt_addr_s1o_i                  (s1o_virt_addr), // DMMU
     .phys_addr_o                      (s2t_phys_addr), // DMMU
     // translation flags
     .cache_inhibit_o                  (s2t_cache_inhibit), // DMMU
@@ -585,7 +582,7 @@ module mor1kx_lsu_marocchino
   wire sbuf_err = dbus_stna_cmd_o & dbus_err_i ; // to force empty STORE_BUFFER
   // ---
   always @(posedge cpu_clk) begin
-    if (cpu_rst | flush_by_ctrl) // reset store buffer DBUS error
+    if (flush_by_ctrl) // reset store buffer DBUS error
       sbuf_err_o <= 1'b0;
     else if (sbuf_err)          // rise store buffer DBUS error
       sbuf_err_o <= 1'b1;
@@ -801,7 +798,7 @@ module mor1kx_lsu_marocchino
   reg s2o_atomic_flag_clear;
   // ---
   always @(posedge cpu_clk) begin
-    if (cpu_rst | flush_by_ctrl) begin  // reset/flush s2o- atomic set/clear flags
+    if (flush_by_ctrl) begin  // reset/flush s2o- atomic set/clear flags
       s2o_atomic_flag_set   <= 1'b0;
       s2o_atomic_flag_clear <= 1'b0;
     end
@@ -841,7 +838,7 @@ module mor1kx_lsu_marocchino
 
   // latches for none atomic store command
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i) // reset any store command in stage #2
+    if (pipeline_flush_i) // reset any store command in stage #2
       s2o_op_lsu_store <= 1'b0;             // reset / flush
     else if (lsu_s2_adv)            // latch any store command in stage #2
       s2o_op_lsu_store <= s1o_op_lsu_store; // stage #2 advance
@@ -892,7 +889,7 @@ module mor1kx_lsu_marocchino
   end // @ clock
   // --- DCACHE ack ---
   always @(posedge cpu_clk) begin
-    if (cpu_rst | flush_by_ctrl)
+    if (flush_by_ctrl)
       s2o_dc_ack_read <= 1'b0;  // reset / flush
     else if (lsu_s2_adv)        // rise dc-ack-read
       s2o_dc_ack_read <= s2t_dc_ack_read;
@@ -927,7 +924,7 @@ module mor1kx_lsu_marocchino
   end // @ clock
   // --- combined DBUS-load/SBUFF-store ACK ---
   always @(posedge cpu_clk) begin
-    if (cpu_rst | flush_by_ctrl)
+    if (flush_by_ctrl)
       s3o_ls_ack <= 1'b0;                     // reset / flush
     else if (dbus_load_ack | s3t_store_ack)   // rise combined DBUS-load/ANY-store s3o-ACK
       s3o_ls_ack <= 1'b1;                     // dbus-load-ack OR s3t-store-ack
@@ -943,7 +940,7 @@ module mor1kx_lsu_marocchino
 
   // --- latches for exceptions ---
   always @(posedge cpu_clk) begin
-    if (cpu_rst | flush_by_ctrl) begin
+    if (flush_by_ctrl) begin
       // address conversion exceptions
       s2o_tlb_miss       <= 1'b0; // reset / flush
       s2o_pagefault      <= 1'b0; // reset / flush
@@ -976,7 +973,7 @@ module mor1kx_lsu_marocchino
   assign lsu_valid_o = lsu_s2_rdy | lsu_wb_miss;
   //--- "WriteBack miss" flag ---
   always @(posedge cpu_clk) begin
-    if (cpu_rst | flush_by_ctrl)
+    if (flush_by_ctrl)
       lsu_wb_miss <= 1'b0;
     else if (padv_wb_i & grant_wb_to_lsu_i)
       lsu_wb_miss <= 1'b0;

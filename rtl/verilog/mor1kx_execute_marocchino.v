@@ -38,7 +38,6 @@ module mor1kx_multiplier_marocchino
 (
   // clocks and resets
   input                                 cpu_clk,
-  input                                 cpu_rst,
 
   // pipeline control signal in
   input                                 pipeline_flush_i,
@@ -105,7 +104,7 @@ module mor1kx_multiplier_marocchino
   end // @clock
   //  ready flag
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i)
+    if (pipeline_flush_i)
       mul_s1_rdy <= 1'b0;
     else if (mul_adv_s1)
       mul_s1_rdy <= exec_op_muldiv_i;
@@ -133,7 +132,7 @@ module mor1kx_multiplier_marocchino
   end // @clock
   //  ready flag
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i)
+    if (pipeline_flush_i)
       mul_s2_rdy <= 1'b0;
     else if (mul_adv_s2)
       mul_s2_rdy <= 1'b1;
@@ -155,7 +154,7 @@ module mor1kx_multiplier_marocchino
   end // @clock
   //  ready flag
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i)
+    if (pipeline_flush_i)
       mul_s3_rdy <= 1'b0;
     else if (mul_adv_s3)
       mul_s3_rdy <= 1'b1;
@@ -164,7 +163,7 @@ module mor1kx_multiplier_marocchino
   end // @clock
   //  valid flag
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i)
+    if (pipeline_flush_i)
       mul_valid_o <= 1'b0;
     else if (mul_adv_s3)
       mul_valid_o <= 1'b1;
@@ -182,7 +181,7 @@ module mor1kx_multiplier_marocchino
   // WB-miss registers
   //  ## WB-miss flag
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i)
+    if (pipeline_flush_i)
       mul_wb_miss_r <= 1'b0;
     else if (padv_wb_i & grant_wb_to_mul_i)
       mul_wb_miss_r <= 1'b0;
@@ -244,7 +243,6 @@ module srt4_kernel
 (
   // clock and reset
   input              cpu_clk,
-  input              cpu_rst,
   // pipeline controls
   input              pipeline_flush_i,
   input              padv_wb_i,
@@ -411,7 +409,7 @@ module srt4_kernel
   reg [LOG2N2-1:0] div_count_r;
   // division controller
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i) begin
+    if (pipeline_flush_i) begin
       div_s3_rdy_o <= 1'b0;
       dbz_o        <= 1'b0;
       div_proc_o   <= 1'b0;
@@ -449,7 +447,7 @@ module srt4_kernel
 
   // valid flag to pipeline control
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i)
+    if (pipeline_flush_i)
       div_valid_o <= 1'b0; // SRT_4_KERNEL
     else if ((div_start_i & dbz) | (div_proc_o & (div_count_r == {LOG2N2{1'b0}}))) // SRT_4_KERNEL: sync to "div_s3_rdy_o"
       div_valid_o <= 1'b1; // SRT_4_KERNEL
@@ -472,7 +470,6 @@ module mor1kx_divider_marocchino
 (
   // clocks and resets
   input                                 cpu_clk,
-  input                                 cpu_rst,
 
   // pipeline control signal in
   input                                 pipeline_flush_i,
@@ -542,7 +539,7 @@ module mor1kx_divider_marocchino
 
     // division controller
     always @(posedge cpu_clk) begin
-      if (cpu_rst | pipeline_flush_i) begin
+      if (pipeline_flush_i) begin
         div_s3_rdy_r <= 1'b0; // DIV_SERIAL
         div_proc_r   <= 1'b0;
         div_count    <= 6'd0;
@@ -569,7 +566,7 @@ module mor1kx_divider_marocchino
 
     // valid flag to pipeline control
     always @(posedge cpu_clk) begin
-      if (cpu_rst | pipeline_flush_i)
+      if (pipeline_flush_i)
         div_valid_r <= 1'b0; // DIV_SERIAL
       else if (div_proc_r & (div_count == 6'd1)) // DIV_SERIAL: sync to "div_s3_rdy_r"
         div_valid_r <= 1'b1; // DIV_SERIAL
@@ -726,7 +723,7 @@ module mor1kx_divider_marocchino
     end // @clock
     //  ready flag
     always @(posedge cpu_clk) begin
-      if (cpu_rst | pipeline_flush_i)
+      if (pipeline_flush_i)
         div_s1_rdy <= 1'b0;
       else if (div_adv_s1)
         div_s1_rdy <= exec_op_muldiv_i; // SRT4
@@ -756,7 +753,7 @@ module mor1kx_divider_marocchino
     end // @clock
     //  ready flag
     always @(posedge cpu_clk) begin
-      if (cpu_rst | pipeline_flush_i)
+      if (pipeline_flush_i)
         div_s2_rdy <= 1'b0;
       else if (div_adv_s2)
         div_s2_rdy <= 1'b1;
@@ -784,7 +781,6 @@ module mor1kx_divider_marocchino
     (
       // clock and reset
       .cpu_clk            (cpu_clk), // SRT_4_KERNEL
-      .cpu_rst            (cpu_rst), // SRT_4_KERNEL
       // pipeline controls
       .pipeline_flush_i   (pipeline_flush_i), // SRT_4_KERNEL
       .padv_wb_i          (padv_wb_i), // SRT_4_KERNEL
@@ -814,7 +810,7 @@ module mor1kx_divider_marocchino
   // WB-miss registers
   //  ## WB-miss flag
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i)
+    if (pipeline_flush_i)
       div_wb_miss_r <= 1'b0;
     else if (padv_wb_i & grant_wb_to_div_i)
       div_wb_miss_r <= 1'b0;
@@ -873,7 +869,7 @@ module mor1kx_divider_marocchino
 
   // WB-latchers
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i) begin
+    if (pipeline_flush_i) begin
       //  # update carry flag by division
       wb_div_carry_set_o        <= 1'b0;
       wb_div_carry_clear_o      <= 1'b0;
@@ -922,7 +918,6 @@ module mor1kx_exec_1clk_marocchino
 (
   // clocks and resets
   input                                 cpu_clk,
-  input                                 cpu_rst,
 
   // pipeline control signal in
   input                                 pipeline_flush_i,
@@ -1155,7 +1150,7 @@ module mor1kx_exec_1clk_marocchino
   reg             alu_1clk_wb_miss_r;
   // ---
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i)
+    if (pipeline_flush_i)
       alu_1clk_wb_miss_r <= 1'b0;
     else if (padv_wb_i & grant_wb_to_1clk_i)
       alu_1clk_wb_miss_r <= 1'b0;
@@ -1213,7 +1208,7 @@ module mor1kx_exec_1clk_marocchino
 
   // WB-latchers
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i) begin
+    if (pipeline_flush_i) begin
       //  # update carry flag by 1clk-operation
       wb_1clk_carry_set_o        <= 1'b0;
       wb_1clk_carry_clear_o      <= 1'b0;

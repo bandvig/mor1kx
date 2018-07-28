@@ -42,7 +42,6 @@ module pfpu_mul_marocchino
 (
   // clocks and resets
   input             cpu_clk,
-  input             cpu_rst,
   // pipe controls
   input             pipeline_flush_i,
   input             s1o_mul_ready_i,
@@ -162,7 +161,7 @@ module pfpu_mul_marocchino
 
   // ready is special case
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i)
+    if (pipeline_flush_i)
       s2o_mul_ready <= 1'b0;
     else if (s2_adv)
       s2o_mul_ready <= 1'b1;
@@ -214,7 +213,7 @@ module pfpu_mul_marocchino
 
   // ready is special case
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i)
+    if (pipeline_flush_i)
       s3o_mul_ready <= 1'b0;
     else if (s3_adv)
       s3o_mul_ready <= 1'b1;
@@ -258,7 +257,7 @@ module pfpu_mul_marocchino
 
   // ready is special case
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i)
+    if (pipeline_flush_i)
       s4o_mul_ready <= 1'b0;
     else if (s4_adv)
       s4o_mul_ready <= 1'b1;
@@ -307,7 +306,7 @@ module pfpu_mul_marocchino
 
   // ready is special case
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i)
+    if (pipeline_flush_i)
       s5o_mul_ready <= 1'b0;
     else if (s5_adv)
       s5o_mul_ready <= 1'b1;
@@ -344,7 +343,7 @@ module pfpu_mul_marocchino
 
   // ready is special case
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i)
+    if (pipeline_flush_i)
       s6o_mul_ready <= 1'b0;
     else if (s6_adv)
       s6o_mul_ready <= 1'b1;
@@ -375,7 +374,7 @@ module pfpu_mul_marocchino
 
   // ready is special case
   always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i)
+    if (pipeline_flush_i)
       mul_rdy_o <= 1'b0;
     else if (out_adv_d | out_adv_s)
       mul_rdy_o <= 1'b1;

@@ -40,6 +40,8 @@ module mor1kx_dmmu_marocchino
   // pipe controls
   input                                 lsu_s1_adv_i,
   input                                 pipeline_flush_i,
+  output reg                            s1o_dmmu_rdy_o,
+  output reg                            s1o_dmmu_upd_o,
 
   // configuration
   input                                 dmmu_enable_i,
@@ -48,22 +50,24 @@ module mor1kx_dmmu_marocchino
   // commnads
   input                                 s1o_op_lsu_store_i,
   input                                 s1o_op_lsu_load_i,
+  input                                 s1o_op_lsu_ls_i,
+  input                                 s1o_op_msync_i,
 
   // address translation
   input      [OPTION_OPERAND_WIDTH-1:0] virt_addr_idx_i,
-  input      [OPTION_OPERAND_WIDTH-1:0] virt_addr_tag_i,
+  input      [OPTION_OPERAND_WIDTH-1:0] virt_addr_s1o_i,
   output     [OPTION_OPERAND_WIDTH-1:0] phys_addr_o,
 
   // flags
   output reg                            cache_inhibit_o,
   output reg                            tlb_miss_o,
-  output                                pagefault_o,
+  output reg                            pagefault_o,
 
   // HW reload
-  output reg                            tlb_reload_req_o,
+  output                                tlb_reload_req_o,
   output                                tlb_reload_busy_o,
   input                                 tlb_reload_ack_i,
-  output reg [OPTION_OPERAND_WIDTH-1:0] tlb_reload_addr_o,
+  output     [OPTION_OPERAND_WIDTH-1:0] tlb_reload_addr_o,
   input      [OPTION_OPERAND_WIDTH-1:0] tlb_reload_data_i,
   output                                tlb_reload_pagefault_o,
   input                                 tlb_reload_pagefault_clear_i,
@@ -97,19 +101,18 @@ module mor1kx_dmmu_marocchino
   wire [OPTION_DMMU_SET_WIDTH-1:0] dtlb_trans_huge_addr;
   wire                             dtlb_trans_huge_we;
 
-  reg                              dtlb_match_reload_we;
-  reg   [OPTION_OPERAND_WIDTH-1:0] dtlb_match_reload_din;
+  wire                             dtlb_match_reload_we;
+  wire  [OPTION_OPERAND_WIDTH-1:0] dtlb_match_reload_din;
 
-  reg                              dtlb_trans_reload_we;
-  reg   [OPTION_OPERAND_WIDTH-1:0] dtlb_trans_reload_din;
+  wire                             dtlb_trans_reload_we;
+  wire  [OPTION_OPERAND_WIDTH-1:0] dtlb_trans_reload_din;
 
   reg                              dtlb_match_spr_cs_r;
   reg                              dtlb_trans_spr_cs_r;
 
   wire                             spr_dmmu_cs;
 
-  // address to re-read at SPR access completion
-  reg  [OPTION_DMMU_SET_WIDTH-1:0] spr_reread_addr_r;
+  reg  [OPTION_DMMU_SET_WIDTH-1:0] spr_access_addr_r;
 
   reg                              dmmucr_spr_cs_r;
   reg   [OPTION_OPERAND_WIDTH-1:0] dmmucr;
@@ -120,8 +123,10 @@ module mor1kx_dmmu_marocchino
   wire      [OPTION_DMMU_WAYS-1:0] way_hit;
   wire      [OPTION_DMMU_WAYS-1:0] way_huge_hit;
 
-  reg                              tlb_reload_pagefault;
-  reg                              tlb_reload_huge;
+  wire                             tlb_reload_pagefault;
+  wire                             tlb_reload_huge;
+
+  reg   [OPTION_OPERAND_WIDTH-1:0] virt_addr_tag_r;
 
   // ure: user read enable
   // uwe: user write enable
@@ -135,23 +140,13 @@ module mor1kx_dmmu_marocchino
   genvar                           i;
 
 
-  // Local copy of SR[DME]
-  // (for masking DMMU output flags, but not for advancing)
+  // Local copies of SR[DME] and SR[SM]
   reg dmmu_enable_r;
-  // ---
-  always @(posedge cpu_clk) begin
-    if (cpu_rst | pipeline_flush_i)
-      dmmu_enable_r <= 1'b0;
-    else if (lsu_s1_adv_i)
-      dmmu_enable_r <= dmmu_enable_i;
-  end // @ clock
-
-  // Local copy of SR[SM] - makes sence only if DMMU enabled
   reg supervisor_mode_r;
   // ---
   always @(posedge cpu_clk) begin
-    if (lsu_s1_adv_i)
-      supervisor_mode_r <= supervisor_mode_i;
+    dmmu_enable_r     <= dmmu_enable_i;
+    supervisor_mode_r <= supervisor_mode_i;
   end // @ clock
 
 
@@ -245,22 +240,15 @@ module mor1kx_dmmu_marocchino
           dtlb_trans_spr_cs_r <= (|spr_bus_addr_r[10:9]) &  spr_bus_addr_r[7];
           dmmucr_spr_cs_r     <= (`SPR_OFFSET(spr_bus_addr_r) == `SPR_OFFSET(`OR1K_SPR_DMMUCR_ADDR));
           spr_way_idx_r       <= spr_way_idx[WAYS_WIDTH-1:0];
-          spr_reread_addr_r   <= spr_bus_addr_r[OPTION_DMMU_SET_WIDTH-1:0];
+          spr_access_addr_r   <= spr_bus_addr_r[OPTION_DMMU_SET_WIDTH-1:0];
         end
       end
-      // write completion
-      SPR_DMMU_WRITE: begin
-        spr_reread_addr_r <= virt_addr_tag_i[(OPTION_DMMU_SET_WIDTH+13-1):13]; // re-read after write
-      end
-      // do nothing
-      SPR_DMMU_RINIT:;
       // latch read data
       SPR_DMMU_RMUX: begin
         spr_bus_dat_o  <= dtlb_match_spr_cs_r ? dtlb_match_dout[spr_way_idx_r] :
                           dtlb_trans_spr_cs_r ? dtlb_trans_dout[spr_way_idx_r] :
                           dmmucr_spr_cs_r     ? dmmucr                         :
                                                 {OPTION_OPERAND_WIDTH{1'b0}};
-        spr_reread_addr_r <= virt_addr_tag_i[(OPTION_DMMU_SET_WIDTH+13-1):13]; // re-read after read
       end
       // back to waiting
       SPR_DMMU_ACK,
@@ -289,50 +277,50 @@ module mor1kx_dmmu_marocchino
   generate
   for (i = 0; i < OPTION_DMMU_WAYS; i=i+1) begin : ways
     // 8KB page hit
-    assign way_hit[i] = (dtlb_match_dout[i][31:13] == virt_addr_tag_i[31:13]) & // address match
+    assign way_hit[i] = (dtlb_match_dout[i][31:13] == virt_addr_tag_r[31:13]) & // address match
                         ~(&dtlb_match_huge_dout[i][1:0]) &                      // ~ huge valid
-                         dtlb_match_dout[i][0] &                                // valid bit
-                         dmmu_enable_r;                                         // mmu enabled
+                         dtlb_match_dout[i][0];                                 // valid bit
     // Huge page hit
-    assign way_huge_hit[i] = (dtlb_match_huge_dout[i][31:24] == virt_addr_tag_i[31:24]) & // address match
-                             (&dtlb_match_huge_dout[i][1:0]) &                            // ~ huge valid
-                             dmmu_enable_r;                                               // mmu enabled
+    assign way_huge_hit[i] = (dtlb_match_huge_dout[i][31:24] == virt_addr_tag_r[31:24]) & // address match
+                             (&dtlb_match_huge_dout[i][1:0]);                             // ~ huge valid
   end
   endgenerate
 
 
   reg [OPTION_OPERAND_WIDTH-1:0] phys_addr;
+  reg                            cache_inhibit;
+  reg                            tlb_miss;
 
   integer j;
 
   always @(*) begin
-    tlb_miss_o      = ~tlb_reload_pagefault & dmmu_enable_r;
-    phys_addr       = virt_addr_tag_i;
-    ure             = 1'b0;
-    uwe             = 1'b0;
-    sre             = 1'b0;
-    swe             = 1'b0;
-    cache_inhibit_o = 1'b0;
+    tlb_miss      = ~tlb_reload_pagefault;
+    phys_addr     = virt_addr_tag_r;
+    ure           = 1'b0;
+    uwe           = 1'b0;
+    sre           = 1'b0;
+    swe           = 1'b0;
+    cache_inhibit = 1'b0;
 
     for (j = 0; j < OPTION_DMMU_WAYS; j=j+1) begin
       if (way_huge_hit[j] | way_hit[j])
-        tlb_miss_o = 1'b0;
+        tlb_miss = 1'b0;
 
       if (way_huge_hit[j]) begin
-        phys_addr       = {dtlb_trans_huge_dout[j][31:24], virt_addr_tag_i[23:0]};
-        ure             = dtlb_trans_huge_dout[j][6];
-        uwe             = dtlb_trans_huge_dout[j][7];
-        sre             = dtlb_trans_huge_dout[j][8];
-        swe             = dtlb_trans_huge_dout[j][9];
-        cache_inhibit_o = dtlb_trans_huge_dout[j][1];
+        phys_addr     = {dtlb_trans_huge_dout[j][31:24], virt_addr_tag_r[23:0]};
+        ure           = dtlb_trans_huge_dout[j][6];
+        uwe           = dtlb_trans_huge_dout[j][7];
+        sre           = dtlb_trans_huge_dout[j][8];
+        swe           = dtlb_trans_huge_dout[j][9];
+        cache_inhibit = dtlb_trans_huge_dout[j][1];
       end
       else if (way_hit[j])begin
-        phys_addr       = {dtlb_trans_dout[j][31:13], virt_addr_tag_i[12:0]};
-        ure             = dtlb_trans_dout[j][6];
-        uwe             = dtlb_trans_dout[j][7];
-        sre             = dtlb_trans_dout[j][8];
-        swe             = dtlb_trans_dout[j][9];
-        cache_inhibit_o = dtlb_trans_dout[j][1];
+        phys_addr     = {dtlb_trans_dout[j][31:13], virt_addr_tag_r[12:0]};
+        ure           = dtlb_trans_dout[j][6];
+        uwe           = dtlb_trans_dout[j][7];
+        sre           = dtlb_trans_dout[j][8];
+        swe           = dtlb_trans_dout[j][9];
+        cache_inhibit = dtlb_trans_dout[j][1];
       end
 
       dtlb_match_we[j] = 1'b0;
@@ -349,32 +337,26 @@ module mor1kx_dmmu_marocchino
     end // loop by ways
   end // always
 
-  assign pagefault_o = (supervisor_mode_r ? ((~swe & s1o_op_lsu_store_i) | (~sre & s1o_op_lsu_load_i)) :
-                                            ((~uwe & s1o_op_lsu_store_i) | (~ure & s1o_op_lsu_load_i))) &
-                       ~tlb_reload_busy_o & dmmu_enable_r;
-
- `ifdef SIM_SMPL_SOC // MAROCCHINO_TODO
-  assign phys_addr_o = phys_addr;
- `else
-  assign phys_addr_o = {phys_addr[OPTION_OPERAND_WIDTH-1:2],2'd0};
- `endif
+  wire pagefault = (supervisor_mode_r ? ((~swe & s1o_op_lsu_store_i) | (~sre & s1o_op_lsu_load_i)) :
+                                        ((~uwe & s1o_op_lsu_store_i) | (~ure & s1o_op_lsu_load_i))) &
+                   ~tlb_reload_busy_o;
 
 
   // match 8KB input address
-  assign dtlb_match_addr = dtlb_match_spr_cs_r ? spr_reread_addr_r :
-                                                 virt_addr_idx_i[(OPTION_DMMU_SET_WIDTH+13-1):13];
+  assign dtlb_match_addr = dtlb_match_spr_cs_r ? spr_access_addr_r :
+                                                 virt_addr_s1o_i[(OPTION_DMMU_SET_WIDTH+13-1):13];
   // match huge address and write command
-  assign dtlb_match_huge_addr = virt_addr_idx_i[(OPTION_DMMU_SET_WIDTH+24-1):24];
+  assign dtlb_match_huge_addr = virt_addr_s1o_i[(OPTION_DMMU_SET_WIDTH+24-1):24];
   assign dtlb_match_huge_we   = dtlb_match_reload_we & tlb_reload_huge;
   // match data in
   assign dtlb_match_din = dtlb_match_reload_we ? dtlb_match_reload_din : spr_bus_dat_r;
 
 
   // translation 8KB input address
-  assign dtlb_trans_addr = dtlb_trans_spr_cs_r ? spr_reread_addr_r :
-                                                 virt_addr_idx_i[(OPTION_DMMU_SET_WIDTH+13-1):13];
+  assign dtlb_trans_addr = dtlb_trans_spr_cs_r ? spr_access_addr_r :
+                                                 virt_addr_s1o_i[(OPTION_DMMU_SET_WIDTH+13-1):13];
   // translation huge address and write command
-  assign dtlb_trans_huge_addr = virt_addr_idx_i[(OPTION_DMMU_SET_WIDTH+24-1):24];
+  assign dtlb_trans_huge_addr = virt_addr_s1o_i[(OPTION_DMMU_SET_WIDTH+24-1):24];
   assign dtlb_trans_huge_we   = dtlb_trans_reload_we & tlb_reload_huge;
   // translation data in
   assign dtlb_trans_din = dtlb_trans_reload_we ? dtlb_trans_reload_din : spr_bus_dat_r;
@@ -394,7 +376,28 @@ module mor1kx_dmmu_marocchino
       $display("DMMU ERROR: HW TLB reload is not implemented in MAROCCHINO");
       $finish();
     end
+    
     /*
+    // local declaratirons
+    reg                            tlb_reload_req_r; // HW reload
+    reg [OPTION_OPERAND_WIDTH-1:0] tlb_reload_addr_r; // HW reload
+    reg                            tlb_reload_pagefault_r; // HW reload
+    reg                            tlb_reload_huge_r; // HW reload
+    reg                            dtlb_match_reload_we_r; // HW reload
+    reg [OPTION_OPERAND_WIDTH-1:0] dtlb_match_reload_din_r; // HW reload
+    reg                            dtlb_trans_reload_we_r; // HW reload
+    reg [OPTION_OPERAND_WIDTH-1:0] dtlb_trans_reload_din_r; // HW reload
+
+    // assignement connections to main code
+    assign tlb_reload_req_o      = tlb_reload_req_r; // HW reload
+    assign tlb_reload_addr_o     = tlb_reload_addr_r; // HW reload
+    assign tlb_reload_pagefault  = tlb_reload_pagefault_r; // HW reload
+    assign tlb_reload_huge       = tlb_reload_huge_r; // HW reload
+    assign dtlb_match_reload_we  = dtlb_match_reload_we_r; // HW reload
+    assign dtlb_match_reload_din = dtlb_match_reload_din_r; // HW reload
+    assign dtlb_trans_reload_we  = dtlb_trans_reload_we_r; // HW reload
+    assign dtlb_trans_reload_din = dtlb_trans_reload_din_r; // HW reload
+    
     // Hardware TLB reload
     // Compliant with the suggestion outlined in this thread:
     // http://lists.openrisc.net/pipermail/openrisc/2013-July/001806.html
@@ -414,29 +417,29 @@ module mor1kx_dmmu_marocchino
     reg [3:0] tlb_reload_state = TLB_IDLE;
     wire      do_reload;
 
-    assign do_reload = dmmu_enable_r & tlb_miss_o & (dmmucr[31:10] != 0) & (s1o_op_lsu_load_i | s1o_op_lsu_store_i);
+    assign do_reload = tlb_miss_o & (dmmucr[31:10] != 0) & (s1o_op_lsu_load_i | s1o_op_lsu_store_i);
 
-    assign tlb_reload_busy_o = dmmu_enable_r & (tlb_reload_state != TLB_IDLE) | do_reload;
+    assign tlb_reload_busy_o = (tlb_reload_state != TLB_IDLE) | do_reload;
 
-    assign tlb_reload_pagefault_o = tlb_reload_pagefault & ~tlb_reload_pagefault_clear_i;
+    assign tlb_reload_pagefault_o = tlb_reload_pagefault_r & ~tlb_reload_pagefault_clear_i;
 
     always @(posedge cpu_clk) begin
       if (tlb_reload_pagefault_clear_i)
-        tlb_reload_pagefault  <= 1'b0;
+        tlb_reload_pagefault_r  <= 1'b0;
 
-      dtlb_trans_reload_we  <= 1'b0;
-      dtlb_trans_reload_din <= {OPTION_OPERAND_WIDTH{1'b0}};
-      dtlb_match_reload_we  <= 1'b0;
-      dtlb_match_reload_din <= {OPTION_OPERAND_WIDTH{1'b0}};
+      dtlb_trans_reload_we_r  <= 1'b0;
+      dtlb_trans_reload_din_r <= {OPTION_OPERAND_WIDTH{1'b0}};
+      dtlb_match_reload_we_r  <= 1'b0;
+      dtlb_match_reload_din_r <= {OPTION_OPERAND_WIDTH{1'b0}};
 
       // synthesis parallel_case full_case
       case (tlb_reload_state)
         TLB_IDLE: begin
-          tlb_reload_huge   <= 1'b0;
-          tlb_reload_req_o  <= 1'b0;
+          tlb_reload_huge_r <= 1'b0;
+          tlb_reload_req_r  <= 1'b0;
           if (do_reload) begin
-            tlb_reload_req_o  <= 1'b1;
-            tlb_reload_addr_o <= {dmmucr[31:10], virt_addr_tag_i[31:24], 2'b00};
+            tlb_reload_req_r  <= 1'b1;
+            tlb_reload_addr_r <= {dmmucr[31:10], virt_addr_tag_r[31:24], 2'b00};
             tlb_reload_state  <= TLB_GET_PTE_POINTER;
           end
         end
@@ -450,20 +453,20 @@ module mor1kx_dmmu_marocchino
         // (number of PTEs in the PTE table)
         //
         TLB_GET_PTE_POINTER: begin
-          tlb_reload_huge <= 1'b0;
+          tlb_reload_huge_r <= 1'b0;
           if (tlb_reload_ack_i) begin
             if (tlb_reload_data_i[31:13] == 0) begin
-              tlb_reload_pagefault  <= 1'b1;
-              tlb_reload_req_o      <= 1'b0;
-              tlb_reload_state      <= TLB_IDLE;
+              tlb_reload_pagefault_r <= 1'b1;
+              tlb_reload_req_r       <= 1'b0;
+              tlb_reload_state       <= TLB_IDLE;
             end
             else if (tlb_reload_data_i[9]) begin
-              tlb_reload_huge   <= 1'b1;
-              tlb_reload_req_o  <= 1'b0;
+              tlb_reload_huge_r <= 1'b1;
+              tlb_reload_req_r  <= 1'b0;
               tlb_reload_state  <= TLB_GET_PTE;
             end
             else begin
-              tlb_reload_addr_o <= {tlb_reload_data_i[31:13], virt_addr_tag_i[23:13], 2'b00};
+              tlb_reload_addr_r <= {tlb_reload_data_i[31:13], virt_addr_tag_r[23:13], 2'b00};
               tlb_reload_state  <= TLB_GET_PTE;
             end
           end
@@ -475,34 +478,34 @@ module mor1kx_dmmu_marocchino
         //
         TLB_GET_PTE: begin
           if (tlb_reload_ack_i) begin
-            tlb_reload_req_o <= 1'b0;
+            tlb_reload_req_r <= 1'b0;
             // Check PRESENT bit
             if (~tlb_reload_data_i[10]) begin
-              tlb_reload_pagefault <= 1'b1;
-              tlb_reload_state     <= TLB_IDLE;
+              tlb_reload_pagefault_r <= 1'b1;
+              tlb_reload_state       <= TLB_IDLE;
             end
             else begin
               // Translate register generation.
               // PPN
-              dtlb_trans_reload_din[31:13] <= tlb_reload_data_i[31:13];
+              dtlb_trans_reload_din_r[31:13] <= tlb_reload_data_i[31:13];
               // SWE = W
-              dtlb_trans_reload_din[9] <= tlb_reload_data_i[7];
+              dtlb_trans_reload_din_r[9] <= tlb_reload_data_i[7];
               // SRE = 1
-              dtlb_trans_reload_din[8] <= 1'b1;
+              dtlb_trans_reload_din_r[8] <= 1'b1;
               // UWE = W & U
-              dtlb_trans_reload_din[7] <= tlb_reload_data_i[7] & tlb_reload_data_i[6];
+              dtlb_trans_reload_din_r[7] <= tlb_reload_data_i[7] & tlb_reload_data_i[6];
               // URE = U
-              dtlb_trans_reload_din[6] <= tlb_reload_data_i[6];
+              dtlb_trans_reload_din_r[6] <= tlb_reload_data_i[6];
               // Dirty, Accessed, Weakly-Ordered-Memory, Writeback cache,
               // Cache inhibit, Cache coherent
-              dtlb_trans_reload_din[5:0] <= tlb_reload_data_i[5:0];
-              dtlb_trans_reload_we <= 1'b1;
+              dtlb_trans_reload_din_r[5:0] <= tlb_reload_data_i[5:0];
+              dtlb_trans_reload_we_r       <= 1'b1;
               // Match register generation.
               // VPN
-              dtlb_match_reload_din[31:13] <= virt_addr_tag_i[31:13];
+              dtlb_match_reload_din_r[31:13] <= virt_addr_tag_r[31:13];
               // Valid
-              dtlb_match_reload_din[0]  <= 1'b1;
-              dtlb_match_reload_we      <= 1'b1;
+              dtlb_match_reload_din_r[0]  <= 1'b1;
+              dtlb_match_reload_we_r      <= 1'b1;
               // ---
               tlb_reload_state <= TLB_READ;
             end
@@ -517,36 +520,29 @@ module mor1kx_dmmu_marocchino
         default:
           tlb_reload_state <= TLB_IDLE;
       endcase
-
-      // Abort if enable deasserts in the middle of a reload
-      if (~dmmu_enable_r | (dmmucr[31:10] == 0))
-        tlb_reload_state <= TLB_IDLE;
     end
     */
   end
   else begin // SW reload
-    assign tlb_reload_pagefault_o = 1'b0;
-    assign tlb_reload_busy_o      = 1'b0;
-    always @(posedge cpu_clk) begin
-      tlb_reload_req_o      <= 1'b0;
-      tlb_reload_addr_o     <= {OPTION_OPERAND_WIDTH{1'b0}};
-      tlb_reload_pagefault  <= 1'b0;
-      tlb_reload_huge       <= 1'b0;
-      dtlb_trans_reload_we  <= 1'b0;
-      dtlb_trans_reload_din <= {OPTION_OPERAND_WIDTH{1'b0}};
-      dtlb_match_reload_we  <= 1'b0;
-      dtlb_match_reload_din <= {OPTION_OPERAND_WIDTH{1'b0}};
-    end
+    assign tlb_reload_pagefault_o = 1'b0; // SW reload
+    assign tlb_reload_busy_o      = 1'b0; // SW reload
+    assign tlb_reload_req_o       = 1'b0; // SW reload
+    assign tlb_reload_addr_o      = {OPTION_OPERAND_WIDTH{1'b0}}; // SW reload
+    assign tlb_reload_pagefault   = 1'b0; // SW reload
+    assign tlb_reload_huge        = 1'b0; // SW reload
+    assign dtlb_trans_reload_we   = 1'b0; // SW reload
+    assign dtlb_trans_reload_din  = {OPTION_OPERAND_WIDTH{1'b0}}; // SW reload
+    assign dtlb_match_reload_we   = 1'b0; // SW reload
+    assign dtlb_match_reload_din  = {OPTION_OPERAND_WIDTH{1'b0}}; // SW reload
   end // HW/SW reload
   endgenerate
 
 
   // Enable for RAM blocks if:
-  //  1) regular LSU advance
-  //     (we don't care about exceptions here, because
-  //      we force local enable-r OFF if an exception is asserted)
+  //  1) Update super-cache
+  wire dmmu_cache_re;
   //  2) SPR access
-  wire ram_re = lsu_s1_adv_i | spr_dmmu_re | spr_bus_ack_o;
+  wire ram_re = dmmu_cache_re | spr_dmmu_re;
 
 
   generate
@@ -601,5 +597,174 @@ module mor1kx_dmmu_marocchino
      );
   end
   endgenerate
+
+
+  // states of DMMU super-cache FSM
+  localparam [4:0] DMMU_CACHE_EMPTY = 5'b00001,
+                   DMMU_CACHE_OFF   = 5'b00010,
+                   DMMU_CACHE_RE    = 5'b00100,
+                   DMMU_CACHE_UPD   = 5'b01000,
+                   DMMU_CACHE_ON    = 5'b10000;
+  // ---
+  reg [4:0] dmmu_cache_state;
+
+  // particular states
+  assign dmmu_cache_re = dmmu_cache_state[2];
+
+  // additional flags
+  reg supervisor_mode_c; // "cached"
+  reg hit_08Kb_r;
+  reg hit_16Mb_r; // "huge"
+
+  // most significant bits of last hit virtual address
+  localparam  VIRT_ADDR_HIT_WIDTH    = OPTION_OPERAND_WIDTH - 13;
+  localparam  VIRT_ADDR_HIT_MSB      = VIRT_ADDR_HIT_WIDTH  -  1;
+  localparam  VIRT_ADDR_HIT_16MB_LSB = 24 - 13;
+  // ---
+  reg [VIRT_ADDR_HIT_MSB:0] virt_addr_hit_r;
+
+  // registered physsical address
+  reg [OPTION_OPERAND_WIDTH-1:0] phys_addr_r;
+
+  // check if DMMU's cache miss
+  wire dmmu_cache_hit = (virt_addr_idx_i[(OPTION_OPERAND_WIDTH-1):24] ==
+                         virt_addr_hit_r[VIRT_ADDR_HIT_MSB:VIRT_ADDR_HIT_16MB_LSB]) &
+                        (hit_08Kb_r ? (virt_addr_idx_i[23:13] ==
+                                       virt_addr_hit_r[VIRT_ADDR_HIT_16MB_LSB-1:0]) :
+                                      hit_16Mb_r) &
+                        (supervisor_mode_c == supervisor_mode_r);
+
+  // do update only if LSU operation is valid
+  wire dmmu_s1o_valid = (~s1o_op_msync_i) & s1o_op_lsu_ls_i;
+
+  // DMMU's super-cache FSM
+  always @(posedge cpu_clk) begin
+    if (pipeline_flush_i) begin
+      s1o_dmmu_upd_o    <= 1'b0;
+      s1o_dmmu_rdy_o    <= 1'b0;
+      supervisor_mode_c <= 1'b0;
+      hit_08Kb_r        <= 1'b0;
+      hit_16Mb_r        <= 1'b0;
+      cache_inhibit_o   <= 1'b0;
+      tlb_miss_o        <= 1'b0;
+      pagefault_o       <= 1'b0;
+      dmmu_cache_state  <= DMMU_CACHE_EMPTY; // reset / flush
+    end
+    else begin
+      // synthesis parallel_case
+      case (dmmu_cache_state)
+        // waiting 1-st request after reset / flush
+        DMMU_CACHE_EMPTY: begin
+          if (lsu_s1_adv_i) begin
+            s1o_dmmu_upd_o   <= 1'b1;
+            dmmu_cache_state <= DMMU_CACHE_RE;
+          end
+        end // empty
+        // read RAMs
+        DMMU_CACHE_RE: begin
+          if (dmmu_s1o_valid) begin
+            dmmu_cache_state <= DMMU_CACHE_UPD;
+          end
+          else begin
+            s1o_dmmu_upd_o   <= 1'b0; // open stage #1 till hazard resolving
+            dmmu_cache_state <= DMMU_CACHE_EMPTY;
+          end
+        end
+        // update cache output
+        DMMU_CACHE_UPD: begin
+          if (dmmu_enable_r) begin
+            supervisor_mode_c <= supervisor_mode_r;
+            hit_08Kb_r        <= (|way_hit);
+            hit_16Mb_r        <= (|way_huge_hit);
+            cache_inhibit_o   <= cache_inhibit;
+            tlb_miss_o        <= tlb_miss;
+            pagefault_o       <= pagefault;
+            dmmu_cache_state  <= DMMU_CACHE_ON;
+          end
+          else begin
+            supervisor_mode_c <= 1'b0;
+            hit_08Kb_r        <= 1'b0;
+            hit_16Mb_r        <= 1'b0;
+            cache_inhibit_o   <= 1'b0;
+            tlb_miss_o        <= 1'b0;
+            pagefault_o       <= 1'b0;
+            dmmu_cache_state  <= DMMU_CACHE_OFF;
+          end
+          s1o_dmmu_upd_o  <= 1'b0;
+          s1o_dmmu_rdy_o  <= 1'b1;
+        end // update
+        // DMMU is ON
+        DMMU_CACHE_ON: begin
+          if (lsu_s1_adv_i) begin
+            if ((~dmmu_enable_r) | (~dmmu_cache_hit)) begin
+              s1o_dmmu_upd_o   <= 1'b1;
+              s1o_dmmu_rdy_o   <= 1'b0;
+              dmmu_cache_state <= DMMU_CACHE_RE;
+            end
+            else begin
+              s1o_dmmu_rdy_o <= 1'b1;
+            end
+          end // stage #1 advance
+          else if (spr_bus_ack_o) begin
+            s1o_dmmu_upd_o   <= 1'b0;
+            s1o_dmmu_rdy_o   <= 1'b0;
+            dmmu_cache_state <= DMMU_CACHE_EMPTY;
+          end // Re-Read after SPR access
+        end // rdy
+        // DMMU is OFF
+        DMMU_CACHE_OFF: begin
+          if (lsu_s1_adv_i) begin
+            if (dmmu_enable_r) begin
+              s1o_dmmu_upd_o   <= 1'b1;
+              s1o_dmmu_rdy_o   <= 1'b0;
+              dmmu_cache_state <= DMMU_CACHE_UPD;
+            end
+            else begin
+              s1o_dmmu_rdy_o <= 1'b1;
+            end
+          end // stage #1 advance
+        end // off
+        // do nothing by default
+        default:;
+      endcase
+    end
+  end // @ clock
+
+  // DMMU's physical address output
+  always @(posedge cpu_clk) begin
+    // synthesis parallel_case
+    case (dmmu_cache_state)
+      // read RAMs
+      DMMU_CACHE_RE: begin
+        if (dmmu_s1o_valid)
+          virt_addr_tag_r <= virt_addr_s1o_i;
+      end // read
+      // update cache output
+      DMMU_CACHE_UPD: begin
+        phys_addr_r     <= dmmu_enable_r ? phys_addr : virt_addr_tag_r; // update DMMU's output
+        virt_addr_hit_r <= virt_addr_tag_r[(OPTION_OPERAND_WIDTH-1):13];
+      end // update
+      // DMMU is ON
+      DMMU_CACHE_ON: begin
+        if (lsu_s1_adv_i)
+          phys_addr_r <= hit_08Kb_r ?
+                          {phys_addr_r[(OPTION_OPERAND_WIDTH-1):13],virt_addr_idx_i[12:0]} :
+                          {phys_addr_r[(OPTION_OPERAND_WIDTH-1):24],virt_addr_idx_i[23:0]};
+      end // rdy
+      // DMMU is OFF
+      DMMU_CACHE_OFF: begin
+        if (lsu_s1_adv_i)
+          phys_addr_r <= virt_addr_idx_i; // DMMU is OFF
+      end // off
+      // do nothing by default
+      default:;
+    endcase
+  end // @ clock
+
+ `ifdef SIM_SMPL_SOC // MAROCCHINO_TODO
+  assign phys_addr_o = phys_addr_r;
+ `else
+  assign phys_addr_o = {phys_addr_r[OPTION_OPERAND_WIDTH-1:2],2'd0};
+ `endif
 
 endmodule // mor1kx_dmmu_marocchino
