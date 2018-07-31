@@ -313,7 +313,7 @@ module mor1kx_bus_if_wb32_marocchino
         dbus_state_r <= DBUS_WAITING_CPU_REQ;
       end
       else begin
-        // synthesis parallel_case full_case
+        // synthesis parallel_case
         case (dbus_state_r)
           // waiting CPU request
           // l.swa could be "another l.swa" (i.e. to another location),

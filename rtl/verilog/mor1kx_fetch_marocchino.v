@@ -458,7 +458,7 @@ module mor1kx_fetch_marocchino
       ibus_state    <= IBUS_IDLE;  // by reset
     end
     else begin
-      // synthesis parallel_case full_case
+      // synthesis parallel_case
       case (ibus_state)
         IBUS_IDLE: begin
           if (spr_bus_stb_i | pipeline_flush_i | predict_miss_i | fetch_an_except_o) // IBUS-IDLE
@@ -497,16 +497,8 @@ module mor1kx_fetch_marocchino
 
   // IBUS access machine: read address
   always @(posedge cpu_clk) begin
-    // synthesis parallel_case full_case
-    case (ibus_state)
-      // to IBUS read
-      IBUS_IDLE: begin
-        if (s2o_ibus_read_req | s2o_ic_refill_req)
-          ibus_adr_o <= s2o_phys_addr; // IBUS-IDLE -> IBUS read / ICACHE re-fill
-      end
-      // do nothing
-      default:;
-    endcase
+    if (ibus_idle_state & (s2o_ibus_read_req | s2o_ic_refill_req)) // IBUS-IDLE -> IBUS read / ICACHE re-fill
+      ibus_adr_o <= s2o_phys_addr; // IBUS-IDLE -> IBUS read / ICACHE re-fill
   end // @ clock
 
 

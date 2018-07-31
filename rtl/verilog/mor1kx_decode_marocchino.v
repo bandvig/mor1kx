@@ -215,7 +215,7 @@ module mor1kx_decode_marocchino
   reg [1:0] lsu_length;
   // ---
   always @(opc_insn)
-    // synthesis parallel_case full_case
+    // synthesis parallel_case
     case (opc_insn)
       // byte
       `OR1K_OPCODE_SB,
@@ -429,7 +429,7 @@ module mor1kx_decode_marocchino
   reg attr_rfb2_req;
   // ---
   always @(*) begin
-    // synthesis parallel_case full_case
+    // synthesis parallel_case
     case (opc_insn)
       `OR1K_OPCODE_J,     // pc <- pc + exts(Imm26 << 2)
       `OR1K_OPCODE_JAL,   // pc <- pc + exts(Imm26 << 2)
@@ -580,7 +580,7 @@ module mor1kx_decode_marocchino
 
       `OR1K_OPCODE_SHRTI:
         begin
-          // synthesis parallel_case full_case
+          // synthesis parallel_case
           case (fetch_insn_i[`OR1K_ALU_OPC_SECONDARY_SELECT])
             `OR1K_ALU_OPC_SECONDARY_SHRT_SLL, // rD <- SLLI(rA,Imm6)
             `OR1K_ALU_OPC_SECONDARY_SHRT_SRL, // rD <- SRLI(rA,Imm6)
@@ -609,7 +609,7 @@ module mor1kx_decode_marocchino
 
       `OR1K_OPCODE_ALU:
         begin
-          // synthesis parallel_case full_case
+          // synthesis parallel_case
           case (opc_alu)
             `OR1K_ALU_OPC_ADD,  // rD <- rA + rB
             `OR1K_ALU_OPC_ADDC, // rD <- rA + rB + carry
@@ -641,7 +641,7 @@ module mor1kx_decode_marocchino
 
             `OR1K_ALU_OPC_SHRT:
               begin
-                // synthesis parallel_case full_case
+                // synthesis parallel_case
                 case (fetch_insn_i[`OR1K_ALU_OPC_SECONDARY_SELECT])
                   `OR1K_ALU_OPC_SECONDARY_SHRT_SLL, // rD <- SLL(rA,rB)
                   `OR1K_ALU_OPC_SECONDARY_SHRT_SRL, // rD <- SRL(rA,rB)
@@ -680,7 +680,7 @@ module mor1kx_decode_marocchino
         end // case or1k-opcode-alu
 
       `OR1K_OPCODE_SYSTRAPSYNC: begin
-        // synthesis parallel_case full_case
+        // synthesis parallel_case
         case (fetch_insn_i[`OR1K_SYSTRAPSYNC_OPC_SELECT])
           `OR1K_SYSTRAPSYNC_OPC_TRAP,
           `OR1K_SYSTRAPSYNC_OPC_SYSCALL:

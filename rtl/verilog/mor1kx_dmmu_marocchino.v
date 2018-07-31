@@ -206,7 +206,7 @@ module mor1kx_dmmu_marocchino
       spr_dmmu_state_r <= SPR_DMMU_RST; // on cpu-reset
     end
     else begin
-      // synthesis parallel_case full_case
+      // synthesis parallel_case
       case (spr_dmmu_state_r)
         // wait SPR BUS request
         SPR_DMMU_WAIT: begin
@@ -231,7 +231,7 @@ module mor1kx_dmmu_marocchino
 
   // SPR processing cycle: controls
   always @(posedge cpu_clk) begin
-    // synthesis parallel_case full_case
+    // synthesis parallel_case
     case (spr_dmmu_state_r)
       // wait SPR BUS request
       SPR_DMMU_WAIT: begin
@@ -432,7 +432,7 @@ module mor1kx_dmmu_marocchino
       dtlb_match_reload_we_r  <= 1'b0;
       dtlb_match_reload_din_r <= {OPTION_OPERAND_WIDTH{1'b0}};
 
-      // synthesis parallel_case full_case
+      // synthesis parallel_case
       case (tlb_reload_state)
         TLB_IDLE: begin
           tlb_reload_huge_r <= 1'b0;

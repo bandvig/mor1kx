@@ -145,7 +145,7 @@ module mor1kx_pic_marocchino
       spr_pic_state  <= SPR_PIC_WAIT;
     end
     else begin
-      // synthesis parallel_case full_case
+      // synthesis parallel_case
       case (spr_pic_state)
         // wait SPR access request
         SPR_PIC_WAIT: begin

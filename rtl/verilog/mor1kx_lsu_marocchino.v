@@ -381,11 +381,11 @@ module mor1kx_lsu_marocchino
   reg [3:0] s2t_bsel;
   // ---
   always @(s1o_lsu_length or s1o_virt_addr[1:0]) begin
-    // synthesis parallel_case full_case
+    // synthesis parallel_case
     case (s1o_lsu_length)
       2'b00: // byte access
       begin
-        // synthesis parallel_case full_case
+        // synthesis parallel_case
         case( s1o_virt_addr[1:0])
           2'b00: s2t_bsel = 4'b1000;
           2'b01: s2t_bsel = 4'b0100;
@@ -395,7 +395,7 @@ module mor1kx_lsu_marocchino
       end
       2'b01: // halfword access
       begin
-        // synthesis parallel_case full_case
+        // synthesis parallel_case
         case(s1o_virt_addr[1])
           1'b0: s2t_bsel = 4'b1100;
           1'b1: s2t_bsel = 4'b0011;
@@ -603,7 +603,7 @@ module mor1kx_lsu_marocchino
       dbus_state      <= DBUS_IDLE; // DBUS_FSM reset
     end
     else begin
-      // synthesis parallel_case full_case
+      // synthesis parallel_case
       case (dbus_state)
         DBUS_IDLE: begin
           if (pipeline_flush_i)           // DBUS_FSM: keep idling
@@ -690,7 +690,7 @@ module mor1kx_lsu_marocchino
 
   // DBUS state machine: control signals
   always @(posedge cpu_clk) begin
-    // synthesis parallel_case full_case
+    // synthesis parallel_case
     case (dbus_state)
       DMEM_REQ: begin
         if (pipeline_flush_i | (~sbuf_empty) | s2o_excepts_addr) begin // dmem-req
@@ -992,7 +992,7 @@ module mor1kx_lsu_marocchino
   reg [LSUOOW-1:0] s3t_ldat_aligned;
   // ---
   always @(s2o_virt_addr[1:0] or s3t_ldat) begin
-    // synthesis parallel_case full_case
+    // synthesis parallel_case
     case(s2o_virt_addr[1:0])
       2'b00: s3t_ldat_aligned = s3t_ldat;
       2'b01: s3t_ldat_aligned = {s3t_ldat[23:0],8'd0};
@@ -1005,7 +1005,7 @@ module mor1kx_lsu_marocchino
   reg [LSUOOW-1:0] s3t_ldat_extended;
   // ---
   always @(s2o_zext or s2o_length or s3t_ldat_aligned) begin
-    // synthesis parallel_case full_case
+    // synthesis parallel_case
     case({s2o_zext, s2o_length})
       3'b100:  s3t_ldat_extended = {24'd0,s3t_ldat_aligned[31:24]}; // lbz
       3'b101:  s3t_ldat_extended = {16'd0,s3t_ldat_aligned[31:16]}; // lhz

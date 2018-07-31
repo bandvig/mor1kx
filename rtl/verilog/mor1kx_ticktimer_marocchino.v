@@ -141,7 +141,7 @@ module mor1kx_ticktimer_marocchino
       spr_tt_state  <= SPR_TT_WAIT;
     end
     else begin
-      // synthesis parallel_case full_case
+      // synthesis parallel_case
       case (spr_tt_state)
         // wait SPR access request
         SPR_TT_WAIT: begin

@@ -713,7 +713,7 @@ module mor1kx_oman_marocchino
       omn2dec_hazard_d2b2_o <= 1'b0;
     end
     else begin
-      // synthesis parallel_case full_case
+      // synthesis parallel_case
       case({padv_wb_i,padv_dcod_i})
         // only FETCH->DECODE
         2'b01: begin
@@ -790,7 +790,7 @@ module mor1kx_oman_marocchino
   wire exe2dcd_dxb2_fwd = (rat_extadr[dcod_rfb2_adr] == exec_extadr) & dcod_rfb2_req;
   // ---
   always @(posedge cpu_clk) begin
-    // synthesis parallel_case full_case
+    // synthesis parallel_case
     case ({padv_wb_i,padv_dcod_i})
       // when write-back only
       2'b10: begin
@@ -921,7 +921,7 @@ module mor1kx_oman_marocchino
     if (pipeline_flush_i)
       flag_alloc_r <= 1'b0;
     else begin
-      // synthesis parallel_case full_case
+      // synthesis parallel_case
       case ({padv_wb_i,padv_exec_i})
         // DECODE->OMAN
         2'b01: flag_alloc_r <= flag_alloc_w;
@@ -982,7 +982,7 @@ module mor1kx_oman_marocchino
       jr_gathering_target_p <= 1'b0;
     end
     else begin
-      // synthesis parallel_case full_case
+      // synthesis parallel_case
       case (jb_fsm_state_r)
         // catching j/b on IFETCH output
         JB_FSM_CATCHING_JB: begin
@@ -1164,7 +1164,7 @@ module mor1kx_oman_marocchino
            jb_fsm_doing_jr_state or
            predict_hit_target_r  or predict_miss_target_r or
            jr_target_p           or fetch_to_imm_target_i) begin
-    // synthesis parallel_case full_case
+    // synthesis parallel_case
     case ({predict_hit, jb_fsm_predict_miss_state, jb_fsm_doing_jr_state})
       3'b100:  jb_attr_target_r = predict_hit_target_r;
       3'b010:  jb_attr_target_r = predict_miss_target_r;

@@ -253,7 +253,7 @@ module pfpu_cmp_marocchino
   // Comparison cmp_flag generation
   reg cmp_flag;
   always @(altb or blta or aeqb or s1o_opc_fpxx_cmp) begin
-    // synthesis parallel_case full_case
+    // synthesis parallel_case
     case(s1o_opc_fpxx_cmp)
       FP_OPC_SFEQ: cmp_flag = aeqb;
       FP_OPC_SFNE: cmp_flag = ~aeqb;

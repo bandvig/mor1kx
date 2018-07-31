@@ -394,7 +394,7 @@ module mor1kx_ctrl_marocchino
     if (cpu_rst)
       spr_epcr <= {OPTION_OPERAND_WIDTH{1'b0}};
     else if (wb_an_except_i) begin
-      // synthesis parallel_case full_case
+      // synthesis parallel_case
       casez({(wb_except_itlb_miss_i | wb_except_ipagefault_i |
               wb_except_ibus_err_i  |
               wb_except_illegal_i   | wb_except_dbus_align_i | wb_except_ibus_align_i),
@@ -425,7 +425,7 @@ module mor1kx_ctrl_marocchino
     if (cpu_rst)
       spr_eear <= {OPTION_OPERAND_WIDTH{1'b0}};
     else if (wb_an_except_i) begin
-      // synthesis parallel_case full_case
+      // synthesis parallel_case
       casez({(wb_except_itlb_miss_i | wb_except_ipagefault_i | wb_except_ibus_align_i | wb_except_ibus_err_i),
              (wb_except_dtlb_miss_i | wb_except_dpagefault_i | wb_except_dbus_align_i),
              sbuf_err_i,
@@ -454,7 +454,7 @@ module mor1kx_ctrl_marocchino
   // Store exception vector
   always @(posedge cpu_clk) begin
     if (wb_an_except_i) begin
-      // synthesis parallel_case full_case
+      // synthesis parallel_case
       casez({wb_except_itlb_miss_i,
              wb_except_ipagefault_i,
              wb_except_ibus_err_i,
@@ -960,7 +960,7 @@ module mor1kx_ctrl_marocchino
   reg spr_access_valid_reg; // SPR ACK in case of access to not existing modules
   //---
   always @(*) begin
-    // synthesis parallel_case full_case
+    // synthesis parallel_case
     case(spr_addr_mux[14:11]) // `SPR_BASE
       // system registers
       `OR1K_SPR_SYS_BASE:  spr_access_valid_mux = 1'b1;
@@ -995,7 +995,7 @@ module mor1kx_ctrl_marocchino
       spr_bus_state <= SPR_BUS_WAIT_REQ;
     end
     else begin
-      // synthesis parallel_case full_case
+      // synthesis parallel_case
       case (spr_bus_state)
         // wait SPR BUS access request
         SPR_BUS_WAIT_REQ: begin
@@ -1048,7 +1048,7 @@ module mor1kx_ctrl_marocchino
 
   // SPR BUS controller: in/out address and data
   always @(posedge cpu_clk) begin
-    // synthesis parallel_case full_case
+    // synthesis parallel_case
     case (spr_bus_state)
       // run l.mf(t)spr processing
       SPR_BUS_RUN_MXSPR,
@@ -1150,7 +1150,7 @@ module mor1kx_ctrl_marocchino
     if (cpu_rst)
       spr_sys_state <= SPR_SYS_WAIT;
     else begin
-      // synthesis parallel_case full_case
+      // synthesis parallel_case
       case (spr_sys_state)
         SPR_SYS_WAIT: begin
           if (spr_sys_group_cs)
@@ -1172,7 +1172,7 @@ module mor1kx_ctrl_marocchino
   reg  [OPTION_OPERAND_WIDTH-1:0] spr_sys_group_dat;
   // ---
   always @(*) begin
-    // synthesis parallel_case full_case
+    // synthesis parallel_case
     case(`SPR_OFFSET(spr_sys_group_wadr_r))
       `SPR_OFFSET(`OR1K_SPR_VR_ADDR)      : spr_sys_group_dat = spr_vr;
       `SPR_OFFSET(`OR1K_SPR_UPR_ADDR)     : spr_sys_group_dat = spr_upr;
@@ -1338,7 +1338,7 @@ module mor1kx_ctrl_marocchino
         spr_du_state     <= SPR_DU_WAIT;
       end
       else begin
-        // synthesis parallel_case full_case
+        // synthesis parallel_case
         case (spr_du_state)
           SPR_DU_WAIT: begin
             if (spr_du_cs) begin
