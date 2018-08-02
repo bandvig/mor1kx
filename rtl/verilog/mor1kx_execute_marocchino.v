@@ -946,11 +946,16 @@ module mor1kx_exec_1clk_marocchino
   // logic
   input                                 exec_op_logic_i,
   input       [`OR1K_ALU_OPC_WIDTH-1:0] exec_opc_logic_i,
-  // WB-latched 1-clock arithmetic result
-  output reg [OPTION_OPERAND_WIDTH-1:0] wb_alu_1clk_result_o,
-  output reg [OPTION_OPERAND_WIDTH-1:0] wb_alu_1clk_result_cp1_o,
-  output reg [OPTION_OPERAND_WIDTH-1:0] wb_alu_1clk_result_cp2_o,
-  output reg [OPTION_OPERAND_WIDTH-1:0] wb_alu_1clk_result_cp3_o,
+  // WB-latched 1-clock shifter result
+  output reg [OPTION_OPERAND_WIDTH-1:0] wb_1clk_shf_result_o,
+  output reg [OPTION_OPERAND_WIDTH-1:0] wb_1clk_shf_result_cp1_o,
+  output reg [OPTION_OPERAND_WIDTH-1:0] wb_1clk_shf_result_cp2_o,
+  output reg [OPTION_OPERAND_WIDTH-1:0] wb_1clk_shf_result_cp3_o,
+  // WB-latched 1-clock various combined result
+  output reg [OPTION_OPERAND_WIDTH-1:0] wb_1clk_var_result_o,
+  output reg [OPTION_OPERAND_WIDTH-1:0] wb_1clk_var_result_cp1_o,
+  output reg [OPTION_OPERAND_WIDTH-1:0] wb_1clk_var_result_cp2_o,
+  output reg [OPTION_OPERAND_WIDTH-1:0] wb_1clk_var_result_cp3_o,
   //  # update carry flag by 1clk-operation
   output reg                            wb_1clk_carry_set_o,
   output reg                            wb_1clk_carry_clear_o,
@@ -1095,12 +1100,14 @@ module mor1kx_exec_1clk_marocchino
   //------------------------------------------------------------------//
   // Muxing and registering 1-clk results and integer comparison flag //
   //------------------------------------------------------------------//
-  wire [EXEDW-1:0] alu_1clk_result_mux = ({EXEDW{exec_op_shift_i}} & shift_result   ) |
-                                         ({EXEDW{exec_op_ffl1_i}}  & ffl1_result    ) |
-                                         ({EXEDW{exec_op_add_i}}   & adder_result   ) |
-                                         ({EXEDW{exec_op_logic_i}} & logic_result   ) |
-                                         ({EXEDW{exec_op_cmov_i}}  & cmov_result    ) |
-                                         ({EXEDW{exec_op_movhi_i}} & exec_1clk_b1_i );
+  //  # of shifter
+  wire [EXEDW-1:0] shf_1clk_result_mux = ({EXEDW{exec_op_shift_i}} & shift_result);
+  //  # various combined
+  wire [EXEDW-1:0] var_1clk_result_mux = ({EXEDW{exec_op_ffl1_i}}  & ffl1_result   ) |
+                                         ({EXEDW{exec_op_add_i}}   & adder_result  ) |
+                                         ({EXEDW{exec_op_logic_i}} & logic_result  ) |
+                                         ({EXEDW{exec_op_cmov_i}}  & cmov_result   ) |
+                                         ({EXEDW{exec_op_movhi_i}} & exec_1clk_b1_i);
 
   //-------------------------------------//
   // update carry flag by 1clk-operation //
@@ -1160,7 +1167,8 @@ module mor1kx_exec_1clk_marocchino
   // ---
   assign taking_1clk_op_o = (~alu_1clk_wb_miss_r) & grant_wb_to_1clk_i;
   // ---
-  reg [EXEDW-1:0] alu_1clk_wb_result_p;
+  reg [EXEDW-1:0] shf_1clk_wb_result_p;
+  reg [EXEDW-1:0] var_1clk_wb_result_p;
   reg             alu_1clk_wb_carry_set_p;
   reg             alu_1clk_wb_carry_clear_p;
   reg             alu_1clk_wb_overflow_set_p;
@@ -1170,7 +1178,8 @@ module mor1kx_exec_1clk_marocchino
   // ---
   always @(posedge cpu_clk) begin
     if (taking_1clk_op_o) begin
-      alu_1clk_wb_result_p         <= alu_1clk_result_mux;
+      shf_1clk_wb_result_p         <= shf_1clk_result_mux;
+      var_1clk_wb_result_p         <= var_1clk_result_mux;
       alu_1clk_wb_carry_set_p      <= alu_1clk_carry_set;
       alu_1clk_wb_carry_clear_p    <= alu_1clk_carry_clear;
       alu_1clk_wb_overflow_set_p   <= alu_1clk_overflow_set;
@@ -1182,21 +1191,34 @@ module mor1kx_exec_1clk_marocchino
 
 
   //  registering output for 1-clock operations
-  wire [EXEDW-1:0] wb_alu_1clk_result_m = alu_1clk_wb_miss_r ? alu_1clk_wb_result_p : alu_1clk_result_mux;
+  wire [EXEDW-1:0] wb_1clk_shf_result_m = alu_1clk_wb_miss_r ? shf_1clk_wb_result_p : shf_1clk_result_mux;
+  wire [EXEDW-1:0] wb_1clk_var_result_m = alu_1clk_wb_miss_r ? var_1clk_wb_result_p : var_1clk_result_mux;
   // ---
   always @(posedge cpu_clk) begin
     if (padv_wb_i) begin
       if (grant_wb_to_1clk_i) begin
-        wb_alu_1clk_result_o     <= wb_alu_1clk_result_m;
-        wb_alu_1clk_result_cp1_o <= wb_alu_1clk_result_m;
-        wb_alu_1clk_result_cp2_o <= wb_alu_1clk_result_m;
-        wb_alu_1clk_result_cp3_o <= wb_alu_1clk_result_m;
+        // for shifter
+        wb_1clk_shf_result_o     <= wb_1clk_shf_result_m;
+        wb_1clk_shf_result_cp1_o <= wb_1clk_shf_result_m;
+        wb_1clk_shf_result_cp2_o <= wb_1clk_shf_result_m;
+        wb_1clk_shf_result_cp3_o <= wb_1clk_shf_result_m;
+        // various combined
+        wb_1clk_var_result_o     <= wb_1clk_var_result_m;
+        wb_1clk_var_result_cp1_o <= wb_1clk_var_result_m;
+        wb_1clk_var_result_cp2_o <= wb_1clk_var_result_m;
+        wb_1clk_var_result_cp3_o <= wb_1clk_var_result_m;
       end
       else begin
-        wb_alu_1clk_result_o     <= {EXEDW{1'b0}};
-        wb_alu_1clk_result_cp1_o <= {EXEDW{1'b0}};
-        wb_alu_1clk_result_cp2_o <= {EXEDW{1'b0}};
-        wb_alu_1clk_result_cp3_o <= {EXEDW{1'b0}};
+        // for shifter
+        wb_1clk_shf_result_o     <= {EXEDW{1'b0}};
+        wb_1clk_shf_result_cp1_o <= {EXEDW{1'b0}};
+        wb_1clk_shf_result_cp2_o <= {EXEDW{1'b0}};
+        wb_1clk_shf_result_cp3_o <= {EXEDW{1'b0}};
+        // various combined
+        wb_1clk_var_result_o     <= {EXEDW{1'b0}};
+        wb_1clk_var_result_cp1_o <= {EXEDW{1'b0}};
+        wb_1clk_var_result_cp2_o <= {EXEDW{1'b0}};
+        wb_1clk_var_result_cp3_o <= {EXEDW{1'b0}};
       end
     end
   end //  @clock

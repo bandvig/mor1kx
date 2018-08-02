@@ -216,11 +216,16 @@ module mor1kx_cpu_marocchino
   // !!! Copies are usefull mostly for FPGA implementation to simplify routing
   // !!! Don't acivate "Remove duplicate registers" option in
   // !!! MAROCCHINO_TODO: <determine optimal settings>
-  //  # from 1-clock execution units
-  wire [OPTION_OPERAND_WIDTH-1:0] wb_alu_1clk_result;
-  wire [OPTION_OPERAND_WIDTH-1:0] wb_alu_1clk_result_cp1; // copy #1
-  wire [OPTION_OPERAND_WIDTH-1:0] wb_alu_1clk_result_cp2; // copy #2
-  wire [OPTION_OPERAND_WIDTH-1:0] wb_alu_1clk_result_cp3; // copy #3
+  //  # from 1-clock shifter units
+  wire [OPTION_OPERAND_WIDTH-1:0] wb_1clk_shf_result;
+  wire [OPTION_OPERAND_WIDTH-1:0] wb_1clk_shf_result_cp1; // copy #1
+  wire [OPTION_OPERAND_WIDTH-1:0] wb_1clk_shf_result_cp2; // copy #2
+  wire [OPTION_OPERAND_WIDTH-1:0] wb_1clk_shf_result_cp3; // copy #3
+  //  # from 1-clock various units
+  wire [OPTION_OPERAND_WIDTH-1:0] wb_1clk_var_result;
+  wire [OPTION_OPERAND_WIDTH-1:0] wb_1clk_var_result_cp1; // copy #1
+  wire [OPTION_OPERAND_WIDTH-1:0] wb_1clk_var_result_cp2; // copy #2
+  wire [OPTION_OPERAND_WIDTH-1:0] wb_1clk_var_result_cp3; // copy #3
   //  # from integer division execution unit
   wire [OPTION_OPERAND_WIDTH-1:0] wb_div_result;
   wire [OPTION_OPERAND_WIDTH-1:0] wb_div_result_cp1; // copy #1
@@ -1298,11 +1303,16 @@ module mor1kx_cpu_marocchino
     // logic
     .exec_op_logic_i                  (exec_op_logic), // 1CLK_EXEC
     .exec_opc_logic_i                 (exec_opc_logic), // 1CLK_EXEC
-    // WB-latched 1-clock arithmetic result
-    .wb_alu_1clk_result_o             (wb_alu_1clk_result), // 1CLK_EXEC
-    .wb_alu_1clk_result_cp1_o         (wb_alu_1clk_result_cp1), // 1CLK_EXEC
-    .wb_alu_1clk_result_cp2_o         (wb_alu_1clk_result_cp2), // 1CLK_EXEC
-    .wb_alu_1clk_result_cp3_o         (wb_alu_1clk_result_cp3), // 1CLK_EXEC
+    // WB-latched 1-clock shifter result
+    .wb_1clk_shf_result_o             (wb_1clk_shf_result), // 1CLK_EXEC
+    .wb_1clk_shf_result_cp1_o         (wb_1clk_shf_result_cp1), // 1CLK_EXEC
+    .wb_1clk_shf_result_cp2_o         (wb_1clk_shf_result_cp2), // 1CLK_EXEC
+    .wb_1clk_shf_result_cp3_o         (wb_1clk_shf_result_cp3), // 1CLK_EXEC
+    // WB-latched 1-clock combined various result
+    .wb_1clk_var_result_o             (wb_1clk_var_result), // 1CLK_EXEC
+    .wb_1clk_var_result_cp1_o         (wb_1clk_var_result_cp1), // 1CLK_EXEC
+    .wb_1clk_var_result_cp2_o         (wb_1clk_var_result_cp2), // 1CLK_EXEC
+    .wb_1clk_var_result_cp3_o         (wb_1clk_var_result_cp3), // 1CLK_EXEC
     //  # update carry flag by 1clk-operation
     .wb_1clk_carry_set_o              (wb_1clk_carry_set), // 1CLK_EXEC
     .wb_1clk_carry_clear_o            (wb_1clk_carry_clear), // 1CLK_EXEC
@@ -1932,23 +1942,23 @@ module mor1kx_cpu_marocchino
   // WB:result //
   //-----------//
   // --- regular ---
-  assign wb_result1 = wb_alu_1clk_result   |
-                      wb_div_result        | wb_mul_result |
+  assign wb_result1 = wb_1clk_shf_result   | wb_1clk_var_result |
+                      wb_div_result        | wb_mul_result      |
                       wb_fpxx_arith_res_hi |
                       wb_lsu_result        | wb_mfspr_result;
   // copy #1 (to simplify feedback routing)
-  assign wb_result1_cp1 = wb_alu_1clk_result_cp1   |
-                          wb_div_result_cp1        | wb_mul_result_cp1 |
+  assign wb_result1_cp1 = wb_1clk_shf_result_cp1   | wb_1clk_var_result_cp1 |
+                          wb_div_result_cp1        | wb_mul_result_cp1      |
                           wb_fpxx_arith_res_hi_cp1 |
                           wb_lsu_result_cp1        | wb_mfspr_result_cp1;
   // copy #2 (to simplify feedback routing)
-  assign wb_result1_cp2 = wb_alu_1clk_result_cp2   |
-                          wb_div_result_cp2        | wb_mul_result_cp2 |
+  assign wb_result1_cp2 = wb_1clk_shf_result_cp2   | wb_1clk_var_result_cp2 |
+                          wb_div_result_cp2        | wb_mul_result_cp2      |
                           wb_fpxx_arith_res_hi_cp2 |
                           wb_lsu_result_cp2        | wb_mfspr_result_cp2;
   // copy #3 (to simplify feedback routing)
-  assign wb_result1_cp3 = wb_alu_1clk_result_cp3   |
-                          wb_div_result_cp3        | wb_mul_result_cp3 |
+  assign wb_result1_cp3 = wb_1clk_shf_result_cp3   | wb_1clk_var_result_cp3 |
+                          wb_div_result_cp3        | wb_mul_result_cp3      |
                           wb_fpxx_arith_res_hi_cp3 |
                           wb_lsu_result_cp3        | wb_mfspr_result_cp3;
   // --- FPU64 extention ---
