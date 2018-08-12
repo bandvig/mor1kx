@@ -130,7 +130,7 @@ module mor1kx_decode_marocchino
   output reg                            dcod_op_cmov_o,
   // Logic
   output reg                            dcod_op_logic_o,
-  output reg  [`OR1K_ALU_OPC_WIDTH-1:0] dcod_opc_logic_o,
+  output reg                      [3:0] dcod_lut_logic_o,
   // Jump & Link
   output reg                            dcod_op_jal_o,
   // Set flag related
@@ -311,12 +311,12 @@ module mor1kx_decode_marocchino
 
 
   // --- logic ---
-  wire [`OR1K_ALU_OPC_WIDTH-1:0] opc_logic;
-  assign opc_logic =
-    (((opc_insn == `OR1K_OPCODE_ALU) & (opc_alu == `OR1K_ALU_OPC_OR )) | (opc_insn == `OR1K_OPCODE_ORI )) ? `OR1K_ALU_OPC_OR  :
-    (((opc_insn == `OR1K_OPCODE_ALU) & (opc_alu == `OR1K_ALU_OPC_XOR)) | (opc_insn == `OR1K_OPCODE_XORI)) ? `OR1K_ALU_OPC_XOR :
-    (((opc_insn == `OR1K_OPCODE_ALU) & (opc_alu == `OR1K_ALU_OPC_AND)) | (opc_insn == `OR1K_OPCODE_ANDI)) ? `OR1K_ALU_OPC_AND :
-                                                                                                   {`OR1K_ALU_OPC_WIDTH{1'b0}};
+  wire [3:0] lut_logic;
+  assign lut_logic =
+    ((op_alu & (opc_alu == `OR1K_ALU_OPC_OR )) | (opc_insn == `OR1K_OPCODE_ORI )) ? 4'b1110 :
+   (((op_alu & (opc_alu == `OR1K_ALU_OPC_XOR)) | (opc_insn == `OR1K_OPCODE_XORI)) ? 4'b0110 :
+   (((op_alu & (opc_alu == `OR1K_ALU_OPC_AND)) | (opc_insn == `OR1K_OPCODE_ANDI)) ? 4'b1000 :
+                                                                                    4'b0000));
 
 
   // --- FPU3264 arithmetic part ---
@@ -845,8 +845,8 @@ module mor1kx_decode_marocchino
       dcod_op_movhi_o           <= op_movhi;
       dcod_op_cmov_o            <= op_cmov;
       // Logic
-      dcod_op_logic_o           <= |opc_logic;
-      dcod_opc_logic_o          <= opc_logic;
+      dcod_op_logic_o           <= |lut_logic;
+      dcod_lut_logic_o          <= lut_logic;
       // Jump & Link
       dcod_op_jal_o             <= op_jal;
       // Set flag related

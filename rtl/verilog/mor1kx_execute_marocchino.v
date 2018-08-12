@@ -947,7 +947,7 @@ module mor1kx_exec_1clk_marocchino
   input                                 exec_op_cmov_i,
   // logic
   input                                 exec_op_logic_i,
-  input       [`OR1K_ALU_OPC_WIDTH-1:0] exec_opc_logic_i,
+  input                           [3:0] exec_lut_logic_i,
   // WB-latched 1-clock arithmetic result
   output reg [OPTION_OPERAND_WIDTH-1:0] wb_alu_1clk_result_o,
   output reg [OPTION_OPERAND_WIDTH-1:0] wb_alu_1clk_result_cp1_o,
@@ -1135,24 +1135,13 @@ module mor1kx_exec_1clk_marocchino
   //--------------------//
   // Logical operations //
   //--------------------//
-  // Logic wires
-  reg [EXEDW-1:0]  logic_result;
-  // Create a look-up-table for AND/OR/XOR
-  reg [3:0] logic_lut;
-  always @(*) begin
-    // synthesis parallel_case
-    case(exec_opc_logic_i)
-      `OR1K_ALU_OPC_AND: logic_lut = 4'b1000;
-      `OR1K_ALU_OPC_OR:  logic_lut = 4'b1110;
-      `OR1K_ALU_OPC_XOR: logic_lut = 4'b0110;
-      default:           logic_lut = 4'd0;
-    endcase
-  end
+  // Logic result
+  reg  [EXEDW-1:0] logic_result;
   // Extract the result, bit-for-bit, from the look-up-table
   integer i;
-  always @(*) begin
+  always @(exec_lut_logic_i or exec_1clk_a1_i or exec_1clk_b1_i) begin
     for (i = 0; i < EXEDW; i=i+1) begin
-      logic_result[i] = logic_lut[{exec_1clk_a1_i[i], exec_1clk_b1_i[i]}];
+      logic_result[i] = exec_lut_logic_i[{exec_1clk_a1_i[i], exec_1clk_b1_i[i]}];
     end
   end
 

@@ -410,7 +410,7 @@ module mor1kx_cpu_marocchino
   wire                            dcod_op_cmov;
 
   wire                            dcod_op_logic;
-  wire  [`OR1K_ALU_OPC_WIDTH-1:0] dcod_opc_logic;
+  wire                      [3:0] dcod_lut_logic;
 
   wire                            dcod_op_setflag;
 
@@ -885,7 +885,7 @@ module mor1kx_cpu_marocchino
     .dcod_op_cmov_o                   (dcod_op_cmov), // DECODE
     // Logic
     .dcod_op_logic_o                  (dcod_op_logic), // DECODE
-    .dcod_opc_logic_o                 (dcod_opc_logic), // DECODE
+    .dcod_lut_logic_o                 (dcod_lut_logic), // DECODE
     // Jump & Link
     .dcod_op_jal_o                    (dcod_op_jal), // DECODE
     // Set flag related
@@ -1162,9 +1162,9 @@ module mor1kx_cpu_marocchino
   wire                           exec_adder_do_sub;
   wire                           exec_adder_do_carry;
   wire [`OR1K_ALU_OPC_WIDTH-1:0] exec_opc_alu_secondary;
-  wire [`OR1K_ALU_OPC_WIDTH-1:0] exec_opc_logic;
+  wire                     [3:0] exec_lut_logic;
   // attributes include all of earlier components:
-  localparam ONE_CLK_OPC_WIDTH = 2 + (2 * `OR1K_ALU_OPC_WIDTH);
+  localparam ONE_CLK_OPC_WIDTH = 2 + `OR1K_ALU_OPC_WIDTH + 4;
 
   // input operands A and B with forwarding from WB
   wire [OPTION_OPERAND_WIDTH-1:0] exec_1clk_a1;
@@ -1243,14 +1243,14 @@ module mor1kx_cpu_marocchino
     .dcod_op_i                  ({dcod_op_ffl1, dcod_op_add, dcod_op_shift, dcod_op_movhi, // 1CLK_RSVRS
                                   dcod_op_cmov, dcod_op_logic, dcod_op_setflag}), // 1CLK_RSVRS
     .dcod_opc_i                 ({dcod_adder_do_sub, dcod_adder_do_carry, // 1CLK_RSVRS
-                                  dcod_opc_alu_secondary, dcod_opc_logic}), // 1CLK_RSVRS
+                                  dcod_opc_alu_secondary, dcod_lut_logic}), // 1CLK_RSVRS
     // outputs
     //   command and its additional attributes
     .exec_op_any_o              (exec_op_1clk), // 1CLK_RSVRS
     .exec_op_o                  ({exec_op_ffl1, exec_op_add, exec_op_shift, exec_op_movhi, // 1CLK_RSVRS
                                   exec_op_cmov, exec_op_logic, exec_op_setflag}), // 1CLK_RSVRS
     .exec_opc_o                 ({exec_adder_do_sub, exec_adder_do_carry, // 1CLK_RSVRS
-                                  exec_opc_alu_secondary, exec_opc_logic}), // 1CLK_RSVRS
+                                  exec_opc_alu_secondary, exec_lut_logic}), // 1CLK_RSVRS
     //   operands
     .exec_rfa1_o                (exec_1clk_a1), // 1CLK_RSVRS
     .exec_rfb1_o                (exec_1clk_b1), // 1CLK_RSVRS
@@ -1300,7 +1300,7 @@ module mor1kx_cpu_marocchino
     .exec_op_cmov_i                   (exec_op_cmov), // 1CLK_EXEC
     // logic
     .exec_op_logic_i                  (exec_op_logic), // 1CLK_EXEC
-    .exec_opc_logic_i                 (exec_opc_logic), // 1CLK_EXEC
+    .exec_lut_logic_i                 (exec_lut_logic), // 1CLK_EXEC
     // WB-latched 1-clock arithmetic result
     .wb_alu_1clk_result_o             (wb_alu_1clk_result), // 1CLK_EXEC
     .wb_alu_1clk_result_cp1_o         (wb_alu_1clk_result_cp1), // 1CLK_EXEC
