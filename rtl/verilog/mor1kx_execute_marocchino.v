@@ -934,6 +934,8 @@ module mor1kx_exec_1clk_marocchino
   input                                 carry_i, // feedback from ctrl
   input                                 flag_i, // feedback from ctrl (for cmov)
 
+  // any 1-clock sub-unit
+  input                                 exec_op_1clk_i,
   // adder's inputs
   input                                 exec_op_add_i,
   input                                 exec_adder_do_sub_i,
@@ -1149,16 +1151,16 @@ module mor1kx_exec_1clk_marocchino
   //-----------------------------------//
   reg             alu_1clk_wb_miss_r;
   // ---
+  assign taking_1clk_op_o = exec_op_1clk_i & grant_wb_to_1clk_i & (~alu_1clk_wb_miss_r);
+  // ---
   always @(posedge cpu_clk) begin
     if (pipeline_flush_i)
       alu_1clk_wb_miss_r <= 1'b0;
     else if (padv_wb_i & grant_wb_to_1clk_i)
       alu_1clk_wb_miss_r <= 1'b0;
     else if (~alu_1clk_wb_miss_r)
-      alu_1clk_wb_miss_r <= grant_wb_to_1clk_i;
+      alu_1clk_wb_miss_r <= exec_op_1clk_i & grant_wb_to_1clk_i;
   end //  @clock
-  // ---
-  assign taking_1clk_op_o = (~alu_1clk_wb_miss_r) & grant_wb_to_1clk_i;
   // ---
   reg [EXEDW-1:0] alu_1clk_wb_result_p;
   reg             alu_1clk_wb_carry_set_p;

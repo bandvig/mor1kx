@@ -1192,23 +1192,25 @@ module mor1kx_rsrvs_marocchino
   reg                   exec_op_any_r;
   reg [(OPC_WIDTH-1):0] exec_opc_r;
 
+  // an OMAN-to-DECODE hazard
+  wire omn2dec_hazard = |omn2dec_hazards_flags_i;
+
   // all hazards are resolved
-  wire exec_free_of_hazards;
-
-  // local (extended) variant of taking-op-i
-  wire taking_op_l = taking_op_i & exec_free_of_hazards;
-
+  wire busy_free_of_hazards;
 
   // DECODE->BUSY transfer
-  wire dcod_pushing_busy = padv_exec_i & dcod_op_any_i  &   // DECODE pushing BUSY: Latch DECODE output ...
-                           exec_op_any_r & (~taking_op_l);  // DECODE pushing BUSY: ... if EXECUTE is busy.
+  wire dcod_pushing_busy = padv_exec_i & dcod_op_any_i  &        // DECODE pushing BUSY: New instruction ...
+                           (omn2dec_hazard |                     // DECODE pushing BUSY: ... if an OMAN-to-DECODE hazard
+                             (exec_op_any_r & (~taking_op_i)));  // DECODE pushing BUSY: ... or EXECUTE is busy.
 
   // DECODE->EXECUTE transfer
-  wire dcod_pushing_exec = padv_exec_i & dcod_op_any_i &    // DECODE pushing EXECUTE: New command ...
-                           (~exec_op_any_r | taking_op_l);  // DECODE pushing EXECUTE: ... and unit is free.
+  wire dcod_pushing_exec = padv_exec_i & dcod_op_any_i &    // DECODE pushing EXECUTE: New instruction ...
+                           (~omn2dec_hazard) &              // DECODE pushing EXECUTE: ... and no OMAN-to-DECODE hazards
+                           (~exec_op_any_r | taking_op_i);  // DECODE pushing EXECUTE: ... and EXECUTE is free.
 
   // BUSY->EXECUTE transfer
-  wire busy_pushing_exec = busy_op_any_r & taking_op_l; // There is pending instruction and EXECUTE is free.
+  wire busy_pushing_exec = busy_op_any_r & busy_free_of_hazards & // BUSY pushing EXECUTE: All OMAN-to-DECODE hazards are resolved ...
+                           (~exec_op_any_r | taking_op_i);        // BUSY pushing EXECUTE: ... and EXECUTE is free
 
 
 
@@ -1483,30 +1485,14 @@ module mor1kx_rsrvs_marocchino
   end
   endgenerate // BUSY-FPU3264
 
+  // no more hazards in BUSY
+  assign busy_free_of_hazards = ((~busy_hazard_dxa1_r) | busy_dxa1_muxing_wb) &  // BUSY is hazadrs free
+                                ((~busy_hazard_dxb1_r) | busy_dxb1_muxing_wb) &  // BUSY is hazadrs free
+                                ((~busy_hazard_dxa2_w) | busy_dxa2_muxing_wb) &  // BUSY is hazadrs free
+                                ((~busy_hazard_dxb2_w) | busy_dxb2_muxing_wb);  // BUSY is hazadrs free
+
 
   /**** EXECUTE stage latches ****/
-
-
-  // execute: hazards for all reservation station types
-  //  # relative operand A1
-  reg                             exec_hazard_d1a1_r;
-  reg                             exec_hazard_d2a1_r;
-  reg                             exec_hazard_dxa1_r;
-  reg     [DEST_EXTADR_WIDTH-1:0] exec_extadr_dxa1_r;
-  wire                            exec_dxa1_muxing_wb;
-  //  # relative operand B1
-  reg                             exec_hazard_d1b1_r;
-  reg                             exec_hazard_d2b1_r;
-  reg                             exec_hazard_dxb1_r;
-  reg     [DEST_EXTADR_WIDTH-1:0] exec_extadr_dxb1_r;
-  wire                            exec_dxb1_muxing_wb;
-  // # exclusively for FPU3264 reservation station
-  //  # relative operand A2
-  wire                            exec_hazard_dxa2_w;
-  wire                            exec_dxa2_muxing_wb;
-  //  # relative operand B2
-  wire                            exec_hazard_dxb2_w;
-  wire                            exec_dxb2_muxing_wb;
 
   // execute: operands
   //   ## registers
@@ -1537,97 +1523,23 @@ module mor1kx_rsrvs_marocchino
       exec_op_r     <= busy_op_r;
       exec_opc_r    <= busy_opc_r;
     end
-    else if (taking_op_l) begin
+    else if (taking_op_i) begin
       exec_op_any_r <= 1'b0;
       exec_op_r     <= {OP_WIDTH{1'b0}};
       exec_opc_r    <= {OPC_WIDTH{1'b0}};
     end
   end // @clock
 
-  // no more hazards in EXEC
-  // when 1clk_exec granted wride-back access, all hazards are resolved
-  assign exec_free_of_hazards = (RSRVS_1CLK == 1) ? 1'b1 :
-                                  (((~exec_hazard_dxa1_r) | exec_dxa1_muxing_wb) &  // EXEC is hazadrs free
-                                   ((~exec_hazard_dxb1_r) | exec_dxb1_muxing_wb) &  // EXEC is hazadrs free
-                                   ((~exec_hazard_dxa2_w) | exec_dxa2_muxing_wb) &  // EXEC is hazadrs free
-                                   ((~exec_hazard_dxb2_w) | exec_dxb2_muxing_wb));  // EXEC is hazadrs free
 
   // Commands to execution units
-  assign exec_op_any_o = (RSRVS_LSU == 1) ? exec_op_any_r : 1'b0;
+  assign exec_op_any_o = ((RSRVS_LSU == 1) || (RSRVS_1CLK == 1)) ? exec_op_any_r : 1'b0;
   // ---
-  assign exec_op_o     = exec_op_r & {OP_WIDTH{exec_free_of_hazards}};
+  assign exec_op_o     = exec_op_r;
   // ---
   assign exec_opc_o    = exec_opc_r;
 
-  // ---
-  always @(posedge cpu_clk) begin
-    if (pipeline_flush_i) begin
-      //  # relative operand A1
-      exec_hazard_d1a1_r <= 1'b0;
-      exec_hazard_d2a1_r <= 1'b0;
-      exec_hazard_dxa1_r <= 1'b0;
-      //  # relative operand B1
-      exec_hazard_d1b1_r <= 1'b0;
-      exec_hazard_d2b1_r <= 1'b0;
-      exec_hazard_dxb1_r <= 1'b0;
-    end
-    else if (dcod_pushing_exec) begin
-      //  # relative operand A1
-      exec_hazard_d1a1_r <= omn2dec_hazards_flags_i[HAZARD_D1A1_FLG_POS];
-      exec_hazard_d2a1_r <= omn2dec_hazards_flags_i[HAZARD_D2A1_FLG_POS];
-      exec_hazard_dxa1_r <= omn2dec_hazards_flags_i[HAZARD_D1A1_FLG_POS] |
-                            omn2dec_hazards_flags_i[HAZARD_D2A1_FLG_POS];
-      //  # relative operand B1
-      exec_hazard_d1b1_r <= omn2dec_hazards_flags_i[HAZARD_D1B1_FLG_POS];
-      exec_hazard_d2b1_r <= omn2dec_hazards_flags_i[HAZARD_D2B1_FLG_POS];
-      exec_hazard_dxb1_r <= omn2dec_hazards_flags_i[HAZARD_D1B1_FLG_POS] |
-                            omn2dec_hazards_flags_i[HAZARD_D2B1_FLG_POS];
-    end
-    else if (busy_pushing_exec) begin
-      //  # relative operand A1
-      exec_hazard_d1a1_r <= busy_hazard_d1a1_r & (~busy_dxa1_muxing_wb);
-      exec_hazard_d2a1_r <= busy_hazard_d2a1_r & (~busy_dxa1_muxing_wb);
-      exec_hazard_dxa1_r <= busy_hazard_dxa1_r & (~busy_dxa1_muxing_wb);
-      //  # relative operand B1
-      exec_hazard_d1b1_r <= busy_hazard_d1b1_r & (~busy_dxb1_muxing_wb);
-      exec_hazard_d2b1_r <= busy_hazard_d2b1_r & (~busy_dxb1_muxing_wb);
-      exec_hazard_dxb1_r <= busy_hazard_dxb1_r & (~busy_dxb1_muxing_wb);
-    end
-    else begin
-      //  # relative operand A1
-      if (exec_dxa1_muxing_wb) begin
-        exec_hazard_d1a1_r <= 1'b0;
-        exec_hazard_d2a1_r <= 1'b0;
-        exec_hazard_dxa1_r <= 1'b0;
-      end
-      //  # relative operand B1
-      if (exec_dxb1_muxing_wb) begin
-        exec_hazard_d1b1_r <= 1'b0;
-        exec_hazard_d2b1_r <= 1'b0;
-        exec_hazard_dxb1_r <= 1'b0;
-      end
-    end
-  end // @clock
 
-  // ---
-  //  # hazard resolution extention bits
-  //  # they make sence only with rized hazard flags
-  always @(posedge cpu_clk) begin
-    if (dcod_pushing_exec) begin
-      exec_extadr_dxa1_r <= omn2dec_hazards_addrs_i[EXTADR_DxA1_MSB:EXTADR_DxA1_LSB];
-      exec_extadr_dxb1_r <= omn2dec_hazards_addrs_i[EXTADR_DxB1_MSB:EXTADR_DxB1_LSB];
-    end
-    else if (busy_pushing_exec) begin
-      exec_extadr_dxa1_r <= busy_extadr_dxa1_r;
-      exec_extadr_dxb1_r <= busy_extadr_dxb1_r;
-    end
-  end // @cpu-clock
-
-  // ---
-  assign exec_dxa1_muxing_wb = exec_hazard_dxa1_r & (exec_extadr_dxa1_r == wb_extadr_i);
-  assign exec_dxb1_muxing_wb = exec_hazard_dxb1_r & (exec_extadr_dxb1_r == wb_extadr_i);
-
-  // ---
+  // registers for operands A1 & B1
   always @(posedge cpu_clk) begin
     if (dcod_pushing_exec) begin
       exec_rfa1_r <= dcod_rfxx_i[RFA1_MSB:RFA1_LSB];
@@ -1637,111 +1549,20 @@ module mor1kx_rsrvs_marocchino
       exec_rfa1_r <= busy_rfa1;
       exec_rfb1_r <= busy_rfb1;
     end
-    else begin
-      // complete forwarding A1
-      if (exec_dxa1_muxing_wb) begin
-        exec_rfa1_r <= exec_rfa1;
-      end
-      // complete forwarding B1
-      if (exec_dxb1_muxing_wb) begin
-        exec_rfb1_r <= exec_rfb1;
-      end
-    end
   end // @clock
-  // last forward (from WB)
-  //  operand A1
-  assign exec_rfa1 =  exec_hazard_d1a1_r ? wb_result1_i :
-                     (exec_hazard_d2a1_r ? wb_result2_i : exec_rfa1_r);
-  //  operand B1
-  assign exec_rfb1 =  exec_hazard_d1b1_r ? wb_result1_i :
-                     (exec_hazard_d2b1_r ? wb_result2_i : exec_rfb1_r);
+  // ---
+  assign exec_rfa1 = exec_rfa1_r;
+  assign exec_rfb1 = exec_rfb1_r;
+
 
   //  ## for FPU3264
   generate
   /* verilator lint_off WIDTH */
   if (RSRVS_FPU == 1) begin : exec_fpxx_enabled
   /* verilator lint_on WIDTH */
-    // hazard flags and destination addresses
-    //  # relative operand A2
-    reg                           exec_hazard_d1a2_r;
-    reg                           exec_hazard_d2a2_r;
-    reg                           exec_hazard_dxa2_r;
-    reg   [DEST_EXTADR_WIDTH-1:0] exec_extadr_dxa2_r;
-    //  # relative operand B2
-    reg                           exec_hazard_d1b2_r;
-    reg                           exec_hazard_d2b2_r;
-    reg                           exec_hazard_dxb2_r;
-    reg   [DEST_EXTADR_WIDTH-1:0] exec_extadr_dxb2_r;
-    // registers for operands A & B
+    // registers for operands A2 & B2
     reg [OPTION_OPERAND_WIDTH-1:0] exec_rfa2_r;
     reg [OPTION_OPERAND_WIDTH-1:0] exec_rfb2_r;
-    // ---
-    always @(posedge cpu_clk) begin
-      if (pipeline_flush_i) begin
-        //  # relative operand A2
-        exec_hazard_d1a2_r <= 1'b0;
-        exec_hazard_d2a2_r <= 1'b0;
-        exec_hazard_dxa2_r <= 1'b0;
-        //  # relative operand B2
-        exec_hazard_d1b2_r <= 1'b0;
-        exec_hazard_d2b2_r <= 1'b0;
-        exec_hazard_dxb2_r <= 1'b0;
-      end
-      else if (dcod_pushing_exec) begin
-        //  # relative operand A2
-        exec_hazard_d1a2_r <= omn2dec_hazards_flags_i[HAZARD_D1A2_FLG_POS];
-        exec_hazard_d2a2_r <= omn2dec_hazards_flags_i[HAZARD_D2A2_FLG_POS];
-        exec_hazard_dxa2_r <= omn2dec_hazards_flags_i[HAZARD_D1A2_FLG_POS] |
-                              omn2dec_hazards_flags_i[HAZARD_D2A2_FLG_POS];
-        //  # relative operand B2
-        exec_hazard_d1b2_r <= omn2dec_hazards_flags_i[HAZARD_D1B2_FLG_POS];
-        exec_hazard_d2b2_r <= omn2dec_hazards_flags_i[HAZARD_D2B2_FLG_POS];
-        exec_hazard_dxb2_r <= omn2dec_hazards_flags_i[HAZARD_D1B2_FLG_POS] |
-                              omn2dec_hazards_flags_i[HAZARD_D2B2_FLG_POS];
-      end
-      else if (busy_pushing_exec) begin
-        //  # relative operand A2
-        exec_hazard_d1a2_r <= busy_hazard_d1a2_w & (~busy_dxa2_muxing_wb);
-        exec_hazard_d2a2_r <= busy_hazard_d2a2_w & (~busy_dxa2_muxing_wb);
-        exec_hazard_dxa2_r <= busy_hazard_dxa2_w & (~busy_dxa2_muxing_wb);
-        //  # relative operand B2
-        exec_hazard_d1b2_r <= busy_hazard_d1b2_w & (~busy_dxb2_muxing_wb);
-        exec_hazard_d2b2_r <= busy_hazard_d2b2_w & (~busy_dxb2_muxing_wb);
-        exec_hazard_dxb2_r <= busy_hazard_dxb2_w & (~busy_dxb2_muxing_wb);
-      end
-      else begin
-        //  # relative operand A2
-        if (exec_dxa2_muxing_wb) begin
-          exec_hazard_d1a2_r <= 1'b0;
-          exec_hazard_d2a2_r <= 1'b0;
-          exec_hazard_dxa2_r <= 1'b0;
-        end
-        //  # relative operand B2
-        if (exec_dxb2_muxing_wb) begin
-          exec_hazard_d1b2_r <= 1'b0;
-          exec_hazard_d2b2_r <= 1'b0;
-          exec_hazard_dxb2_r <= 1'b0;
-        end
-      end
-    end // @clock
-    // ---
-    always @(posedge cpu_clk) begin
-      if (dcod_pushing_exec) begin
-        exec_extadr_dxa2_r <= omn2dec_hazards_addrs_i[EXTADR_DxA2_MSB:EXTADR_DxA2_LSB];
-        exec_extadr_dxb2_r <= omn2dec_hazards_addrs_i[EXTADR_DxB2_MSB:EXTADR_DxB2_LSB];
-      end
-      else if (busy_pushing_exec) begin
-        exec_extadr_dxa2_r <= busy_extadr_dxa2_w;
-        exec_extadr_dxb2_r <= busy_extadr_dxb2_w;
-      end
-    end
-    // ---
-    //  # relative operand A2
-    assign exec_hazard_dxa2_w  = exec_hazard_dxa2_r; // FPU3264
-    assign exec_dxa2_muxing_wb = exec_hazard_dxa2_r & (exec_extadr_dxa2_r == wb_extadr_i);
-    //  # relative operand B2
-    assign exec_hazard_dxb2_w  = exec_hazard_dxb2_r; // FPU3264
-    assign exec_dxb2_muxing_wb = exec_hazard_dxb2_r & (exec_extadr_dxb2_r == wb_extadr_i);
     // ---
     always @(posedge cpu_clk) begin
       if (dcod_pushing_exec) begin
@@ -1752,35 +1573,14 @@ module mor1kx_rsrvs_marocchino
         exec_rfa2_r <= busy_rfa2_w;
         exec_rfb2_r <= busy_rfb2_w;
       end
-      else begin
-        // complete forwadring A2
-        if (exec_dxa2_muxing_wb) begin
-          exec_rfa2_r <= exec_rfa2_w;
-        end
-        // complete forwadring B2
-        if (exec_dxb2_muxing_wb) begin
-          exec_rfb2_r <= exec_rfb2_w;
-        end
-      end
     end // @clock
-    // last forward (from WB)
-    //  operand A2
-    assign exec_rfa2_w =  exec_hazard_d1a2_r ? wb_result1_i :
-                         (exec_hazard_d2a2_r ? wb_result2_i : exec_rfa2_r);
-    //  operand B2
-    assign exec_rfb2_w =  exec_hazard_d1b2_r ? wb_result1_i :
-                         (exec_hazard_d2b2_r ? wb_result2_i : exec_rfb2_r);
+    // ---
+    assign exec_rfa2_w = exec_rfa2_r;
+    assign exec_rfb2_w = exec_rfb2_r;
   end
   else begin : exec_fpxx_disabled
     assign exec_rfa2_w  = {OPTION_OPERAND_WIDTH{1'b0}}; // not FPU3264
     assign exec_rfb2_w  = {OPTION_OPERAND_WIDTH{1'b0}}; // not FPU3264
-    // # exclusively for FPU3264 reservation station
-    //  # relative operand A2
-    assign exec_hazard_dxa2_w  = 1'b0; // not FPU3264
-    assign exec_dxa2_muxing_wb = 1'b0; // not FPU3264
-    //  # relative operand B2
-    assign exec_hazard_dxb2_w  = 1'b0; // not FPU3264
-    assign exec_dxb2_muxing_wb = 1'b0; // not FPU3264
   end
   endgenerate // EXEC-FPU3264
 

@@ -394,6 +394,7 @@ module mor1kx_cpu_marocchino
 
   // Reservation station for 1-clock execution units
   wire                            dcod_op_1clk;
+  wire                            exec_op_1clk;
   wire                            op_1clk_free;
   wire  [`OR1K_ALU_OPC_WIDTH-1:0] dcod_opc_alu_secondary;
 
@@ -1015,6 +1016,7 @@ module mor1kx_cpu_marocchino
     .lsu_free_i                 (lsu_free), // OMAN
 
     // collect valid flags from execution modules
+    .exec_op_1clk_i             (exec_op_1clk), // OMAN
     .div_valid_i                (div_valid), // OMAN
     .mul_valid_i                (mul_valid), // OMAN
     .fpxx_arith_valid_i         (fpxx_arith_valid), // OMAN
@@ -1145,8 +1147,7 @@ module mor1kx_cpu_marocchino
   // 1-clock operations //
   //--------------------//
 
-  // single clock operations controls
-  //  # commands
+  // instructions per 1-clock sub-unit
   wire                           exec_op_ffl1;
   wire                           exec_op_add;
   wire                           exec_op_shift;
@@ -1245,7 +1246,7 @@ module mor1kx_cpu_marocchino
                                   dcod_opc_alu_secondary, dcod_opc_logic}), // 1CLK_RSVRS
     // outputs
     //   command and its additional attributes
-    .exec_op_any_o              (), // 1CLK_RSVRS
+    .exec_op_any_o              (exec_op_1clk), // 1CLK_RSVRS
     .exec_op_o                  ({exec_op_ffl1, exec_op_add, exec_op_shift, exec_op_movhi, // 1CLK_RSVRS
                                   exec_op_cmov, exec_op_logic, exec_op_setflag}), // 1CLK_RSVRS
     .exec_opc_o                 ({exec_adder_do_sub, exec_adder_do_carry, // 1CLK_RSVRS
@@ -1286,6 +1287,8 @@ module mor1kx_cpu_marocchino
     .carry_i                          (ctrl_carry), // 1CLK_EXEC
     .flag_i                           (ctrl_flag), // 1CLK_EXEC
 
+    // any 1-clock sub-unit
+    .exec_op_1clk_i                   (exec_op_1clk), // 1CLK_EXEC
     // adder
     .exec_op_add_i                    (exec_op_add), // 1CLK_EXEC
     .exec_adder_do_sub_i              (exec_adder_do_sub), // 1CLK_EXEC
