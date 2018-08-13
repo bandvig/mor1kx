@@ -123,8 +123,10 @@ module mor1kx_decode_marocchino
   output reg                            dcod_op_add_o,
   output reg                            dcod_adder_do_sub_o,
   output reg                            dcod_adder_do_carry_o,
-  // Various 1-clock related
+  // Shift
   output reg                            dcod_op_shift_o,
+  output reg                      [3:0] dcod_opc_shift_o, // {SLL, SRL, SRA, ROR}
+  // Various 1-clock related
   output reg                            dcod_op_ffl1_o,
   output reg                            dcod_op_movhi_o,
   output reg                            dcod_op_cmov_o,
@@ -839,8 +841,13 @@ module mor1kx_decode_marocchino
       dcod_op_add_o             <= op_add;
       dcod_adder_do_sub_o       <= adder_do_sub;
       dcod_adder_do_carry_o     <= adder_do_carry;
-      // Various 1-clock related
+      // Shift
       dcod_op_shift_o           <= op_shift;
+      dcod_opc_shift_o          <= {(opc_alu_secondary == `OR1K_ALU_OPC_SECONDARY_SHRT_SLL),
+                                    (opc_alu_secondary == `OR1K_ALU_OPC_SECONDARY_SHRT_SRL),
+                                    (opc_alu_secondary == `OR1K_ALU_OPC_SECONDARY_SHRT_SRA),
+                                    (opc_alu_secondary == `OR1K_ALU_OPC_SECONDARY_SHRT_ROR)}; // MAROCCHINO_TODO: really need opc-alu-secondary ?
+      // Various 1-clock related
       dcod_op_ffl1_o            <= op_ffl1;
       dcod_op_movhi_o           <= op_movhi;
       dcod_op_cmov_o            <= op_cmov;

@@ -940,8 +940,10 @@ module mor1kx_exec_1clk_marocchino
   input                                 exec_op_add_i,
   input                                 exec_adder_do_sub_i,
   input                                 exec_adder_do_carry_i,
-  // shift, ffl1, movhi, cmov
+  // shift
   input                                 exec_op_shift_i,
+  input                           [3:0] exec_opc_shift_i,
+  // ffl1, movhi, cmov
   input                                 exec_op_ffl1_i,
   input                                 exec_op_movhi_i,
   input                                 exec_op_cmov_i,
@@ -1104,10 +1106,10 @@ module mor1kx_exec_1clk_marocchino
   // Bit-reverse on left shift, perform right shift,
   // bit-reverse result on left shift.
 
-  wire op_sll = (exec_opc_alu_secondary_i == `OR1K_ALU_OPC_SECONDARY_SHRT_SLL);
-  wire op_srl = (exec_opc_alu_secondary_i == `OR1K_ALU_OPC_SECONDARY_SHRT_SRL);
-  wire op_sra = (exec_opc_alu_secondary_i == `OR1K_ALU_OPC_SECONDARY_SHRT_SRA);
-  wire op_ror = (exec_opc_alu_secondary_i == `OR1K_ALU_OPC_SECONDARY_SHRT_ROR);
+  wire op_sll = exec_opc_shift_i[3];
+  wire op_srl = exec_opc_shift_i[2];
+  wire op_sra = exec_opc_shift_i[1];
+  wire op_ror = exec_opc_shift_i[0];
 
   wire   [EXEDW-1:0] shift_right;
   wire   [EXEDW-1:0] shift_lsw;
