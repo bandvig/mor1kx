@@ -50,7 +50,6 @@ module mor1kx_dmmu_marocchino
   // commnads
   input                                 s1o_op_lsu_store_i,
   input                                 s1o_op_lsu_load_i,
-  input                                 s1o_op_lsu_ls_i,
   input                                 s1o_op_msync_i,
 
   // address translation
@@ -635,7 +634,7 @@ module mor1kx_dmmu_marocchino
                         (supervisor_mode_c == supervisor_mode_r);
 
   // do update only if LSU operation is valid
-  wire dmmu_s1o_valid = (~s1o_op_msync_i) & s1o_op_lsu_ls_i;
+  wire dmmu_s1o_valid = (~s1o_op_msync_i);
 
   // DMMU's super-cache FSM
   always @(posedge cpu_clk) begin

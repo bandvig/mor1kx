@@ -451,7 +451,6 @@ module mor1kx_lsu_marocchino
     .supervisor_mode_i                (supervisor_mode_i), // DMMU
     .s1o_op_lsu_store_i               (s1o_op_lsu_store), // DMMU
     .s1o_op_lsu_load_i                (s1o_op_lsu_load), // DMMU
-    .s1o_op_lsu_ls_i                  (s1o_op_lsu_ls), // DMMU
     .s1o_op_msync_i                   (s1o_op_msync), // DMMU
     // address translation
     .virt_addr_idx_i                  (s1t_virt_addr), // DMMU
