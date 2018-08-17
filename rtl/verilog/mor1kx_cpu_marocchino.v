@@ -396,7 +396,6 @@ module mor1kx_cpu_marocchino
   wire                            dcod_op_1clk;
   wire                            exec_op_1clk;
   wire                            op_1clk_free;
-  wire  [`OR1K_ALU_OPC_WIDTH-1:0] dcod_opc_alu_secondary;
 
   wire                            dcod_op_add;
   wire                            dcod_adder_do_sub;
@@ -408,6 +407,8 @@ module mor1kx_cpu_marocchino
   wire                      [3:0] dcod_opc_shift; // {SLL, SRL, SRA, ROR}
 
   wire                            dcod_op_ffl1;
+  wire                            dcod_opc_ffl1;
+  
   wire                            dcod_op_movhi;
   wire                            dcod_op_cmov;
 
@@ -415,6 +416,7 @@ module mor1kx_cpu_marocchino
   wire                      [3:0] dcod_lut_logic;
 
   wire                            dcod_op_setflag;
+  wire [`OR1K_COMP_OPC_WIDTH-1:0] dcod_opc_setflag;
 
   wire                            grant_wb_to_1clk;
   wire                            taking_1clk_op;
@@ -874,8 +876,6 @@ module mor1kx_cpu_marocchino
     .dcod_op_push_wb_o                (dcod_op_push_wb), // DECODE
     // 1-clock instruction
     .dcod_op_1clk_o                   (dcod_op_1clk), // DECODE
-    // ALU related opc
-    .dcod_opc_alu_secondary_o         (dcod_opc_alu_secondary), // DECODE
     // Adder related
     .dcod_op_add_o                    (dcod_op_add), // DECODE
     .dcod_adder_do_sub_o              (dcod_adder_do_sub), // DECODE
@@ -883,8 +883,10 @@ module mor1kx_cpu_marocchino
     // Shift
     .dcod_op_shift_o                  (dcod_op_shift), // DECODE
     .dcod_opc_shift_o                 (dcod_opc_shift), // DECODE
-    // Various 1-clock related
+    // ffl1
     .dcod_op_ffl1_o                   (dcod_op_ffl1), // DECODE
+    .dcod_opc_ffl1_o                  (dcod_opc_ffl1), // DECODE
+    // movhi, cmov
     .dcod_op_movhi_o                  (dcod_op_movhi), // DECODE
     .dcod_op_cmov_o                   (dcod_op_cmov), // DECODE
     // Logic
@@ -894,6 +896,7 @@ module mor1kx_cpu_marocchino
     .dcod_op_jal_o                    (dcod_op_jal), // DECODE
     // Set flag related
     .dcod_op_setflag_o                (dcod_op_setflag), // DECODE
+    .dcod_opc_setflag_o               (dcod_opc_setflag), // DECODE
     // Multiplier related
     .dcod_op_mul_o                    (dcod_op_mul), // DECODE
     // Divider related
@@ -1163,13 +1166,14 @@ module mor1kx_cpu_marocchino
   localparam ONE_CLK_OP_WIDTH = 7;
 
   //  # attributes
-  wire                           exec_adder_do_sub;
-  wire                           exec_adder_do_carry;
-  wire [`OR1K_ALU_OPC_WIDTH-1:0] exec_opc_alu_secondary;
-  wire                     [3:0] exec_opc_shift; // {SLL, SRL, SRA, ROR}
-  wire                     [3:0] exec_lut_logic;
+  wire                            exec_adder_do_sub;
+  wire                            exec_adder_do_carry;
+  wire                            exec_opc_ffl1;
+  wire                      [3:0] exec_opc_shift; // {SLL, SRL, SRA, ROR}
+  wire                      [3:0] exec_lut_logic;
+  wire [`OR1K_COMP_OPC_WIDTH-1:0] exec_opc_setflag;
   // attributes include all of earlier components:
-  localparam ONE_CLK_OPC_WIDTH = 2 + `OR1K_ALU_OPC_WIDTH + 8;
+  localparam ONE_CLK_OPC_WIDTH = 11 + `OR1K_COMP_OPC_WIDTH;
 
   // input operands A and B with forwarding from WB
   wire [OPTION_OPERAND_WIDTH-1:0] exec_1clk_a1;
@@ -1248,14 +1252,16 @@ module mor1kx_cpu_marocchino
     .dcod_op_i                  ({dcod_op_ffl1, dcod_op_add, dcod_op_shift, dcod_op_movhi, // 1CLK_RSVRS
                                   dcod_op_cmov, dcod_op_logic, dcod_op_setflag}), // 1CLK_RSVRS
     .dcod_opc_i                 ({dcod_adder_do_sub, dcod_adder_do_carry, // 1CLK_RSVRS
-                                  dcod_opc_alu_secondary, dcod_opc_shift, dcod_lut_logic}), // 1CLK_RSVRS
+                                  dcod_opc_ffl1, dcod_opc_shift, // 1CLK_RSVRS
+                                  dcod_lut_logic, dcod_opc_setflag}), // 1CLK_RSVRS
     // outputs
     //   command and its additional attributes
     .exec_op_any_o              (exec_op_1clk), // 1CLK_RSVRS
     .exec_op_o                  ({exec_op_ffl1, exec_op_add, exec_op_shift, exec_op_movhi, // 1CLK_RSVRS
                                   exec_op_cmov, exec_op_logic, exec_op_setflag}), // 1CLK_RSVRS
     .exec_opc_o                 ({exec_adder_do_sub, exec_adder_do_carry, // 1CLK_RSVRS
-                                  exec_opc_alu_secondary, exec_opc_shift, exec_lut_logic}), // 1CLK_RSVRS
+                                  exec_opc_ffl1, exec_opc_shift, // 1CLK_RSVRS
+                                  exec_lut_logic, exec_opc_setflag}), // 1CLK_RSVRS
     //   operands
     .exec_rfa1_o                (exec_1clk_a1), // 1CLK_RSVRS
     .exec_rfb1_o                (exec_1clk_b1), // 1CLK_RSVRS
@@ -1288,7 +1294,6 @@ module mor1kx_cpu_marocchino
     .exec_1clk_b1_i                   (exec_1clk_b1), // 1CLK_EXEC
 
     // 1-clock instruction auxiliaries
-    .exec_opc_alu_secondary_i         (exec_opc_alu_secondary), // 1CLK_EXEC
     .carry_i                          (ctrl_carry), // 1CLK_EXEC
     .flag_i                           (ctrl_flag), // 1CLK_EXEC
 
@@ -1301,8 +1306,10 @@ module mor1kx_cpu_marocchino
     // shift
     .exec_op_shift_i                  (exec_op_shift), // 1CLK_EXEC
     .exec_opc_shift_i                 (exec_opc_shift), // 1CLK_EXEC
-    // ffl1, movhi, cmov
+    // ffl1
     .exec_op_ffl1_i                   (exec_op_ffl1), // 1CLK_EXEC
+    .exec_opc_ffl1_i                  (exec_opc_ffl1), // 1CLK_EXEC
+    // movhi, cmov
     .exec_op_movhi_i                  (exec_op_movhi), // 1CLK_EXEC
     .exec_op_cmov_i                   (exec_op_cmov), // 1CLK_EXEC
     // logic
@@ -1326,6 +1333,7 @@ module mor1kx_cpu_marocchino
 
     // integer comparison flag
     .exec_op_setflag_i                (exec_op_setflag), // 1CLK_EXEC
+    .exec_opc_setflag_i               (exec_opc_setflag), // 1CLK_EXEC
     // WB: integer comparison result
     .wb_int_flag_set_o                (wb_int_flag_set), // 1CLK_EXEC
     .wb_int_flag_clear_o              (wb_int_flag_clear) // 1CLK_EXEC

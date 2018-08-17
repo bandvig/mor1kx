@@ -117,8 +117,6 @@ module mor1kx_decode_marocchino
 
   // 1-clock instruction
   output reg                            dcod_op_1clk_o,
-  // ALU related opc
-  output reg  [`OR1K_ALU_OPC_WIDTH-1:0] dcod_opc_alu_secondary_o,
   // Adder related
   output reg                            dcod_op_add_o,
   output reg                            dcod_adder_do_sub_o,
@@ -126,8 +124,10 @@ module mor1kx_decode_marocchino
   // Shift
   output reg                            dcod_op_shift_o,
   output reg                      [3:0] dcod_opc_shift_o, // {SLL, SRL, SRA, ROR}
-  // Various 1-clock related
+  // ffl1
   output reg                            dcod_op_ffl1_o,
+  output reg                            dcod_opc_ffl1_o,
+  // movhi, cmov
   output reg                            dcod_op_movhi_o,
   output reg                            dcod_op_cmov_o,
   // Logic
@@ -137,6 +137,7 @@ module mor1kx_decode_marocchino
   output reg                            dcod_op_jal_o,
   // Set flag related
   output reg                            dcod_op_setflag_o,
+  output reg [`OR1K_COMP_OPC_WIDTH-1:0] dcod_opc_setflag_o,
 
   // Multiplier related
   output reg                            dcod_op_mul_o,
@@ -285,30 +286,32 @@ module mor1kx_decode_marocchino
 
 
   // --- multiplier ---
-  wire op_mul_signed = (op_alu & (opc_alu == `OR1K_ALU_OPC_MUL)) |
-                       (opc_insn == `OR1K_OPCODE_MULI);
-
+  wire op_mul_signed   = (op_alu & (opc_alu == `OR1K_ALU_OPC_MUL)) |
+                         (opc_insn == `OR1K_OPCODE_MULI);
   wire op_mul_unsigned = op_alu & (opc_alu == `OR1K_ALU_OPC_MULU);
-
-  wire op_mul = op_mul_signed | op_mul_unsigned;
+  wire op_mul          = op_mul_signed | op_mul_unsigned;
 
 
   // --- divider ---
   wire op_div_signed   = op_alu & (opc_alu == `OR1K_ALU_OPC_DIV);
-
   wire op_div_unsigned = op_alu & (opc_alu == `OR1K_ALU_OPC_DIVU);
-
-  wire op_div = op_div_signed | op_div_unsigned;
+  wire op_div          = op_div_signed | op_div_unsigned;
 
 
   // --- shifter / ffl1 / movhi / cmov ---
   wire op_shift = (op_alu & (opc_alu  == `OR1K_ALU_OPC_SHRT)) |
                   (opc_insn == `OR1K_OPCODE_SHRTI);
+  wire [`OR1K_ALU_OPC_SECONDARY_WIDTH-1:0] opc_shift;
+  assign opc_shift = fetch_insn_i[`OR1K_ALU_OPC_SECONDARY_SELECT];
 
+
+  // --- ffl1 ---
   wire op_ffl1  = op_alu & (opc_alu  == `OR1K_ALU_OPC_FFL1);
+  wire opc_ffl1 = fetch_insn_i[8];
 
+
+  // --- movhi / cmov ---
   wire op_movhi = (opc_insn == `OR1K_OPCODE_MOVHI);
-
   wire op_cmov  = (op_alu & (opc_alu == `OR1K_ALU_OPC_CMOV));
 
 
@@ -400,12 +403,6 @@ module mor1kx_decode_marocchino
                        imm_zext_sel ? imm_zext :
                                       imm_high;
   wire immediate_sel = imm_sext_sel | imm_zext_sel | imm_high_sel;
-
-
-  // ALU related secondary opcode
-  wire [`OR1K_ALU_OPC_WIDTH-1:0] opc_alu_secondary;
-  assign opc_alu_secondary = op_setflag ? fetch_insn_i[`OR1K_COMP_OPC_SELECT]:
-                                          {1'b0,fetch_insn_i[`OR1K_ALU_OPC_SECONDARY_SELECT]};
 
 
   // Exceptions and l.rfe
@@ -583,7 +580,7 @@ module mor1kx_decode_marocchino
       `OR1K_OPCODE_SHRTI:
         begin
           // synthesis parallel_case
-          case (fetch_insn_i[`OR1K_ALU_OPC_SECONDARY_SELECT])
+          case (opc_shift)
             `OR1K_ALU_OPC_SECONDARY_SHRT_SLL, // rD <- SLLI(rA,Imm6)
             `OR1K_ALU_OPC_SECONDARY_SHRT_SRL, // rD <- SRLI(rA,Imm6)
             `OR1K_ALU_OPC_SECONDARY_SHRT_SRA, // rD <- SRAI(rA,Imm6)
@@ -644,7 +641,7 @@ module mor1kx_decode_marocchino
             `OR1K_ALU_OPC_SHRT:
               begin
                 // synthesis parallel_case
-                case (fetch_insn_i[`OR1K_ALU_OPC_SECONDARY_SELECT])
+                case (opc_shift)
                   `OR1K_ALU_OPC_SECONDARY_SHRT_SLL, // rD <- SLL(rA,rB)
                   `OR1K_ALU_OPC_SECONDARY_SHRT_SRL, // rD <- SRL(rA,rB)
                   `OR1K_ALU_OPC_SECONDARY_SHRT_SRA, // rD <- SRA(rA,rB)
@@ -664,7 +661,7 @@ module mor1kx_decode_marocchino
                       attr_rfb1_req       = 1'b0;
                       attr_rfd1_wb        = 1'b0;
                     end
-                endcase // case (fetch_insn_i[`OR1K_ALU_OPC_SECONDARY_SELECT])
+                endcase
               end
 
             default:
@@ -835,20 +832,20 @@ module mor1kx_decode_marocchino
       dcod_op_msync_o           <= op_msync;
       // EPCR for store buffer. delay-slot ? (pc-4) : pc
       dcod_sbuf_epcr_o          <= pc_fetch_i - {{(OPTION_OPERAND_WIDTH-3){1'b0}},fetch_delay_slot_i,2'b00};
-      // ALU related opc
-      dcod_opc_alu_secondary_o  <= opc_alu_secondary;
       // Adder related
       dcod_op_add_o             <= op_add;
       dcod_adder_do_sub_o       <= adder_do_sub;
       dcod_adder_do_carry_o     <= adder_do_carry;
       // Shift
       dcod_op_shift_o           <= op_shift;
-      dcod_opc_shift_o          <= {(opc_alu_secondary == `OR1K_ALU_OPC_SECONDARY_SHRT_SLL),
-                                    (opc_alu_secondary == `OR1K_ALU_OPC_SECONDARY_SHRT_SRL),
-                                    (opc_alu_secondary == `OR1K_ALU_OPC_SECONDARY_SHRT_SRA),
-                                    (opc_alu_secondary == `OR1K_ALU_OPC_SECONDARY_SHRT_ROR)}; // MAROCCHINO_TODO: really need opc-alu-secondary ?
-      // Various 1-clock related
+      dcod_opc_shift_o          <= {(opc_shift == `OR1K_ALU_OPC_SECONDARY_SHRT_SLL),
+                                    (opc_shift == `OR1K_ALU_OPC_SECONDARY_SHRT_SRL),
+                                    (opc_shift == `OR1K_ALU_OPC_SECONDARY_SHRT_SRA),
+                                    (opc_shift == `OR1K_ALU_OPC_SECONDARY_SHRT_ROR)};
+      // ffl
       dcod_op_ffl1_o            <= op_ffl1;
+      dcod_opc_ffl1_o           <= opc_ffl1;
+      // movhi, cmov
       dcod_op_movhi_o           <= op_movhi;
       dcod_op_cmov_o            <= op_cmov;
       // Logic
@@ -858,6 +855,7 @@ module mor1kx_decode_marocchino
       dcod_op_jal_o             <= op_jal;
       // Set flag related
       dcod_op_setflag_o         <= op_setflag;
+      dcod_opc_setflag_o        <= fetch_insn_i[`OR1K_COMP_OPC_SELECT];
       // Multiplier related
       dcod_op_mul_o             <= op_mul;
       // Divider related

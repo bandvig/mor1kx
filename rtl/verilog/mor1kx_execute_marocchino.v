@@ -930,7 +930,6 @@ module mor1kx_exec_1clk_marocchino
   input      [OPTION_OPERAND_WIDTH-1:0] exec_1clk_b1_i,
 
   // 1-clock instruction auxiliaries
-  input       [`OR1K_ALU_OPC_WIDTH-1:0] exec_opc_alu_secondary_i,
   input                                 carry_i, // feedback from ctrl
   input                                 flag_i, // feedback from ctrl (for cmov)
 
@@ -943,8 +942,10 @@ module mor1kx_exec_1clk_marocchino
   // shift
   input                                 exec_op_shift_i,
   input                           [3:0] exec_opc_shift_i,
-  // ffl1, movhi, cmov
+  // ffl1
   input                                 exec_op_ffl1_i,
+  input                                 exec_opc_ffl1_i,
+  // movhi, cmov
   input                                 exec_op_movhi_i,
   input                                 exec_op_cmov_i,
   // logic
@@ -968,6 +969,7 @@ module mor1kx_exec_1clk_marocchino
 
   // integer comparison flag
   input                                 exec_op_setflag_i,
+  input      [`OR1K_COMP_OPC_WIDTH-1:0] exec_opc_setflag_i,
   // WB: integer comparison result
   output reg                            wb_int_flag_set_o,
   output reg                            wb_int_flag_clear_o
@@ -1020,8 +1022,7 @@ module mor1kx_exec_1clk_marocchino
   reg  [5:0] fl1_r;
   reg  [5:0] ff1_r;
   // ---
-  wire [EXEDW-1:0] ffl1_result = {{(EXEDW-6){1'b0}},
-                                  (exec_opc_alu_secondary_i[2] ? fl1_r : ff1_r)};
+  wire [EXEDW-1:0] ffl1_result = {{(EXEDW-6){1'b0}}, (exec_opc_ffl1_i ? fl1_r : ff1_r)};
   // ---
   always @(exec_1clk_a1_i) begin
     // synthesis parallel_case
@@ -1181,7 +1182,7 @@ module mor1kx_exec_1clk_marocchino
   reg flag_set;
   always @* begin
     // synthesis parallel_case
-    case(exec_opc_alu_secondary_i)
+    case(exec_opc_setflag_i)
       `OR1K_COMP_OPC_EQ:  flag_set = a_eq_b;
       `OR1K_COMP_OPC_NE:  flag_set = ~a_eq_b;
       `OR1K_COMP_OPC_GTU: flag_set = ~(a_eq_b | a_ltu_b);
