@@ -45,7 +45,6 @@ module pfpu_muldiv_marocchino
   input             cpu_clk,
   // pipe controls
   input             pipeline_flush_i,   // flushe pipe
-  input             exec_op_fpxx_any_i,
   input             mul_start_i,
   input             div_start_i,
   output            muldiv_taking_op_o,
@@ -152,7 +151,7 @@ module pfpu_muldiv_marocchino
     if (pipeline_flush_i)
       sIo_ready <= 1'b0;
     else if (sI_adv)
-      sIo_ready <= exec_op_fpxx_any_i;
+      sIo_ready <= 1'b1;
     else if (s0_adv)
       sIo_ready <= sI_busy;
     else if (~sIo_pending)

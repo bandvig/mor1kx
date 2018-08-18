@@ -468,7 +468,6 @@ module mor1kx_cpu_marocchino
   wire                              wb_except_fpxx_cmp;
   // FPU3264 reservationstation controls
   wire                              dcod_op_fpxx_any;
-  wire                              exec_op_fpxx_any;
   wire                              fpxx_free;
   wire                              fpxx_taking_op;
 
@@ -1536,22 +1535,20 @@ module mor1kx_cpu_marocchino
   //   # 64-bits FP comparison                   //
   //---------------------------------------------//
   // run fp3264 arithmetic
-  wire exec_op_fp64_arith, exec_op_fpxx_add, exec_op_fpxx_sub, exec_op_fpxx_mul,
-                           exec_op_fpxx_div, exec_op_fpxx_i2f, exec_op_fpxx_f2i;
+  wire exec_op_fpxx_add, exec_op_fpxx_sub, exec_op_fpxx_mul,
+       exec_op_fpxx_div, exec_op_fpxx_i2f, exec_op_fpxx_f2i;
   // run fp64 comparison
   //(declared earlier)
-
-  // OP layout for FPU reservation station: (fpxx_arith OR fpxx_cmp)
-  localparam FPU_OP_WIDTH = 1;
+  //  # overall:
+  localparam FPU_OP_WIDTH = 7;
 
   // OPC layout for multi-clocks reservation station
-  //  # fp3264 arithmetic type (add,sub,mul,div,i2f,f2i):    6
+  wire exec_op_fp64_arith;
   //  # double precision bit:                                1
-  //  # run fp64 comparison:                                 1
   //  # fp64 comparison variant:                             3
   //  # ------------------------------------------------------
-  //  # overall:                                            11
-  localparam FPU_OPC_WIDTH = 11;
+  //  # overall:                                             4
+  localparam FPU_OPC_WIDTH = 4;
 
   // FPU input operands
   wire [(OPTION_OPERAND_WIDTH-1):0] exec_fpxx_a1;
@@ -1624,17 +1621,17 @@ module mor1kx_cpu_marocchino
     .wb_result2_i               (wb_result2_cp2), // FPU_RSRVS
     // command and its additional attributes
     .dcod_op_any_i              (dcod_op_fpxx_any), // FPU_RSRVS
-    .dcod_op_i                  (dcod_op_fpxx_any), // FPU_RSRVS
-    .dcod_opc_i                 ({dcod_op_fpxx_add,   dcod_op_fpxx_sub, dcod_op_fpxx_mul, // FPU_RSRVS
-                                  dcod_op_fpxx_div,   dcod_op_fpxx_i2f, dcod_op_fpxx_f2i, // FPU_RSRVS
-                                  dcod_op_fp64_arith, dcod_op_fpxx_cmp, dcod_opc_fpxx_cmp}), // FPU_RSRVS
+    .dcod_op_i                  ({dcod_op_fpxx_add, dcod_op_fpxx_sub, dcod_op_fpxx_mul, // FPU_RSRVS
+                                  dcod_op_fpxx_div, dcod_op_fpxx_i2f, dcod_op_fpxx_f2i, // FPU_RSRVS
+                                  dcod_op_fpxx_cmp}), // FPU_RSRVS
+    .dcod_opc_i                 ({dcod_op_fp64_arith, dcod_opc_fpxx_cmp}), // FPU_RSRVS
     // outputs
     //   command and its additional attributes
     .exec_op_any_o              (), // FPU_RSRVS
-    .exec_op_o                  (exec_op_fpxx_any), // FPU_RSRVS
-    .exec_opc_o                 ({exec_op_fpxx_add,   exec_op_fpxx_sub, exec_op_fpxx_mul, // FPU_RSRVS
-                                  exec_op_fpxx_div,   exec_op_fpxx_i2f, exec_op_fpxx_f2i, // FPU_RSRVS
-                                  exec_op_fp64_arith, exec_op_fpxx_cmp, exec_opc_fpxx_cmp}),  // FPU_RSRVS
+    .exec_op_o                  ({exec_op_fpxx_add, exec_op_fpxx_sub, exec_op_fpxx_mul, // FPU_RSRVS
+                                  exec_op_fpxx_div, exec_op_fpxx_i2f, exec_op_fpxx_f2i, // FPU_RSRVS
+                                  exec_op_fpxx_cmp}), // FPU_RSRVS
+    .exec_opc_o                 ({exec_op_fp64_arith, exec_opc_fpxx_cmp}),  // FPU_RSRVS
     //   operands
     .exec_rfa1_o                (exec_fpxx_a1), // FPU_RSRVS
     .exec_rfb1_o                (exec_fpxx_b1), // FPU_RSRVS
@@ -1668,9 +1665,6 @@ module mor1kx_cpu_marocchino
     .fpu_round_mode_i           (ctrl_fpu_round_mode), // FPU3264
     .except_fpu_enable_i        (except_fpu_enable), // FPU3264
     .fpu_mask_flags_i           (ctrl_fpu_mask_flags), // FPU3264
-
-    // From multi-clock reservation station
-    .exec_op_fpxx_any_i         (exec_op_fpxx_any), // FPU3264
 
     // Commands for arithmetic part
     .exec_op_fp64_arith_i       (exec_op_fp64_arith), // FPU3264

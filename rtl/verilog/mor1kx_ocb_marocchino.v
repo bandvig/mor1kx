@@ -62,7 +62,7 @@ endmodule // ocb_tap
 //   all outputs could be analized simultaneously for example to //
 //   detect data dependancy                                      //
 //---------------------------------------------------------------//
-/*
+
 module mor1kx_ocb_marocchino
 #(
   parameter NUM_TAPS    = 8,
@@ -214,7 +214,7 @@ module mor1kx_ocb_marocchino
   assign ocb_bus[NUM_TAPS] = default_value_i;
 
 endmodule // mor1kx_ocb_marocchino
-*/
+
 
 
 
@@ -227,7 +227,7 @@ endmodule // mor1kx_ocb_marocchino
 //   The module implemented separetaly from major OCB to avoid     //
 // extra complexity in source code.                                //
 //-----------------------------------------------------------------//
-
+/*
 module mor1kx_ocb_miss_marocchino
 #(
   parameter NUM_TAPS  = 8,
@@ -391,7 +391,7 @@ module mor1kx_ocb_miss_marocchino
   assign ocb_bus[NUM_TAPS] = default_value_i;
 
 endmodule // mor1kx_ocb_miss_marocchino
-
+*/
 
 
 //------------------------------------------------------//

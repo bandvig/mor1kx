@@ -55,8 +55,6 @@ module pfpu_cmp_marocchino
   output             taking_op_fpxx_cmp_o,
   input              padv_wb_i,            // advance output latches
   input              grant_wb_to_fpxx_cmp_i,
-  // From multi-clock reservation station
-  input              exec_op_fpxx_any_i,
   // command
   input              op_fpxx_cmp_i,
   input        [2:0] opc_fpxx_cmp_i,
@@ -167,7 +165,7 @@ module pfpu_cmp_marocchino
     if (pipeline_flush_i)
       s1o_ready <= 1'b0;
     else if (s1_adv)
-      s1o_ready <= exec_op_fpxx_any_i;
+      s1o_ready <= 1'b1;
     else if (~fpxx_cmp_wb_miss_r)
       s1o_ready <= 1'b0;
   end // @clock
@@ -177,7 +175,7 @@ module pfpu_cmp_marocchino
     if (pipeline_flush_i)
       fpxx_cmp_valid_o <= 1'b0;
     else if (s1_adv)
-      fpxx_cmp_valid_o <= exec_op_fpxx_any_i;
+      fpxx_cmp_valid_o <= 1'b1;
     else if (padv_wb_i & grant_wb_to_fpxx_cmp_i)
       fpxx_cmp_valid_o <= fpxx_cmp_wb_miss_r ? s1o_ready : 1'b0;
   end // @clock

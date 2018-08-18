@@ -161,15 +161,18 @@ module pfpu_rnd_marocchino
   reg s0o_ready;
   reg s1o_ready;
   reg s2o_ready;
+  reg s3o_ready;
   reg fpxx_arith_wb_miss_r;
   //  ## per stage busy flags
-  wire s2_busy = s2o_ready & fpxx_arith_wb_miss_r;
+  wire s3_busy = s3o_ready & fpxx_arith_wb_miss_r;
+  wire s2_busy = s2o_ready & s3_busy;
   wire s1_busy = s1o_ready & s2_busy;
   wire s0_busy = s0o_ready & s1_busy;
   //  ## per stage advance
   wire s0_adv  = (add_rdy_i | mul_rdy_i | div_rdy_i | i2f_rdy_i | f2i_rdy_i) & ~s0_busy;
   wire s1_adv  = s0o_ready & ~s1_busy;
   wire s2_adv  = s1o_ready & ~s2_busy;
+  wire s3_adv  = s2o_ready & ~s3_busy;
   // ## per execution unit reporting
   assign rnd_taking_add_o = add_rdy_i & ~s0_busy;
   assign rnd_taking_mul_o = mul_rdy_i & ~s0_busy;
@@ -532,22 +535,12 @@ module pfpu_rnd_marocchino
       s2o_ready <= 1'b0;
     else if (s2_adv)
       s2o_ready <= 1'b1;
-    else if (~fpxx_arith_wb_miss_r)
+    else if (s3_adv)
       s2o_ready <= 1'b0;
   end // @clock
 
-  //  valid flag
-  always @(posedge cpu_clk) begin
-    if (pipeline_flush_i)
-      fpxx_arith_valid_o <= 1'b0;
-    else if (s2_adv)
-      fpxx_arith_valid_o <= 1'b1;
-    else if (padv_wb_i & grant_wb_to_fpxx_arith_i)
-      fpxx_arith_valid_o <= fpxx_arith_wb_miss_r ? s2o_ready : 1'b0;
-  end // @clock
 
-
-  /* Stage #3: final align and formatting result */
+  /* Stage #3: final align */
 
 
   // floating point output
@@ -570,66 +563,139 @@ module pfpu_rnd_marocchino
   wire s3t_ixx_00 = (~s2o_f2i_inv) & (~(|s2o_fract64_rnd));
 
 
+  // output of final align stage
+  reg         s3o_sign;
+  reg         s3o_lost;
+  reg         s3o_op_fp64_arith;
+  // various flags:
+  reg         s3o_inv;
+  reg         s3o_inf;
+  reg         s3o_snan;
+  reg         s3o_qnan;
+  reg         s3o_anan_sign;
+  // FP3264
+  reg  [12:0] s3o_fxx_exp13;
+  reg  [52:0] s3o_fxx_fract53;
+  reg         s3o_fxx_fract53_dn;
+  reg         s3o_fxx_ovf;
+  // DIV specials
+  reg         s3o_dbz;
+  // F2I specials
+  reg         s3o_f2i;
+  reg         s3o_f2i_inv;
+  reg  [63:0] s3o_ixx_opc;
+  reg         s3o_ixx_00;
+  // registering
+  always @(posedge cpu_clk) begin
+    if(s3_adv) begin
+      s3o_sign            <= s2o_sign;
+      s3o_lost            <= s2o_lost;
+      s3o_op_fp64_arith   <= s2o_op_fp64_arith;
+      // various flags:
+      s3o_inv             <= s2o_inv;
+      s3o_inf             <= s2o_inf;
+      s3o_snan            <= s2o_snan;
+      s3o_qnan            <= s2o_qnan;
+      s3o_anan_sign       <= s2o_anan_sign;
+      // FP3264
+      s3o_fxx_exp13       <= s3t_fxx_exp13;
+      s3o_fxx_fract53     <= s3t_fxx_fract53;
+      s3o_fxx_fract53_dn  <= s3t_fxx_fract53_dn;
+      s3o_fxx_ovf         <= s3t_fxx_ovf;
+      // DIV specials
+      s3o_dbz             <= s2o_dbz;
+      // F2I specials
+      s3o_f2i             <= s2o_f2i;
+      s3o_f2i_inv         <= s2o_f2i_inv;
+      s3o_ixx_opc         <= s3t_ixx_opc;
+      s3o_ixx_00          <= s3t_ixx_00;
+    end // advance
+  end // @clock
+
+  // ready is special case
+  always @(posedge cpu_clk) begin
+    if (pipeline_flush_i)
+      s3o_ready <= 1'b0;
+    else if (s3_adv)
+      s3o_ready <= 1'b1;
+    else if (~fpxx_arith_wb_miss_r)
+      s3o_ready <= 1'b0;
+  end // @clock
+
+  //  valid flag
+  always @(posedge cpu_clk) begin
+    if (pipeline_flush_i)
+      fpxx_arith_valid_o <= 1'b0;
+    else if (s3_adv)
+      fpxx_arith_valid_o <= 1'b1;
+    else if (padv_wb_i & grant_wb_to_fpxx_arith_i)
+      fpxx_arith_valid_o <= fpxx_arith_wb_miss_r ? s3o_ready : 1'b0;
+  end // @clock
+
+
+  /* Stage #4: formatting result */
+
+
   // Multiplexing flags
-  wire s3t_ine, s3t_ovf, s3t_inf, s3t_unf, s3t_zer;
+  wire s4t_ine, s4t_ovf, s4t_inf, s4t_unf, s4t_zer;
   // ---
-  assign {s3t_ine,s3t_ovf,s3t_inf,s3t_unf,s3t_zer} =
+  assign {s4t_ine,s4t_ovf,s4t_inf,s4t_unf,s4t_zer} =
     // f2i          ine  ovf  inf  unf        zer
-    s2o_f2i ? {s2o_lost,1'b0,1'b0,1'b0,s3t_ixx_00} :
+    s3o_f2i ? {s3o_lost,1'b0,1'b0,1'b0,s3o_ixx_00} :
     // qnan output            ine  ovf  inf  unf  zer
-   ((s2o_snan | s2o_qnan) ? {1'b0,1'b0,1'b0,1'b0,1'b0} :
+   ((s3o_snan | s3o_qnan) ? {1'b0,1'b0,1'b0,1'b0,1'b0} :
     // snan output            ine  ovf  inf  unf  zer
-   (s2o_inv ?               {1'b0,1'b0,1'b0,1'b0,1'b0} :
+   (s3o_inv ?               {1'b0,1'b0,1'b0,1'b0,1'b0} :
     // overflow and infinity                          ine                       ovf  inf  unf  zer
-   (s3t_fxx_ovf ? {((s2o_lost | (~s2o_inf)) & (~s2o_dbz)),((~s2o_inf) & (~s2o_dbz)),1'b1,1'b0,1'b0} :
+   (s3o_fxx_ovf ? {((s3o_lost | (~s3o_inf)) & (~s3o_dbz)),((~s3o_inf) & (~s3o_dbz)),1'b1,1'b0,1'b0} :
     // denormalized or zero      ine  ovf  inf                             unf                 zer
-   ((s3t_fxx_fract53_dn) ? {s2o_lost,1'b0,1'b0,(s2o_lost & s3t_fxx_fract53_dn),~(|s3t_fxx_fract53)} :
+   ((s3o_fxx_fract53_dn) ? {s3o_lost,1'b0,1'b0,(s3o_lost & s3o_fxx_fract53_dn),~(|s3o_fxx_fract53)} :
     // normal result             ine  ovf  inf  unf  zer
-                           {s2o_lost,1'b0,1'b0,1'b0,1'b0}))));
+                           {s3o_lost,1'b0,1'b0,1'b0,1'b0}))));
 
   // Multiplexing double precision
-  wire [63:0] s3t_opc64;
-  assign s3t_opc64 =
+  wire [63:0] s4t_opc64;
+  assign s4t_opc64 =
     // f2i
-    s2o_f2i ? s3t_ixx_opc :
+    s3o_f2i ? s3o_ixx_opc :
     // qnan output
-   ((s2o_snan | s2o_qnan) ? {s2o_anan_sign,QNAN_D} :
+   ((s3o_snan | s3o_qnan) ? {s3o_anan_sign,QNAN_D} :
     // snan output
-   (s2o_inv ? {s2o_sign,SNAN_D} :
+   (s3o_inv ? {s3o_sign,SNAN_D} :
     // overflow and infinity
-   (s3t_fxx_ovf ? {s2o_sign,INF_D} :
+   (s3o_fxx_ovf ? {s3o_sign,INF_D} :
     // denormalized or zero
-   ((s3t_fxx_fract53_dn) ? {s2o_sign,11'd0,s3t_fxx_fract53[51:0]} :
+   ((s3o_fxx_fract53_dn) ? {s3o_sign,11'd0,s3o_fxx_fract53[51:0]} :
     // normal result
-                           {s2o_sign,s3t_fxx_exp13[10:0],s3t_fxx_fract53[51:0]}))));
+                           {s3o_sign,s3o_fxx_exp13[10:0],s3o_fxx_fract53[51:0]}))));
 
   // Multiplexing single precision
-  wire [31:0] s3t_opc32;
-  assign s3t_opc32 =
+  wire [31:0] s4t_opc32;
+  assign s4t_opc32 =
     // f2i
-    s2o_f2i ? s3t_ixx_opc[63:32] :
+    s3o_f2i ? s3o_ixx_opc[63:32] :
     // qnan output
-   ((s2o_snan | s2o_qnan) ? {s2o_anan_sign,QNAN_S} :
+   ((s3o_snan | s3o_qnan) ? {s3o_anan_sign,QNAN_S} :
     // snan output
-   (s2o_inv ? {s2o_sign,SNAN_S} :
+   (s3o_inv ? {s3o_sign,SNAN_S} :
     // overflow and infinity
-   (s3t_fxx_ovf ? {s2o_sign,INF_S} :
+   (s3o_fxx_ovf ? {s3o_sign,INF_S} :
     // denormalized or zero
-   ((s3t_fxx_fract53_dn) ? {s2o_sign,8'd0,s3t_fxx_fract53[22:0]} :
+   ((s3o_fxx_fract53_dn) ? {s3o_sign,8'd0,s3o_fxx_fract53[22:0]} :
     // normal result
-                           {s2o_sign,s3t_fxx_exp13[7:0],s3t_fxx_fract53[22:0]}))));
+                           {s3o_sign,s3o_fxx_exp13[7:0],s3o_fxx_fract53[22:0]}))));
 
 
   // EXECUTE level FP32 arithmetic flags
   wire [`OR1K_FPCSR_ALLF_SIZE-1:0] exec_fpxx_arith_fpcsr =
-    {s2o_dbz, s3t_inf, (s2o_inv | (s2o_f2i_inv & s2o_f2i) | s2o_snan),
-     s3t_ine, s3t_zer, s2o_qnan,
-     (s2o_inv | (s2o_snan & s2o_f2i)), s3t_unf, s3t_ovf} & fpu_mask_flags_i;
+    {s3o_dbz, s4t_inf, (s3o_inv | (s3o_f2i_inv & s3o_f2i) | s3o_snan),
+     s4t_ine, s4t_zer, s3o_qnan,
+     (s3o_inv | (s3o_snan & s3o_f2i)), s4t_unf, s4t_ovf} & fpu_mask_flags_i;
 
   // EXEC-result #1
-  wire [31:0] exec_fpxx_arith_res_hi = s2o_op_fp64_arith ? s3t_opc64[63:32] : s3t_opc32;
+  wire [31:0] exec_fpxx_arith_res_hi = s3o_op_fp64_arith ? s4t_opc64[63:32] : s4t_opc32;
   // EXEC-result #2
-  wire [31:0] exec_fpxx_arith_res_lo = s3t_opc64[31:0];
+  wire [31:0] exec_fpxx_arith_res_lo = s4t_opc64[31:0];
 
 
   // WB-miss flag
@@ -639,7 +705,7 @@ module pfpu_rnd_marocchino
     else if (padv_wb_i & grant_wb_to_fpxx_arith_i)
       fpxx_arith_wb_miss_r <= 1'b0;
     else if (~fpxx_arith_wb_miss_r)
-      fpxx_arith_wb_miss_r <= s2o_ready;
+      fpxx_arith_wb_miss_r <= s3o_ready;
   end // @clock
 
   // WB-miss pending rezults

@@ -69,9 +69,6 @@ module pfpu_top_marocchino
   input                               except_fpu_enable_i,
   input   [`OR1K_FPCSR_ALLF_SIZE-1:0] fpu_mask_flags_i,
 
-  // From multi-clock reservation station
-  input                               exec_op_fpxx_any_i,
-
   // Commands for arithmetic part
   input                               exec_op_fp64_arith_i, // Clarification: FP64 instruction
   input                               exec_op_fpxx_add_i,
@@ -280,12 +277,13 @@ wire rnd_op_fp64_arith;
 
 
 // PFPU [O]rder [C]ontrol [B]uffer instance
-mor1kx_ocb_miss_marocchino
+mor1kx_ocb_marocchino
 #(
   .NUM_TAPS            (4), // half of regular OCB (second half is delay slots)
   .NUM_OUTS            (1), // only "EXECUTE" level is intresting
   .DATA_SIZE          (11),
-  .FULL_FLAG          ("ENABLED")
+  .FULL_FLAG          ("ENABLED"),
+  .EMPTY_FLAG         ("NONE")
 )
 u_pfpu_ocb
 (
@@ -299,48 +297,18 @@ u_pfpu_ocb
   .reset_taps         (pipeline_flush_i), // PFPU_OCB
   .default_value_i    (11'd0), // PFPU_OCB
   // data input
-  .is_miss_i          (~exec_op_fpxx_any_i),
   .ocbi_i             ({exec_op_fp64_arith_i, // PFPU_OCB
                         add_start, mul_start, div_start, i2f_start, f2i_start, // PFPU_OCB
                         res_inv, res_inf, res_snan, res_qnan, res_anan_sign}), // PFPU_OCB
-  // full flag
+  // flags
+  .empty_o            (), // PFPU_OCB
   .full_o             (pfpu_ocb_full), // PFPU_OCB
   // data ouputs
   .ocbo_o             ({rnd_op_fp64_arith, // PFPU_OCB
                         grant_rnd_to_add, grant_rnd_to_mul, grant_rnd_to_div, grant_rnd_to_i2f, grant_rnd_to_f2i, // PFPU_OCB
                         ocb_inv, ocb_inf, ocb_snan, ocb_qnan, ocb_anan_sign}) // PFPU_OCB
 );
-/*
-mor1kx_ocbuff_miss_marocchino
-#(
-  .NUM_TAPS            (4), // PFPU_OCB
-  .DATA_WIDTH         (11), // PFPU_OCB
-  .FULL_FLAG          ("ENABLED"), // PFPU_OCB
-  .CLEAR_ON_INIT       (0) // PFPU_OCB
-)
-u_pfpu_ocb
-(
-  // clocks, resets
-  .cpu_clk            (cpu_clk), // PFPU_OCB
-  // pipe controls
-  .pipeline_flush_i   (pipeline_flush_i), // PFPU_OCB
-  .write_i            (taking_op_fpxx_arith), // PFPU_OCB
-  .read_i             (rnd_taking_op), // PFPU_OCB
-  // value at reset/flush
-  .reset_ocbo_i       (pipeline_flush_i), // PFPU_OCB
-  // data input
-  .is_miss_i          (~exec_op_fpxx_any_i),
-  .ocbi_i             ({exec_op_fp64_arith_i, // PFPU_OCB
-                        add_start, mul_start, div_start, i2f_start, f2i_start, // PFPU_OCB
-                        res_inv, res_inf, res_snan, res_qnan, res_anan_sign}), // PFPU_OCB
-  // full flag
-  .full_o             (pfpu_ocb_full), // PFPU_OCB
-  // data ouputs
-  .ocbo_o             ({rnd_op_fp64_arith, // PFPU_OCB
-                        grant_rnd_to_add, grant_rnd_to_mul, grant_rnd_to_div, grant_rnd_to_i2f, grant_rnd_to_f2i, // PFPU_OCB
-                        ocb_inv, ocb_inf, ocb_snan, ocb_qnan, ocb_anan_sign}) // PFPU_OCB
-);
-*/
+
 
 // Addition / Substruction
 //   connection wires
@@ -359,7 +327,6 @@ pfpu_addsub_marocchino u_pfpu_addsub
   .cpu_clk                (cpu_clk), // PFPU_ADDSUB
   // ADD/SUB pipe controls
   .pipeline_flush_i       (pipeline_flush_i), // PFPU_ADDSUB
-  .exec_op_fpxx_any_i     (exec_op_fpxx_any_i), // PFPU_ADDSUB
   .add_start_i            (add_start), // PFPU_ADDSUB
   .exec_op_fpxx_sub_i     (exec_op_fpxx_sub_i), // PFPU_ADDSUB
   .add_taking_op_o        (add_taking_op), // PFPU_ADDSUB
@@ -415,7 +382,6 @@ pfpu_muldiv_marocchino u_pfpu_muldiv
   .cpu_clk                (cpu_clk), // PFPU_MULDIV
   // pipe controls
   .pipeline_flush_i       (pipeline_flush_i), // PFPU_MULDIV
-  .exec_op_fpxx_any_i     (exec_op_fpxx_any_i), // PFPU_MULDIV
   .mul_start_i            (mul_start), // PFPU_MULDIV
   .div_start_i            (div_start), // PFPU_MULDIV
   .muldiv_taking_op_o     (muldiv_taking_op), // PFPU_MULDIV
@@ -469,7 +435,6 @@ pfpu_i2f_marocchino u_pfpu_i2f
   .cpu_clk                (cpu_clk), // PFPU_I2F
   // I2F pipe controls
   .pipeline_flush_i       (pipeline_flush_i), // PFPU_I2F
-  .exec_op_fpxx_any_i     (exec_op_fpxx_any_i), // PFPU_I2F
   .start_i                (i2f_start), // PFPU_I2F
   .i2f_taking_op_o        (i2f_taking_op), // PFPU_I2F
   .i2f_rdy_o              (i2f_rdy), // PFPU_I2F
@@ -501,7 +466,6 @@ pfpu_f2i_marocchino u_pfpu_f2i
   .cpu_clk              (cpu_clk), // PFPU_F2I
   // pipe controls
   .pipeline_flush_i     (pipeline_flush_i), // PFPU_F2I
-  .exec_op_fpxx_any_i   (exec_op_fpxx_any_i), // PFPU_F2I
   .start_i              (f2i_start), // PFPU_F2I
   .f2i_taking_op_o      (f2i_taking_op), // PFPU_F2I
   .f2i_rdy_o            (f2i_rdy), // PFPU_F2I
@@ -653,8 +617,6 @@ pfpu_cmp_marocchino u_fpxx_cmp
   .taking_op_fpxx_cmp_o       (taking_op_fpxx_cmp), // PFPU_CMP
   .padv_wb_i                  (padv_wb_i), // PFPU_CMP
   .grant_wb_to_fpxx_cmp_i     (grant_wb_to_fpxx_cmp_i), // PFPU_CMP
-  // From FPU reservation station
-  .exec_op_fpxx_any_i         (exec_op_fpxx_any_i), // PFPU_CMP
   // command
   .op_fpxx_cmp_i              (exec_op_fpxx_cmp_i), // PFPU_CMP
   .opc_fpxx_cmp_i             (exec_opc_fpxx_cmp_i), // PFPU_CMP

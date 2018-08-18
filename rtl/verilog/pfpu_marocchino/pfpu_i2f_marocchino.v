@@ -41,7 +41,6 @@ module pfpu_i2f_marocchino
   input             cpu_clk,
   // I2F pipe controls
   input             pipeline_flush_i,
-  input             exec_op_fpxx_any_i,
   input             start_i,
   output            i2f_taking_op_o,
   output reg        i2f_rdy_o,
@@ -101,7 +100,7 @@ module pfpu_i2f_marocchino
     if (pipeline_flush_i)
       s0o_ready <= 1'b0;
     else if (s0_adv)
-      s0o_ready <= exec_op_fpxx_any_i;
+      s0o_ready <= 1'b1;
     else if (s1_adv)
       s0o_ready <= s0_busy;
     else if (~s0o_pending)
