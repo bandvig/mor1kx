@@ -1345,24 +1345,18 @@ module mor1kx_cpu_marocchino
   //   # 32-bits integer multiplier              //
   //   # 32-bits integer divider                 //
   //---------------------------------------------//
-  // any kind of multi-clock operation
-  wire exec_op_muldiv;
-  // run integer multiplier
+
+  // run integer multiplier / divider
   wire exec_op_mul;
-  // run divider
   wire exec_op_div;
+  //  # overall:
+  localparam MULDIV_OP_WIDTH = 2;
+
+  // OPC layout for integer MUL/DIV
   wire exec_op_div_signed;
   wire exec_op_div_unsigned;
-
-  // OP layout integer MUL/DIV reservation station
-  localparam MULDIV_OP_WIDTH = 1;
-
-  // OPC layout for multi-clocks reservation station
-  //  # int multiplier:                                      1
-  //  # int divider + (signed / unsigned division):          3
-  //  # ------------------------------------------------------
-  //  # overall:                                             4
-  localparam MULDIV_OPC_WIDTH = 4;
+  //  # overall:
+  localparam MULDIV_OPC_WIDTH = 2;
 
   // MUL/DIV input operands
   wire [(OPTION_OPERAND_WIDTH-1):0] exec_muldiv_a1;
@@ -1434,15 +1428,13 @@ module mor1kx_cpu_marocchino
     .wb_result2_i               (wb_result2_cp2), // MULDIV_RSRVS
     // command and its additional attributes
     .dcod_op_any_i              (dcod_op_muldiv), // MULDIV_RSRVS
-    .dcod_op_i                  (dcod_op_muldiv), // MULDIV_RSRVS
-    .dcod_opc_i                 ({dcod_op_mul, // MULDIV_RSRVS
-                                  dcod_op_div, dcod_op_div_signed, dcod_op_div_unsigned}),  // MULDIV_RSRVS
+    .dcod_op_i                  ({dcod_op_mul, dcod_op_div}), // MULDIV_RSRVS
+    .dcod_opc_i                 ({dcod_op_div_signed, dcod_op_div_unsigned}),  // MULDIV_RSRVS
     // outputs
     //   command and its additional attributes
     .exec_op_any_o              (), // MULDIV_RSRVS
-    .exec_op_o                  (exec_op_muldiv), // MULDIV_RSRVS
-    .exec_opc_o                 ({exec_op_mul,  // MULDIV_RSRVS
-                                  exec_op_div, exec_op_div_signed, exec_op_div_unsigned}),  // MULDIV_RSRVS
+    .exec_op_o                  ({exec_op_mul, exec_op_div}), // MULDIV_RSRVS
+    .exec_opc_o                 ({exec_op_div_signed, exec_op_div_unsigned}),  // MULDIV_RSRVS
     //   operands
     .exec_rfa1_o                (exec_muldiv_a1), // MULDIV_RSRVS
     .exec_rfb1_o                (exec_muldiv_b1), // MULDIV_RSRVS
@@ -1473,7 +1465,6 @@ module mor1kx_cpu_marocchino
     .exec_mul_a1_i                    (exec_muldiv_a1), // MUL
     .exec_mul_b1_i                    (exec_muldiv_b1), // MUL
     //  other inputs/outputs
-    .exec_op_muldiv_i                 (exec_op_muldiv), // MUL
     .exec_op_mul_i                    (exec_op_mul), // MUL
     .imul_taking_op_o                 (imul_taking_op), // MUL
     .mul_valid_o                      (mul_valid), // MUL
@@ -1514,7 +1505,6 @@ module mor1kx_cpu_marocchino
     .exec_div_a1_i                    (exec_muldiv_a1), // DIV
     .exec_div_b1_i                    (exec_muldiv_b1), // DIV
     // division command
-    .exec_op_muldiv_i                 (exec_op_muldiv), // DIV
     .exec_op_div_i                    (exec_op_div), // DIV
     .exec_op_div_signed_i             (exec_op_div_signed), // DIV
     .exec_op_div_unsigned_i           (exec_op_div_unsigned), // DIV

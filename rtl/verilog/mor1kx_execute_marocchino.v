@@ -49,7 +49,6 @@ module mor1kx_multiplier_marocchino
   input      [OPTION_OPERAND_WIDTH-1:0] exec_mul_b1_i,
 
   //  other inputs/outputs
-  input                                 exec_op_muldiv_i,
   input                                 exec_op_mul_i,
   output                                imul_taking_op_o,
   output reg                            mul_valid_o,
@@ -107,7 +106,7 @@ module mor1kx_multiplier_marocchino
     if (pipeline_flush_i)
       mul_s1_rdy <= 1'b0;
     else if (mul_adv_s1)
-      mul_s1_rdy <= exec_op_muldiv_i;
+      mul_s1_rdy <= 1'b1;
     else if (mul_adv_s2)
       mul_s1_rdy <= 1'b0;
   end // @clock
@@ -481,7 +480,6 @@ module mor1kx_divider_marocchino
   input      [OPTION_OPERAND_WIDTH-1:0] exec_div_b1_i,
 
   // division command
-  input                                 exec_op_muldiv_i,
   input                                 exec_op_div_i,
   input                                 exec_op_div_signed_i,
   input                                 exec_op_div_unsigned_i,
@@ -546,7 +544,7 @@ module mor1kx_divider_marocchino
       end
       else if (idiv_taking_op_o) begin // DIV_SERIAL
         div_s3_rdy_r <= 1'b0; // DIV_SERIAL
-        div_proc_r   <= exec_op_muldiv_i; // DIV_SERIAL
+        div_proc_r   <= 1'b1; // DIV_SERIAL
         div_count    <= DIVDW;
       end
       else if (div_s3_rdy_r & (~div_wb_miss_r)) begin // DIV_SERIAL
@@ -726,7 +724,7 @@ module mor1kx_divider_marocchino
       if (pipeline_flush_i)
         div_s1_rdy <= 1'b0;
       else if (div_adv_s1)
-        div_s1_rdy <= exec_op_muldiv_i; // SRT4
+        div_s1_rdy <= 1'b1; // SRT4
       else if (div_adv_s2)
         div_s1_rdy <= 1'b0;
     end // @clock
