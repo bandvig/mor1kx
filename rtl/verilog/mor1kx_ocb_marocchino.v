@@ -1344,14 +1344,8 @@ module mor1kx_rsrvs_marocchino
       busy_rfb1_r <= dcod_rfxx_i[RFB1_MSB:RFB1_LSB];
     end
     else begin
-      // complete forwarding for operand A1
-      if (busy_dxa1_muxing_wb) begin
-        busy_rfa1_r <= busy_rfa1;
-      end
-      // complete forwarding for operand B1
-      if (busy_dxb1_muxing_wb) begin
-        busy_rfb1_r <= busy_rfb1;
-      end
+      busy_rfa1_r <= busy_rfa1;
+      busy_rfb1_r <= busy_rfb1;
     end
   end // @clock
   //---
@@ -1448,14 +1442,8 @@ module mor1kx_rsrvs_marocchino
         busy_rfb2_r <= dcod_rfxx_i[RFB2_MSB:RFB2_LSB];
       end
       else begin
-        // complete forwarding for operand A2
-        if (busy_dxa2_muxing_wb) begin
-          busy_rfa2_r <= busy_rfa2_w;
-        end
-        // complete forwarding for operand B2
-        if (busy_dxb2_muxing_wb) begin
-          busy_rfb2_r <= busy_rfb2_w;
-        end
+        busy_rfa2_r <= busy_rfa2_w;
+        busy_rfb2_r <= busy_rfb2_w;
       end
     end // @clock
     // ---
@@ -1489,7 +1477,7 @@ module mor1kx_rsrvs_marocchino
   assign busy_free_of_hazards = ((~busy_hazard_dxa1_r) | busy_dxa1_muxing_wb) &  // BUSY is hazadrs free
                                 ((~busy_hazard_dxb1_r) | busy_dxb1_muxing_wb) &  // BUSY is hazadrs free
                                 ((~busy_hazard_dxa2_w) | busy_dxa2_muxing_wb) &  // BUSY is hazadrs free
-                                ((~busy_hazard_dxb2_w) | busy_dxb2_muxing_wb);  // BUSY is hazadrs free
+                                ((~busy_hazard_dxb2_w) | busy_dxb2_muxing_wb);   // BUSY is hazadrs free
 
 
   /**** EXECUTE stage latches ****/
