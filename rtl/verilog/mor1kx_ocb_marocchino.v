@@ -1310,14 +1310,15 @@ module mor1kx_rsrvs_marocchino
                             omn2dec_hazards_flags_i[HAZARD_D2B1_FLG_POS];
     end
     else begin
+      // busy-pushing-exec is needn't here as it resets busy-op-any
       //  # relative operand A1
-      if (busy_dxa1_muxing_wb | busy_pushing_exec) begin
+      if (busy_dxa1_muxing_wb) begin
         busy_hazard_d1a1_r <= 1'b0;
         busy_hazard_d2a1_r <= 1'b0;
         busy_hazard_dxa1_r <= 1'b0;
       end
       // d1b1 related
-      if (busy_dxb1_muxing_wb | busy_pushing_exec) begin
+      if (busy_dxb1_muxing_wb) begin
         busy_hazard_d1b1_r <= 1'b0;
         busy_hazard_d2b1_r <= 1'b0;
         busy_hazard_dxb1_r <= 1'b0;
@@ -1397,14 +1398,15 @@ module mor1kx_rsrvs_marocchino
                               omn2dec_hazards_flags_i[HAZARD_D2B2_FLG_POS];
       end
       else begin
+        // busy-pushing-exec is needn't here as it resets busy-op-any
         //  # relative operand A2
-        if (busy_dxa2_muxing_wb | busy_pushing_exec) begin
+        if (busy_dxa2_muxing_wb) begin
           busy_hazard_d1a2_r <= 1'b0;
           busy_hazard_d2a2_r <= 1'b0;
           busy_hazard_dxa2_r <= 1'b0;
         end
         //  # relative operand B2
-        if (busy_dxb2_muxing_wb | busy_pushing_exec) begin
+        if (busy_dxb2_muxing_wb) begin
           busy_hazard_d1b2_r <= 1'b0;
           busy_hazard_d2b2_r <= 1'b0;
           busy_hazard_dxb2_r <= 1'b0;
