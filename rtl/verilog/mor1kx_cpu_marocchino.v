@@ -67,8 +67,6 @@ module mor1kx_cpu_marocchino
   // starting PC
   parameter OPTION_RESET_PC             = {{(OPTION_OPERAND_WIDTH-13){1'b0}},
                                            `OR1K_RESET_VECTOR,8'd0},
-  // arithmetic modules
-  parameter FEATURE_DIVIDER             = "SERIAL",
   // special instructions
   parameter FEATURE_PSYNC               = "NONE",
   parameter FEATURE_CSYNC               = "NONE"
@@ -1489,8 +1487,7 @@ module mor1kx_cpu_marocchino
   // **** integer divider ****
   mor1kx_divider_marocchino
   #(
-    .OPTION_OPERAND_WIDTH             (OPTION_OPERAND_WIDTH), // DIV
-    .FEATURE_DIVIDER                  (FEATURE_DIVIDER) // DIV
+    .OPTION_OPERAND_WIDTH             (OPTION_OPERAND_WIDTH) // DIV
   )
   u_divider
   (
