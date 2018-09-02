@@ -538,41 +538,13 @@ module mor1kx_oman_marocchino
   // Analysis of data hazards //
   //--------------------------//
 
-  // requested operands in DECODE
-  //  # request flags
-  reg                             dcod_rfa1_req;
-  reg                             dcod_rfb1_req;
-  reg                             dcod_rfa2_req;
-  reg                             dcod_rfb2_req;
-  //  # request addresses
+  // requested operands addresses in DECODE
   reg  [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfa1_adr;
   reg  [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfb1_adr;
   reg  [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfa2_adr;
   reg  [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfb2_adr;
 
-  // requested operands in DECODE (request flags)
-  always @(posedge cpu_clk) begin
-    if (pipeline_flush_i) begin
-      dcod_rfa1_req <= 1'b0;
-      dcod_rfb1_req <= 1'b0;
-      dcod_rfa2_req <= 1'b0;
-      dcod_rfb2_req <= 1'b0;
-    end
-    else if (padv_dcod_i) begin
-      dcod_rfa1_req <= ratin_rfa1_req_i;
-      dcod_rfb1_req <= ratin_rfb1_req_i;
-      dcod_rfa2_req <= ratin_rfa2_req_i;
-      dcod_rfb2_req <= ratin_rfb2_req_i;
-    end
-    else if (padv_exec_i) begin
-      dcod_rfa1_req <= 1'b0;
-      dcod_rfb1_req <= 1'b0;
-      dcod_rfa2_req <= 1'b0;
-      dcod_rfb2_req <= 1'b0;
-    end
-  end // at cpu clock
-
-  // requested operands in DECODE (request addresses)
+  // requested operands addresses in DECODE
   always @(posedge cpu_clk) begin
     if (padv_dcod_i) begin
       dcod_rfa1_adr <= fetch_rfa1_adr_i;
@@ -785,10 +757,10 @@ module mor1kx_oman_marocchino
   wire exe2fth_dxa2_fwd = (omn2fth_extadr_dxa2 == exec_extadr);
   wire exe2fth_dxb2_fwd = (omn2fth_extadr_dxb2 == exec_extadr);
   //  # when write-back only
-  wire exe2dcd_dxa1_fwd = (rat_extadr[dcod_rfa1_adr] == exec_extadr) & dcod_rfa1_req;
-  wire exe2dcd_dxb1_fwd = (rat_extadr[dcod_rfb1_adr] == exec_extadr) & dcod_rfb1_req;
-  wire exe2dcd_dxa2_fwd = (rat_extadr[dcod_rfa2_adr] == exec_extadr) & dcod_rfa2_req;
-  wire exe2dcd_dxb2_fwd = (rat_extadr[dcod_rfb2_adr] == exec_extadr) & dcod_rfb2_req;
+  wire exe2dcd_dxa1_fwd = (rat_extadr[dcod_rfa1_adr] == exec_extadr);
+  wire exe2dcd_dxb1_fwd = (rat_extadr[dcod_rfb1_adr] == exec_extadr);
+  wire exe2dcd_dxa2_fwd = (rat_extadr[dcod_rfa2_adr] == exec_extadr);
+  wire exe2dcd_dxb2_fwd = (rat_extadr[dcod_rfb2_adr] == exec_extadr);
   // ---
   always @(posedge cpu_clk) begin
     // synthesis parallel_case
