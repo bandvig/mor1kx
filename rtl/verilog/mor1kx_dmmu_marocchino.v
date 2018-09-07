@@ -30,6 +30,7 @@ module mor1kx_dmmu_marocchino
   parameter OPTION_OPERAND_WIDTH        = 32,
   parameter OPTION_DMMU_SET_WIDTH       =  6,
   parameter OPTION_DMMU_WAYS            =  1,
+  parameter OPTION_DCACHE_LIMIT_WIDTH   = 32,
   parameter OPTION_DMMU_CLEAR_ON_INIT   =  0
 )
 (
@@ -597,6 +598,30 @@ module mor1kx_dmmu_marocchino
   end
   endgenerate
 
+  // Extention to cache_inhibit
+  //   Work around DMMU?
+  //   Addresses 0x8******* are treated as non-cacheble
+  //   regardless of DMMU's flag.
+  wire cache_inhibit_limit_dmmu_off; // state: OFF 
+  wire cache_inhibit_limit_dmmu_uon; // state: UPDATE & DMMU is ON
+  wire cache_inhibit_limit_dmmu_uof; // state: UPDATE & DMMU is OFF
+  // ---
+  generate
+  if (OPTION_DCACHE_LIMIT_WIDTH < OPTION_OPERAND_WIDTH) begin
+    assign cache_inhibit_limit_dmmu_off =
+      (virt_addr_idx_i[OPTION_OPERAND_WIDTH-1:OPTION_DCACHE_LIMIT_WIDTH] != 0);
+    assign cache_inhibit_limit_dmmu_uon =
+      (phys_addr[OPTION_OPERAND_WIDTH-1:OPTION_DCACHE_LIMIT_WIDTH] != 0);
+    assign cache_inhibit_limit_dmmu_uof =
+      (virt_addr_s1o_i[OPTION_OPERAND_WIDTH-1:OPTION_DCACHE_LIMIT_WIDTH] != 0);
+  end
+  else begin
+    assign cache_inhibit_limit_dmmu_off = 1'b0;
+    assign cache_inhibit_limit_dmmu_uon = 1'b0;
+    assign cache_inhibit_limit_dmmu_uof = 1'b0;
+  end
+  endgenerate
+
 
   // states of DMMU super-cache FSM
   localparam [4:0] DMMU_CACHE_EMPTY = 5'b00001,
@@ -675,7 +700,7 @@ module mor1kx_dmmu_marocchino
             supervisor_mode_c <= supervisor_mode_r;
             hit_08Kb_r        <= (|way_hit);
             hit_16Mb_r        <= (|way_huge_hit);
-            cache_inhibit_o   <= cache_inhibit;
+            cache_inhibit_o   <= cache_inhibit | cache_inhibit_limit_dmmu_uon; // UPD, DMMU-ON
             tlb_miss_o        <= tlb_miss;
             pagefault_o       <= pagefault;
             dmmu_cache_state  <= DMMU_CACHE_ON;
@@ -684,7 +709,7 @@ module mor1kx_dmmu_marocchino
             supervisor_mode_c <= 1'b0;
             hit_08Kb_r        <= 1'b0;
             hit_16Mb_r        <= 1'b0;
-            cache_inhibit_o   <= 1'b0;
+            cache_inhibit_o   <= cache_inhibit_limit_dmmu_uof; // UPD, DMMU-OFF
             tlb_miss_o        <= 1'b0;
             pagefault_o       <= 1'b0;
             dmmu_cache_state  <= DMMU_CACHE_OFF;
@@ -716,10 +741,11 @@ module mor1kx_dmmu_marocchino
             if (dmmu_enable_r) begin
               s1o_dmmu_upd_o   <= 1'b1;
               s1o_dmmu_rdy_o   <= 1'b0;
-              dmmu_cache_state <= DMMU_CACHE_UPD;
+              dmmu_cache_state <= DMMU_CACHE_RE; // OFF->ON
             end
             else begin
-              s1o_dmmu_rdy_o <= 1'b1;
+              s1o_dmmu_rdy_o  <= 1'b1;
+              cache_inhibit_o <= cache_inhibit_limit_dmmu_off; // DMMU is OFF
             end
           end // stage #1 advance
         end // off
