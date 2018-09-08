@@ -68,7 +68,8 @@ module mor1kx_lsu_marocchino
   input                           [1:0] exec_lsu_length_i,
   input                                 exec_lsu_zext_i,
   input           [`OR1K_IMM_WIDTH-1:0] exec_lsu_imm16_i, // immediate offset for address computation
-  input      [OPTION_OPERAND_WIDTH-1:0] exec_sbuf_epcr_i, // for store buffer EPCR computation
+  input                                 exec_lsu_delay_slot_i, // for store buffer EPCR computation
+  input      [OPTION_OPERAND_WIDTH-1:0] exec_lsu_pc_i, // for store buffer EPCR computation
   input      [OPTION_OPERAND_WIDTH-1:0] exec_lsu_a1_i,   // operand "A" (part of address)
   input      [OPTION_OPERAND_WIDTH-1:0] exec_lsu_b1_i,   // operand "B" (value to store)
   // SPR interface
@@ -332,6 +333,9 @@ module mor1kx_lsu_marocchino
   // compute virtual address
   wire [LSUOOW-1:0] s1t_virt_addr = exec_lsu_a1_i + {{(LSUOOW-16){exec_lsu_imm16_i[15]}},exec_lsu_imm16_i};
 
+  // store buffer EPCR computation: delay-slot ? (pc-4) : pc
+  wire [LSUOOW-1:0] s1t_sbuf_epcr = exec_lsu_pc_i + {{(LSUOOW-2){exec_lsu_delay_slot_i}},2'b00};
+
 
   // load / store and "new command is in stage #1" flag
   always @(posedge cpu_clk) begin
@@ -370,7 +374,7 @@ module mor1kx_lsu_marocchino
     if (lsu_s1_adv) begin // latch data from LSU-RSRVS without l.msync
       s1o_virt_addr  <= s1t_virt_addr;
       s1o_lsu_b1     <= exec_lsu_b1_i;
-      s1o_sbuf_epcr  <= exec_sbuf_epcr_i;
+      s1o_sbuf_epcr  <= s1t_sbuf_epcr;
       s1o_lsu_length <= exec_lsu_length_i;
       s1o_lsu_zext   <= exec_lsu_zext_i;
     end

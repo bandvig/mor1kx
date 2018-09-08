@@ -107,8 +107,6 @@ module mor1kx_decode_marocchino
   output reg                            dcod_lsu_zext_o,
   output reg                            dcod_op_msync_o,
   output reg                            dcod_op_lsu_any_o, // (load | store | l.msync)
-  // EPCR for store buffer. delay-slot ? (pc-4) : pc
-  output reg [OPTION_OPERAND_WIDTH-1:0] dcod_sbuf_epcr_o,
 
   // Instructions which push EXECUTION without extra conditions
   output reg                            dcod_op_push_exec_o,
@@ -830,8 +828,6 @@ module mor1kx_decode_marocchino
       dcod_lsu_length_o         <= lsu_length;
       dcod_lsu_zext_o           <= lsu_zext;
       dcod_op_msync_o           <= op_msync;
-      // EPCR for store buffer. delay-slot ? (pc-4) : pc
-      dcod_sbuf_epcr_o          <= pc_fetch_i - {{(OPTION_OPERAND_WIDTH-3){1'b0}},fetch_delay_slot_i,2'b00};
       // Adder related
       dcod_op_add_o             <= op_add;
       dcod_adder_do_sub_o       <= adder_do_sub;

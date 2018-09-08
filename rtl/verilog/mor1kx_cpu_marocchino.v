@@ -379,7 +379,6 @@ module mor1kx_cpu_marocchino
   wire                            dcod_lsu_zext;
   wire                            dcod_op_msync;
   wire                            dcod_op_lsu_any;
-  wire [OPTION_OPERAND_WIDTH-1:0] dcod_sbuf_epcr; // EPCR for STORE_BUFFER exception
   wire                            lsu_free;
   wire                            grant_wb_to_lsu;
 
@@ -865,8 +864,6 @@ module mor1kx_cpu_marocchino
     .dcod_lsu_zext_o                  (dcod_lsu_zext), // DECODE
     .dcod_op_msync_o                  (dcod_op_msync), // DECODE
     .dcod_op_lsu_any_o                (dcod_op_lsu_any), // DECODE
-    // EPCR for store buffer. delay-slot ? (pc-4) : pc
-    .dcod_sbuf_epcr_o                 (dcod_sbuf_epcr), // DECODE
     // Instructions which push EXECUTION without extra conditions
     .dcod_op_push_exec_o              (dcod_op_push_exec), // DECODE
     // Instructions which push WRITE-BACK without extra conditions
@@ -1728,8 +1725,9 @@ module mor1kx_cpu_marocchino
   wire                            exec_lsu_zext;
   //  # immediate offset for address computation
   wire      [`OR1K_IMM_WIDTH-1:0] exec_lsu_imm16;
-  //  # PC for store buffer EPCR computation
-  wire [OPTION_OPERAND_WIDTH-1:0] exec_sbuf_epcr;
+  //  # Delay slot flag and PC to compute store buffer EPCR
+  wire                            exec_lsu_delay_slot;
+  wire [OPTION_OPERAND_WIDTH-1:0] exec_lsu_pc;
   //  # operands after frorwarding from WB
   wire [OPTION_OPERAND_WIDTH-1:0] exec_lsu_a1;
   wire [OPTION_OPERAND_WIDTH-1:0] exec_lsu_b1;
@@ -1745,8 +1743,9 @@ module mor1kx_cpu_marocchino
   //  ## length:                                 2
   //  ## zero extension:                         1
   //  ## immediate width:                       16
-  //  ## EPCR for STORE_BUFFER exception:       32
-  localparam LSU_OPC_WIDTH = 5 + `OR1K_IMM_WIDTH + OPTION_OPERAND_WIDTH;
+  //  ## delay slot flag                         1
+  //  ## PC to compute store buffer EPCR:       32
+  localparam LSU_OPC_WIDTH = 6 + `OR1K_IMM_WIDTH + OPTION_OPERAND_WIDTH;
 
   // reservation station instance
   mor1kx_rsrvs_marocchino // LSU_RSRVS
@@ -1813,14 +1812,16 @@ module mor1kx_cpu_marocchino
     .dcod_op_i                  ({dcod_op_lsu_load, dcod_op_lsu_store}), // LSU_RSVRS
     .dcod_opc_i                 ({dcod_op_msync,    dcod_op_lsu_atomic, // LSU_RSVRS
                                   dcod_lsu_length,  dcod_lsu_zext, // LSU_RSVRS
-                                  dcod_imm16,       dcod_sbuf_epcr}), // LSU_RSVRS
+                                  dcod_imm16, // LSU_RSVRS
+                                  dcod_delay_slot,  pc_decode}), // LSU_RSVRS
     // outputs
     //   command and its additional attributes
     .exec_op_any_o              (exec_op_lsu_any), // LSU_RSVRS
     .exec_op_o                  ({exec_op_lsu_load, exec_op_lsu_store}), // LSU_RSVRS
     .exec_opc_o                 ({exec_op_msync,    exec_op_lsu_atomic, // LSU_RSVRS
                                   exec_lsu_length,  exec_lsu_zext, // LSU_RSVRS
-                                  exec_lsu_imm16,   exec_sbuf_epcr}), // LSU_RSVRS
+                                  exec_lsu_imm16, // LSU_RSVRS
+                                  exec_lsu_delay_slot, exec_lsu_pc}), // LSU_RSVRS
     //   operands
     .exec_rfa1_o                (exec_lsu_a1), // LSU_RSVRS
     .exec_rfb1_o                (exec_lsu_b1), // LSU_RSVRS
@@ -1871,7 +1872,8 @@ module mor1kx_cpu_marocchino
     .exec_lsu_length_i                (exec_lsu_length), // LSU
     .exec_lsu_zext_i                  (exec_lsu_zext), // LSU
     .exec_lsu_imm16_i                 (exec_lsu_imm16), // LSU
-    .exec_sbuf_epcr_i                 (exec_sbuf_epcr), // LSU (for store buffer EPCR computation)
+    .exec_lsu_delay_slot_i            (exec_lsu_delay_slot), // LSU (for store buffer EPCR computation)
+    .exec_lsu_pc_i                    (exec_lsu_pc), // LSU (for store buffer EPCR computation)
     .exec_lsu_a1_i                    (exec_lsu_a1), // LSU
     .exec_lsu_b1_i                    (exec_lsu_b1), // LSU
     // inter-module interface
