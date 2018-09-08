@@ -172,6 +172,21 @@ module mor1kx_icache_marocchino
 
   genvar i;
 
+
+  //------------------//
+  // Check parameters //
+  //------------------//
+
+  generate
+  if (OPTION_ICACHE_LIMIT_WIDTH > OPTION_OPERAND_WIDTH) begin
+    initial begin
+      $display("ICACHE: OPTION_ICACHE_LIMIT_WIDTH > OPTION_OPERAND_WIDTH");
+      $finish();
+    end
+  end
+  endgenerate
+
+
   //
   // Local copy of ICACHE-related control bit(s) to simplify routing
   //
@@ -186,26 +201,6 @@ module mor1kx_icache_marocchino
   always @(posedge cpu_clk) begin
     ic_enable_r <= ic_enable_i;
   end // @ clock
-
-
-  //   Hack? Work around IMMU?
-  // Today the thing is actual for DCACHE only.
-  // Addresses 0x8******* are treated as non-cacheble regardless DMMU's flag.
-  wire ic_check_limit_width;
-  // ---
-  generate
-  if (OPTION_ICACHE_LIMIT_WIDTH == OPTION_OPERAND_WIDTH)
-    assign ic_check_limit_width = 1'b1;
-  else if (OPTION_ICACHE_LIMIT_WIDTH < OPTION_OPERAND_WIDTH)
-    assign ic_check_limit_width =
-      (phys_addr_s2t_i[OPTION_OPERAND_WIDTH-1:OPTION_ICACHE_LIMIT_WIDTH] == 0);
-  else begin
-    initial begin
-      $display("ICACHE ERROR: OPTION_ICACHE_LIMIT_WIDTH > OPTION_OPERAND_WIDTH");
-      $finish();
-    end
-  end
-  endgenerate
 
 
   // detect per-way hit
@@ -226,7 +221,7 @@ module mor1kx_icache_marocchino
 
 
   // Is the area cachable?
-  wire   is_cacheble  = ic_enable_r & ic_check_limit_width & (~immu_cache_inhibit_i);
+  wire   is_cacheble  = ic_enable_r & (~immu_cache_inhibit_i);
   // ICACHE ACK
   assign ic_ack_o     = is_cacheble & ic_read &   hit;
   // RE-FILL request

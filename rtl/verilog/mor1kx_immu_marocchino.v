@@ -28,9 +28,10 @@ module mor1kx_immu_marocchino
 #(
   parameter FEATURE_IMMU_HW_TLB_RELOAD = "NONE",
   parameter OPTION_OPERAND_WIDTH       = 32,
-  parameter OPTION_IMMU_SET_WIDTH      = 6,
-  parameter OPTION_IMMU_WAYS           = 1,
-  parameter OPTION_IMMU_CLEAR_ON_INIT  = 0
+  parameter OPTION_IMMU_SET_WIDTH      =  6,
+  parameter OPTION_IMMU_WAYS           =  1,
+  parameter OPTION_ICACHE_LIMIT_WIDTH  = 32,
+  parameter OPTION_IMMU_CLEAR_ON_INIT  =  0
 )
 (
   // clock & reset
@@ -594,6 +595,29 @@ module mor1kx_immu_marocchino
   endgenerate
 
 
+  // Extention to cache_inhibit
+  //   Work around IMMU just for symmetric with DMMU?
+  wire cache_inhibit_limit_immu_off; // state: OFF 
+  wire cache_inhibit_limit_immu_uon; // state: UPDATE & DMMU is ON
+  wire cache_inhibit_limit_immu_uof; // state: UPDATE & DMMU is OFF
+  // ---
+  generate
+  if (OPTION_ICACHE_LIMIT_WIDTH < OPTION_OPERAND_WIDTH) begin
+    assign cache_inhibit_limit_immu_off =
+      (virt_addr_mux_i[OPTION_OPERAND_WIDTH-1:OPTION_ICACHE_LIMIT_WIDTH] != 0);
+    assign cache_inhibit_limit_immu_uon =
+      (phys_addr[OPTION_OPERAND_WIDTH-1:OPTION_ICACHE_LIMIT_WIDTH] != 0);
+    assign cache_inhibit_limit_immu_uof =
+      (virt_addr_s1o_i[OPTION_OPERAND_WIDTH-1:OPTION_ICACHE_LIMIT_WIDTH] != 0);
+  end
+  else begin
+    assign cache_inhibit_limit_immu_off = 1'b0;
+    assign cache_inhibit_limit_immu_uon = 1'b0;
+    assign cache_inhibit_limit_immu_uof = 1'b0;
+  end
+  endgenerate
+
+
   // states of IMMU super-cache FSM
   localparam [4:0] IMMU_CACHE_EMPTY = 5'b00001,
                    IMMU_CACHE_OFF   = 5'b00010,
@@ -671,7 +695,7 @@ module mor1kx_immu_marocchino
               supervisor_mode_c <= supervisor_mode_r;
               hit_08Kb_r        <= (|way_hit);
               hit_16Mb_r        <= (|way_huge_hit);
-              cache_inhibit_o   <= cache_inhibit;
+              cache_inhibit_o   <= cache_inhibit | cache_inhibit_limit_immu_uon; // UPD, IMMU-ON
               tlb_miss_o        <= tlb_miss;
               pagefault_o       <= pagefault;
               immu_cache_state  <= IMMU_CACHE_ON;
@@ -680,7 +704,7 @@ module mor1kx_immu_marocchino
               supervisor_mode_c <= 1'b0;
               hit_08Kb_r        <= 1'b0;
               hit_16Mb_r        <= 1'b0;
-              cache_inhibit_o   <= 1'b0;
+              cache_inhibit_o   <= cache_inhibit_limit_immu_uof;// UPD, IMMU-OFF
               tlb_miss_o        <= 1'b0;
               pagefault_o       <= 1'b0;
               immu_cache_state  <= IMMU_CACHE_OFF;
@@ -725,7 +749,8 @@ module mor1kx_immu_marocchino
               immu_cache_state <= IMMU_CACHE_RE; // OFF -> ON
             end
             else begin
-              s1o_immu_rdy_o <= 1'b1;
+              cache_inhibit_o <= cache_inhibit_limit_immu_off; // IMMU is OFF
+              s1o_immu_rdy_o  <= 1'b1;
             end
           end // stage #1 advance
           else if (predict_miss_i) begin

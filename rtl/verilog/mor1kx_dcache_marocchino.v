@@ -229,7 +229,7 @@ module mor1kx_dcache_marocchino
   generate
   if (OPTION_DCACHE_LIMIT_WIDTH > OPTION_OPERAND_WIDTH) begin
     initial begin
-      $display("DCACHE: OPTION_DCACHE_LIMIT_WIDTH > OPTION_OPERAND_WIDTH\n");
+      $display("DCACHE: OPTION_DCACHE_LIMIT_WIDTH > OPTION_OPERAND_WIDTH");
       $finish();
     end
   end

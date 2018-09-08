@@ -744,8 +744,8 @@ module mor1kx_dmmu_marocchino
               dmmu_cache_state <= DMMU_CACHE_RE; // OFF->ON
             end
             else begin
-              s1o_dmmu_rdy_o  <= 1'b1;
               cache_inhibit_o <= cache_inhibit_limit_dmmu_off; // DMMU is OFF
+              s1o_dmmu_rdy_o  <= 1'b1;
             end
           end // stage #1 advance
         end // off
