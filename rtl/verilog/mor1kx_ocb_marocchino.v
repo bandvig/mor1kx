@@ -640,47 +640,46 @@ endmodule // mor1kx_oreg_buff_marocchino
 
 
 //------------------------------------------------------//
-// Order Control Buffer (RAM + REG)                     //
+// (RAM + REG) Buffer                                   //
 //------------------------------------------------------//
 //   It based on combination of RAM and output register //
-///  and quite similar to store buffer.                 //
+///  with fast forward access.                          //
 //------------------------------------------------------//
 
-module mor1kx_ocbuff_marocchino
+module mor1kx_ff_oreg_buff_marocchino
 #(
   parameter NUM_TAPS      = 8,  // range : 2 ... 32
   parameter DATA_WIDTH    = 2,
   parameter FULL_FLAG     = "NONE", // "ENABLED" / "NONE"
-  parameter EMPTY_FLAG    = "NONE",  // "ENABLED" / "NONE"
-  parameter CLEAR_ON_INIT = 0
+  parameter EMPTY_FLAG    = "NONE"  // "ENABLED" / "NONE"
 )
 (
   // clocks, resets
   input                         cpu_clk,
-  // pipe controls
-  input                         pipeline_flush_i, // flush controls
+  // resets
+  input                         ini_rst,  // could be "cpu_rst"
+  input                         ext_rst,  // could be "pipeline_flush" / "errors"
+  // RW-controls
   input                         write_i,
   input                         read_i,
-  // value at reset/flush
-  input                         reset_ocbo_i, // logic for clean up output register
   // data input
-  input      [(DATA_WIDTH-1):0] ocbi_i,
+  input      [(DATA_WIDTH-1):0] data_i,
   // "OCB is empty" flag
   output                        empty_o,
   // "OCB is full" flag
   //   (a) external control logic must stop the "writing without reading"
-  //       operation if OCB is full
+  //       operation if buffer is full
   //   (b) however, the "writing + reading" is possible
   //       because it just pushes OCB and keeps it full
   output                        full_o,
   // output register
-  output reg [(DATA_WIDTH-1):0] ocbo_o
+  output reg [(DATA_WIDTH-1):0] data_o
 );
 
   generate
   if ((NUM_TAPS < 2) || (NUM_TAPS > 32)) begin
     initial begin
-      $display("OCB ERROR: Incorrect number of taps");
+      $display("OREG BUFF ERROR: Incorrect number of taps");
       $finish;
     end
   end
@@ -697,252 +696,236 @@ module mor1kx_ocbuff_marocchino
                       (NUM_RAM_TAPS >  4) ? 3 :
                       (NUM_RAM_TAPS >  2) ? 2 : 1;
 
-  // size of counter of booked cells (the approach avoids clog2 call)
-  //  - averall (with output register) taps number must be from 2 to 32
-  //  - zero means "no booked cells", "buffer is empty"
-  localparam BOOKED_CNT_SZ  = (NUM_TAPS > 31) ? 6 :
-                              (NUM_TAPS > 15) ? 5 :
-                              (NUM_TAPS >  7) ? 4 :
-                              (NUM_TAPS >  3) ? 3 : 2;
-  // for shorter notation
-  localparam BOOKED_CNT_MSB = BOOKED_CNT_SZ - 1;
+  // RAM status flags
+  reg  ram_full_r;
+  reg  ram_empty_r;
+  wire ram_valid = ~ram_empty_r;
 
-  // special points of counter of booked cells
-  localparam [BOOKED_CNT_MSB:0] FIFO_EMPTY     = 0;
-  localparam [BOOKED_CNT_MSB:0] BOOKED_OUT_REG = 1;
-  localparam [BOOKED_CNT_MSB:0] BOOKED_OUT_RAM = 2;
-  localparam [BOOKED_CNT_MSB:0] FIFO_FULL      = NUM_TAPS;
+  // "output data is ready" flag
+  reg  oreg_rdy_r;
 
+  // flags to output
+  assign full_o  = (FULL_FLAG  != "NONE") &   ram_full_r;
+  assign empty_o = (EMPTY_FLAG != "NONE") & (~oreg_rdy_r);
 
-  // counter of booked cells
-  reg  [BOOKED_CNT_MSB:0] booked_cnt_r;
-  wire [BOOKED_CNT_MSB:0] booked_cnt_inc;
-  wire [BOOKED_CNT_MSB:0] booked_cnt_dec;
-  reg  [BOOKED_CNT_MSB:0] booked_cnt_nxt; // combinatorial
-  // registered FIFO states (driven by counter of booked cells)
-  reg                     booked_outreg_r; // output register is booked
-  reg                     booked_outram_r; // FIFO-RAM outputs is valid
-  reg                     booked_intram_r; // Internally cell in FIFO-RAM is booked
+  // RAM part controls
+  wire ram_we = write_i & (ram_valid | (oreg_rdy_r & (~read_i)));
+  wire ram_re = read_i  &  ram_valid;
 
+  // Declaration of registered part of RAM controller
+  reg  [RAM_AW-1:0] rah_addr_r; // read ahead address
+  reg  [RAM_AW-1:0] rtk_addr_r; // address of value taken to output register
+  reg  [RAM_AW-1:0] wop_addr_r; // address for write only port
 
-  // RAM_FIFO related
-  // pointer for write
-  reg      [(RAM_AW-1):0] write_pointer_r;
-  wire     [(RAM_AW-1):0] write_pointer_inc;
-  reg      [(RAM_AW-1):0] write_pointer_nxt; // combinatorial
-  // pointer for read
-  reg      [(RAM_AW-1):0] read_pointer_r;
-  wire     [(RAM_AW-1):0] read_pointer_inc;
-  reg      [(RAM_AW-1):0] read_pointer_nxt; // combinatorial
-  // FIFO-RAM ports (combinatorial)
-  reg                     rwp_en;   // "read / write" port enable
-  reg                     rwp_we;   // "read / write" port writes
-  reg      [(RAM_AW-1):0] rwp_addr;
-  reg                     wp_en;    // "write only" port enabled
-  // packed data
-  wire [(DATA_WIDTH-1):0] ram_dout; // FIFO_RAM output
+  // Addressing arithmetic
+
+  localparam [RAM_AW:0] RAM_ADDR_OWF = NUM_RAM_TAPS;
+
+  wire [RAM_AW:0] rah_addr_add = rah_addr_r + 1'b1;
+  wire [RAM_AW:0] wop_addr_add = wop_addr_r + 1'b1;
+
+  wire rah_addr_owf = (rah_addr_add == RAM_ADDR_OWF);
+  wire wop_addr_owf = (wop_addr_add == RAM_ADDR_OWF);
+
+  wire [RAM_AW-1:0] rah_addr_nxt = rah_addr_owf ? {RAM_AW{1'b0}} : rah_addr_add[RAM_AW-1:0];
+  wire [RAM_AW-1:0] wop_addr_nxt = wop_addr_owf ? {RAM_AW{1'b0}} : wop_addr_add[RAM_AW-1:0];
 
 
-  // Output register related
-  reg  [(DATA_WIDTH-1):0] ocbo_mux; // combinatorial
+  // Read/Write port controls
+  reg  [RAM_AW-1:0] rah_addr_m;
+  reg  [RAM_AW-1:0] rtk_addr_m;
+  reg               rwp_en_m;
+  reg               rwp_we_m;
+  // Write only port contlols
+  reg  [RAM_AW-1:0] wop_addr_m;
+  reg               wop_en_m;
+  // cell to read is empty / full
+  // "empty" also means that read ahead address is equal to write one
+  reg               rahcl_empty_m;
+  reg               rahcl_empty_r;
+  wire              rahcl_filled = (~rahcl_empty_r);
+  // Others
+  reg               ram_empty_m;
+  reg               ram_full_m;
 
-
-  // counter of booked cells
-  assign booked_cnt_inc = booked_cnt_r + 1'b1;
-  assign booked_cnt_dec = booked_cnt_r - 1'b1;
-
-  // pointers increment
-  assign write_pointer_inc = write_pointer_r + 1'b1;
-  assign read_pointer_inc  = read_pointer_r  + 1'b1;
-
-
-  // combinatorial computatition
-  always @(read_i          or write_i           or
-           booked_cnt_r    or booked_cnt_inc    or booked_cnt_dec  or
-           booked_outreg_r or booked_outram_r   or booked_intram_r or
-           write_pointer_r or write_pointer_inc or
-           read_pointer_r  or read_pointer_inc  or
-           ocbi_i          or ram_dout          or ocbo_o) begin
+  // Combinatorial part of RAM controller
+  always @(ram_we        or ram_re       or
+           ram_empty_r   or ram_valid    or
+           ram_full_r    or
+           rahcl_empty_r or rahcl_filled or
+           rah_addr_r    or rah_addr_nxt or
+           rtk_addr_r    or
+           wop_addr_r    or wop_addr_nxt)
+  begin
     // synthesis parallel_case
-    case ({read_i, write_i})
+    case ({ram_re, ram_we})
       // keep state
       2'b00: begin
-        // counter of booked cells
-        booked_cnt_nxt = booked_cnt_r;
-        // next values for read/write pointers
-        write_pointer_nxt = write_pointer_r;
-        read_pointer_nxt  = read_pointer_r;
-        // FIFO-RAM ports
-        rwp_en   = 1'b0;
-        rwp_we   = 1'b0;
-        rwp_addr = read_pointer_r;
-        wp_en    = 1'b0;
-        // Output register related
-        ocbo_mux = ocbo_o;
+        rah_addr_m    = rah_addr_r;
+        rtk_addr_m    = rtk_addr_r;
+        rwp_en_m      = 1'b0;
+        rwp_we_m      = 1'b0;
+        wop_addr_m    = wop_addr_r;
+        wop_en_m      = 1'b0;
+        rahcl_empty_m = rahcl_empty_r;
+        ram_empty_m   = ram_empty_r;
+        ram_full_m    = ram_full_r;
       end // keep state
 
-      // "write only"
+      // write only
       2'b01: begin
-        // counter of booked cells
-        booked_cnt_nxt = booked_cnt_inc;
-        // next values for read/write pointers
-        write_pointer_nxt = booked_outreg_r ? write_pointer_inc : write_pointer_r;
-        read_pointer_nxt  = ((~booked_outram_r) & booked_outreg_r) ? read_pointer_inc : read_pointer_r;
-        // FIFO-RAM ports
-        rwp_en   = (~booked_outram_r) & booked_outreg_r;
-        rwp_we   = (~booked_outram_r) & booked_outreg_r;
-        rwp_addr = write_pointer_r;
-        wp_en    = booked_outram_r;
-        // Output register related
-        ocbo_mux = booked_outreg_r ? ocbo_o : ocbi_i;
-      end // "write only"
+        rah_addr_m    = ram_empty_r ? rah_addr_nxt : rah_addr_r;
+        rtk_addr_m    = rtk_addr_r;
+        rwp_en_m      = ram_empty_r;
+        rwp_we_m      = ram_empty_r;
+        wop_addr_m    = wop_addr_nxt;
+        wop_en_m      = ram_valid;    // ~ram_empty_r
+        rahcl_empty_m = ram_empty_r;
+        ram_empty_m   = 1'b0;
+        ram_full_m    = (wop_addr_nxt == rtk_addr_r);
+      end // write only
 
-      // "read only"
+      // take valid RAM's out only
       2'b10: begin
-        // counter of booked cells
-        booked_cnt_nxt = booked_cnt_dec;
-        // next values for read/write pointers
-        write_pointer_nxt = write_pointer_r;
-        read_pointer_nxt  = booked_intram_r ? read_pointer_inc : read_pointer_r;
-        // FIFO-RAM ports
-        rwp_en   = 1'b1;
-        rwp_we   = 1'b0;
-        rwp_addr = read_pointer_r;
-        wp_en    = 1'b0;
-        // Output register related
-        ocbo_mux = booked_outram_r ? ram_dout : {DATA_WIDTH{1'b0}};
-      end // "read only"
+        rah_addr_m    = rahcl_filled ? rah_addr_nxt : rah_addr_r;
+        rtk_addr_m    = rah_addr_r;
+        rwp_en_m      = rahcl_filled;
+        rwp_we_m      = 1'b0;
+        wop_addr_m    = wop_addr_r;
+        wop_en_m      = 1'b0;
+        rahcl_empty_m = rahcl_empty_r | (rah_addr_nxt == wop_addr_r);
+        ram_empty_m   = rahcl_empty_r;
+        ram_full_m    = 1'b0;
+      end // take valid RAM's out only
 
-      // "read & write"
+      // read/write at the same time
       2'b11: begin
-        // counter of booked cells
-        booked_cnt_nxt = booked_cnt_r;
-        // next values for read/write pointers
-        write_pointer_nxt = booked_outram_r ? write_pointer_inc : write_pointer_r;
-        read_pointer_nxt  = booked_outram_r ? read_pointer_inc  : read_pointer_r;
-        // FIFO-RAM ports
-        rwp_en   = booked_outram_r;
-        rwp_we   = (~booked_intram_r) & booked_outram_r;
-        rwp_addr = read_pointer_r; // eq. write pointer for the write case here
-        wp_en    = booked_intram_r;
-        // Output register related
-        ocbo_mux = booked_outram_r ? ram_dout : ocbi_i;
-      end // "read & write"
+        rah_addr_m    = rah_addr_nxt;
+        rtk_addr_m    = rah_addr_r;
+        rwp_en_m      = 1'b1;
+        rwp_we_m      = rahcl_empty_r;
+        wop_addr_m    = wop_addr_nxt;
+        wop_en_m      = rahcl_filled;
+        rahcl_empty_m = rahcl_empty_r;
+        ram_empty_m   = 1'b0;
+        ram_full_m    = ram_full_r;
+      end // read/write at the same time
     endcase
-  end
+  end // Combinatorial part of RAM controller
 
 
-  // registering of new states
+  // Instance of registered part of RAM controller
   always @(posedge cpu_clk) begin
-    if (pipeline_flush_i) begin
-      // counter of booked cells
-      booked_cnt_r    <= {BOOKED_CNT_SZ{1'b0}}; // reset / pipe flushing
-      // registered FIFO states
-      booked_outreg_r <= 1'b0; // reset / pipe flushing
-      booked_outram_r <= 1'b0; // reset / pipe flushing
-      booked_intram_r <= 1'b0; // reset / pipe flushing
-      // write / read pointers
-      write_pointer_r <= {RAM_AW{1'b0}}; // reset / pipe flushing
-      read_pointer_r  <= {RAM_AW{1'b0}}; // reset / pipe flushing
+    if (ini_rst) begin
+      rah_addr_r    <= {RAM_AW{1'b0}};
+      rtk_addr_r    <= {RAM_AW{1'b0}};
+      wop_addr_r    <= {RAM_AW{1'b0}};
+      rahcl_empty_r <= 1'b1;
+      ram_empty_r   <= 1'b1;
+      ram_full_r    <= 1'b0;
+    end
+    else if (ext_rst) begin
+      rah_addr_r    <= {RAM_AW{1'b0}};
+      rtk_addr_r    <= {RAM_AW{1'b0}};
+      wop_addr_r    <= {RAM_AW{1'b0}};
+      rahcl_empty_r <= 1'b1;
+      ram_empty_r   <= 1'b1;
+      ram_full_r    <= 1'b0;
     end
     else begin
-      // counter of booked cells
-      booked_cnt_r    <= booked_cnt_nxt; // update
-      // registered FIFO states
-      booked_outreg_r <= (booked_cnt_nxt > FIFO_EMPTY); // update
-      booked_outram_r <= (booked_cnt_nxt > BOOKED_OUT_REG); // update
-      booked_intram_r <= (booked_cnt_nxt > BOOKED_OUT_RAM); // update
-      // write / read pointers
-      write_pointer_r <= write_pointer_nxt; // update
-      read_pointer_r  <= read_pointer_nxt; // update
+      rah_addr_r    <= rah_addr_m;
+      rtk_addr_r    <= rtk_addr_m;
+      wop_addr_r    <= wop_addr_m;
+      rahcl_empty_r <= rahcl_empty_m;
+      ram_empty_r   <= ram_empty_m;
+      ram_full_r    <= ram_full_m;
     end
-  end
+  end // at cpu clock
 
-
-  // "OCB is empty" flag
-  generate
-  /* verilator lint_off WIDTH */
-  if (EMPTY_FLAG != "NONE") begin : ocb_empty_flag_enabled
-  /* verilator lint_on WIDTH */
-
-    reg    empty_r;
-    assign empty_o = empty_r;
-    // ---
-    always @(posedge cpu_clk) begin
-      if (pipeline_flush_i)
-        empty_r <= 1'b0; // reset / pipe flushing
-      else
-        empty_r <= (booked_cnt_nxt == FIFO_EMPTY); // update
-    end // cpu-clock
-
-  end
-  else begin : ocb_empty_flag_disabled
-
-    assign empty_o = 1'b0;
-
-  end
-  endgenerate
-
-
-  // "OCB is full" flag
-  generate
-  /* verilator lint_off WIDTH */
-  if (FULL_FLAG != "NONE") begin : ocb_full_flag_enabled
-  /* verilator lint_on WIDTH */
-
-    reg    full_r;
-    assign full_o = full_r;
-    // ---
-    always @(posedge cpu_clk) begin
-      if (pipeline_flush_i)
-        full_r <= 1'b0; // reset / pipe flushing
-      else
-        full_r <= (booked_cnt_nxt == FIFO_FULL); // update
-    end // cpu-clock
-
-  end
-  else begin : ocb_full_flag_disabled
-
-    assign full_o = 1'b0;
-
-  end
-  endgenerate
-
+  // Data to read from RAM's output
+  wire [DATA_WIDTH-1:0] ram_dout;
 
   // instance RAM as FIFO
   mor1kx_dpram_en_w1st_sclk
   #(
     .ADDR_WIDTH     (RAM_AW),
     .DATA_WIDTH     (DATA_WIDTH),
-    .CLEAR_ON_INIT  (CLEAR_ON_INIT)
+    .CLEAR_ON_INIT  (1'b0)
   )
-  u_ocb_ram
+  u_ff_oreg_buff_ram
   (
     // common clock
     .clk    (cpu_clk),
     // port "a": Read/Write
-    .en_a   (rwp_en),
-    .we_a   (rwp_we),
-    .addr_a (rwp_addr),
-    .din_a  (ocbi_i),
+    .en_a   (rwp_en_m),
+    .we_a   (rwp_we_m),
+    .addr_a (rah_addr_r),
+    .din_a  (data_i),
     .dout_a (ram_dout),
     // port "b": Write
-    .en_b   (wp_en),
+    .en_b   (wop_en_m),
     .we_b   (1'b1),
-    .addr_b (write_pointer_r),
-    .din_b  (ocbi_i),
+    .addr_b (wop_addr_r),
+    .din_b  (data_i),
     .dout_b ()            // not used
   );
 
-  // registered output
-  always @(posedge cpu_clk) begin
-    if (reset_ocbo_i)
-      ocbo_o <= {DATA_WIDTH{1'b0}};
-    else
-      ocbo_o <= ocbo_mux;
-  end // at clock
 
-endmodule // mor1kx_ocbuff_marocchino
+  // output regiser controls (combinatorial)
+  reg                   oreg_rdy_m;
+  reg  [DATA_WIDTH-1:0] data_m;
+
+  // combinatorial part of output register
+  always @(write_i     or read_i     or
+           ram_empty_r or ram_valid  or
+           data_i      or data_o     or
+           ram_dout    or oreg_rdy_r)
+  begin
+    // synthesis parallel_case
+    case ({read_i, write_i})
+      // keep state
+      2'b00: begin
+        oreg_rdy_m = oreg_rdy_r;
+        data_m     = data_o;
+      end // keep state
+
+      // write only
+      2'b01: begin
+        oreg_rdy_m = oreg_rdy_r | ram_empty_r;
+        data_m     = oreg_rdy_r ? data_o : data_i;
+      end // write only
+
+      // read only
+      2'b10: begin
+        oreg_rdy_m = ram_valid;
+        data_m     = ram_valid ? ram_dout : {DATA_WIDTH{1'b0}};
+      end // read only
+
+      // read and write at the same time
+      2'b11: begin
+        oreg_rdy_m = 1'b1;
+        data_m     = ram_valid ? ram_dout : data_i;
+      end // read and write at the same time
+    endcase
+  end // combinatorial part of output register
+
+  // output data and ready flag instances
+  always @(posedge cpu_clk) begin
+    if (ini_rst) begin
+      oreg_rdy_r <= 1'b0;
+      data_o     <= {DATA_WIDTH{1'b0}};
+    end
+    else if (ext_rst) begin
+      oreg_rdy_r <= 1'b0;
+      data_o     <= {DATA_WIDTH{1'b0}};
+    end
+    else begin
+      oreg_rdy_r <= oreg_rdy_m;
+      data_o     <= data_m;
+    end
+  end // at cpu clock
+
+endmodule // mor1kx_ff_oreg_buff_marocchino
 
 
 

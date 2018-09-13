@@ -496,32 +496,31 @@ module mor1kx_oman_marocchino
   wire ocb_full, ocb_empty;
 
   // --- INSN OCB instance ---
-  mor1kx_ocbuff_marocchino
+  mor1kx_ff_oreg_buff_marocchino
   #(
     .NUM_TAPS         (INSN_OCB_NUM_TAPS), // INSN_OCB
     .DATA_WIDTH       (OCBT_WIDTH), // INSN_OCB
     .FULL_FLAG        ("ENABLED"), // INSN_OCB
-    .EMPTY_FLAG       ("ENABLED"), // INSN_OCB
-    .CLEAR_ON_INIT    (0) // INSN_OCB <- MAROCCHINO_TODO
+    .EMPTY_FLAG       ("ENABLED") // INSN_OCB
   )
   u_ocb
   (
     // clocks, resets
     .cpu_clk          (cpu_clk), // INSN_OCB
-    // pipe controls
-    .pipeline_flush_i (pipeline_flush_i), // INSN_OCB
+    // resets
+    .ini_rst          (pipeline_flush_i), // JB-ATTR-OCB
+    .ext_rst          (1'b0), // JB-ATTR-OCB
+    // RW-controls
     .write_i          (padv_exec_i), // INSN_OCB
     .read_i           (padv_wb_i), // INSN_OCB
-    // value at reset/flush
-    .reset_ocbo_i     (pipeline_flush_i), // INSN_OCB
     // data input
-    .ocbi_i           (ocbi), // INSN_OCB
+    .data_i           (ocbi), // INSN_OCB
     // "OCB is empty" flag
     .empty_o          (ocb_empty), // INSN_OCB
     // "OCB is full" flag
     .full_o           (ocb_full), // INSN_OCB
     // output register
-    .ocbo_o           (ocbo) // INSN_OCB
+    .data_o           (ocbo) // INSN_OCB
   );
 
 
@@ -1167,32 +1166,31 @@ module mor1kx_oman_marocchino
     };
 
   // --- JB-ATTR-OCB instance ---
-  mor1kx_ocbuff_marocchino
+  mor1kx_ff_oreg_buff_marocchino
   #(
     .NUM_TAPS         (JB_ATTR_OCB_NUM_TAPS), // JB-ATTR-OCB: extention bits "0" is reserved as "not used"
     .DATA_WIDTH       (JB_ATTR_WIDTH), // JB-ATTR-OCB
     .FULL_FLAG        ("NONE"), // JB-ATTR-OCB
-    .EMPTY_FLAG       ("NONE"), // JB-ATTR-OCB
-    .CLEAR_ON_INIT    (0) // JB-ATTR-OCB <- MAROCCHINO_TODO
+    .EMPTY_FLAG       ("NONE") // JB-ATTR-OCB
   )
   u_jb_attr_ocb
   (
     // clocks, resets
     .cpu_clk          (cpu_clk), // JB-ATTR-OCB
-    // pipe controls
-    .pipeline_flush_i (pipeline_flush_i), // JB-ATTR-OCB
+    // resets
+    .ini_rst          (pipeline_flush_i), // JB-ATTR-OCB
+    .ext_rst          (1'b0), // JB-ATTR-OCB
+    // RW-controls
     .write_i          (jb_attr_ocb_write), // JB-ATTR-OCB
     .read_i           (jb_attr_ocb_read), // JB-ATTR-OCB
-    // value at reset/flush
-    .reset_ocbo_i     (pipeline_flush_i), // JB-ATTR-OCB
     // data input
-    .ocbi_i           (jb_attr_ocbi), // JB-ATTR-OCB
+    .data_i           (jb_attr_ocbi), // JB-ATTR-OCB
     // "OCB is empty" flag
     .empty_o          (), // JB-ATTR-OCB
     // "OCB is full" flag
     .full_o           (), // JB-ATTR-OCB
     // output register
-    .ocbo_o           (jb_attr_ocbo) // JB-ATTR-OCB
+    .data_o           (jb_attr_ocbo) // JB-ATTR-OCB
   );
 
   // --- JB-ATTR-OCB valid unpack ---
