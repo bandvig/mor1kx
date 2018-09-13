@@ -758,37 +758,50 @@ module mor1kx_lsu_marocchino
   // include exceptions and pipe flushing
   assign sbuf_we    = sbuf_write & (~s2o_excepts_addr) & (~pipeline_flush_i);
 
+  // combined empty flag
+  wire   sbuf_ram_empty;
+  wire   sbuf_oreg_rdy;
+  assign sbuf_empty = sbuf_ram_empty & (~sbuf_oreg_rdy);
 
-  // store buffer module
-  mor1kx_store_buffer_marocchino
+  localparam STORE_BUFFER_NUM_TAPS = (1 << OPTION_STORE_BUFFER_DEPTH_WIDTH);
+
+  // To store buffer (pc + virtual_address + physical_address + data + byte-sel)
+  localparam STORE_BUFFER_DATA_WIDTH = (OPTION_OPERAND_WIDTH * 4) + (OPTION_OPERAND_WIDTH / 8);
+
+  wire [STORE_BUFFER_DATA_WIDTH-1:0] sbuf_in;
+  wire [STORE_BUFFER_DATA_WIDTH-1:0] sbuf_out;
+
+  assign sbuf_in = {s2o_bsel, s2o_sdat, s2o_phys_addr, s2o_virt_addr, s2o_epcr};
+
+  assign {sbuf_bsel, sbuf_dat, sbuf_phys_addr, sbuf_virt_addr, sbuf_epcr} = sbuf_out;
+
+  // store buffer instance
+  mor1kx_oreg_buff_marocchino
   #(
-    .DEPTH_WIDTH          (OPTION_STORE_BUFFER_DEPTH_WIDTH), // STORE_BUFFER
-    .OPTION_OPERAND_WIDTH (OPTION_OPERAND_WIDTH), // STORE_BUFFER
-    .CLEAR_ON_INIT        (OPTION_STORE_BUFFER_CLEAR_ON_INIT) // STORE_BUFFER
+    .NUM_TAPS         (STORE_BUFFER_NUM_TAPS), // STORE_BUFFER
+    .DATA_WIDTH       (STORE_BUFFER_DATA_WIDTH), // STORE_BUFFER
+    .RAM_EMPTY_FLAG   ("ENABLED"), // STORE_BUFFER
+    .REG_RDY_FLAG     ("ENABLED") // STORE_BUFFER
   )
   u_store_buffer
   (
-    .cpu_clk              (cpu_clk), // STORE_BUFFER
-    .cpu_rst              (cpu_rst), // STORE_BUFFER
-    // DBUS error during write data from store buffer (force empty)
-    .sbuf_err_i           (sbuf_err), // STORE_BUFFER
-    // entry port
-    .sbuf_epcr_i          (s2o_epcr), // STORE_BUFFER
-    .virt_addr_i          (s2o_virt_addr), // STORE_BUFFER
-    .phys_addr_i          (s2o_phys_addr), // STORE_BUFFER
-    .dat_i                (s2o_sdat), // STORE_BUFFER
-    .bsel_i               (s2o_bsel), // STORE_BUFFER
-    .write_i              (sbuf_we), // STORE_BUFFER
-    // output port
-    .sbuf_epcr_o          (sbuf_epcr), // STORE_BUFFER
-    .virt_addr_o          (sbuf_virt_addr), // STORE_BUFFER
-    .phys_addr_o          (sbuf_phys_addr), // STORE_BUFFER
-    .dat_o                (sbuf_dat), // STORE_BUFFER
-    .bsel_o               (sbuf_bsel), // STORE_BUFFER
-    .read_i               (sbuf_read_state), // STORE_BUFFER
-    // status flags
-    .full_o               (sbuf_full), // STORE_BUFFER
-    .empty_o              (sbuf_empty) // STORE_BUFFER
+    // clocks
+    .cpu_clk      (cpu_clk), // STORE_BUFFER
+    // resets
+    .ini_rst      (cpu_rst), // STORE_BUFFER
+    .ext_rst      (sbuf_err), // STORE_BUFFER
+    // RW-controls
+    .write_i      (sbuf_we), // STORE_BUFFER
+    .read_i       (sbuf_read_state), // STORE_BUFFER
+    // data input
+    .data_i       (sbuf_in), // STORE_BUFFER
+    // "RAM is empty" flag
+    .ram_empty_o  (sbuf_ram_empty), // STORE_BUFFER
+    // "RAM is full" flag
+    .ram_full_o   (sbuf_full), // STORE_BUFFER
+    // output register
+    .rdy_o        (sbuf_oreg_rdy), // STORE_BUFFER
+    .data_o       (sbuf_out) // STORE_BUFFER
   );
 
 

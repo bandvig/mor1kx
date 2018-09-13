@@ -25,7 +25,7 @@
 //-------------------------------//
 // A Tap of Order Control Buffer //
 //-------------------------------//
-
+/*
 module ocb_tap
 #(
   parameter DATA_SIZE = 2
@@ -54,7 +54,7 @@ module ocb_tap
   end // @clock
 
 endmodule // ocb_tap
-
+*/
 
 
 //---------------------------------------------------------------//
@@ -62,7 +62,7 @@ endmodule // ocb_tap
 //   all outputs could be analized simultaneously for example to //
 //   detect data dependancy                                      //
 //---------------------------------------------------------------//
-
+/*
 module mor1kx_ocb_marocchino
 #(
   parameter NUM_TAPS    = 8,
@@ -214,7 +214,7 @@ module mor1kx_ocb_marocchino
   assign ocb_bus[NUM_TAPS] = default_value_i;
 
 endmodule // mor1kx_ocb_marocchino
-
+*/
 
 
 
@@ -392,6 +392,251 @@ module mor1kx_ocb_miss_marocchino
 
 endmodule // mor1kx_ocb_miss_marocchino
 */
+
+
+//------------------------------------------------------------//
+// (RAM + REG) Buffer without fast forward to output register //
+//------------------------------------------------------------//
+
+module mor1kx_oreg_buff_marocchino
+#(
+  parameter NUM_TAPS        = 8,  // range : 2 ... 32
+  parameter DATA_WIDTH      = 2,
+  parameter RAM_EMPTY_FLAG  = "NONE", // output "ram empty flag":  "ENABLED" / "NONE"
+  parameter REG_RDY_FLAG    = "NONE"  // output "output register is ready flag":  "ENABLED" / "NONE"
+)
+(
+  // clocks
+  input                         cpu_clk,
+  // resets
+  input                         ini_rst,  // could be "cpu_rst"
+  input                         ext_rst,  // could be "pipeline_flush" / "errors"
+  // RW-controls
+  input                         write_i,
+  input                         read_i,
+  // data input
+  input      [(DATA_WIDTH-1):0] data_i,
+  // "RAM is empty" flag
+  output                        ram_empty_o,
+  // "RAM is full" flag
+  //   (a) external control logic must stop the "writing without reading"
+  //       operation if RAM is full
+  //   (b) however, the "writing + reading" is possible
+  //       because it just pushes buffer and keeps it full
+  output reg                    ram_full_o,
+  // output register
+  output                        rdy_o,
+  output reg [(DATA_WIDTH-1):0] data_o
+);
+
+  generate
+  if ((NUM_TAPS < 2) || (NUM_TAPS > 32)) begin
+    initial begin
+      $display("OREG BUFF ERROR: Incorrect number of taps");
+      $finish;
+    end
+  end
+  endgenerate
+
+  // Compute number of taps implemented in RAM
+  // (one tap is output register)
+  localparam NUM_RAM_TAPS = NUM_TAPS - 1;
+
+  // Compute RAM address width (the approach avoids clog2 call)
+  // (averall (with output register) taps number must be from 2 to 32)
+  localparam RAM_AW = (NUM_RAM_TAPS > 16) ? 5 :
+                      (NUM_RAM_TAPS >  8) ? 4 :
+                      (NUM_RAM_TAPS >  4) ? 3 :
+                      (NUM_RAM_TAPS >  2) ? 2 : 1;
+
+  // RAM is empty register
+  reg    ram_empty_r;
+  assign ram_empty_o = (RAM_EMPTY_FLAG != "NONE") ? ram_empty_r : 1'b0;
+  wire   ram_valid   = ~ram_empty_r;
+
+  // "output data is ready" flag
+  reg    rdy_r;
+  assign rdy_o = (REG_RDY_FLAG != "NONE") ? rdy_r : 1'b0;
+
+  // RAM part controls
+  wire ram_we = write_i;
+  wire ram_re = (read_i | (~rdy_r)) & ram_valid;
+
+  // Declaration of registered part of RAM controller
+  reg  [RAM_AW-1:0] rah_addr_r; // read ahead address
+  reg  [RAM_AW-1:0] rtk_addr_r; // address of value taken to output register
+  reg  [RAM_AW-1:0] wop_addr_r; // address for write only port
+
+  // Addressing arithmetic
+
+  localparam [RAM_AW:0] RAM_ADDR_OWF = NUM_RAM_TAPS;
+
+  wire [RAM_AW:0] rah_addr_add = rah_addr_r + 1'b1;
+  wire [RAM_AW:0] wop_addr_add = wop_addr_r + 1'b1;
+
+  wire rah_addr_owf = (rah_addr_add == RAM_ADDR_OWF);
+  wire wop_addr_owf = (wop_addr_add == RAM_ADDR_OWF);
+
+  wire [RAM_AW-1:0] rah_addr_nxt = rah_addr_owf ? {RAM_AW{1'b0}} : rah_addr_add[RAM_AW-1:0];
+  wire [RAM_AW-1:0] wop_addr_nxt = wop_addr_owf ? {RAM_AW{1'b0}} : wop_addr_add[RAM_AW-1:0];
+
+
+  // Read/Write port controls
+  reg  [RAM_AW-1:0] rah_addr_m;
+  reg  [RAM_AW-1:0] rtk_addr_m;
+  reg               rwp_en_m;
+  reg               rwp_we_m;
+  // Write only port contlols
+  reg  [RAM_AW-1:0] wop_addr_m;
+  reg               wop_en_m;
+  // cell to read is empty / full
+  // "empty" also means that read ahead address is equal to write one
+  reg               rahcl_empty_m;
+  reg               rahcl_empty_r;
+  wire              rahcl_filled = (~rahcl_empty_r);
+  // Others
+  reg               ram_empty_m;
+  reg               ram_full_m;
+
+  // Combinatorial part of RAM controller
+  always @(ram_we        or ram_re       or
+           ram_empty_r   or ram_valid    or
+           ram_full_o    or
+           rahcl_empty_r or rahcl_filled or
+           rah_addr_r    or rah_addr_nxt or
+           rtk_addr_r    or
+           wop_addr_r    or wop_addr_nxt)
+  begin
+    // synthesis parallel_case
+    case ({ram_re, ram_we})
+      // keep state
+      2'b00: begin
+        rah_addr_m    = rah_addr_r;
+        rtk_addr_m    = rtk_addr_r;
+        rwp_en_m      = 1'b0;
+        rwp_we_m      = 1'b0;
+        wop_addr_m    = wop_addr_r;
+        wop_en_m      = 1'b0;
+        rahcl_empty_m = rahcl_empty_r;
+        ram_empty_m   = ram_empty_r;
+        ram_full_m    = ram_full_o;
+      end // keep state
+
+      // write only
+      2'b01: begin
+        rah_addr_m    = ram_empty_r ? rah_addr_nxt : rah_addr_r;
+        rtk_addr_m    = rtk_addr_r;
+        rwp_en_m      = ram_empty_r;
+        rwp_we_m      = ram_empty_r;
+        wop_addr_m    = wop_addr_nxt;
+        wop_en_m      = ram_valid;    // ~ram_empty_r
+        rahcl_empty_m = ram_empty_r;
+        ram_empty_m   = 1'b0;
+        ram_full_m    = (wop_addr_nxt == rtk_addr_r);
+      end // write only
+
+      // take valid RAM's out only
+      2'b10: begin
+        rah_addr_m    = rahcl_filled ? rah_addr_nxt : rah_addr_r;
+        rtk_addr_m    = rah_addr_r;
+        rwp_en_m      = rahcl_filled;
+        rwp_we_m      = 1'b0;
+        wop_addr_m    = wop_addr_r;
+        wop_en_m      = 1'b0;
+        rahcl_empty_m = rahcl_empty_r | (rah_addr_nxt == wop_addr_r);
+        ram_empty_m   = rahcl_empty_r;
+        ram_full_m    = 1'b0;
+      end // take valid RAM's out only
+
+      // read/write at the same time
+      2'b11: begin
+        rah_addr_m    = rah_addr_nxt;
+        rtk_addr_m    = rah_addr_r;
+        rwp_en_m      = 1'b1;
+        rwp_we_m      = rahcl_empty_r;
+        wop_addr_m    = wop_addr_nxt;
+        wop_en_m      = rahcl_filled;
+        rahcl_empty_m = rahcl_empty_r;
+        ram_empty_m   = 1'b0;
+        ram_full_m    = ram_full_o;
+      end // read/write at the same time
+    endcase
+  end // Combinatorial part of RAM controller
+
+
+  // Instance of registered part of RAM controller
+  always @(posedge cpu_clk) begin
+    if (ini_rst) begin
+      rah_addr_r    <= {RAM_AW{1'b0}};
+      rtk_addr_r    <= {RAM_AW{1'b0}};
+      wop_addr_r    <= {RAM_AW{1'b0}};
+      rahcl_empty_r <= 1'b1;
+      ram_empty_r   <= 1'b1;
+      ram_full_o    <= 1'b0;
+    end
+    else if (ext_rst) begin
+      rah_addr_r    <= {RAM_AW{1'b0}};
+      rtk_addr_r    <= {RAM_AW{1'b0}};
+      wop_addr_r    <= {RAM_AW{1'b0}};
+      rahcl_empty_r <= 1'b1;
+      ram_empty_r   <= 1'b1;
+      ram_full_o    <= 1'b0;
+    end
+    else begin
+      rah_addr_r    <= rah_addr_m;
+      rtk_addr_r    <= rtk_addr_m;
+      wop_addr_r    <= wop_addr_m;
+      rahcl_empty_r <= rahcl_empty_m;
+      ram_empty_r   <= ram_empty_m;
+      ram_full_o    <= ram_full_m;
+    end
+  end // at cpu clock
+
+  // Data to read from RAM's output
+  wire [DATA_WIDTH-1:0] ram_dout;
+
+  // instance RAM as FIFO
+  mor1kx_dpram_en_w1st_sclk
+  #(
+    .ADDR_WIDTH     (RAM_AW),
+    .DATA_WIDTH     (DATA_WIDTH),
+    .CLEAR_ON_INIT  (1'b0)
+  )
+  u_oreg_buff_ram
+  (
+    // common clock
+    .clk    (cpu_clk),
+    // port "a": Read/Write
+    .en_a   (rwp_en_m),
+    .we_a   (rwp_we_m),
+    .addr_a (rah_addr_r),
+    .din_a  (data_i),
+    .dout_a (ram_dout),
+    // port "b": Write
+    .en_b   (wop_en_m),
+    .we_b   (1'b1),
+    .addr_b (wop_addr_r),
+    .din_b  (data_i),
+    .dout_b ()            // not used
+  );
+
+  // output data and ready flag instances
+  always @(posedge cpu_clk) begin
+    if (ini_rst) begin
+      rdy_r  <= 1'b0;
+      data_o <= {DATA_WIDTH{1'b0}};
+    end
+    else if (ext_rst) begin
+      rdy_r  <= 1'b0;
+      data_o <= {DATA_WIDTH{1'b0}};
+    end
+    else if (read_i | (~rdy_r)) begin
+      rdy_r  <= ram_valid;
+      data_o <= ram_valid ? ram_dout : {DATA_WIDTH{1'b0}};
+    end
+  end // at cpu clock
+
+endmodule // mor1kx_oreg_buff_marocchino
 
 
 //------------------------------------------------------//
