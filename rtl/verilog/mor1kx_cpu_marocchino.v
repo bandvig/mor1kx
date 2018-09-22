@@ -152,6 +152,9 @@ module mor1kx_cpu_marocchino
   wire [OPTION_OPERAND_WIDTH-1:0] pc_fetch;
   wire [OPTION_OPERAND_WIDTH-1:0] pc_decode;
   wire [OPTION_OPERAND_WIDTH-1:0] pc_wb;
+  // Extra PC for various needs in CTRL
+  wire [OPTION_OPERAND_WIDTH-1:0] pc_nxt_wb;
+  wire [OPTION_OPERAND_WIDTH-1:0] pc_nxt2_wb;
 
 
   // IFETCH outputs for RF reading and DECODE
@@ -1135,6 +1138,8 @@ module mor1kx_cpu_marocchino
     .wb_rf_odd_wb_o             (wb_rf_odd_wb), // OMAN
     //  ## instruction related information
     .pc_wb_o                    (pc_wb), // OMAN
+    .pc_nxt_wb_o                (pc_nxt_wb), // OMAN
+    .pc_nxt2_wb_o               (pc_nxt2_wb), // OMAN
     .wb_delay_slot_o            (wb_delay_slot), // OMAN
     .wb_rfd1_odd_o              (wb_rfd1_odd), // OMAN
     .wb_flag_wb_o               (wb_flag_wb), // OMAN
@@ -2209,6 +2214,8 @@ module mor1kx_cpu_marocchino
 
     // WB: programm counter
     .pc_wb_i                          (pc_wb), // CTRL
+    .pc_nxt_wb_i                      (pc_nxt_wb), // CTRL
+    .pc_nxt2_wb_i                     (pc_nxt2_wb), // CTRL
 
     // WB: flag
     .wb_int_flag_set_i                (wb_int_flag_set), // CTRL

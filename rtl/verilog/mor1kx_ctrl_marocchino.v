@@ -150,6 +150,8 @@ module mor1kx_ctrl_marocchino
 
   // WB: programm counter
   input      [OPTION_OPERAND_WIDTH-1:0] pc_wb_i,
+  input      [OPTION_OPERAND_WIDTH-1:0] pc_nxt_wb_i,
+  input      [OPTION_OPERAND_WIDTH-1:0] pc_nxt2_wb_i,
 
   // WB: flag
   input                                 wb_int_flag_set_i,
@@ -365,9 +367,6 @@ module mor1kx_ctrl_marocchino
   // Exceptions processing support logic //
   //-------------------------------------//
 
-  // PC next to WB
-  wire [OPTION_OPERAND_WIDTH-1:0] pc_nxt_wb = pc_wb_i + 3'd4;
-
   // Exception PC
 
   // default EPCR (for most exception cases)
@@ -395,12 +394,12 @@ module mor1kx_ctrl_marocchino
              wb_except_dbus_err_i
             })
         6'b1?????: spr_epcr <= epcr_default; // ITLB miss, IPAGE fault, IBUS error, Illegal, DBUS align, IBUS align
-        6'b01????: spr_epcr <= wb_delay_slot_i ? spr_ppc : pc_nxt_wb;   // syscall
-        6'b001???: spr_epcr <= epcr_default;                            // DTLB miss, DPAGE fault
-        6'b0001??: spr_epcr <= spr_epcr;                                // software breakpoint
-        6'b00001?: spr_epcr <= sbuf_epcr_i;                             // Store buffer error
-        6'b000001: spr_epcr <= epcr_default;                            // load or atomic load/store
-        default  : spr_epcr <= epcr_default;                            // by default
+        6'b01????: spr_epcr <= wb_delay_slot_i ? spr_ppc : pc_nxt_wb_i;   // syscall
+        6'b001???: spr_epcr <= epcr_default;                              // DTLB miss, DPAGE fault
+        6'b0001??: spr_epcr <= spr_epcr;                                  // software breakpoint
+        6'b00001?: spr_epcr <= sbuf_epcr_i;                               // Store buffer error
+        6'b000001: spr_epcr <= epcr_default;                              // load or atomic load/store
+        default  : spr_epcr <= epcr_default;                              // by default
       endcase
     end
     else if ((`SPR_OFFSET(spr_sys_group_wadr_r) == `SPR_OFFSET(`OR1K_SPR_EPCR0_ADDR)) &
@@ -792,7 +791,7 @@ module mor1kx_ctrl_marocchino
       pc_next_to_delay_slot <= {OPTION_OPERAND_WIDTH{1'b0}};
     // !!! don't flush it because it is used for stepped_into_delay_slot !!!
     else if (wb_jump_or_branch_i)
-      pc_next_to_delay_slot <= wb_do_branch_i ? wb_do_branch_target_i : (pc_wb_i + 4'd8);
+      pc_next_to_delay_slot <= wb_do_branch_i ? wb_do_branch_target_i : pc_nxt2_wb_i;
   end // @ clock
 
 
@@ -809,7 +808,7 @@ module mor1kx_ctrl_marocchino
       if (ctrl_spr_wb_r) begin                                // Track NPC: regular update
         spr_npc <= wb_except_trap_i ? pc_wb_i               : // Track NPC: regular update
                    wb_delay_slot_i  ? pc_next_to_delay_slot : // Track NPC: regular update
-                                      pc_nxt_wb;              // Track NPC: regular update
+                                      pc_nxt_wb_i;            // Track NPC: regular update
       end
       else begin
         // any "stepped_into_*" is 1-clock delayed "ctrl_spr_wb_r"

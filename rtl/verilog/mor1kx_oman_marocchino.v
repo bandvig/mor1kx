@@ -324,6 +324,8 @@ module mor1kx_oman_marocchino
   output reg                            wb_rf_odd_wb_o,
   //  ## instruction related information
   output reg [OPTION_OPERAND_WIDTH-1:0] pc_wb_o,
+  output reg [OPTION_OPERAND_WIDTH-1:0] pc_nxt_wb_o, // pc-wb + 4
+  output reg [OPTION_OPERAND_WIDTH-1:0] pc_nxt2_wb_o, // pc-wb + 8
   output reg                            wb_delay_slot_o,
   output reg                            wb_rfd1_odd_o,
   output reg                            wb_flag_wb_o,
@@ -1387,8 +1389,11 @@ module mor1kx_oman_marocchino
 
   // PC
   always @(posedge cpu_clk) begin
-    if (padv_wb_i)
-      pc_wb_o <= pc_exec;
+    if (padv_wb_i) begin
+      pc_wb_o      <= pc_exec;
+      pc_nxt_wb_o  <= pc_exec + 3'd4;
+      pc_nxt2_wb_o <= pc_exec + 4'd8;
+    end
   end // @clock
 
 endmodule // mor1kx_oman_marocchino
