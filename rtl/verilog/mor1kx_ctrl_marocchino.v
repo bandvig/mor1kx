@@ -370,20 +370,10 @@ module mor1kx_ctrl_marocchino
 
   // Exception PC
 
-  //   ## Store address of latest jump/branch instruction
-  //      (a) exception / interrupt in delay slot hadling
-  //      (b) IBUS error handling
-  reg [OPTION_OPERAND_WIDTH-1:0] last_jump_or_branch_pc;
-  // ---
-  always @(posedge cpu_clk) begin
-    if (wb_an_except_i)
-      last_jump_or_branch_pc <= {OPTION_OPERAND_WIDTH{1'b0}};
-    else if (wb_jump_or_branch_i)
-      last_jump_or_branch_pc <= pc_wb_i;
-  end // @clock
-
   // default EPCR (for most exception cases)
-  wire [OPTION_OPERAND_WIDTH-1:0] epcr_default = wb_delay_slot_i ? last_jump_or_branch_pc : pc_wb_i;
+  // If exception is in delay slot than we use PC of last jump/branch instruction.
+  // In fact the PC is already stored in PPC.
+  wire [OPTION_OPERAND_WIDTH-1:0] epcr_default = wb_delay_slot_i ? spr_ppc : pc_wb_i;
 
   // E-P-C-R update (hierarchy is same to exception vector)
   //   (a) On Syscall we return back to the instruction _after_
@@ -405,12 +395,12 @@ module mor1kx_ctrl_marocchino
              wb_except_dbus_err_i
             })
         6'b1?????: spr_epcr <= epcr_default; // ITLB miss, IPAGE fault, IBUS error, Illegal, DBUS align, IBUS align
-        6'b01????: spr_epcr <= wb_delay_slot_i ? last_jump_or_branch_pc : pc_nxt_wb;   // syscall
-        6'b001???: spr_epcr <= epcr_default;                                           // DTLB miss, DPAGE fault
-        6'b0001??: spr_epcr <= spr_epcr;                                               // software breakpoint
-        6'b00001?: spr_epcr <= sbuf_epcr_i;                                            // Store buffer error
-        6'b000001: spr_epcr <= epcr_default;                                           // load or atomic load/store
-        default  : spr_epcr <= epcr_default;                                           // by default
+        6'b01????: spr_epcr <= wb_delay_slot_i ? spr_ppc : pc_nxt_wb;   // syscall
+        6'b001???: spr_epcr <= epcr_default;                            // DTLB miss, DPAGE fault
+        6'b0001??: spr_epcr <= spr_epcr;                                // software breakpoint
+        6'b00001?: spr_epcr <= sbuf_epcr_i;                             // Store buffer error
+        6'b000001: spr_epcr <= epcr_default;                            // load or atomic load/store
+        default  : spr_epcr <= epcr_default;                            // by default
       endcase
     end
     else if ((`SPR_OFFSET(spr_sys_group_wadr_r) == `SPR_OFFSET(`OR1K_SPR_EPCR0_ADDR)) &
