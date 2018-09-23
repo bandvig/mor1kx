@@ -294,7 +294,7 @@ module mor1kx_fetch_marocchino
       s1r_virt_addr_next <= ctrl_branch_except_pc_i;
     end
     else if (padv_s1) begin // next address to fetch
-      s1r_virt_addr_next <= virt_addr_mux + 3'd4;
+      s1r_virt_addr_next <= jr_gathering_target_i ? s1r_virt_addr_next : (virt_addr_mux + 3'd4);
     end
     else if (do_branch_i) begin // next address to fetch
       s1r_virt_addr_next <= do_branch_target_i;
