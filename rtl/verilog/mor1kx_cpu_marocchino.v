@@ -365,8 +365,9 @@ module mor1kx_cpu_marocchino
   wire      [GSHARE_BITS_NUM-1:0] bc_cnt_wadr;   // saturation counter id
   wire                            bc_hist_taken; // conditional branch really taken
   //  ## support NPC handling in CTRL
-  wire                            wb_do_branch;
-  wire [OPTION_OPERAND_WIDTH-1:0] wb_do_branch_target;
+  wire                            wb_jump;
+  wire                            wb_op_bf;
+  wire [OPTION_OPERAND_WIDTH-1:0] wb_jb_target;
 
 
   // Delay slot
@@ -408,7 +409,7 @@ module mor1kx_cpu_marocchino
 
   wire                            dcod_op_ffl1;
   wire                            dcod_opc_ffl1;
-  
+
   wire                            dcod_op_movhi;
   wire                            dcod_op_cmov;
 
@@ -1111,8 +1112,9 @@ module mor1kx_cpu_marocchino
     .bc_hist_taken_o            (bc_hist_taken), // OMAN
     // Support IBUS error handling in CTRL
     .wb_jump_or_branch_o        (wb_jump_or_branch), // OMAN
-    .wb_do_branch_o             (wb_do_branch), // OMAN
-    .wb_do_branch_target_o      (wb_do_branch_target), // OMAN
+    .wb_jump_o                  (wb_jump), // OMAN
+    .wb_op_bf_o                 (wb_op_bf), // OMAN
+    .wb_jb_target_o             (wb_jb_target), // OMAN
 
     //   Flag to enabel/disable exterlal interrupts processing
     // depending on the fact is instructions restartable or not
@@ -2159,8 +2161,9 @@ module mor1kx_cpu_marocchino
 
     // Support IBUS error handling in CTRL
     .wb_jump_or_branch_i              (wb_jump_or_branch), // CTRL
-    .wb_do_branch_i                   (wb_do_branch), // CTRL
-    .wb_do_branch_target_i            (wb_do_branch_target), // CTRL
+    .wb_jump_i                        (wb_jump), // CTRL
+    .wb_op_bf_i                       (wb_op_bf), // CTRL
+    .wb_jb_target_i                   (wb_jb_target), // CTRL
 
     // Debug System accesses CPU SPRs through DU
     .du_addr_i                        (du_addr_i), // CTRL

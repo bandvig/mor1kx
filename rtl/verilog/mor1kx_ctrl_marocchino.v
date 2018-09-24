@@ -95,8 +95,9 @@ module mor1kx_ctrl_marocchino
 
   // Support IBUS error handling in CTRL
   input                                 wb_jump_or_branch_i,
-  input                                 wb_do_branch_i,
-  input      [OPTION_OPERAND_WIDTH-1:0] wb_do_branch_target_i,
+  input                                 wb_jump_i,
+  input                                 wb_op_bf_i,
+  input      [OPTION_OPERAND_WIDTH-1:0] wb_jb_target_i,
 
   // Debug System accesses CPU SPRs through DU
   input                          [15:0] du_addr_i,
@@ -254,7 +255,8 @@ module mor1kx_ctrl_marocchino
   // Copies of SR[F] to simplify routing
   reg                               flag_1clk_r; // feed-back to 1-CLOCK execution unit
   reg                               flag_oman_r; // feed-bach to OMAN for branch processing
-  
+  wire                              flag_lcl;    // local usage (alias for SR[F])
+
   reg [SPR_SR_WIDTH-1:0]            spr_esr;
   reg [OPTION_OPERAND_WIDTH-1:0]    spr_epcr;
   reg [OPTION_OPERAND_WIDTH-1:0]    spr_eear;
@@ -686,6 +688,8 @@ module mor1kx_ctrl_marocchino
   // Supervision register //
   //----------------------//
 
+  // local alias for SR[F]
+  assign  flag_lcl = spr_sr[`OR1K_SPR_SR_F];
   // WB: External Interrupt Collection
   assign  tt_interrupt_enable_o  = spr_sr[`OR1K_SPR_SR_TEE];
   assign  pic_interrupt_enable_o = spr_sr[`OR1K_SPR_SR_IEE];
@@ -782,6 +786,8 @@ module mor1kx_ctrl_marocchino
   end // @ clock
 
 
+  // Last conditional branch taken
+  wire wb_bc_taken = wb_op_bf_i ? flag_lcl : (~flag_lcl);
   // Target of last taken branch.
   // To set correct NPC at delay slot in WB
   reg [OPTION_OPERAND_WIDTH-1:0] pc_next_to_delay_slot;
@@ -791,7 +797,7 @@ module mor1kx_ctrl_marocchino
       pc_next_to_delay_slot <= {OPTION_OPERAND_WIDTH{1'b0}};
     // !!! don't flush it because it is used for stepped_into_delay_slot !!!
     else if (wb_jump_or_branch_i)
-      pc_next_to_delay_slot <= wb_do_branch_i ? wb_do_branch_target_i : pc_nxt2_wb_i;
+      pc_next_to_delay_slot <= (wb_jump_i | wb_bc_taken) ? wb_jb_target_i : pc_nxt2_wb_i;
   end // @ clock
 
 

@@ -245,7 +245,7 @@ module mor1kx_fetch_marocchino
                   s2o_ic_refill_req | s2o_ibus_read_req | // stalling stage #1
                   fetch_an_except_o;                      // stalling stage #1
   // Advance stage #1
-  wire padv_s1  = padv_fetch_i & (~stall_s1); 
+  wire padv_s1  = padv_fetch_i & (~stall_s1);
 
   // For advancing both stages simultaneously
   wire s2_en = s1o_immu_rdy &                                // advansing stage #2 is enabled
@@ -283,21 +283,37 @@ module mor1kx_fetch_marocchino
   /* Stage #1: PC update and IMMU / ICACHE access */
   /************************************************/
 
+  // latch "Jump/Branch Gathering Target" flag
+  reg  jr_gathering_target_r;
+
   // Select the PC for next fetch:
-  wire [IFOOW-1:0] virt_addr_mux;
+  reg [IFOOW-1:0] virt_addr_mux;
   // ---
-  assign virt_addr_mux = do_branch_i ? do_branch_target_i : s1r_virt_addr_next;
+  always @(do_branch_i           or do_branch_target_i or
+           jr_gathering_target_r or s1o_virt_addr      or
+                                    s1r_virt_addr_next)
+  begin
+    // synthesis parallel_case
+    case ({do_branch_i, jr_gathering_target_r})
+      2'b11, 2'b10: virt_addr_mux = do_branch_target_i;
+      2'b01:        virt_addr_mux = s1o_virt_addr;
+      2'b00:        virt_addr_mux = s1r_virt_addr_next;
+    endcase
+  end // multiplexor
 
   // register next virtual address
   always @(posedge cpu_clk) begin
     if (ctrl_branch_exception_i) begin  // next address to fetch
-      s1r_virt_addr_next <= ctrl_branch_except_pc_i;
+      s1r_virt_addr_next    <= ctrl_branch_except_pc_i;
+      jr_gathering_target_r <= 1'b0;
     end
     else if (padv_s1) begin // next address to fetch
-      s1r_virt_addr_next <= jr_gathering_target_i ? s1r_virt_addr_next : (virt_addr_mux + 3'd4);
+      s1r_virt_addr_next    <= virt_addr_mux + 3'd4;
+      jr_gathering_target_r <= jr_gathering_target_i;
     end
     else if (do_branch_i) begin // next address to fetch
-      s1r_virt_addr_next <= do_branch_target_i;
+      s1r_virt_addr_next    <= do_branch_target_i;
+      jr_gathering_target_r <= 1'b0;
     end
   end // @ clock
 

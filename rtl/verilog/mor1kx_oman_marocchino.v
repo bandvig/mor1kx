@@ -296,8 +296,9 @@ module mor1kx_oman_marocchino
   output reg                            bc_hist_taken_o, // conditional branch really taken
   // Support IBUS error handling in CTRL
   output reg                            wb_jump_or_branch_o,
-  output reg                            wb_do_branch_o,
-  output reg [OPTION_OPERAND_WIDTH-1:0] wb_do_branch_target_o,
+  output reg                            wb_jump_o,
+  output reg                            wb_op_bf_o,
+  output reg [OPTION_OPERAND_WIDTH-1:0] wb_jb_target_o,
 
 
   //   Flag to enabel/disable exterlal interrupts processing
@@ -935,8 +936,10 @@ module mor1kx_oman_marocchino
   reg [OPTION_OPERAND_WIDTH-1:0] predict_miss_target_r;
   // --- use / do  preticted or instant conditional branch (bc) ---
   wire fetch_op_bc       = fetch_op_bf_i | fetch_op_bnf_i;
+  reg  fetch_op_bc_r;      // to WriteBack
+  reg  fetch_op_bf_r;      // to WriteBack
   wire do_bc_predict_raw = bc_cnt_value_i[1];
-  reg  do_bc_predict_r;
+  reg  do_bc_predict_r;    // to IFETCH
   // --- wait completion writting to SR[F] ---
   wire keep_predict_flag_alloc = predict_flag_alloc_r & (jb_hazard_ext_p != wb_extadr_o);
   // --- compute raw hit/miss for prediction ---
@@ -955,6 +958,8 @@ module mor1kx_oman_marocchino
       predict_flag_value_r <= 1'b0;
       predict_flag_alloc_r <= 1'b0;
       do_bc_predict_r      <= 1'b0;
+      fetch_op_bc_r        <= 1'b0;
+      fetch_op_bf_r        <= 1'b0;
       // for l.jr/l.jalr procesing
       jr_gathering_target_p <= 1'b0;
     end
@@ -978,6 +983,8 @@ module mor1kx_oman_marocchino
               predict_flag_value_r  <= (fetch_op_bf_i  &   do_bc_predict_raw) | // PREDICTED FLAG
                                        (fetch_op_bnf_i & (~do_bc_predict_raw)); // PREDICTED FLAG
               predict_flag_alloc_r  <= flag_alloc_w;
+              fetch_op_bc_r         <= 1'b1;
+              fetch_op_bf_r         <= 1'b1;
             end
           end
         end
@@ -1010,6 +1017,8 @@ module mor1kx_oman_marocchino
           end
           predict_flag_alloc_r <= keep_predict_flag_alloc;
           do_bc_predict_r      <= 1'b0;
+          fetch_op_bc_r        <= 1'b0;
+          fetch_op_bf_r        <= 1'b0;
         end
         // waiting flag computation
         JB_FSM_PREDICT_WAITING_FLAG: begin
@@ -1137,38 +1146,17 @@ module mor1kx_oman_marocchino
   localparam  JB_ATTR_D_TARGET_LSB     = 0;
   localparam  JB_ATTR_D_TARGET_MSB     = OPTION_OPERAND_WIDTH     - 1;
   // --- control flags ---
-  localparam  JB_ATTR_C_DO_BRANCH_POS  = JB_ATTR_D_TARGET_MSB     + 1; // if "do" the "target" makes sence
-  localparam  JB_ATTR_C_IBUS_ALIGN_POS = JB_ATTR_C_DO_BRANCH_POS  + 1;
+  localparam  JB_ATTR_C_BF_POS         = JB_ATTR_D_TARGET_MSB     + 1; // conditional
+  localparam  JB_ATTR_C_JUMP_POS       = JB_ATTR_C_BF_POS         + 1; // unconditional
+  localparam  JB_ATTR_C_IBUS_ALIGN_POS = JB_ATTR_C_JUMP_POS       + 1;
   localparam  JB_ATTR_C_VALID_POS      = JB_ATTR_C_IBUS_ALIGN_POS + 1;
   // --- overall --
   localparam  JB_ATTR_MSB              = JB_ATTR_C_VALID_POS;
   localparam  JB_ATTR_WIDTH            = JB_ATTR_MSB + 1;
 
-
-  // Jump/Branch : do branch flag
-  wire jb_attr_do_branch = predict_hit                ?   predict_bc_taken_r  : // JB ATTR DO BRANCH FLAG
-                           (jb_fsm_predict_miss_state ? (~predict_bc_taken_r) : // JB ATTR DO BRANCH FLAG
-                                    (jb_fsm_doing_jr_state | fetch_op_jimm_r)); // JB ATTR DO BRANCH FLAG
-
-  // Jump/Branch target (makes sence only if do branch flag is raized)
-  reg [OPTION_OPERAND_WIDTH-1:0] jb_attr_target_r;
-  // ---
-  always @(predict_hit           or jb_fsm_predict_miss_state or
-           jb_fsm_doing_jr_state or
-           predict_hit_target_r  or predict_miss_target_r or
-           jr_target_p           or fetch_to_imm_target_r) begin
-    // synthesis parallel_case
-    case ({predict_hit, jb_fsm_predict_miss_state, jb_fsm_doing_jr_state})
-      3'b100:  jb_attr_target_r = predict_hit_target_r;
-      3'b010:  jb_attr_target_r = predict_miss_target_r;
-      3'b001:  jb_attr_target_r = jr_target_p;
-      default: jb_attr_target_r = fetch_to_imm_target_r;
-    endcase
-  end // case
-
   // Write/Read to Jump/Branch attributes buffers
   // !!! each case is 1-clock length
-  wire jb_attr_ocb_write = fetch_op_jimm_r | predict_hit | jb_fsm_predict_miss_state | jb_fsm_doing_jr_state;
+  wire jb_attr_ocb_write = jb_fsm_doing_jr_state | fetch_op_jimm_r | fetch_op_bc_r;
   wire jb_attr_ocb_read  = padv_wb_i & ocbo[OCBTC_JUMP_OR_BRANCH_POS];
 
   // --- JB-ATTR-OCB output / input ---
@@ -1180,9 +1168,10 @@ module mor1kx_oman_marocchino
       // --- control flags ---
       1'b1, // JB ATTR-C VALID
       (jb_fsm_doing_jr_state & (|jr_target_p[1:0])), // JB ATTR-C IBUS ALIGN
-      jb_attr_do_branch, // JB ATTR-C DO BRANCH
+      (jb_fsm_doing_jr_state | fetch_op_jimm_r), // JB ATTR-C JUMP (uncoditional)
+      fetch_op_bf_r, // JB ATTR-C BRANCH BY FLAG (conditional)
       // --- data ---
-      jb_attr_target_r // JB ATTR-D TARGET
+      (jb_fsm_doing_jr_state ? jr_target_p : fetch_to_imm_target_r) // JB ATTR-D TARGET
     };
 
   // --- JB-ATTR-OCB instance ---
@@ -1278,25 +1267,28 @@ module mor1kx_oman_marocchino
   //--------------------//
 
   // WB JUMP or BRANCH attributes
-  //  # flags
+  //  # flags (all 1-clock length)
   always @(posedge cpu_clk) begin
     if (pipeline_flush_i) begin
       wb_jump_or_branch_o <= 1'b0;
-      wb_do_branch_o      <= 1'b0;
+      wb_jump_o           <= 1'b0;
+      wb_op_bf_o          <= 1'b0;
     end
     else if (padv_wb_i) begin
       wb_jump_or_branch_o <= ocbo[OCBTC_JUMP_OR_BRANCH_POS];
-      wb_do_branch_o      <= jb_attr_ocbo[JB_ATTR_C_DO_BRANCH_POS];
+      wb_jump_o           <= jb_attr_ocbo[JB_ATTR_C_JUMP_POS];
+      wb_op_bf_o          <= jb_attr_ocbo[JB_ATTR_C_BF_POS];
     end
     else begin
-      wb_jump_or_branch_o <= 1'b0; // 1-clock length
-      wb_do_branch_o      <= 1'b0;
+      wb_jump_or_branch_o <= 1'b0;
+      wb_jump_o           <= 1'b0;
+      wb_op_bf_o          <= 1'b0;
     end
   end // @clock
   //  # target
   always @(posedge cpu_clk) begin
     if (padv_wb_i)
-      wb_do_branch_target_o <= jb_attr_ocbo[JB_ATTR_D_TARGET_MSB:JB_ATTR_D_TARGET_LSB];
+      wb_jb_target_o <= jb_attr_ocbo[JB_ATTR_D_TARGET_MSB:JB_ATTR_D_TARGET_LSB];
   end // @clock
 
 
