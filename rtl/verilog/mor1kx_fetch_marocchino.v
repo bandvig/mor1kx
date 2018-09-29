@@ -760,7 +760,13 @@ module mor1kx_fetch_marocchino
   assign pc_fetch_o = s2o_virt_addr;
 
   // Address after delay slot (valid if fetch_op_jb_o)
-  assign after_ds_target_o = s2o_virt_addr + 4'd8; // (FEATURE_DSX == "ENABLED")
+  reg    [IFOOW-1:0] after_ds_target_r;
+  assign             after_ds_target_o = after_ds_target_r;
+  // ---
+  always @(posedge cpu_clk) begin
+    if (padv_s2)
+      after_ds_target_r <= s1o_virt_addr + 4'd8; // (FEATURE_DSX == "ENABLED")
+  end // @ clock
 
 
   //-----------------------------------//
