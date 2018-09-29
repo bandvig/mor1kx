@@ -123,11 +123,6 @@ module mor1kx_fetch_marocchino
   output     [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfb1_adr_o,
   output     [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfa2_adr_o,
   output     [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfb2_adr_o,
-  //  # copy #1 of operand addresses
-  output     [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfa1_adr_rf_o,
-  output     [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfb1_adr_rf_o,
-  output     [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfa2_adr_rf_o,
-  output     [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfb2_adr_rf_o,
   //  # destinaton addresses
   output     [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfd1_adr_o,
   output     [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfd2_adr_o,
@@ -182,25 +177,17 @@ module mor1kx_fetch_marocchino
   // ICACHE data
   wire     [`OR1K_INSN_WIDTH-1:0] s2t_ic_dat;
   reg      [`OR1K_INSN_WIDTH-1:0] s2o_ic_dat;
-  reg      [`OR1K_INSN_WIDTH-1:0] s2o_ic_dat_cp; // copy for jump/branch feedback
-  reg  [OPTION_RF_ADDR_WIDTH-1:0] s2o_ic_dat_rfa1_adr_rf; // copy for RF access
-  reg  [OPTION_RF_ADDR_WIDTH-1:0] s2o_ic_dat_rfb1_adr_rf; // copy for RF access
   // ICACHE requests and performs refill
   wire                            s2t_ic_refill_req;
   reg                             s2o_ic_refill_req;
   wire                            ic_refill_first;
   // ACK from ICACHE or IBUS without exceptions
   reg                             s2o_imem_ack;
-  reg                             s2o_imem_ack_cp;  // copy for jump/branch feedback
-  reg                             s2o_imem_ack_rf; // copy for RF access
 
   //--- IBUS access state machine controls ---
 
   // exceptions
   reg               s2o_immu_an_except; // force IBUS_FSM to move to EXCEPT state
-  // ---
-  reg               fetch_an_except_cp; // copy for jump/branch feedback
-  reg               fetch_an_except_rf; // copy for RF access
 
   //   IBUS output ready
   // Indicates IBUS ACK for IBUS direct access only
@@ -221,12 +208,7 @@ module mor1kx_fetch_marocchino
 
   // registered IBUS ack and data
   reg                             s2o_ibus_ack;
-  reg                             s2o_ibus_ack_cp; // copy for jump/branch feedback
-  reg                             s2o_ibus_ack_rf;
   reg      [`OR1K_INSN_WIDTH-1:0] s2o_ibus_dat;
-  reg      [`OR1K_INSN_WIDTH-1:0] s2o_ibus_dat_cp; // copy for jump/branch feedback
-  reg  [OPTION_RF_ADDR_WIDTH-1:0] s2o_ibus_dat_rfa1_adr_rf;
-  reg  [OPTION_RF_ADDR_WIDTH-1:0] s2o_ibus_dat_rfb1_adr_rf;
 
 
   /**** SPR BUS transactions support ****/
@@ -561,24 +543,16 @@ module mor1kx_fetch_marocchino
   always @(posedge cpu_clk) begin
     if (flush_by_ctrl | flush_by_predict_miss) begin // drop "s2o-imem-ack"
       s2o_imem_ack    <= 1'b0;         // reset / flush
-      s2o_imem_ack_cp <= 1'b0;         // reset / flush
-      s2o_imem_ack_rf <= 1'b0;         // reset / flush
     end
     else if (ibus_ack) begin
       s2o_imem_ack    <= 1'b1;         // IBUS ack
-      s2o_imem_ack_cp <= 1'b1;         // IBUS ack
-      s2o_imem_ack_rf <= 1'b1;         // IBUS ack
     end
     else if (padv_fetch_i) begin
       if (s2_en) begin                 // eq. padv_s2, latch IMEM ACK
         s2o_imem_ack    <= s2t_ic_ack;
-        s2o_imem_ack_cp <= s2t_ic_ack;
-        s2o_imem_ack_rf <= s2t_ic_ack;
       end
       else begin
         s2o_imem_ack    <= 1'b0;       // no new insn/except at pipe advancing
-        s2o_imem_ack_cp <= 1'b0;       // no new insn/except at pipe advancing
-        s2o_imem_ack_rf <= 1'b0;       // no new insn/except at pipe advancing
       end
     end
   end // @ clock
@@ -593,20 +567,14 @@ module mor1kx_fetch_marocchino
     if (flush_by_ctrl | flush_by_predict_miss) begin // drop "IBUS error" and "fetch-an-except"
       fetch_except_ibus_err_o <= 1'b0;  // reset / flush
       fetch_an_except_o       <= 1'b0;  // reset / flush
-      fetch_an_except_cp      <= 1'b0;  // reset / flush
-      fetch_an_except_rf      <= 1'b0;  // reset / flush
     end
     else if (ibus_err_i) begin
       fetch_except_ibus_err_o <= 1'b1;  // IBUS error
       fetch_an_except_o       <= 1'b1;  // IBUS error
-      fetch_an_except_cp      <= 1'b1;  // IBUS error
-      fetch_an_except_rf      <= 1'b1;  // IBUS error
     end
     else if (padv_s2) begin           // latch "an except" and "IBUS err"
       fetch_except_ibus_err_o <= 1'b0;  // s1/s2 advancing
       fetch_an_except_o       <= s2t_immu_an_except; // s1/s2 advancing
-      fetch_an_except_cp      <= s2t_immu_an_except; // s1/s2 advancing
-      fetch_an_except_rf      <= s2t_immu_an_except; // s1/s2 advancing
     end
   end // @ clock
 
@@ -651,10 +619,7 @@ module mor1kx_fetch_marocchino
   // --- ICACHE data ---
   always @(posedge cpu_clk) begin
     if (padv_s2) begin
-      s2o_ic_dat             <= s2t_ic_dat;
-      s2o_ic_dat_cp          <= s2t_ic_dat;
-      s2o_ic_dat_rfa1_adr_rf <= s2t_ic_dat[`OR1K_RA_SELECT];
-      s2o_ic_dat_rfb1_adr_rf <= s2t_ic_dat[`OR1K_RB_SELECT];
+      s2o_ic_dat    <= s2t_ic_dat;
     end
   end // @ clock
 
@@ -676,27 +641,18 @@ module mor1kx_fetch_marocchino
   always @(posedge cpu_clk) begin
     if (flush_by_ctrl | flush_by_predict_miss) begin // drop "s2o-ibus-ack"
       s2o_ibus_ack    <= 1'b0; // reset / flush
-      s2o_ibus_ack_cp <= 1'b0; // reset / flush
-      s2o_ibus_ack_rf <= 1'b0; // reset / flush
     end
     else if (ibus_ack) begin
       s2o_ibus_ack    <= 1'b1; // IBUS ack
-      s2o_ibus_ack_cp <= 1'b1; // IBUS ack
-      s2o_ibus_ack_rf <= 1'b1; // IBUS ack
     end
     else if (padv_fetch_i) begin
       s2o_ibus_ack    <= 1'b0; // no new insn/except at pipe advancing
-      s2o_ibus_ack_cp <= 1'b0; // no new insn/except at pipe advancing
-      s2o_ibus_ack_rf <= 1'b0; // no new insn/except at pipe advancing
     end
   end // @ clock
   // --- IBUS data ---
   always @(posedge cpu_clk) begin
     if (ibus_ack) begin
-      s2o_ibus_dat             <= ibus_dat_i;
-      s2o_ibus_dat_cp          <= ibus_dat_i;
-      s2o_ibus_dat_rfa1_adr_rf <= ibus_dat_i[`OR1K_RA_SELECT];
-      s2o_ibus_dat_rfb1_adr_rf <= ibus_dat_i[`OR1K_RB_SELECT];
+      s2o_ibus_dat    <= ibus_dat_i;
     end
   end // @ clock
 
@@ -716,15 +672,8 @@ module mor1kx_fetch_marocchino
   assign fetch_rfd2_adr_o = fetch_insn_o[`OR1K_RD_SELECT] + 1'b1;
 
 
-  // copy of insrtuction word mux for Jump/Branch feedback
-  wire [`OR1K_INSN_WIDTH-1:0] fetch_insn_cp;
-  // ---
-  wire s3t_miss_or_except_cp = (~s2o_imem_ack_cp) | fetch_an_except_cp;
-  // ---
-  assign fetch_insn_cp = s3t_miss_or_except_cp ? {`OR1K_OPCODE_CUST8,26'd0} :
-                           (s2o_ibus_ack_cp ? s2o_ibus_dat_cp : s2o_ic_dat_cp);
   // Jump/Branch processing
-  wire [`OR1K_OPCODE_WIDTH-1:0] opc_insn = fetch_insn_cp[`OR1K_OPCODE_SELECT];
+  wire [`OR1K_OPCODE_WIDTH-1:0] opc_insn = fetch_insn_o[`OR1K_OPCODE_SELECT];
   //  # jump/branch variants
   assign fetch_op_jimm_o  = (opc_insn == `OR1K_OPCODE_J)  | (opc_insn == `OR1K_OPCODE_JAL);
   assign fetch_op_jr_o    = (opc_insn == `OR1K_OPCODE_JR) | (opc_insn == `OR1K_OPCODE_JALR);
@@ -733,18 +682,7 @@ module mor1kx_fetch_marocchino
   //  # combined jump/branch flag
   assign fetch_op_jb_o    = fetch_op_jimm_o | fetch_op_jr_o | fetch_op_bf_o | fetch_op_bnf_o;
   //  # "to immediate driven target"
-  assign fetch_to_imm_target_o = pc_fetch_o + {{4{fetch_insn_cp[25]}},fetch_insn_cp[25:0],2'b00};
-
-
-  // copy #1 of rfxx_adr
-  wire s3t_miss_or_except_rf = (~s2o_imem_ack_rf) | fetch_an_except_rf;
-  // ---
-  assign fetch_rfa1_adr_rf_o = s3t_miss_or_except_rf ? {OPTION_RF_ADDR_WIDTH{1'b0}} :
-                                  (s2o_ibus_ack_rf ? s2o_ibus_dat_rfa1_adr_rf : s2o_ic_dat_rfa1_adr_rf);
-  assign fetch_rfb1_adr_rf_o = s3t_miss_or_except_rf ? {OPTION_RF_ADDR_WIDTH{1'b0}} :
-                                  (s2o_ibus_ack_rf ? s2o_ibus_dat_rfb1_adr_rf : s2o_ic_dat_rfb1_adr_rf);
-  assign fetch_rfa2_adr_rf_o = fetch_rfa1_adr_rf_o + 1'b1;
-  assign fetch_rfb2_adr_rf_o = fetch_rfb1_adr_rf_o + 1'b1;
+  assign fetch_to_imm_target_o = pc_fetch_o + {{4{fetch_insn_o[25]}},fetch_insn_o[25:0],2'b00};
 
 
   // delay slot flag
