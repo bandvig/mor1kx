@@ -612,15 +612,16 @@ module mor1kx_ctrl_marocchino
 
 
   // Advance IFETCH
-  assign padv_fetch_o = (~spr_bus_cpu_stall_r) & (~du_cpu_stall) & // ADV. IFETCH
-    (((~stepping) & dcod_free_i & (dcod_empty_i | dcod_valid_i)) | // ADV. IFETCH
-       (stepping  & (~dcod_valid_i) & pstep[0])); // ADV. IFETCH
-
+  assign padv_fetch_o = (~spr_bus_cpu_stall_r) & (~du_cpu_stall); // ADV. IFETCH
+                        // MAROCCHINO_TODO: restore stepping
 
   // Advance DECODE
   // In step-by-step mode DECODE could be advanced
   //  just by the fact it has got "step enabled"
-  assign padv_dcod_o = padv_fetch_o; // ADV. DECODE
+  assign padv_dcod_o = (~spr_bus_cpu_stall_r) & (~du_cpu_stall) &  // ADV. DECODE
+    (((~stepping) & dcod_free_i & (dcod_empty_i | dcod_valid_i)) | // ADV. DECODE
+       (stepping  & (~dcod_valid_i) & pstep[0])); // ADV. DECODE
+  
   // Pass step from DECODE to EXEC
   wire   pass_step_to_exec = dcod_valid_i & pstep[0];
 

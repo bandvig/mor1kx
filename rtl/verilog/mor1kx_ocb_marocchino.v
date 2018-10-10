@@ -891,7 +891,7 @@ module mor1kx_ff_oreg_buff_marocchino
 
       // write only
       2'b01: begin
-        oreg_rdy_m = oreg_rdy_r | ram_empty_r;
+        oreg_rdy_m = 1'b1;
         data_m     = oreg_rdy_r ? data_o : data_i;
       end // write only
 

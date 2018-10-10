@@ -133,16 +133,6 @@ module mor1kx_immu_marocchino
   integer                          j;
 
 
-  // Local copies of SR[IME] and SR[SM]
-  reg immu_enable_r;
-  reg supervisor_mode_r;
-  // ---
-  always @(posedge cpu_clk) begin
-    immu_enable_r     <= immu_enable_i;
-    supervisor_mode_r <= supervisor_mode_i;
-  end // @ clock
-
-
   //---------------//
   // SPR interface //
   //---------------//
@@ -328,7 +318,7 @@ module mor1kx_immu_marocchino
     end // loop by ways
   end
 
-  wire pagefault = (supervisor_mode_r ? ~sxe : ~uxe) & (~tlb_reload_busy_o);
+  wire pagefault = (supervisor_mode_i ? ~sxe : ~uxe) & (~tlb_reload_busy_o);
 
 
   // match 8KB input address
@@ -597,7 +587,7 @@ module mor1kx_immu_marocchino
 
   // Extention to cache_inhibit
   //   Work around IMMU just for symmetric with DMMU?
-  wire cache_inhibit_limit_immu_off; // state: OFF 
+  wire cache_inhibit_limit_immu_off; // state: OFF
   wire cache_inhibit_limit_immu_uon; // state: UPDATE & DMMU is ON
   wire cache_inhibit_limit_immu_uof; // state: UPDATE & DMMU is OFF
   // ---
@@ -649,7 +639,7 @@ module mor1kx_immu_marocchino
                         (hit_08Kb_r ? (virt_addr_mux_i[23:13] ==
                                        virt_addr_hit_r[VIRT_ADDR_HIT_16MB_LSB-1:0]) :
                                       hit_16Mb_r) &
-                        (supervisor_mode_c == supervisor_mode_r);
+                        (supervisor_mode_c == supervisor_mode_i);
 
   // IMMU's super-cache FSM
   always @(posedge cpu_clk) begin
@@ -691,8 +681,8 @@ module mor1kx_immu_marocchino
             immu_cache_state <= IMMU_CACHE_EMPTY;
           end
           else begin
-            if (immu_enable_r) begin
-              supervisor_mode_c <= supervisor_mode_r;
+            if (immu_enable_i) begin
+              supervisor_mode_c <= supervisor_mode_i;
               hit_08Kb_r        <= (|way_hit);
               hit_16Mb_r        <= (|way_huge_hit);
               cache_inhibit_o   <= cache_inhibit | cache_inhibit_limit_immu_uon; // UPD, IMMU-ON
@@ -716,10 +706,10 @@ module mor1kx_immu_marocchino
         // IMMU is ON
         IMMU_CACHE_ON: begin
           if (padv_s1_i) begin
-            if (jr_gathering_target_i & (~predict_miss_i)) begin
+            if (jr_gathering_target_i) begin
               s1o_immu_rdy_o <= 1'b0;
             end
-            else if ((~immu_enable_r) | (~immu_cache_hit)) begin
+            else if (~immu_cache_hit) begin
               s1o_immu_upd_o   <= 1'b1;
               s1o_immu_rdy_o   <= 1'b0;
               immu_cache_state <= IMMU_CACHE_RE;
@@ -731,10 +721,10 @@ module mor1kx_immu_marocchino
           else if (predict_miss_i) begin
             s1o_immu_rdy_o   <= 1'b0;
           end
-          else if (spr_bus_ack_o & s1o_immu_rdy_o) begin // Re-Read after SPR access
-            s1o_immu_upd_o   <= 1'b1;
+          else if (spr_bus_ack_o | (~immu_enable_i)) begin // IMMU is ON
+            s1o_immu_upd_o   <= s1o_immu_rdy_o;
             s1o_immu_rdy_o   <= 1'b0;
-            immu_cache_state <= IMMU_CACHE_RE; // Re-Read after SPR access 
+            immu_cache_state <= s1o_immu_rdy_o ? IMMU_CACHE_RE : IMMU_CACHE_EMPTY; // after SPR access / ON -> OFF
           end // Re-Read after SPR access
         end // rdy
         // IMMU is OFF
@@ -743,11 +733,6 @@ module mor1kx_immu_marocchino
             if (jr_gathering_target_i) begin
               s1o_immu_rdy_o <= 1'b0;
             end
-            else if (immu_enable_r) begin
-              s1o_immu_upd_o   <= 1'b1;
-              s1o_immu_rdy_o   <= 1'b0;
-              immu_cache_state <= IMMU_CACHE_RE; // OFF -> ON
-            end
             else begin
               cache_inhibit_o <= cache_inhibit_limit_immu_off; // IMMU is OFF
               s1o_immu_rdy_o  <= 1'b1;
@@ -755,6 +740,11 @@ module mor1kx_immu_marocchino
           end // stage #1 advance
           else if (predict_miss_i) begin
             s1o_immu_rdy_o <= 1'b0;
+          end
+          else if (immu_enable_i) begin // OFF -> ON
+            s1o_immu_upd_o   <= s1o_immu_rdy_o;
+            s1o_immu_rdy_o   <= 1'b0;
+            immu_cache_state <= s1o_immu_rdy_o ? IMMU_CACHE_RE : IMMU_CACHE_EMPTY; // OFF -> ON
           end
         end // off
         // do nothing by default
@@ -768,7 +758,7 @@ module mor1kx_immu_marocchino
     if (immu_cache_re)
       virt_addr_tag_r <= virt_addr_s1o_i;
   end // @ clock
-  
+
   // IMMU's super-cache hit-address
   always @(posedge cpu_clk) begin
     if (immu_cache_upd)
@@ -781,7 +771,7 @@ module mor1kx_immu_marocchino
     case (immu_cache_state)
       // update cache output
       IMMU_CACHE_UPD: begin
-        phys_addr_o <= immu_enable_r ? phys_addr : virt_addr_tag_r; // update IMMU's output
+        phys_addr_o <= immu_enable_i ? phys_addr : virt_addr_tag_r; // update IMMU's output
       end // update
       // IMMU is ON
       IMMU_CACHE_ON: begin

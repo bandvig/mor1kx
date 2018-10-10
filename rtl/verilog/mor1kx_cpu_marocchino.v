@@ -630,6 +630,7 @@ module mor1kx_cpu_marocchino
 
     // pipeline control
     .padv_fetch_i                     (padv_fetch), // FETCH
+    .padv_dcod_i                      (padv_dcod), // FETCH
     .pipeline_flush_i                 (pipeline_flush), // FETCH
 
     // configuration

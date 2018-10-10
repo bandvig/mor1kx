@@ -932,8 +932,6 @@ module mor1kx_oman_marocchino
   reg                            predict_bc_taken_r;    // 0 if not taken
   reg                            predict_flag_value_r;
   reg                            predict_flag_alloc_r;
-  reg [OPTION_OPERAND_WIDTH-1:0] predict_hit_target_r;
-  reg [OPTION_OPERAND_WIDTH-1:0] predict_miss_target_r;
   // --- use / do  preticted or instant conditional branch (bc) ---
   wire fetch_op_bc       = fetch_op_bf_i | fetch_op_bnf_i;
   reg  fetch_op_bc_r;      // to WriteBack
@@ -1012,7 +1010,7 @@ module mor1kx_oman_marocchino
             jb_fsm_state_r <= JB_FSM_CATCHING_JB;
           end
           else if (padv_dcod_i) begin
-            if (fetch_valid_i & fetch_delay_slot_i)
+            if (fetch_delay_slot_i)
               jb_fsm_state_r <= predict_miss_raw ? JB_FSM_PREDICT_MISS : JB_FSM_PREDICT_WAITING_FLAG;
           end
           predict_flag_alloc_r <= keep_predict_flag_alloc;
@@ -1040,6 +1038,7 @@ module mor1kx_oman_marocchino
     end
   end // @cpu-clock
 
+
   // address extention for J/B processing
   always @(posedge cpu_clk) begin
     if (jb_fsm_catching_jb) begin
@@ -1051,7 +1050,6 @@ module mor1kx_oman_marocchino
       end
     end
   end // at cpu clock
-
   // store target for l.jr/l.jalr
   always @(posedge cpu_clk) begin
     jr_target_p <=  jb_fsm_get_b1_state     ? dcod_rfb1_jr_i :
@@ -1059,14 +1057,15 @@ module mor1kx_oman_marocchino
                                               jr_target_p);
   end // @cpu-clock
 
-  // store targets for miss and hit predictions
-  //  !!! minimal set of conditions is used for storing
-  //  !!! because we use the values with appropiate
-  //  !!! flags only
+
+  // store target for miss prediction
+  reg  [OPTION_OPERAND_WIDTH-1:0] predict_miss_target_r;
+  // ---
   always @(posedge cpu_clk) begin
-    if (padv_dcod_i & fetch_op_jb_i) begin
-      predict_hit_target_r  <= do_bc_predict_raw ? fetch_to_imm_target_i : after_ds_target_i;
-      predict_miss_target_r <= do_bc_predict_raw ? after_ds_target_i : fetch_to_imm_target_i;
+    if (padv_dcod_i) begin
+      if (fetch_op_bc) begin
+        predict_miss_target_r <= do_bc_predict_raw ? after_ds_target_i : fetch_to_imm_target_i;
+      end
     end
   end // at clock
 
@@ -1091,7 +1090,6 @@ module mor1kx_oman_marocchino
   end // at cpu clock
 
 
-
   // DECODE is "locked" flag.
   //  (1) We set the flag after delay slot has passed
   // into DECODE and till prediction resolving.
@@ -1109,7 +1107,7 @@ module mor1kx_oman_marocchino
         dcod_locked_r <= 1'b0;
     end
     else if (padv_dcod_i)
-      dcod_locked_r <= fetch_valid_i & fetch_delay_slot_i &                     // LOCK DECODE
+      dcod_locked_r <= fetch_delay_slot_i &                                     // LOCK DECODE
                        (jb_fsm_predict_catching_ds_state & (~predict_hit_raw)); // LOCK DECODE
   end // at clock
   // ---
@@ -1134,7 +1132,7 @@ module mor1kx_oman_marocchino
                                                             fetch_to_imm_target_r); // branch target selection
 
   // we execute l.jr/l.jalr after registering target only
-  assign jr_gathering_target_o = fetch_op_jb_i | jr_gathering_target_p;
+  assign jr_gathering_target_o = (fetch_op_jb_i & (~jb_fsm_predict_miss_state)) | jr_gathering_target_p;
 
 
 

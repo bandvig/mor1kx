@@ -199,7 +199,10 @@ module mor1kx_icache_marocchino
   reg ic_enable_r;
   // ---
   always @(posedge cpu_clk) begin
-    ic_enable_r <= ic_enable_i;
+    if (pipeline_flush_i)           // clean up ICACHE enable
+      ic_enable_r <= 1'b0;          // flush
+    else if (padv_s1_i)             // update ICACHE enable
+      ic_enable_r <= ic_enable_i;
   end // @ clock
 
 
