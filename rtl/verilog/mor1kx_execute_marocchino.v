@@ -72,33 +72,32 @@ module mor1kx_multiplier_marocchino
   // multiplier controls
   //  ## multiplier stage ready flags
   reg    mul_s1_rdy;
-  reg    mul_s2_rdy;
-  reg    mul_s3_rdy;
   reg    mul_wb_miss_r;
   //  ## stage busy signals
-  wire   mul_s3_busy = mul_s3_rdy  & mul_wb_miss_r;
-  wire   mul_s2_busy = mul_s2_rdy  & mul_s3_busy;
-  wire   mul_s1_busy = mul_s1_rdy  & mul_s2_busy;
+  wire   mul_s1_busy = mul_s1_rdy & mul_wb_miss_r;
   //  ## stage advance signals
   wire   mul_adv_s1  = exec_op_mul_i & ~mul_s1_busy;
-  wire   mul_adv_s2  = mul_s1_rdy    & ~mul_s2_busy;
-  wire   mul_adv_s3  = mul_s2_rdy    & ~mul_s3_busy;
 
   // integer multiplier is taking operands
   assign imul_taking_op_o = mul_adv_s1;
 
-  // stage #1: register inputs & split them on halfed parts
-  reg [MULHDW-1:0] mul_s1_al;
-  reg [MULHDW-1:0] mul_s1_bl;
-  reg [MULHDW-1:0] mul_s1_ah;
-  reg [MULHDW-1:0] mul_s1_bh;
+
+  // stage #1
+  // --- split input operands ---
+  wire [MULHDW-1:0] s1t_mul_al = exec_mul_a1_i[MULHDW-1:0];
+  wire [MULHDW-1:0] s1t_mul_bl = exec_mul_b1_i[MULHDW-1:0];
+  wire [MULHDW-1:0] s1t_mul_ah = exec_mul_a1_i[MULDW-1:MULHDW];
+  wire [MULHDW-1:0] s1t_mul_bh = exec_mul_b1_i[MULDW-1:MULHDW];
+  // --- output partial products ---
+  reg  [MULDW-1:0] s1o_mul_albl;
+  reg  [MULDW-1:0] s1o_mul_bhal;
+  reg  [MULDW-1:0] s1o_mul_ahbl;
   //  registering
   always @(posedge cpu_clk) begin
     if (mul_adv_s1) begin
-      mul_s1_al <= exec_mul_a1_i[MULHDW-1:0];
-      mul_s1_bl <= exec_mul_b1_i[MULHDW-1:0];
-      mul_s1_ah <= exec_mul_a1_i[MULDW-1:MULHDW];
-      mul_s1_bh <= exec_mul_b1_i[MULDW-1:MULHDW];
+      s1o_mul_albl <= s1t_mul_al * s1t_mul_bl;
+      s1o_mul_bhal <= s1t_mul_bh * s1t_mul_al;
+      s1o_mul_ahbl <= s1t_mul_ah * s1t_mul_bl;
     end
   end // @clock
   //  ready flag
@@ -107,77 +106,31 @@ module mor1kx_multiplier_marocchino
       mul_s1_rdy <= 1'b0;
     else if (mul_adv_s1)
       mul_s1_rdy <= 1'b1;
-    else if (mul_adv_s2)
-      mul_s1_rdy <= 1'b0;
-  end // @clock
-
-  // stage #2:
-  //  ## partial products AhBl and BhAl
-  reg [MULDW-1:0] mul_s2_ahbl;
-  reg [MULDW-1:0] mul_s2_bhal;
-  //  ## partial operands Al and Bl
-  reg [MULHDW-1:0] mul_s2_al;
-  reg [MULHDW-1:0] mul_s2_bl;
-  //  registering
-  always @(posedge cpu_clk) begin
-    if (mul_adv_s2) begin
-      //  ## partial products AhBl and BhAl
-      mul_s2_ahbl <= mul_s1_ah * mul_s1_bl;
-      mul_s2_bhal <= mul_s1_bh * mul_s1_al;
-      //  ## partial operands Al and Bl
-      mul_s2_al <= mul_s1_al;
-      mul_s2_bl <= mul_s1_bl;
-    end
-  end // @clock
-  //  ready flag
-  always @(posedge cpu_clk) begin
-    if (pipeline_flush_i)
-      mul_s2_rdy <= 1'b0;
-    else if (mul_adv_s2)
-      mul_s2_rdy <= 1'b1;
-    else if (mul_adv_s3)
-      mul_s2_rdy <= 1'b0;
-  end // @clock
-
-  // stage #3:
-  //  ## partial product AhBl and BhAl
-  //  ## partial sum: (BhAl[hdw-1:0] + AhBl[hdw-1:0])
-  reg  [MULDW-1:0] mul_s3_albl;
-  reg [MULHDW-1:0] mul_s3_sum;
-  //  registering
-  always @(posedge cpu_clk) begin
-    if (mul_adv_s3) begin
-      mul_s3_albl <= mul_s2_al * mul_s2_bl;
-      mul_s3_sum  <= mul_s2_bhal[MULHDW-1:0] + mul_s2_ahbl[MULHDW-1:0];
-    end
-  end // @clock
-  //  ready flag
-  always @(posedge cpu_clk) begin
-    if (pipeline_flush_i)
-      mul_s3_rdy <= 1'b0;
-    else if (mul_adv_s3)
-      mul_s3_rdy <= 1'b1;
     else if (~mul_wb_miss_r)
-      mul_s3_rdy <= 1'b0;
+      mul_s1_rdy <= 1'b0;
   end // @clock
   //  valid flag
   always @(posedge cpu_clk) begin
     if (pipeline_flush_i)
       mul_valid_o <= 1'b0;
-    else if (mul_adv_s3)
+    else if (mul_adv_s1)
       mul_valid_o <= 1'b1;
     else if (padv_wb_i & grant_wb_to_mul_i)
-      mul_valid_o <= mul_wb_miss_r ? mul_s3_rdy : 1'b0;
+      mul_valid_o <= mul_wb_miss_r ? mul_s1_rdy : 1'b0;
   end // @clock
 
 
-  // stage #4: result
-  //   Sum[dw-1:0]  = {(BhAl[hdw-1:0] + AhBl[hdw-1:0] + AlBl[dw-1:hdw]),
-  //                   AlBl[hdw-1:0]};
-  wire [MULDW-1:0] mul_s4t_sum;
-  assign mul_s4t_sum = {(mul_s3_sum + mul_s3_albl[MULDW-1:MULHDW]),
-                        mul_s3_albl[MULHDW-1:0]};
-  // WB-miss registers
+  // stage #2:
+  //  --- add partial products ---
+  wire [MULHDW-1:0] s2t_mul_acc;
+  assign s2t_mul_acc = s1o_mul_albl[MULDW-1:MULHDW] +
+                       s1o_mul_bhal[MULHDW-1:0] +
+                       s1o_mul_ahbl[MULHDW-1:0];
+  //  --- combine whole result ---
+  wire [MULDW-1:0] s2t_mul_res = {s2t_mul_acc, s1o_mul_albl[MULHDW-1:0]};
+
+
+  // padv-wb decoupling
   //  ## WB-miss flag
   always @(posedge cpu_clk) begin
     if (pipeline_flush_i)
@@ -185,17 +138,17 @@ module mor1kx_multiplier_marocchino
     else if (padv_wb_i & grant_wb_to_mul_i)
       mul_wb_miss_r <= 1'b0;
     else if (~mul_wb_miss_r)
-      mul_wb_miss_r <= mul_s3_rdy;
+      mul_wb_miss_r <= mul_s1_rdy;
   end // @clock
   //  ## WB-miss pending result
-  reg [MULDW-1:0] mul_wb_result_p;
+  reg [MULDW-1:0] mul_res_p;
   // ---
   always @(posedge cpu_clk) begin
     if (~mul_wb_miss_r)
-      mul_wb_result_p <= mul_s4t_sum;
+      mul_res_p <= s2t_mul_res;
   end // @clock
   //  WB-registering
-  wire [MULDW-1:0] wb_mul_result_m = mul_wb_miss_r ? mul_wb_result_p : mul_s4t_sum;
+  wire [MULDW-1:0] wb_mul_result_m = mul_wb_miss_r ? mul_res_p : s2t_mul_res;
   // ---
   always @(posedge cpu_clk) begin
     if (padv_wb_i) begin
