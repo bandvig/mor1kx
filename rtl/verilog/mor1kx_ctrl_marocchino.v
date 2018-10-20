@@ -70,15 +70,29 @@ module mor1kx_ctrl_marocchino
   input                                 cpu_rst,
 
   // Inputs / Outputs for pipeline control signals
+  output                                padv_fetch_o,
   input                                 dcod_empty_i,
   input                                 dcod_free_i,
-  input                                 dcod_valid_i,
-  input                                 exec_valid_i,
-  output                                pipeline_flush_o,
-  output                                padv_fetch_o,
+  input                                 ocb_full_i,
+  input                                 ocb_empty_i,
+  input                                 dcod_op_1clk_i,
+  input                                 op_1clk_free_i,
+  output                                padv_1clk_rsrvs_o,
+  input                                 dcod_op_muldiv_i,
+  input                                 muldiv_free_i,
+  output                                padv_muldiv_rsrvs_o,
+  input                                 dcod_op_fpxx_any_i,
+  input                                 fpxx_free_i,
+  output                                padv_fpxx_rsrvs_o,
+  input                                 dcod_op_lsu_any_i,
+  input                                 lsu_free_i,
+  output                                padv_lsu_rsrvs_o,
+  input                                 dcod_op_push_exec_i,
   output                                padv_dcod_o,
   output                                padv_exec_o,
+  input                                 exec_valid_i,
   output                                padv_wb_o,
+  output                                pipeline_flush_o,
 
   // MF(T)SPR coomand processing
   //  ## iput data and command from DECODE
@@ -611,37 +625,53 @@ module mor1kx_ctrl_marocchino
   end // @ clock
 
 
+  // Advance all stages condition
+  wire   padv_all = (~spr_bus_cpu_stall_r) & (~du_cpu_stall);
+
+
   // Advance IFETCH
-  assign padv_fetch_o = (~spr_bus_cpu_stall_r) & (~du_cpu_stall); // ADV. IFETCH
-                        // MAROCCHINO_TODO: restore stepping
+  // Stepping condition is close to the one for DECODE
+  assign padv_fetch_o = padv_all & ((~stepping) | (dcod_empty_i & pstep[0])); // ADV. IFETCH
 
+
+  // Raw enables for advancing reservation stations
+  wire ena_1clk_rsrvs   = (~ocb_full_i) & dcod_op_1clk_i     & op_1clk_free_i;
+  wire ena_muldiv_rsrvs = (~ocb_full_i) & dcod_op_muldiv_i   & muldiv_free_i;
+  wire ena_fpxx_rsrvs   = (~ocb_full_i) & dcod_op_fpxx_any_i & fpxx_free_i;
+  wire ena_lsu_rsrvs    = (~ocb_full_i) & dcod_op_lsu_any_i  & lsu_free_i;
+  wire ena_op_push_exec = (~ocb_full_i) & dcod_op_push_exec_i;
+  wire ena_op_mXspr     =   ocb_empty_i & dcod_op_mXspr_i; // MAROCCHINO_TODO: separate it to padv-exec?
+  // DECODE could be updated
+  wire ena_dcod = ena_1clk_rsrvs | ena_muldiv_rsrvs | ena_fpxx_rsrvs | // DECODE could be updated
+                  ena_lsu_rsrvs  | ena_op_push_exec | ena_op_mXspr; // DECODE could be updated
   // Advance DECODE
-  // In step-by-step mode DECODE could be advanced
-  //  just by the fact it has got "step enabled"
-  assign padv_dcod_o = (~spr_bus_cpu_stall_r) & (~du_cpu_stall) &  // ADV. DECODE
-    (((~stepping) & dcod_free_i & (dcod_empty_i | dcod_valid_i)) | // ADV. DECODE
-       (stepping  & (~dcod_valid_i) & pstep[0])); // ADV. DECODE
-  
+  assign padv_dcod_o = padv_all &  // ADV. DECODE
+    (((~stepping) & dcod_free_i & (dcod_empty_i | ena_dcod)) | // ADV. DECODE
+       (stepping  & dcod_empty_i & pstep[0])); // ADV. DECODE
   // Pass step from DECODE to EXEC
-  wire   pass_step_to_exec = dcod_valid_i & pstep[0];
+  wire   pass_step_to_exec = (~dcod_empty_i) & pstep[0];
 
 
-  // Advance EXECUTE (push RSRVS)
-  // In step-by-step mode EXECUTE could be advanced
-  //  just by the fact it has got "step enabled"
-  assign padv_exec_o = (~spr_bus_cpu_stall_r) & (~du_cpu_stall) & // ADV. EXECUTE (push RSRVS)
-    (((~stepping) & dcod_valid_i) | // ADV. EXECUTE (push RSRVS)
-       (stepping  & pstep[1])); // ADV. EXECUTE (push RSRVS)
+  // EXECUTE could be updated
+  wire ena_exec              = ena_dcod;
+  // Common part of advance for all execution uints
+  wire padv_an_exec_unit     = padv_all & ((~stepping) | pstep[1]);
+  // Advance EXECUTE (push OCB & clean up  DECODE)
+  assign padv_exec_o         = ena_exec         & padv_an_exec_unit;
+  // Per execution unit (or reservation station) advance
+  assign padv_1clk_rsrvs_o   = ena_1clk_rsrvs   & padv_an_exec_unit;
+  assign padv_muldiv_rsrvs_o = ena_muldiv_rsrvs & padv_an_exec_unit;
+  assign padv_fpxx_rsrvs_o   = ena_fpxx_rsrvs   & padv_an_exec_unit;
+  assign padv_lsu_rsrvs_o    = ena_lsu_rsrvs    & padv_an_exec_unit;
+  wire   padv_op_mXspr       = ena_op_mXspr     & padv_an_exec_unit;
   // Pass step from DECODE to WB
-  wire   pass_step_to_wb = pstep[1]; // for DU
+  wire   pass_step_to_wb     = pstep[1]; // for DU
 
 
   // Advance Write Back latches
-  assign padv_wb_o = (~spr_bus_cpu_stall_r) & (~du_cpu_stall) & // ADV. Write Back latches
-    (((~stepping) & exec_valid_i) | // ADV. Write Back latches
-       (stepping  & exec_valid_i & pstep[2])); // ADV. Write Back latches
+  assign padv_wb_o = exec_valid_i & padv_all & ((~stepping) | pstep[2]);
   // Complete the step
-  wire   pass_step_to_stall = (~spr_bus_cpu_stall_r) & exec_valid_i & pstep[2]; // for DU
+  wire   pass_step_to_stall = padv_wb_o; // for DU
 
 
   //-----------------------------------//
@@ -924,9 +954,6 @@ module mor1kx_ctrl_marocchino
   // ---
   assign     du_ack_o            = spr_bus_state[6];
 
-  // Accees to SPR BUS from l.mf(t)spr command or debug unit
-  wire take_op_mXspr = padv_exec_o & dcod_op_mXspr_i;
-
   // Access to SPR BUS from Debug System
   wire take_access_du = (~dcod_op_mXspr_i) & (~spr_bus_cpu_stall_r) & du_stb_i;
 
@@ -937,7 +964,7 @@ module mor1kx_ctrl_marocchino
   reg [OPTION_OPERAND_WIDTH-1:0] ctrl_rfb1_r;  // data for MTSPR
   // ---
   always @(posedge cpu_clk) begin
-    if (take_op_mXspr) begin
+    if (padv_op_mXspr) begin
       // registering l.mf(t)spr data
       ctrl_op_mtspr_r <= dcod_op_mtspr_i;
       ctrl_rfa1_r     <= dcod_rfa1_i;
@@ -996,11 +1023,14 @@ module mor1kx_ctrl_marocchino
         // wait SPR BUS access request
         SPR_BUS_WAIT_REQ: begin
           if (~pipeline_flush_r) begin // prevent execution l.mf(t)spr
-            spr_bus_state <= take_op_mXspr  ? SPR_BUS_RUN_MXSPR  :
-                             take_access_du ? SPR_BUS_RUN_DU_REQ :
-                                              SPR_BUS_WAIT_REQ;
-            if (take_op_mXspr | take_access_du)
+            if (padv_op_mXspr) begin
+              spr_bus_state       <= SPR_BUS_RUN_MXSPR;
               spr_bus_cpu_stall_r <= 1'b1;
+            end
+            else if (take_access_du) begin
+              spr_bus_state       <= SPR_BUS_RUN_DU_REQ;
+              spr_bus_cpu_stall_r <= 1'b1;
+            end
           end
         end
         // run l.mf(t)spr processing

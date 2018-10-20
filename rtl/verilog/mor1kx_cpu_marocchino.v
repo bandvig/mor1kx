@@ -261,7 +261,6 @@ module mor1kx_cpu_marocchino
 
 
   wire                            dcod_free;
-  wire                            dcod_valid;
   wire                            exec_valid;
   wire                            lsu_valid;   // result ready or exceptions
 
@@ -497,8 +496,15 @@ module mor1kx_cpu_marocchino
   wire                            spr_bus_ack_ic;
 
 
+  // [O]rder [C]ontrol [B]uffer statuses
+  wire ocb_full, ocb_empty;
+
   // pipeline controls from CTRL to units
   wire padv_fetch;
+  wire padv_1clk_rsrvs;
+  wire padv_muldiv_rsrvs;
+  wire padv_fpxx_rsrvs;
+  wire padv_lsu_rsrvs;
   wire padv_dcod;
   wire padv_exec;
   wire padv_wb;
@@ -974,10 +980,8 @@ module mor1kx_cpu_marocchino
 
     // DECODE non-latched flags to indicate next required unit
     // (The information is stored in order control buffer)
-    .dcod_op_push_exec_i        (dcod_op_push_exec), // OMAN
     .dcod_op_push_wb_i          (dcod_op_push_wb), // OMAN
     .fetch_op_jb_i              (fetch_op_jb), // OMAN
-    .dcod_op_1clk_i             (dcod_op_1clk), // OMAN
     .dcod_op_div_i              (dcod_op_div), // OMAN
     .dcod_op_mul_i              (dcod_op_mul), // OMAN
     .dcod_op_fpxx_arith_i       (dcod_op_fpxx_arith), // OMAN
@@ -1003,13 +1007,7 @@ module mor1kx_cpu_marocchino
     .dcod_op_mXspr_i            (dcod_op_mXspr), // OMAN
 
     // for unit hazard detection
-    .op_1clk_free_i             (op_1clk_free), // OMAN
-    .dcod_op_muldiv_i           (dcod_op_muldiv), // OMAN
-    .muldiv_free_i              (muldiv_free), // OMAN
-    .dcod_op_fpxx_any_i         (dcod_op_fpxx_any), // OMAN
-    .fpxx_free_i                (fpxx_free), // OMAN
-    .dcod_op_lsu_any_i          (dcod_op_lsu_any), // OMAN (load | store | l.msync)
-    .lsu_free_i                 (lsu_free), // OMAN
+    .dcod_op_1clk_i             (dcod_op_1clk), // OMAN
 
     // collect valid flags from execution modules
     .exec_op_1clk_i             (exec_op_1clk), // OMAN
@@ -1059,9 +1057,12 @@ module mor1kx_cpu_marocchino
     .omn2dec_hazard_d2b2_o      (omn2dec_hazard_d2b2), // OMAN
     .omn2dec_extadr_dxb2_o      (omn2dec_extadr_dxb2), // OMAN
 
+    // [O]rder [C]ontrol [B]uffer statuses
+    .ocb_full_o                 (ocb_full), // OMAN
+    .ocb_empty_o                (ocb_empty), // OMAN
+
     // DECODE result could be processed by EXECUTE
     .dcod_free_o                (dcod_free), // OMAN
-    .dcod_valid_o               (dcod_valid), // OMAN
 
     // EXECUTE completed (desired unit is ready)
     .exec_valid_o               (exec_valid), // OMAN
@@ -1223,7 +1224,7 @@ module mor1kx_cpu_marocchino
     .cpu_clk                    (cpu_clk), // 1CLK_RSVRS
     // pipeline control signals in
     .pipeline_flush_i           (pipeline_flush), // 1CLK_RSVRS
-    .padv_exec_i                (padv_exec), // 1CLK_RSVRS
+    .padv_rsrvs_i               (padv_1clk_rsrvs), // 1CLK_RSVRS
     .taking_op_i                (taking_1clk_op), // 1CLK_RSVRS
     // input data from DECODE
     .dcod_rfxx_i                ({dcod_rfb1, dcod_rfa1}), // 1CLK_RSVRS
@@ -1240,7 +1241,6 @@ module mor1kx_cpu_marocchino
     .wb_result1_i               (wb_result1_cp1), // 1CLK_RSVRS
     .wb_result2_i               (wb_result2_cp1), // 1CLK_RSVRS
     // command and its additional attributes
-    .dcod_op_any_i              (dcod_op_1clk), // 1CLK_RSVRS
     .dcod_op_i                  ({dcod_op_ffl1, dcod_op_add, dcod_op_shift, dcod_op_movhi, // 1CLK_RSVRS
                                   dcod_op_cmov, dcod_op_logic, dcod_op_setflag}), // 1CLK_RSVRS
     .dcod_opc_i                 ({dcod_adder_do_sub, dcod_adder_do_carry, // 1CLK_RSVRS
@@ -1402,7 +1402,7 @@ module mor1kx_cpu_marocchino
     .cpu_clk                    (cpu_clk), // MULDIV_RSRVS
     // pipeline control signals in
     .pipeline_flush_i           (pipeline_flush), // MULDIV_RSRVS
-    .padv_exec_i                (padv_exec), // MULDIV_RSRVS
+    .padv_rsrvs_i               (padv_muldiv_rsrvs), // MULDIV_RSRVS
     .taking_op_i                (muldiv_taking_op), // MULDIV_RSRVS
     // input data from DECODE
     .dcod_rfxx_i                ({dcod_rfb1, dcod_rfa1}), // MULDIV_RSRVS
@@ -1419,7 +1419,6 @@ module mor1kx_cpu_marocchino
     .wb_result1_i               (wb_result1_cp2), // MULDIV_RSRVS
     .wb_result2_i               (wb_result2_cp2), // MULDIV_RSRVS
     // command and its additional attributes
-    .dcod_op_any_i              (dcod_op_muldiv), // MULDIV_RSRVS
     .dcod_op_i                  ({dcod_op_mul, dcod_op_div}), // MULDIV_RSRVS
     .dcod_opc_i                 ({dcod_op_div_signed, dcod_op_div_unsigned}),  // MULDIV_RSRVS
     // outputs
@@ -1592,7 +1591,7 @@ module mor1kx_cpu_marocchino
     .cpu_clk                    (cpu_clk), // FPU_RSRVS
     // pipeline control signals in
     .pipeline_flush_i           (pipeline_flush), // FPU_RSRVS
-    .padv_exec_i                (padv_exec), // FPU_RSRVS
+    .padv_rsrvs_i               (padv_fpxx_rsrvs), // FPU_RSRVS
     .taking_op_i                (fpxx_taking_op), // FPU_RSRVS
     // input data from DECODE
     .dcod_rfxx_i                ({dcod_rfb2, dcod_rfa2, dcod_rfb1, dcod_rfa1}), // FPU_RSRVS
@@ -1612,7 +1611,6 @@ module mor1kx_cpu_marocchino
     .wb_result1_i               (wb_result1_cp2), // FPU_RSRVS
     .wb_result2_i               (wb_result2_cp2), // FPU_RSRVS
     // command and its additional attributes
-    .dcod_op_any_i              (dcod_op_fpxx_any), // FPU_RSRVS
     .dcod_op_i                  ({dcod_op_fpxx_add, dcod_op_fpxx_sub, dcod_op_fpxx_mul, // FPU_RSRVS
                                   dcod_op_fpxx_div, dcod_op_fpxx_i2f, dcod_op_fpxx_f2i, // FPU_RSRVS
                                   dcod_op_fpxx_cmp}), // FPU_RSRVS
@@ -1789,7 +1787,7 @@ module mor1kx_cpu_marocchino
     .cpu_clk                    (cpu_clk), // LSU_RSVRS
     // pipeline control signals in
     .pipeline_flush_i           (pipeline_flush), // LSU_RSVRS
-    .padv_exec_i                (padv_exec), // LSU_RSVRS
+    .padv_rsrvs_i               (padv_lsu_rsrvs), // LSU_RSVRS
     .taking_op_i                (lsu_taking_op), // LSU_RSVRS
     // input data from DECODE
     .dcod_rfxx_i                ({dcod_rfb1, dcod_rfa1}), // LSU_RSVRS
@@ -1806,7 +1804,6 @@ module mor1kx_cpu_marocchino
     .wb_result1_i               (wb_result1_cp3), // LSU_RSVRS
     .wb_result2_i               (wb_result2_cp3), // LSU_RSVRS
     // command and its additional attributes
-    .dcod_op_any_i              (dcod_op_lsu_any),  // LSU_RSVRS
     .dcod_op_i                  ({dcod_op_lsu_load, dcod_op_lsu_store}), // LSU_RSVRS
     .dcod_opc_i                 ({dcod_op_msync,    dcod_op_lsu_atomic, // LSU_RSVRS
                                   dcod_lsu_length,  dcod_lsu_zext, // LSU_RSVRS
@@ -2127,15 +2124,29 @@ module mor1kx_cpu_marocchino
     .cpu_rst                          (cpu_rst), // CTRL
 
     // Inputs / Outputs for pipeline control signals
+    .padv_fetch_o                     (padv_fetch), // CTRL
     .dcod_empty_i                     (dcod_empty), // CTRL
     .dcod_free_i                      (dcod_free), // CTRL
-    .dcod_valid_i                     (dcod_valid), // CTRL
-    .exec_valid_i                     (exec_valid), // CTRL
-    .pipeline_flush_o                 (pipeline_flush), // CTRL
-    .padv_fetch_o                     (padv_fetch), // CTRL
+    .ocb_full_i                       (ocb_full), // CTRL
+    .ocb_empty_i                      (ocb_empty), // CTRL
+    .dcod_op_1clk_i                   (dcod_op_1clk), // CTRL
+    .op_1clk_free_i                   (op_1clk_free), // CTRL
+    .padv_1clk_rsrvs_o                (padv_1clk_rsrvs), // CTRL
+    .dcod_op_muldiv_i                 (dcod_op_muldiv), // CTRL
+    .muldiv_free_i                    (muldiv_free), // CTRL
+    .padv_muldiv_rsrvs_o              (padv_muldiv_rsrvs), // CTRL
+    .dcod_op_fpxx_any_i               (dcod_op_fpxx_any), // CTRL
+    .fpxx_free_i                      (fpxx_free), // CTRL
+    .padv_fpxx_rsrvs_o                (padv_fpxx_rsrvs), // CTRL
+    .dcod_op_lsu_any_i                (dcod_op_lsu_any), // CTRL
+    .lsu_free_i                       (lsu_free), // CTRL
+    .padv_lsu_rsrvs_o                 (padv_lsu_rsrvs), // CTRL
+    .dcod_op_push_exec_i              (dcod_op_push_exec), // CTRL
     .padv_dcod_o                      (padv_dcod), // CTRL
     .padv_exec_o                      (padv_exec), // CTRL
+    .exec_valid_i                     (exec_valid), // CTRL
     .padv_wb_o                        (padv_wb), // CTRL
+    .pipeline_flush_o                 (pipeline_flush), // CTRL
 
     // MF(T)SPR coomand processing
     //  ## iput data & command from DECODE
@@ -2320,7 +2331,7 @@ module mor1kx_cpu_marocchino
          traceport_stage_dcod_insn <= dcod_insn;
       end
 
-      if (padv_execute) begin
+      if (padv_exec) begin
          traceport_stage_exec_insn <= traceport_stage_dcod_insn;
       end
 

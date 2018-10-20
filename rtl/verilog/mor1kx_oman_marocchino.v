@@ -166,10 +166,8 @@ module mor1kx_oman_marocchino
 
   // DECODE flags to indicate next required unit
   // (The information is stored in order control buffer)
-  input                                 dcod_op_push_exec_i,
   input                                 dcod_op_push_wb_i,
   input                                 fetch_op_jb_i,
-  input                                 dcod_op_1clk_i,
   input                                 dcod_op_div_i,
   input                                 dcod_op_mul_i,
   input                                 dcod_op_fpxx_arith_i,
@@ -195,13 +193,7 @@ module mor1kx_oman_marocchino
   input                                 dcod_op_mXspr_i,
 
   // for unit hazard detection
-  input                                 op_1clk_free_i,
-  input                                 dcod_op_muldiv_i,
-  input                                 muldiv_free_i,
-  input                                 dcod_op_fpxx_any_i,
-  input                                 fpxx_free_i,
-  input                                 dcod_op_lsu_any_i, // (load | store | l.msync)
-  input                                 lsu_free_i,
+  input                                 dcod_op_1clk_i,
 
   // collect valid flags from execution modules
   input                                 exec_op_1clk_i,
@@ -251,9 +243,12 @@ module mor1kx_oman_marocchino
   output reg                            omn2dec_hazard_d2b2_o,
   output reg    [DEST_EXTADR_WIDTH-1:0] omn2dec_extadr_dxb2_o,
 
+  // [O]rder [C]ontrol [B]uffer statuses
+  output                                ocb_full_o,
+  output                                ocb_empty_o,
+
   // DECODE result could be processed by EXECUTE
   output                                dcod_free_o,
-  output                                dcod_valid_o,
 
   // EXECUTE completed (desired unit is ready)
   output                                exec_valid_o,
@@ -495,9 +490,6 @@ module mor1kx_oman_marocchino
   // --- INSN OCB input ---
   wire [OCBT_MSB:0] ocbo;
 
-  // --- INSN OCB statuses ---
-  wire ocb_full, ocb_empty;
-
   // --- INSN OCB instance ---
   mor1kx_ff_oreg_buff_marocchino
   #(
@@ -519,9 +511,9 @@ module mor1kx_oman_marocchino
     // data input
     .data_i           (ocbi), // INSN_OCB
     // "OCB is empty" flag
-    .empty_o          (ocb_empty), // INSN_OCB
+    .empty_o          (ocb_empty_o), // INSN_OCB
     // "OCB is full" flag
-    .full_o           (ocb_full), // INSN_OCB
+    .full_o           (ocb_full_o), // INSN_OCB
     // output register
     .data_o           (ocbo) // INSN_OCB
   );
@@ -841,16 +833,6 @@ module mor1kx_oman_marocchino
     (fpxx_cmp_valid_i         &  ocbo[OCBTC_OP_FPXX_CMP_POS])    | // EXEC VALID
     (lsu_valid_i              &  ocbo[OCBTC_OP_LS_POS])          | // EXEC VALID
                                  ocbo[OCBTC_OP_PUSH_WB_POS];       // EXEC VALID
-
-  // DECODE valid
-  assign dcod_valid_o = (~ocb_full) &                            // DECODE VALID
-                        ((dcod_op_1clk_i     & op_1clk_free_i) | // DECODE VALID
-                         (dcod_op_muldiv_i   & muldiv_free_i)  | // DECODE VALID
-                         (dcod_op_fpxx_any_i & fpxx_free_i)    | // DECODE VALID
-                         (dcod_op_lsu_any_i  & lsu_free_i)     | // DECODE VALID
-                         (dcod_op_mXspr_i    & ocb_empty)      | // DECODE VALID
-                         dcod_op_push_exec_i);                   // DECODE VALID
-
 
 
   //---------------------------------------//

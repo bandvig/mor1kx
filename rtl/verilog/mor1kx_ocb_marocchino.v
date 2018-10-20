@@ -1319,7 +1319,7 @@ module mor1kx_rsrvs_marocchino
 
   // pipeline control signals
   input                                     pipeline_flush_i,
-  input                                     padv_exec_i,
+  input                                     padv_rsrvs_i,
   input                                     taking_op_i,      // a unit is taking input for execution
 
   // input data from DECODE
@@ -1339,7 +1339,6 @@ module mor1kx_rsrvs_marocchino
   input        [(OPTION_OPERAND_WIDTH-1):0] wb_result2_i,
 
   // command and its additional attributes
-  input                                     dcod_op_any_i,
   input                    [(OP_WIDTH-1):0] dcod_op_i,    // request the unit command
   input                   [(OPC_WIDTH-1):0] dcod_opc_i,   // additional attributes for command
 
@@ -1416,8 +1415,8 @@ module mor1kx_rsrvs_marocchino
 
 
   // execute: command and attributes latches
-  reg  [(OP_WIDTH-1):0] exec_op_r;
   reg                   exec_op_any_r;
+  reg  [(OP_WIDTH-1):0] exec_op_r;
   reg [(OPC_WIDTH-1):0] exec_opc_r;
 
   // an OMAN-to-DECODE hazard
@@ -1426,19 +1425,8 @@ module mor1kx_rsrvs_marocchino
   // all hazards are resolved
   wire busy_free_of_hazards;
 
-  // DECODE->BUSY transfer
-  wire dcod_pushing_busy = padv_exec_i & dcod_op_any_i  &        // DECODE pushing BUSY: New instruction ...
-                           (omn2dec_hazard |                     // DECODE pushing BUSY: ... if an OMAN-to-DECODE hazard
-                             (exec_op_any_r & (~taking_op_i)));  // DECODE pushing BUSY: ... or EXECUTE is busy.
-
-  // DECODE->EXECUTE transfer
-  wire dcod_pushing_exec = padv_exec_i & dcod_op_any_i &    // DECODE pushing EXECUTE: New instruction ...
-                           (~omn2dec_hazard) &              // DECODE pushing EXECUTE: ... and no OMAN-to-DECODE hazards
-                           (~exec_op_any_r | taking_op_i);  // DECODE pushing EXECUTE: ... and EXECUTE is free.
-
-  // BUSY->EXECUTE transfer
-  wire busy_pushing_exec = busy_op_any_r & busy_free_of_hazards & // BUSY pushing EXECUTE: All OMAN-to-DECODE hazards are resolved ...
-                           (~exec_op_any_r | taking_op_i);        // BUSY pushing EXECUTE: ... and EXECUTE is free
+  // Advance EXECUTE latches
+  wire padv_exec_l = (~exec_op_any_r) |  taking_op_i;
 
 
 
@@ -1446,8 +1434,8 @@ module mor1kx_rsrvs_marocchino
 
 
   // busy: command and additional attributes
-  reg  [(OP_WIDTH-1):0] busy_op_r;
   reg                   busy_op_any_r;
+  reg  [(OP_WIDTH-1):0] busy_op_r;
   reg [(OPC_WIDTH-1):0] busy_opc_r;
 
   // latch command and its attributes
@@ -1457,15 +1445,34 @@ module mor1kx_rsrvs_marocchino
       busy_op_r     <= {OP_WIDTH{1'b0}};
       busy_opc_r    <= {OPC_WIDTH{1'b0}};
     end
-    else if (dcod_pushing_busy) begin
-      busy_op_any_r <= 1'b1;
-      busy_op_r     <= dcod_op_i;
-      busy_opc_r    <= dcod_opc_i;
-    end
-    else if (busy_pushing_exec) begin
-      busy_op_any_r <= 1'b0;
-      busy_op_r     <= {OP_WIDTH{1'b0}};
-      busy_opc_r    <= {OPC_WIDTH{1'b0}};
+    else begin
+      // synthesis parallel_case
+      case ({padv_exec_l, padv_rsrvs_i})
+        // keep state
+        2'b00:;
+        // next insn arrived
+        2'b01: begin
+          busy_op_any_r <= 1'b1;
+          busy_op_r     <= dcod_op_i;
+          busy_opc_r    <= dcod_opc_i;
+        end
+        // take free of hazards insn
+        2'b10: begin
+          if (busy_free_of_hazards) begin
+            busy_op_any_r <= 1'b0;
+            busy_op_r     <= {OP_WIDTH{1'b0}};
+            busy_opc_r    <= {OPC_WIDTH{1'b0}};
+          end
+        end
+        // pipe advance
+        2'b11: begin
+          if (omn2dec_hazard) begin
+            busy_op_any_r <= 1'b1;
+            busy_op_r     <= dcod_op_i;
+            busy_opc_r    <= dcod_opc_i;
+          end
+        end
+      endcase
     end
   end // @clock
 
@@ -1525,7 +1532,7 @@ module mor1kx_rsrvs_marocchino
       busy_hazard_d2b1_r <= 1'b0;
       busy_hazard_dxb1_r <= 1'b0;
     end
-    else if (dcod_pushing_busy) begin
+    else if (padv_rsrvs_i) begin
       //  # relative operand A1
       busy_hazard_d1a1_r <= omn2dec_hazards_flags_i[HAZARD_D1A1_FLG_POS];
       busy_hazard_d2a1_r <= omn2dec_hazards_flags_i[HAZARD_D2A1_FLG_POS];
@@ -1556,7 +1563,7 @@ module mor1kx_rsrvs_marocchino
   //  # hazard resolution extention bits
   //  # they make sence only with rized hazard flags
   always @(posedge cpu_clk) begin
-    if (dcod_pushing_busy) begin
+    if (padv_rsrvs_i) begin
       busy_extadr_dxa1_r <= omn2dec_hazards_addrs_i[EXTADR_DxA1_MSB:EXTADR_DxA1_LSB];
       busy_extadr_dxb1_r <= omn2dec_hazards_addrs_i[EXTADR_DxB1_MSB:EXTADR_DxB1_LSB];
     end
@@ -1568,7 +1575,7 @@ module mor1kx_rsrvs_marocchino
 
   // forwarding operands A1 & B1
   always @(posedge cpu_clk) begin
-    if (dcod_pushing_busy) begin
+    if (padv_rsrvs_i) begin
       busy_rfa1_r <= dcod_rfxx_i[RFA1_MSB:RFA1_LSB];
       busy_rfb1_r <= dcod_rfxx_i[RFB1_MSB:RFB1_LSB];
     end
@@ -1613,7 +1620,7 @@ module mor1kx_rsrvs_marocchino
         busy_hazard_d2b2_r <= 1'b0;
         busy_hazard_dxb2_r <= 1'b0;
       end
-      else if (dcod_pushing_busy) begin
+      else if (padv_rsrvs_i) begin
         //  # relative operand A2
         busy_hazard_d1a2_r <= omn2dec_hazards_flags_i[HAZARD_D1A2_FLG_POS];
         busy_hazard_d2a2_r <= omn2dec_hazards_flags_i[HAZARD_D2A2_FLG_POS];
@@ -1643,7 +1650,7 @@ module mor1kx_rsrvs_marocchino
     end // @clock
     // ---
     always @(posedge cpu_clk) begin
-      if (dcod_pushing_busy) begin
+      if (padv_rsrvs_i) begin
         busy_extadr_dxa2_r <= omn2dec_hazards_addrs_i[EXTADR_DxA2_MSB:EXTADR_DxA2_LSB];
         busy_extadr_dxb2_r <= omn2dec_hazards_addrs_i[EXTADR_DxB2_MSB:EXTADR_DxB2_LSB];
       end
@@ -1667,7 +1674,7 @@ module mor1kx_rsrvs_marocchino
     reg [OPTION_OPERAND_WIDTH-1:0] busy_rfb2_r;
     // ---
     always @(posedge cpu_clk) begin
-      if (dcod_pushing_busy) begin
+      if (padv_rsrvs_i) begin
         busy_rfa2_r <= dcod_rfxx_i[RFA2_MSB:RFA2_LSB];
         busy_rfb2_r <= dcod_rfxx_i[RFB2_MSB:RFB2_LSB];
       end
@@ -1712,7 +1719,55 @@ module mor1kx_rsrvs_marocchino
 
   /**** EXECUTE stage latches ****/
 
-  // execute: operands
+  // --- execute: command and attributes latches ---
+  always @(posedge cpu_clk) begin
+    if (pipeline_flush_i) begin
+      exec_op_any_r <= 1'b0;
+      exec_op_r     <= {OP_WIDTH{1'b0}};
+      exec_opc_r    <= {OPC_WIDTH{1'b0}};
+    end
+    else begin
+      // synthesis parallel_case
+      case ({padv_exec_l, padv_rsrvs_i})
+        // EXEC registers are occuped
+        2'b00, 2'b01:;
+        // execution unit is taking insn
+        2'b10: begin
+          if (busy_free_of_hazards) begin
+            exec_op_any_r <= busy_op_any_r;
+            exec_op_r     <= busy_op_r;
+            exec_opc_r    <= busy_opc_r;
+          end
+          else begin
+            exec_op_any_r <= 1'b0;
+            exec_op_r     <= {OP_WIDTH{1'b0}};
+            exec_opc_r    <= {OPC_WIDTH{1'b0}};
+          end
+        end
+        // pipe advance
+        2'b11: begin
+          if (omn2dec_hazard) begin
+            exec_op_any_r <= 1'b0;
+            exec_op_r     <= {OP_WIDTH{1'b0}};
+            exec_opc_r    <= {OPC_WIDTH{1'b0}};
+          end
+          else begin
+            exec_op_any_r <= 1'b1;
+            exec_op_r     <= dcod_op_i;
+            exec_opc_r    <= dcod_opc_i;
+          end
+        end
+      endcase
+    end
+  end // @clock
+
+  // Commands and attributes to execution units
+  assign exec_op_any_o = ((RSRVS_LSU == 1) || (RSRVS_1CLK == 1)) ? exec_op_any_r : 1'b0;
+  assign exec_op_o     = exec_op_r;
+  assign exec_opc_o    = exec_opc_r;
+
+
+  // EXECUTE: operands
   //   ## registers
   reg  [OPTION_OPERAND_WIDTH-1:0] exec_rfa1_r;
   reg  [OPTION_OPERAND_WIDTH-1:0] exec_rfb1_r;
@@ -1724,49 +1779,23 @@ module mor1kx_rsrvs_marocchino
   wire [OPTION_OPERAND_WIDTH-1:0] exec_rfb2_w;
 
 
-  // --- execute: command and attributes latches ---
-  always @(posedge cpu_clk) begin
-    if (pipeline_flush_i) begin
-      exec_op_any_r <= 1'b0;
-      exec_op_r     <= {OP_WIDTH{1'b0}};
-      exec_opc_r    <= {OPC_WIDTH{1'b0}};
-    end
-    else if (dcod_pushing_exec) begin
-      exec_op_any_r <= 1'b1;
-      exec_op_r     <= dcod_op_i;
-      exec_opc_r    <= dcod_opc_i;
-    end
-    else if (busy_pushing_exec) begin
-      exec_op_any_r <= busy_op_any_r;
-      exec_op_r     <= busy_op_r;
-      exec_opc_r    <= busy_opc_r;
-    end
-    else if (taking_op_i) begin
-      exec_op_any_r <= 1'b0;
-      exec_op_r     <= {OP_WIDTH{1'b0}};
-      exec_opc_r    <= {OPC_WIDTH{1'b0}};
-    end
-  end // @clock
-
-
-  // Commands to execution units
-  assign exec_op_any_o = ((RSRVS_LSU == 1) || (RSRVS_1CLK == 1)) ? exec_op_any_r : 1'b0;
-  // ---
-  assign exec_op_o     = exec_op_r;
-  // ---
-  assign exec_opc_o    = exec_opc_r;
-
-
   // registers for operands A1 & B1
   always @(posedge cpu_clk) begin
-    if (dcod_pushing_exec) begin
-      exec_rfa1_r <= dcod_rfxx_i[RFA1_MSB:RFA1_LSB];
-      exec_rfb1_r <= dcod_rfxx_i[RFB1_MSB:RFB1_LSB];
-    end
-    else if (busy_pushing_exec) begin
-      exec_rfa1_r <= busy_rfa1;
-      exec_rfb1_r <= busy_rfb1;
-    end
+    // synthesis parallel_case
+    case ({padv_exec_l, padv_rsrvs_i})
+      // EXEC registers are occuped
+      2'b00, 2'b01:;
+      // execution unit is taking insn
+      2'b10: begin
+        exec_rfa1_r <= busy_rfa1;
+        exec_rfb1_r <= busy_rfb1;
+      end
+      // pipe advance
+      2'b11: begin
+        exec_rfa1_r <= dcod_rfxx_i[RFA1_MSB:RFA1_LSB];
+        exec_rfb1_r <= dcod_rfxx_i[RFB1_MSB:RFB1_LSB];
+      end
+    endcase
   end // @clock
   // ---
   assign exec_rfa1 = exec_rfa1_r;
@@ -1783,14 +1812,21 @@ module mor1kx_rsrvs_marocchino
     reg [OPTION_OPERAND_WIDTH-1:0] exec_rfb2_r;
     // ---
     always @(posedge cpu_clk) begin
-      if (dcod_pushing_exec) begin
-        exec_rfa2_r <= dcod_rfxx_i[RFA2_MSB:RFA2_LSB];
-        exec_rfb2_r <= dcod_rfxx_i[RFB2_MSB:RFB2_LSB];
-      end
-      else if (busy_pushing_exec) begin
-        exec_rfa2_r <= busy_rfa2_w;
-        exec_rfb2_r <= busy_rfb2_w;
-      end
+      // synthesis parallel_case
+      case ({padv_exec_l, padv_rsrvs_i})
+        // EXEC registers are occuped
+        2'b00, 2'b01:;
+        // execution unit is taking insn
+        2'b10: begin
+          exec_rfa2_r <= busy_rfa2_w;
+          exec_rfb2_r <= busy_rfb2_w;
+        end
+        // pipe advance
+        2'b11: begin
+          exec_rfa2_r <= dcod_rfxx_i[RFA2_MSB:RFA2_LSB];
+          exec_rfb2_r <= dcod_rfxx_i[RFB2_MSB:RFB2_LSB];
+        end
+      endcase
     end // @clock
     // ---
     assign exec_rfa2_w = exec_rfa2_r;
