@@ -640,10 +640,9 @@ module mor1kx_ctrl_marocchino
   wire ena_fpxx_rsrvs   = (~ocb_full_i) & dcod_op_fpxx_any_i & fpxx_free_i;
   wire ena_lsu_rsrvs    = (~ocb_full_i) & dcod_op_lsu_any_i  & lsu_free_i;
   wire ena_op_push_exec = (~ocb_full_i) & dcod_op_push_exec_i;
-  wire ena_op_mXspr     =   ocb_empty_i & dcod_op_mXspr_i; // MAROCCHINO_TODO: separate it to padv-exec?
   // DECODE could be updated
   wire ena_dcod = ena_1clk_rsrvs | ena_muldiv_rsrvs | ena_fpxx_rsrvs | // DECODE could be updated
-                  ena_lsu_rsrvs  | ena_op_push_exec | ena_op_mXspr; // DECODE could be updated
+                  ena_lsu_rsrvs  | ena_op_push_exec; // DECODE could be updated
   // Advance DECODE
   assign padv_dcod_o = padv_all &  // ADV. DECODE
     (((~stepping) & dcod_free_i & (dcod_empty_i | ena_dcod)) | // ADV. DECODE
@@ -651,9 +650,11 @@ module mor1kx_ctrl_marocchino
   // Pass step from DECODE to EXEC
   wire   pass_step_to_exec = (~dcod_empty_i) & pstep[0];
 
-
+  // When we process l.mf(t)spr we stall pipeline.
+  // DECODE's flags will be just cleaned up.
+  wire ena_op_mXspr          = ocb_empty_i & dcod_op_mXspr_i;
   // EXECUTE could be updated
-  wire ena_exec              = ena_dcod;
+  wire ena_exec              = ena_dcod | ena_op_mXspr;
   // Common part of advance for all execution uints
   wire padv_an_exec_unit     = padv_all & ((~stepping) | pstep[1]);
   // Advance EXECUTE (push OCB & clean up  DECODE)
