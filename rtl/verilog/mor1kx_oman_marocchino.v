@@ -835,36 +835,91 @@ module mor1kx_oman_marocchino
                                  ocbo[OCBTC_OP_PUSH_WB_POS];       // EXEC VALID
 
 
-  //---------------------------------------//
-  // Logic to support Jump / Branch taking //
-  //---------------------------------------//
+  //-----------------------------//
+  // Taking Jump by Register FSM //
+  //-----------------------------//
+
+  // --- various pendings till rB/flag computationcompletion ---
+  wire                            jr_dcd2fth_hazard_d1b1_raw; // used only inside J/B FSM
+  reg     [DEST_EXTADR_WIDTH-1:0] jb_hazard_ext_p;
+  reg  [OPTION_OPERAND_WIDTH-1:0] jr_target_p;
+  reg                             jr_gathering_target_p;
+  // ---
+  assign jr_dcd2fth_hazard_d1b1_raw = (dcod_rfd1_adr_i == fetch_rfb1_adr_i) & dcod_rfd1_wb_i;
+
+  localparam [3:0] JR_FSM_CATCHING_JR = 4'b0001, // on IFETCH output
+                   JR_FSM_GET_B1      = 4'b0010, // get rB for l.jr/ljalr if no hazard
+                   JR_FSM_WAITING_B1  = 4'b0100, // waiting rB for l.jr/ljalr if hazard
+                   JR_FSM_DOING_JR    = 4'b1000; // execute l.jr/ljalr
+
+  reg [3:0] jr_fsm_state_r;
+
+  wire jr_fsm_catching_jr      = jr_fsm_state_r[0];
+  wire jr_fsm_get_b1_state     = jr_fsm_state_r[1];
+  wire jr_fsm_waiting_b1_state = jr_fsm_state_r[2];
+  wire jr_fsm_doing_jr_state   = jr_fsm_state_r[3];
+
+  always @(posedge cpu_clk) begin
+    if (pipeline_flush_i) begin
+      jr_fsm_state_r        <= JR_FSM_CATCHING_JR;
+      jr_gathering_target_p <= 1'b0;
+    end
+    else begin
+      // synthesis parallel_case
+      case (jr_fsm_state_r)
+        // catching j/b on IFETCH output
+        JR_FSM_CATCHING_JR: begin
+          if (padv_dcod_i) begin
+            if (fetch_op_jr_i) begin
+              jr_gathering_target_p <= 1'b1;
+              if (jr_dcd2fth_hazard_d1b1_raw | rat_rd1_alloc[fetch_rfb1_adr_i])
+                jr_fsm_state_r <= JR_FSM_WAITING_B1;
+              else
+                jr_fsm_state_r <= JR_FSM_GET_B1;
+            end
+          end
+        end
+
+        // gathering target for l.jr/l.jalr
+        JR_FSM_GET_B1: begin
+          jr_fsm_state_r        <= JR_FSM_DOING_JR;
+          jr_gathering_target_p <= 1'b0;
+        end
+        // waiting target for l.jr/l.jalr
+        JR_FSM_WAITING_B1: begin
+          if (jb_hazard_ext_p == wb_extadr_o) begin
+            jr_fsm_state_r        <= JR_FSM_DOING_JR;
+            jr_gathering_target_p <= 1'b0;
+          end
+        end
+        // doing l.jr/l.jalr
+        JR_FSM_DOING_JR: begin
+          jr_fsm_state_r <= JR_FSM_CATCHING_JR;
+        end
+
+        // others
+        default:;
+      endcase
+    end
+  end // @cpu-clock
+
+
+  //--------------------------------//
+  // Tacking conditional branch FSM //
+  //--------------------------------//
 
   // state machine for tracking Jump / Branch related hazards
-  localparam [6:0] JB_FSM_CATCHING_JB           = 7'b0000001, // on IFETCH output
-                   JB_FSM_GET_B1                = 7'b0000010, // get rB for l.jr/ljalr if no hazard
-                   JB_FSM_WAITING_B1            = 7'b0000100, // waiting rB for l.jr/ljalr if hazard
-                   JB_FSM_DOING_JR              = 7'b0001000, // execute l.jr/ljalr
-                   JB_FSM_PREDICT_CATCHING_DS   = 7'b0010000, // from conditional branch till delay slot
-                   JB_FSM_PREDICT_WAITING_FLAG  = 7'b0100000, // from delay slot till periction reslolving
-                   JB_FSM_PREDICT_MISS          = 7'b1000000; // restart IFETCH from mispredict target (1-clock)
-  // ---
-  reg [6:0] jb_fsm_state_r;
-  // initial value for simulations
-  // we need it because we use mispredict flag ORed
-  // with pipeline-flush and cpu-rst in IFETCH
- `ifndef SYNTHESIS
-  // synthesis translate_off
-  initial jb_fsm_state_r = 7'd0;
-  // synthesis translate_on
- `endif // !synth
-  // --- particular states ---
-  wire jb_fsm_catching_jb                = jb_fsm_state_r[0];
-  wire jb_fsm_get_b1_state               = jb_fsm_state_r[1];
-  wire jb_fsm_waiting_b1_state           = jb_fsm_state_r[2];
-  wire jb_fsm_doing_jr_state             = jb_fsm_state_r[3];
-  wire jb_fsm_predict_catching_ds_state  = jb_fsm_state_r[4];
-  wire jb_fsm_predict_waiting_flag_state = jb_fsm_state_r[5];
-  wire jb_fsm_predict_miss_state         = jb_fsm_state_r[6];
+  localparam [3:0] BC_FSM_CATCHING_BC           = 4'b0001, // on IFETCH output
+                   BC_FSM_PREDICT_CATCHING_DS   = 4'b0010, // from conditional branch till delay slot
+                   BC_FSM_PREDICT_WAITING_FLAG  = 4'b0100, // from delay slot till periction reslolving
+                   BC_FSM_PREDICT_MISS          = 4'b1000; // restart IFETCH from mispredict target (1-clock)
+
+  reg [3:0] bc_fsm_state_r;
+
+  wire bc_fsm_catching_bc                = bc_fsm_state_r[0];
+  wire bc_fsm_predict_catching_ds_state  = bc_fsm_state_r[1];
+  wire bc_fsm_predict_waiting_flag_state = bc_fsm_state_r[2];
+  wire bc_fsm_predict_miss_state         = bc_fsm_state_r[3];
 
 
   // --- detect flag hazard for l.bf/l.bnf ---
@@ -901,15 +956,6 @@ module mor1kx_oman_marocchino
       flag_alloc_ext_r <= flag_alloc_ext_m;
   end // at cpu-clock
 
-
-  // --- various pendings till rB/flag computationcompletion ---
-  wire                            jr_dcd2fth_hazard_d1b1_raw; // used only inside J/B FSM
-  reg     [DEST_EXTADR_WIDTH-1:0] jb_hazard_ext_p;
-  reg  [OPTION_OPERAND_WIDTH-1:0] jr_target_p;
-  reg                             jr_gathering_target_p;
-  // ---
-  assign jr_dcd2fth_hazard_d1b1_raw = (dcod_rfd1_adr_i == fetch_rfb1_adr_i) & dcod_rfd1_wb_i;
-
   // --- prediction related registers ---
   reg                            predict_bc_taken_r;    // 0 if not taken
   reg                            predict_flag_value_r;
@@ -927,37 +973,27 @@ module mor1kx_oman_marocchino
   wire predict_hit_raw  = (~predict_flag_alloc_r) &  (~(predict_flag_value_r ^ ctrl_flag_sr_i));
   wire predict_miss_raw = (~predict_flag_alloc_r) &    (predict_flag_value_r ^ ctrl_flag_sr_i);
   // --- complete prediction hit ---
-  wire predict_hit = (jb_fsm_predict_catching_ds_state | jb_fsm_predict_waiting_flag_state) & predict_hit_raw;
+  wire predict_hit = (bc_fsm_predict_catching_ds_state | bc_fsm_predict_waiting_flag_state) & predict_hit_raw;
 
   // Jump / Branch state machine
   always @(posedge cpu_clk) begin
     if (pipeline_flush_i) begin
-      jb_fsm_state_r  <= JB_FSM_CATCHING_JB;
-      // for prediction processing
+      bc_fsm_state_r       <= BC_FSM_CATCHING_BC;
       predict_bc_taken_r   <= 1'b0;
       predict_flag_value_r <= 1'b0;
       predict_flag_alloc_r <= 1'b0;
       do_bc_predict_r      <= 1'b0;
       fetch_op_bc_r        <= 1'b0;
       fetch_op_bf_r        <= 1'b0;
-      // for l.jr/l.jalr procesing
-      jr_gathering_target_p <= 1'b0;
     end
     else begin
       // synthesis parallel_case
-      case (jb_fsm_state_r)
+      case (bc_fsm_state_r)
         // catching j/b on IFETCH output
-        JB_FSM_CATCHING_JB: begin
+        BC_FSM_CATCHING_BC: begin
           if (padv_dcod_i) begin
-            if (fetch_op_jr_i) begin
-              jr_gathering_target_p <= 1'b1;
-              if (jr_dcd2fth_hazard_d1b1_raw | rat_rd1_alloc[fetch_rfb1_adr_i])
-                jb_fsm_state_r <= JB_FSM_WAITING_B1;
-              else
-                jb_fsm_state_r <= JB_FSM_GET_B1;
-            end
-            else if (fetch_op_bc) begin
-              jb_fsm_state_r        <= JB_FSM_PREDICT_CATCHING_DS;
+            if (fetch_op_bc) begin
+              bc_fsm_state_r        <= BC_FSM_PREDICT_CATCHING_DS;
               do_bc_predict_r       <= do_bc_predict_raw;
               predict_bc_taken_r    <= do_bc_predict_raw;
               predict_flag_value_r  <= (fetch_op_bf_i  &   do_bc_predict_raw) | // PREDICTED FLAG
@@ -969,31 +1005,14 @@ module mor1kx_oman_marocchino
           end
         end
 
-        // gathering target for l.jr/l.jalr
-        JB_FSM_GET_B1: begin
-          jb_fsm_state_r        <= JB_FSM_DOING_JR;
-          jr_gathering_target_p <= 1'b0;
-        end
-        // waiting target for l.jr/l.jalr
-        JB_FSM_WAITING_B1: begin
-          if (jb_hazard_ext_p == wb_extadr_o) begin
-            jb_fsm_state_r        <= JB_FSM_DOING_JR;
-            jr_gathering_target_p <= 1'b0;
-          end
-        end
-        // doing l.jr/l.jalr
-        JB_FSM_DOING_JR: begin
-          jb_fsm_state_r <= JB_FSM_CATCHING_JB;
-        end
-
         // catching delay slot after branch conditional
-        JB_FSM_PREDICT_CATCHING_DS: begin
+        BC_FSM_PREDICT_CATCHING_DS: begin
           if (predict_hit_raw) begin
-            jb_fsm_state_r <= JB_FSM_CATCHING_JB;
+            bc_fsm_state_r <= BC_FSM_CATCHING_BC;
           end
           else if (padv_dcod_i) begin
             if (fetch_delay_slot_i)
-              jb_fsm_state_r <= predict_miss_raw ? JB_FSM_PREDICT_MISS : JB_FSM_PREDICT_WAITING_FLAG;
+              bc_fsm_state_r <= predict_miss_raw ? BC_FSM_PREDICT_MISS : BC_FSM_PREDICT_WAITING_FLAG;
           end
           predict_flag_alloc_r <= keep_predict_flag_alloc;
           do_bc_predict_r      <= 1'b0;
@@ -1001,19 +1020,20 @@ module mor1kx_oman_marocchino
           fetch_op_bf_r        <= 1'b0;
         end
         // waiting flag computation
-        JB_FSM_PREDICT_WAITING_FLAG: begin
+        BC_FSM_PREDICT_WAITING_FLAG: begin
           if (predict_hit_raw) begin
-            jb_fsm_state_r <= JB_FSM_CATCHING_JB;
+            bc_fsm_state_r <= BC_FSM_CATCHING_BC;
           end
           else if (predict_miss_raw) begin
-            jb_fsm_state_r <= JB_FSM_PREDICT_MISS;
+            bc_fsm_state_r <= BC_FSM_PREDICT_MISS;
           end
           predict_flag_alloc_r <= keep_predict_flag_alloc;
         end
         // miss prediction (1-clock)
-        JB_FSM_PREDICT_MISS: begin
-          jb_fsm_state_r <= JB_FSM_CATCHING_JB;
+        BC_FSM_PREDICT_MISS: begin
+          bc_fsm_state_r <= BC_FSM_CATCHING_BC;
         end
+
         // others
         default:;
       endcase
@@ -1023,19 +1043,17 @@ module mor1kx_oman_marocchino
 
   // address extention for J/B processing
   always @(posedge cpu_clk) begin
-    if (jb_fsm_catching_jb) begin
-      if (padv_dcod_i) begin
-        if (fetch_op_jr_i)
-          jb_hazard_ext_p <= jr_dcd2fth_hazard_d1b1_raw ? dcod_extadr_r : omn2fth_extadr_dxb1;
-        else if (fetch_op_bc)
-          jb_hazard_ext_p <= flag_alloc_ext_m;
-      end
+    if (padv_dcod_i) begin
+      if (jr_fsm_catching_jr & fetch_op_jr_i)
+        jb_hazard_ext_p <= jr_dcd2fth_hazard_d1b1_raw ? dcod_extadr_r : omn2fth_extadr_dxb1;
+      else if (bc_fsm_catching_bc & fetch_op_bc)
+        jb_hazard_ext_p <= flag_alloc_ext_m;
     end
   end // at cpu clock
   // store target for l.jr/l.jalr
   always @(posedge cpu_clk) begin
-    jr_target_p <=  jb_fsm_get_b1_state     ? dcod_rfb1_jr_i :
-                   (jb_fsm_waiting_b1_state ? wb_result1_i   :
+    jr_target_p <=  jr_fsm_get_b1_state     ? dcod_rfb1_jr_i :
+                   (jr_fsm_waiting_b1_state ? wb_result1_i   :
                                               jr_target_p);
   end // @cpu-clock
 
@@ -1084,13 +1102,13 @@ module mor1kx_oman_marocchino
     if (pipeline_flush_i)
       dcod_locked_r <= 1'b0;
     else if (dcod_locked_r) begin
-      if ((jb_fsm_predict_waiting_flag_state & predict_hit_raw) | // UNLOCK DECODE
-          jb_fsm_predict_miss_state)                              // UNLOCK DECODE
+      if ((bc_fsm_predict_waiting_flag_state & predict_hit_raw) | // UNLOCK DECODE
+          bc_fsm_predict_miss_state)                              // UNLOCK DECODE
         dcod_locked_r <= 1'b0;
     end
     else if (padv_dcod_i)
       dcod_locked_r <= fetch_delay_slot_i &                                     // LOCK DECODE
-                       (jb_fsm_predict_catching_ds_state & (~predict_hit_raw)); // LOCK DECODE
+                       (bc_fsm_predict_catching_ds_state & (~predict_hit_raw)); // LOCK DECODE
   end // at clock
   // ---
   assign dcod_free_o = (~dcod_locked_r);
@@ -1101,20 +1119,20 @@ module mor1kx_oman_marocchino
 
 
   // branch prediction missed
-  assign predict_miss_o = jb_fsm_predict_miss_state;
+  assign predict_miss_o = bc_fsm_predict_miss_state;
 
   // "Do branch"
   assign do_branch_o = fetch_op_jimm_r       |    // do jump to immediate
                        do_bc_predict_r       |    // do branch conditional
-                       jb_fsm_doing_jr_state |    // do jump to register (B1)
-                       jb_fsm_predict_miss_state; // do jump to mispredict target
+                       jr_fsm_doing_jr_state |    // do jump to register (B1)
+                       bc_fsm_predict_miss_state; // do jump to mispredict target
   // branch target
-  assign do_branch_target_o = jb_fsm_predict_miss_state ? predict_miss_target_r :   // branch target selection
-                                   (jb_fsm_doing_jr_state ? jr_target_p :           // branch target selection
+  assign do_branch_target_o = bc_fsm_predict_miss_state ? predict_miss_target_r :   // branch target selection
+                                   (jr_fsm_doing_jr_state ? jr_target_p :           // branch target selection
                                                             fetch_to_imm_target_r); // branch target selection
 
   // we execute l.jr/l.jalr after registering target only
-  assign jr_gathering_target_o = (fetch_op_jb_i & (~jb_fsm_predict_miss_state)) | jr_gathering_target_p;
+  assign jr_gathering_target_o = (fetch_op_jb_i & (~bc_fsm_predict_miss_state)) | jr_gathering_target_p;
 
 
 
@@ -1136,7 +1154,7 @@ module mor1kx_oman_marocchino
 
   // Write/Read to Jump/Branch attributes buffers
   // !!! each case is 1-clock length
-  wire jb_attr_ocb_write = jb_fsm_doing_jr_state | fetch_op_jimm_r | fetch_op_bc_r;
+  wire jb_attr_ocb_write = jr_fsm_doing_jr_state | fetch_op_jimm_r | fetch_op_bc_r;
   wire jb_attr_ocb_read  = padv_wb_i & ocbo[OCBTC_JUMP_OR_BRANCH_POS];
 
   // --- JB-ATTR-OCB output / input ---
@@ -1147,11 +1165,11 @@ module mor1kx_oman_marocchino
     {
       // --- control flags ---
       1'b1, // JB ATTR-C VALID
-      (jb_fsm_doing_jr_state & (|jr_target_p[1:0])), // JB ATTR-C IBUS ALIGN
-      (jb_fsm_doing_jr_state | fetch_op_jimm_r), // JB ATTR-C JUMP (uncoditional)
+      (jr_fsm_doing_jr_state & (|jr_target_p[1:0])), // JB ATTR-C IBUS ALIGN
+      (jr_fsm_doing_jr_state | fetch_op_jimm_r), // JB ATTR-C JUMP (uncoditional)
       fetch_op_bf_r, // JB ATTR-C BRANCH BY FLAG (conditional)
       // --- data ---
-      (jb_fsm_doing_jr_state ? jr_target_p : fetch_to_imm_target_r) // JB ATTR-D TARGET
+      (jr_fsm_doing_jr_state ? jr_target_p : fetch_to_imm_target_r) // JB ATTR-D TARGET
     };
 
   // --- JB-ATTR-OCB instance ---
@@ -1218,14 +1236,14 @@ module mor1kx_oman_marocchino
   always @(posedge cpu_clk) begin
     if (cpu_rst)
       bc_cnt_we_o <= 1'b0;
-    else if (predict_hit | jb_fsm_predict_miss_state)
+    else if (predict_hit | bc_fsm_predict_miss_state)
       bc_cnt_we_o <= 1'b1;
     else
       bc_cnt_we_o <= 1'b0;
   end // at clock
   // --- saturation counter update address ---
   always @(posedge cpu_clk) begin
-    if (predict_hit | jb_fsm_predict_miss_state)
+    if (predict_hit | bc_fsm_predict_miss_state)
       bc_cnt_wadr_o <= bc_cnt_radr_p;
   end // at clock
   // --- data for saturation counters and branch history ---
@@ -1234,7 +1252,7 @@ module mor1kx_oman_marocchino
       bc_hist_taken_o <= predict_bc_taken_r;
       bc_cnt_wdat_o   <= predict_bc_taken_r ? bc_cnt_value_up_p : bc_cnt_value_dn_p;
     end
-    else if (jb_fsm_predict_miss_state) begin
+    else if (bc_fsm_predict_miss_state) begin
       bc_hist_taken_o <= (~predict_bc_taken_r);
       bc_cnt_wdat_o   <= (~predict_bc_taken_r) ? bc_cnt_value_up_p : bc_cnt_value_dn_p;
     end
