@@ -909,17 +909,19 @@ module mor1kx_oman_marocchino
   //--------------------------------//
 
   // state machine for tracking Jump / Branch related hazards
-  localparam [3:0] BC_FSM_CATCHING_BC           = 4'b0001, // on IFETCH output
-                   BC_FSM_PREDICT_CATCHING_DS   = 4'b0010, // from conditional branch till delay slot
-                   BC_FSM_PREDICT_WAITING_FLAG  = 4'b0100, // from delay slot till periction reslolving
-                   BC_FSM_PREDICT_MISS          = 4'b1000; // restart IFETCH from mispredict target (1-clock)
+  localparam [4:0] BC_FSM_CATCHING_BC           = 5'b00001, // on IFETCH output
+                   BC_FSM_DO_INSTANT_BRANCH     = 5'b00010,
+                   BC_FSM_PREDICT_CATCHING_DS   = 5'b00100, // from conditional branch till delay slot
+                   BC_FSM_PREDICT_WAITING_FLAG  = 5'b01000, // from delay slot till periction reslolving
+                   BC_FSM_PREDICT_MISS          = 5'b10000; // restart IFETCH from mispredict target (1-clock)
 
-  reg [3:0] bc_fsm_state_r;
+  reg [4:0] bc_fsm_state_r;
 
   wire bc_fsm_catching_bc                = bc_fsm_state_r[0];
-  wire bc_fsm_predict_catching_ds_state  = bc_fsm_state_r[1];
-  wire bc_fsm_predict_waiting_flag_state = bc_fsm_state_r[2];
-  wire bc_fsm_predict_miss_state         = bc_fsm_state_r[3];
+  wire bc_fsm_do_instant_branch_state    = bc_fsm_state_r[1];
+  wire bc_fsm_predict_catching_ds_state  = bc_fsm_state_r[2];
+  wire bc_fsm_predict_waiting_flag_state = bc_fsm_state_r[3];
+  wire bc_fsm_predict_miss_state         = bc_fsm_state_r[4];
 
 
   // --- detect flag hazard for l.bf/l.bnf ---
@@ -928,24 +930,18 @@ module mor1kx_oman_marocchino
   wire [DEST_EXTADR_WIDTH-1:0] flag_alloc_ext_m; // SR[F] allocation index
   reg  [DEST_EXTADR_WIDTH-1:0] flag_alloc_ext_r; // SR[F] allocation index
   // ---
-  assign flag_alloc_w = dcod_flag_wb_i | flag_alloc_r;
-  wire   flag_alloc_at_wb = flag_alloc_r & (flag_alloc_ext_r != exec_extadr);
+  assign flag_alloc_w    = dcod_flag_wb_i | flag_alloc_r;
+  wire   keep_flag_alloc = dcod_flag_wb_i | (flag_alloc_ext_r != wb_extadr_o);
   // ---
   always @(posedge cpu_clk) begin
-    if (pipeline_flush_i)
+    if (pipeline_flush_i) begin
       flag_alloc_r <= 1'b0;
+    end
     else begin
-      // synthesis parallel_case
-      case ({padv_wb_i,padv_exec_i})
-        // DECODE->OMAN
-        2'b01: flag_alloc_r <= flag_alloc_w;
-        // WB-only
-        2'b10: flag_alloc_r <= flag_alloc_at_wb;
-        // overlapping
-        2'b11: flag_alloc_r <= dcod_flag_wb_i | flag_alloc_at_wb;
-        // don't change by default
-        default:;
-      endcase
+      if (flag_alloc_r)
+        flag_alloc_r <= keep_flag_alloc;
+      else if (padv_exec_i)
+        flag_alloc_r <= dcod_flag_wb_i;
     end
   end // at cpu-clock
   // ---
@@ -956,16 +952,16 @@ module mor1kx_oman_marocchino
       flag_alloc_ext_r <= flag_alloc_ext_m;
   end // at cpu-clock
 
-  // --- prediction related registers ---
-  reg                            predict_bc_taken_r;    // 0 if not taken
-  reg                            predict_flag_value_r;
-  reg                            predict_flag_alloc_r;
   // --- use / do  preticted or instant conditional branch (bc) ---
-  wire fetch_op_bc       = fetch_op_bf_i | fetch_op_bnf_i;
-  reg  fetch_op_bc_r;      // to WriteBack
-  reg  fetch_op_bf_r;      // to WriteBack
+  wire fetch_op_bc = fetch_op_bf_i | fetch_op_bnf_i;
+  reg  dcod_op_bc_r; // to WriteBack
+  reg  dcod_op_bf_r; // to WriteBack
+  reg  take_bc_r;    // to IFETCH
+  // --- prediction related registers ---
   wire do_bc_predict_raw = bc_cnt_value_i[1];
-  reg  do_bc_predict_r;    // to IFETCH
+  reg  predict_bc_taken_r;
+  reg  predict_flag_value_r;
+  reg  predict_flag_alloc_r;
   // --- wait completion writting to SR[F] ---
   wire keep_predict_flag_alloc = predict_flag_alloc_r & (jb_hazard_ext_p != wb_extadr_o);
   // --- compute raw hit/miss for prediction ---
@@ -978,13 +974,13 @@ module mor1kx_oman_marocchino
   // Jump / Branch state machine
   always @(posedge cpu_clk) begin
     if (pipeline_flush_i) begin
-      bc_fsm_state_r       <= BC_FSM_CATCHING_BC;
-      predict_bc_taken_r   <= 1'b0;
-      predict_flag_value_r <= 1'b0;
-      predict_flag_alloc_r <= 1'b0;
-      do_bc_predict_r      <= 1'b0;
-      fetch_op_bc_r        <= 1'b0;
-      fetch_op_bf_r        <= 1'b0;
+      bc_fsm_state_r       <= BC_FSM_CATCHING_BC; // flush pipe
+      take_bc_r            <= 1'b0; // flush pipe
+      dcod_op_bc_r         <= 1'b0; // flush pipe
+      dcod_op_bf_r         <= 1'b0; // flush pipe
+      predict_bc_taken_r   <= 1'b0; // flush pipe
+      predict_flag_value_r <= 1'b0; // flush pipe
+      predict_flag_alloc_r <= 1'b0; // flush pipe
     end
     else begin
       // synthesis parallel_case
@@ -993,16 +989,31 @@ module mor1kx_oman_marocchino
         BC_FSM_CATCHING_BC: begin
           if (padv_dcod_i) begin
             if (fetch_op_bc) begin
-              bc_fsm_state_r        <= BC_FSM_PREDICT_CATCHING_DS;
-              do_bc_predict_r       <= do_bc_predict_raw;
-              predict_bc_taken_r    <= do_bc_predict_raw;
-              predict_flag_value_r  <= (fetch_op_bf_i  &   do_bc_predict_raw) | // PREDICTED FLAG
-                                       (fetch_op_bnf_i & (~do_bc_predict_raw)); // PREDICTED FLAG
-              predict_flag_alloc_r  <= flag_alloc_w;
-              fetch_op_bc_r         <= 1'b1;
-              fetch_op_bf_r         <= 1'b1;
+              if (flag_alloc_w) begin
+                bc_fsm_state_r        <= BC_FSM_PREDICT_CATCHING_DS;
+                take_bc_r             <= do_bc_predict_raw;
+                predict_bc_taken_r    <= do_bc_predict_raw;
+                predict_flag_value_r  <= (fetch_op_bf_i  &   do_bc_predict_raw) | // PREDICTED FLAG
+                                         (fetch_op_bnf_i & (~do_bc_predict_raw)); // PREDICTED FLAG
+                predict_flag_alloc_r  <= keep_flag_alloc;
+              end
+              else begin
+                bc_fsm_state_r <= BC_FSM_DO_INSTANT_BRANCH;
+                take_bc_r      <= (fetch_op_bf_i  &   ctrl_flag_sr_i) |
+                                  (fetch_op_bnf_i & (~ctrl_flag_sr_i));
+              end
+              dcod_op_bc_r <= 1'b1;
+              dcod_op_bf_r <= fetch_op_bf_i;
             end
           end
+        end
+
+        // we can take branch without prediction
+        BC_FSM_DO_INSTANT_BRANCH: begin
+          bc_fsm_state_r <= BC_FSM_CATCHING_BC;
+          take_bc_r      <= 1'b0;
+          dcod_op_bc_r   <= 1'b0;
+          dcod_op_bf_r   <= 1'b0;
         end
 
         // catching delay slot after branch conditional
@@ -1015,10 +1026,10 @@ module mor1kx_oman_marocchino
               bc_fsm_state_r <= predict_miss_raw ? BC_FSM_PREDICT_MISS : BC_FSM_PREDICT_WAITING_FLAG;
           end
           predict_flag_alloc_r <= keep_predict_flag_alloc;
-          do_bc_predict_r      <= 1'b0;
-          fetch_op_bc_r        <= 1'b0;
-          fetch_op_bf_r        <= 1'b0;
-        end
+          take_bc_r            <= 1'b0;
+          dcod_op_bc_r         <= 1'b0;
+          dcod_op_bf_r         <= 1'b0;
+         end
         // waiting flag computation
         BC_FSM_PREDICT_WAITING_FLAG: begin
           if (predict_hit_raw) begin
@@ -1072,21 +1083,21 @@ module mor1kx_oman_marocchino
 
   // latch jump-to-immediate flag for 1-clock
   // to generate "do branch"
-  reg                             fetch_op_jimm_r;
-  reg  [OPTION_OPERAND_WIDTH-1:0] fetch_to_imm_target_r;
+  reg                             dcod_op_jimm_r;
+  reg  [OPTION_OPERAND_WIDTH-1:0] dcod_to_imm_target_r;
   // ---
   always @(posedge cpu_clk) begin
     if (pipeline_flush_i)
-      fetch_op_jimm_r <= 1'b0;
+      dcod_op_jimm_r <= 1'b0;
     else if (padv_dcod_i)
-      fetch_op_jimm_r <= fetch_op_jimm_i;
+      dcod_op_jimm_r <= fetch_op_jimm_i;
     else
-      fetch_op_jimm_r <= 1'b0;
+      dcod_op_jimm_r <= 1'b0;
   end // at cpu clock
   // ---
   always @(posedge cpu_clk) begin
     if (padv_dcod_i)
-      fetch_to_imm_target_r <= fetch_to_imm_target_i;
+      dcod_to_imm_target_r <= fetch_to_imm_target_i;
   end // at cpu clock
 
 
@@ -1122,14 +1133,14 @@ module mor1kx_oman_marocchino
   assign predict_miss_o = bc_fsm_predict_miss_state;
 
   // "Do branch"
-  assign do_branch_o = fetch_op_jimm_r       |    // do jump to immediate
-                       do_bc_predict_r       |    // do branch conditional
+  assign do_branch_o = dcod_op_jimm_r        |    // do jump to immediate
+                       take_bc_r             |    // do branch conditional
                        jr_fsm_doing_jr_state |    // do jump to register (B1)
                        bc_fsm_predict_miss_state; // do jump to mispredict target
   // branch target
-  assign do_branch_target_o = bc_fsm_predict_miss_state ? predict_miss_target_r :   // branch target selection
-                                   (jr_fsm_doing_jr_state ? jr_target_p :           // branch target selection
-                                                            fetch_to_imm_target_r); // branch target selection
+  assign do_branch_target_o = bc_fsm_predict_miss_state ? predict_miss_target_r :  // branch target selection
+                                   (jr_fsm_doing_jr_state ? jr_target_p :          // branch target selection
+                                                            dcod_to_imm_target_r); // branch target selection
 
   // we execute l.jr/l.jalr after registering target only
   assign jr_gathering_target_o = (fetch_op_jb_i & (~bc_fsm_predict_miss_state)) | jr_gathering_target_p;
@@ -1154,7 +1165,7 @@ module mor1kx_oman_marocchino
 
   // Write/Read to Jump/Branch attributes buffers
   // !!! each case is 1-clock length
-  wire jb_attr_ocb_write = jr_fsm_doing_jr_state | fetch_op_jimm_r | fetch_op_bc_r;
+  wire jb_attr_ocb_write = jr_fsm_doing_jr_state | dcod_op_jimm_r | dcod_op_bc_r;
   wire jb_attr_ocb_read  = padv_wb_i & ocbo[OCBTC_JUMP_OR_BRANCH_POS];
 
   // --- JB-ATTR-OCB output / input ---
@@ -1166,10 +1177,10 @@ module mor1kx_oman_marocchino
       // --- control flags ---
       1'b1, // JB ATTR-C VALID
       (jr_fsm_doing_jr_state & (|jr_target_p[1:0])), // JB ATTR-C IBUS ALIGN
-      (jr_fsm_doing_jr_state | fetch_op_jimm_r), // JB ATTR-C JUMP (uncoditional)
-      fetch_op_bf_r, // JB ATTR-C BRANCH BY FLAG (conditional)
+      (jr_fsm_doing_jr_state | dcod_op_jimm_r), // JB ATTR-C JUMP (uncoditional)
+      dcod_op_bf_r, // JB ATTR-C BRANCH BY FLAG (conditional)
       // --- data ---
-      (jr_fsm_doing_jr_state ? jr_target_p : fetch_to_imm_target_r) // JB ATTR-D TARGET
+      (jr_fsm_doing_jr_state ? jr_target_p : dcod_to_imm_target_r) // JB ATTR-D TARGET
     };
 
   // --- JB-ATTR-OCB instance ---
@@ -1236,19 +1247,23 @@ module mor1kx_oman_marocchino
   always @(posedge cpu_clk) begin
     if (cpu_rst)
       bc_cnt_we_o <= 1'b0;
-    else if (predict_hit | bc_fsm_predict_miss_state)
+    else if (bc_fsm_do_instant_branch_state | predict_hit | bc_fsm_predict_miss_state)
       bc_cnt_we_o <= 1'b1;
     else
       bc_cnt_we_o <= 1'b0;
   end // at clock
   // --- saturation counter update address ---
   always @(posedge cpu_clk) begin
-    if (predict_hit | bc_fsm_predict_miss_state)
+    if (bc_fsm_do_instant_branch_state | predict_hit | bc_fsm_predict_miss_state)
       bc_cnt_wadr_o <= bc_cnt_radr_p;
   end // at clock
   // --- data for saturation counters and branch history ---
   always @(posedge cpu_clk) begin
-    if (predict_hit) begin
+    if (bc_fsm_do_instant_branch_state) begin
+      bc_hist_taken_o <= take_bc_r;
+      bc_cnt_wdat_o   <= take_bc_r ? bc_cnt_value_up_p : bc_cnt_value_dn_p;
+    end
+    else if (predict_hit) begin
       bc_hist_taken_o <= predict_bc_taken_r;
       bc_cnt_wdat_o   <= predict_bc_taken_r ? bc_cnt_value_up_p : bc_cnt_value_dn_p;
     end

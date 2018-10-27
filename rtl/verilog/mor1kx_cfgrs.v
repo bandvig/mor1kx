@@ -134,7 +134,7 @@ module mor1kx_cfgrs
 
    /* Data MMU Configuration Register */
    /* Reserved */
-   assign spr_dmmucfgr[31:15] = 0;
+   assign spr_dmmucfgr[31:12] = 0;
    /* Hardware TLB Reload */
    assign spr_dmmucfgr[`OR1K_SPR_DMMUFGR_HTR] = 0;
    /* TLB Entry Invalidate Register Implemented */
@@ -154,7 +154,7 @@ module mor1kx_cfgrs
 
    /* Instruction MMU Configuration Register */
    /* Reserved */
-   assign spr_immucfgr[31:15] = 0;
+   assign spr_immucfgr[31:12] = 0;
    /* Hardware TLB Reload */
    assign spr_immucfgr[`OR1K_SPR_IMMUFGR_HTR] = 0;
    /* TLB Entry Invalidate Register Implemented */
