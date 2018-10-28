@@ -1127,12 +1127,8 @@ module mor1kx_ctrl_marocchino
   assign wb_mfspr_result_m = {OPTION_OPERAND_WIDTH{spr_bus_wb}} & spr_bus_dat_r;
   // ---
   always @(posedge cpu_clk) begin
-    if (padv_wb_o) begin
-      wb_mfspr_result_o     <= wb_mfspr_result_m;
-      wb_mfspr_result_cp1_o <= wb_mfspr_result_m;
-      wb_mfspr_result_cp2_o <= wb_mfspr_result_m;
-      wb_mfspr_result_cp3_o <= wb_mfspr_result_m;
-    end
+    if (padv_wb_o)
+      wb_mfspr_result_o <= wb_mfspr_result_m;
   end // @clock
 
 

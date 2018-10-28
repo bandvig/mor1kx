@@ -110,9 +110,6 @@ module mor1kx_lsu_marocchino
   output                                exec_an_except_lsu_o,
   // WriteBack load  result
   output     [OPTION_OPERAND_WIDTH-1:0] wb_lsu_result_o,
-  output reg [OPTION_OPERAND_WIDTH-1:0] wb_lsu_result_cp1_o,
-  output reg [OPTION_OPERAND_WIDTH-1:0] wb_lsu_result_cp2_o,
-  output reg [OPTION_OPERAND_WIDTH-1:0] wb_lsu_result_cp3_o,
   // Atomic operation flag set/clear logic
   output                                wb_atomic_flag_set_o,
   output                                wb_atomic_flag_clear_o,
@@ -1089,18 +1086,10 @@ module mor1kx_lsu_marocchino
   // ---
   always @(posedge cpu_clk) begin
     if (padv_wb_i) begin
-      if (grant_wb_to_lsu_i) begin
-        wb_odat             <= lsu_wb_miss ? s3o_odat_miss[ODAT_WB_MSB:0] : s3t_odat[ODAT_WB_MSB:0];
-        wb_lsu_result_cp1_o <= wb_lsu_result_m;
-        wb_lsu_result_cp2_o <= wb_lsu_result_m;
-        wb_lsu_result_cp3_o <= wb_lsu_result_m;
-      end
-      else begin
-        wb_odat             <= {ODAT_WB_DW{1'b0}};
-        wb_lsu_result_cp1_o <= {ODAT_WB_DW{1'b0}};
-        wb_lsu_result_cp2_o <= {ODAT_WB_DW{1'b0}};
-        wb_lsu_result_cp3_o <= {ODAT_WB_DW{1'b0}};
-      end
+      if (grant_wb_to_lsu_i)
+        wb_odat <= lsu_wb_miss ? s3o_odat_miss[ODAT_WB_MSB:0] : s3t_odat[ODAT_WB_MSB:0];
+      else
+        wb_odat <= {ODAT_WB_DW{1'b0}};
     end
   end // @clock
 

@@ -214,50 +214,23 @@ module mor1kx_cpu_marocchino
   // !!! MAROCCHINO_TODO: <determine optimal settings>
   //  # from 1-clock execution units
   wire [OPTION_OPERAND_WIDTH-1:0] wb_alu_1clk_result;
-  wire [OPTION_OPERAND_WIDTH-1:0] wb_alu_1clk_result_cp1; // copy #1
-  wire [OPTION_OPERAND_WIDTH-1:0] wb_alu_1clk_result_cp2; // copy #2
-  wire [OPTION_OPERAND_WIDTH-1:0] wb_alu_1clk_result_cp3; // copy #3
   //  # from integer division execution unit
   wire [OPTION_OPERAND_WIDTH-1:0] wb_div_result;
-  wire [OPTION_OPERAND_WIDTH-1:0] wb_div_result_cp1; // copy #1
-  wire [OPTION_OPERAND_WIDTH-1:0] wb_div_result_cp2; // copy #2
-  wire [OPTION_OPERAND_WIDTH-1:0] wb_div_result_cp3; // copy #3
   //  # from integer multiplier execution unit
   wire [OPTION_OPERAND_WIDTH-1:0] wb_mul_result;
-  wire [OPTION_OPERAND_WIDTH-1:0] wb_mul_result_cp1; // copy #1
-  wire [OPTION_OPERAND_WIDTH-1:0] wb_mul_result_cp2; // copy #2
-  wire [OPTION_OPERAND_WIDTH-1:0] wb_mul_result_cp3; // copy #3
   //  # from FP32 execution unit
   wire [OPTION_OPERAND_WIDTH-1:0] wb_fpxx_arith_res_hi;
-  wire [OPTION_OPERAND_WIDTH-1:0] wb_fpxx_arith_res_hi_cp1; // copy #1
-  wire [OPTION_OPERAND_WIDTH-1:0] wb_fpxx_arith_res_hi_cp2; // copy #2
-  wire [OPTION_OPERAND_WIDTH-1:0] wb_fpxx_arith_res_hi_cp3; // copy #3
   //  # from FP64 execution unit
   wire [OPTION_OPERAND_WIDTH-1:0] wb_fpxx_arith_res_lo;
-  wire [OPTION_OPERAND_WIDTH-1:0] wb_fpxx_arith_res_lo_cp1; // copy #1
-  wire [OPTION_OPERAND_WIDTH-1:0] wb_fpxx_arith_res_lo_cp2; // copy #2
-  wire [OPTION_OPERAND_WIDTH-1:0] wb_fpxx_arith_res_lo_cp3; // copy #3
   //  # from LSU execution unit
   wire [OPTION_OPERAND_WIDTH-1:0] wb_lsu_result;
-  wire [OPTION_OPERAND_WIDTH-1:0] wb_lsu_result_cp1; // copy #1
-  wire [OPTION_OPERAND_WIDTH-1:0] wb_lsu_result_cp2; // copy #2
-  wire [OPTION_OPERAND_WIDTH-1:0] wb_lsu_result_cp3; // copy #3
   //  # from CTRL execution unit
   wire [OPTION_OPERAND_WIDTH-1:0] wb_mfspr_result;
-  wire [OPTION_OPERAND_WIDTH-1:0] wb_mfspr_result_cp1; // copy #1
-  wire [OPTION_OPERAND_WIDTH-1:0] wb_mfspr_result_cp2; // copy #2
-  wire [OPTION_OPERAND_WIDTH-1:0] wb_mfspr_result_cp3; // copy #3
   // Combined write-back outputs
   //  # regular result
-  wire [OPTION_OPERAND_WIDTH-1:0] wb_result1;     // WB result combiner
-  wire [OPTION_OPERAND_WIDTH-1:0] wb_result1_cp1; // copy #1
-  wire [OPTION_OPERAND_WIDTH-1:0] wb_result1_cp2; // copy #2
-  wire [OPTION_OPERAND_WIDTH-1:0] wb_result1_cp3; // copy #3
+  reg  [OPTION_OPERAND_WIDTH-1:0] wb_result1;     // WB result combiner
   //  # extention for FPU3264
   wire [OPTION_OPERAND_WIDTH-1:0] wb_result2;     // WB result combiner for FPU64
-  wire [OPTION_OPERAND_WIDTH-1:0] wb_result2_cp1; // copy #1
-  wire [OPTION_OPERAND_WIDTH-1:0] wb_result2_cp2; // copy #2
-  wire [OPTION_OPERAND_WIDTH-1:0] wb_result2_cp3; // copy #3
 
 
   wire                            dcod_free;
@@ -1238,8 +1211,8 @@ module mor1kx_cpu_marocchino
     //  ## write-back attributes
     .wb_extadr_i                (wb_extadr), // 1CLK_RSVRS
     //  ## forwarding results
-    .wb_result1_i               (wb_result1_cp1), // 1CLK_RSVRS
-    .wb_result2_i               (wb_result2_cp1), // 1CLK_RSVRS
+    .wb_result1_i               (wb_result1), // 1CLK_RSVRS
+    .wb_result2_i               (wb_result2), // 1CLK_RSVRS
     // command and its additional attributes
     .dcod_op_i                  ({dcod_op_ffl1, dcod_op_add, dcod_op_shift, dcod_op_movhi, // 1CLK_RSVRS
                                   dcod_op_cmov, dcod_op_logic, dcod_op_setflag}), // 1CLK_RSVRS
@@ -1309,9 +1282,6 @@ module mor1kx_cpu_marocchino
     .exec_lut_logic_i                 (exec_lut_logic), // 1CLK_EXEC
     // WB-latched 1-clock arithmetic result
     .wb_alu_1clk_result_o             (wb_alu_1clk_result), // 1CLK_EXEC
-    .wb_alu_1clk_result_cp1_o         (wb_alu_1clk_result_cp1), // 1CLK_EXEC
-    .wb_alu_1clk_result_cp2_o         (wb_alu_1clk_result_cp2), // 1CLK_EXEC
-    .wb_alu_1clk_result_cp3_o         (wb_alu_1clk_result_cp3), // 1CLK_EXEC
     //  # update carry flag by 1clk-operation
     .wb_1clk_carry_set_o              (wb_1clk_carry_set), // 1CLK_EXEC
     .wb_1clk_carry_clear_o            (wb_1clk_carry_clear), // 1CLK_EXEC
@@ -1416,8 +1386,8 @@ module mor1kx_cpu_marocchino
     //  ## write-back attributes
     .wb_extadr_i                (wb_extadr), // MULDIV_RSRVS
     //  ## forwarding results
-    .wb_result1_i               (wb_result1_cp2), // MULDIV_RSRVS
-    .wb_result2_i               (wb_result2_cp2), // MULDIV_RSRVS
+    .wb_result1_i               (wb_result1), // MULDIV_RSRVS
+    .wb_result2_i               (wb_result2), // MULDIV_RSRVS
     // command and its additional attributes
     .dcod_op_i                  ({dcod_op_mul, dcod_op_div}), // MULDIV_RSRVS
     .dcod_opc_i                 ({dcod_op_div_signed, dcod_op_div_unsigned}),  // MULDIV_RSRVS
@@ -1459,10 +1429,7 @@ module mor1kx_cpu_marocchino
     .exec_op_mul_i                    (exec_op_mul), // MUL
     .imul_taking_op_o                 (imul_taking_op), // MUL
     .mul_valid_o                      (mul_valid), // MUL
-    .wb_mul_result_o                  (wb_mul_result), // MUL
-    .wb_mul_result_cp1_o              (wb_mul_result_cp1), // MUL
-    .wb_mul_result_cp2_o              (wb_mul_result_cp2), // MUL
-    .wb_mul_result_cp3_o              (wb_mul_result_cp3) // MUL
+    .wb_mul_result_o                  (wb_mul_result) // MUL
   );
 
 
@@ -1513,10 +1480,7 @@ module mor1kx_cpu_marocchino
     .exec_except_overflow_div_o       (exec_except_overflow_div), // DIV
     .wb_except_overflow_div_o         (wb_except_overflow_div), // DIV
     //  # division result
-    .wb_div_result_o                  (wb_div_result), // DIV
-    .wb_div_result_cp1_o              (wb_div_result_cp1), // DIV
-    .wb_div_result_cp2_o              (wb_div_result_cp2), // DIV
-    .wb_div_result_cp3_o              (wb_div_result_cp3) // DIV
+    .wb_div_result_o                  (wb_div_result) // DIV
   );
 
 
@@ -1608,8 +1572,8 @@ module mor1kx_cpu_marocchino
     //  ## write-back attributes
     .wb_extadr_i                (wb_extadr), // FPU_RSRVS
     //  ## forwarding results
-    .wb_result1_i               (wb_result1_cp2), // FPU_RSRVS
-    .wb_result2_i               (wb_result2_cp2), // FPU_RSRVS
+    .wb_result1_i               (wb_result1), // FPU_RSRVS
+    .wb_result2_i               (wb_result2), // FPU_RSRVS
     // command and its additional attributes
     .dcod_op_i                  ({dcod_op_fpxx_add, dcod_op_fpxx_sub, dcod_op_fpxx_mul, // FPU_RSRVS
                                   dcod_op_fpxx_div, dcod_op_fpxx_i2f, dcod_op_fpxx_f2i, // FPU_RSRVS
@@ -1681,13 +1645,7 @@ module mor1kx_cpu_marocchino
 
     // FPU2364 arithmetic part
     .wb_fpxx_arith_res_hi_o     (wb_fpxx_arith_res_hi), // FPU3264
-    .wb_fpxx_arith_res_hi_cp1_o (wb_fpxx_arith_res_hi_cp1), // FPU3264
-    .wb_fpxx_arith_res_hi_cp2_o (wb_fpxx_arith_res_hi_cp2), // FPU3264
-    .wb_fpxx_arith_res_hi_cp3_o (wb_fpxx_arith_res_hi_cp3), // FPU3264
     .wb_fpxx_arith_res_lo_o     (wb_fpxx_arith_res_lo), // FPU3264
-    .wb_fpxx_arith_res_lo_cp1_o (wb_fpxx_arith_res_lo_cp1), // FPU3264
-    .wb_fpxx_arith_res_lo_cp2_o (wb_fpxx_arith_res_lo_cp2), // FPU3264
-    .wb_fpxx_arith_res_lo_cp3_o (wb_fpxx_arith_res_lo_cp3), // FPU3264
     .wb_fpxx_arith_fpcsr_o      (wb_fpxx_arith_fpcsr), // FPU3264
     .wb_fpxx_arith_wb_fpcsr_o   (wb_fpxx_arith_wb_fpcsr), // FPU3264
     .wb_except_fpxx_arith_o     (wb_except_fpxx_arith), // FPU3264
@@ -1801,8 +1759,8 @@ module mor1kx_cpu_marocchino
     //  ## write-back attributes
     .wb_extadr_i                (wb_extadr), // LSU_RSVRS
     //  ## forwarding results
-    .wb_result1_i               (wb_result1_cp3), // LSU_RSVRS
-    .wb_result2_i               (wb_result2_cp3), // LSU_RSVRS
+    .wb_result1_i               (wb_result1), // LSU_RSVRS
+    .wb_result2_i               (wb_result2), // LSU_RSVRS
     // command and its additional attributes
     .dcod_op_i                  ({dcod_op_lsu_load, dcod_op_lsu_store}), // LSU_RSVRS
     .dcod_opc_i                 ({dcod_op_msync,    dcod_op_lsu_atomic, // LSU_RSVRS
@@ -1909,9 +1867,6 @@ module mor1kx_cpu_marocchino
     .exec_an_except_lsu_o             (exec_an_except_lsu), // LSU
     // WriteBack load  result
     .wb_lsu_result_o                  (wb_lsu_result), // LSU
-    .wb_lsu_result_cp1_o              (wb_lsu_result_cp1), // LSU
-    .wb_lsu_result_cp2_o              (wb_lsu_result_cp2), // LSU
-    .wb_lsu_result_cp3_o              (wb_lsu_result_cp3), // LSU
     // Atomic operation flag set/clear logic
     .wb_atomic_flag_set_o             (wb_atomic_flag_set), // LSU
     .wb_atomic_flag_clear_o           (wb_atomic_flag_clear), // LSU
@@ -1928,33 +1883,15 @@ module mor1kx_cpu_marocchino
   // WB:result //
   //-----------//
   // --- regular ---
-  assign wb_result1 = wb_alu_1clk_result   |
-                      wb_div_result        | wb_mul_result |
-                      wb_fpxx_arith_res_hi |
-                      wb_lsu_result        | wb_mfspr_result;
-  // copy #1 (to simplify feedback routing)
-  assign wb_result1_cp1 = wb_alu_1clk_result_cp1   |
-                          wb_div_result_cp1        | wb_mul_result_cp1 |
-                          wb_fpxx_arith_res_hi_cp1 |
-                          wb_lsu_result_cp1        | wb_mfspr_result_cp1;
-  // copy #2 (to simplify feedback routing)
-  assign wb_result1_cp2 = wb_alu_1clk_result_cp2   |
-                          wb_div_result_cp2        | wb_mul_result_cp2 |
-                          wb_fpxx_arith_res_hi_cp2 |
-                          wb_lsu_result_cp2        | wb_mfspr_result_cp2;
-  // copy #3 (to simplify feedback routing)
-  assign wb_result1_cp3 = wb_alu_1clk_result_cp3   |
-                          wb_div_result_cp3        | wb_mul_result_cp3 |
-                          wb_fpxx_arith_res_hi_cp3 |
-                          wb_lsu_result_cp3        | wb_mfspr_result_cp3;
+  always @(wb_alu_1clk_result   or wb_div_result or wb_mul_result or
+           wb_fpxx_arith_res_hi or wb_lsu_result or wb_mfspr_result)
+  begin
+    wb_result1 = wb_alu_1clk_result   | wb_div_result | wb_mul_result |
+                 wb_fpxx_arith_res_hi | wb_lsu_result | wb_mfspr_result;
+  end
   // --- FPU64 extention ---
   assign wb_result2 = wb_fpxx_arith_res_lo;
-  // copy #1 (to simplify feedback routing)
-  assign wb_result2_cp1 = wb_fpxx_arith_res_lo_cp1;
-  // copy #2 (to simplify feedback routing)
-  assign wb_result2_cp2 = wb_fpxx_arith_res_lo_cp2;
-  // copy #3 (to simplify feedback routing)
-  assign wb_result2_cp3 = wb_fpxx_arith_res_lo_cp3;
+
 
   //------------------------------------//
   // WB: External Interrupts Collection //
@@ -2157,9 +2094,6 @@ module mor1kx_cpu_marocchino
     .dcod_op_mXspr_i                  (dcod_op_mXspr), // CTRL
     //  ## result to WB_MUX
     .wb_mfspr_result_o                (wb_mfspr_result), // CTRL: for WB_MUX
-    .wb_mfspr_result_cp1_o            (wb_mfspr_result_cp1), // CTRL: for WB_MUX
-    .wb_mfspr_result_cp2_o            (wb_mfspr_result_cp2), // CTRL: for WB_MUX
-    .wb_mfspr_result_cp3_o            (wb_mfspr_result_cp3), // CTRL: for WB_MUX
 
     // Support IBUS error handling in CTRL
     .wb_jump_or_branch_i              (wb_jump_or_branch), // CTRL

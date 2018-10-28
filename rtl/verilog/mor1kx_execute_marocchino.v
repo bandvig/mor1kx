@@ -52,10 +52,7 @@ module mor1kx_multiplier_marocchino
   input                                 exec_op_mul_i,
   output                                imul_taking_op_o,
   output reg                            mul_valid_o,
-  output reg [OPTION_OPERAND_WIDTH-1:0] wb_mul_result_o,
-  output reg [OPTION_OPERAND_WIDTH-1:0] wb_mul_result_cp1_o,
-  output reg [OPTION_OPERAND_WIDTH-1:0] wb_mul_result_cp2_o,
-  output reg [OPTION_OPERAND_WIDTH-1:0] wb_mul_result_cp3_o
+  output reg [OPTION_OPERAND_WIDTH-1:0] wb_mul_result_o
 );
 
   localparam MULDW  = OPTION_OPERAND_WIDTH; // short name
@@ -152,18 +149,10 @@ module mor1kx_multiplier_marocchino
   // ---
   always @(posedge cpu_clk) begin
     if (padv_wb_i) begin
-      if (grant_wb_to_mul_i)begin
-        wb_mul_result_o     <= wb_mul_result_m;
-        wb_mul_result_cp1_o <= wb_mul_result_m;
-        wb_mul_result_cp2_o <= wb_mul_result_m;
-        wb_mul_result_cp3_o <= wb_mul_result_m;
-      end
-      else begin
-        wb_mul_result_o     <= {MULDW{1'b0}};
-        wb_mul_result_cp1_o <= {MULDW{1'b0}};
-        wb_mul_result_cp2_o <= {MULDW{1'b0}};
-        wb_mul_result_cp3_o <= {MULDW{1'b0}};
-      end
+      if (grant_wb_to_mul_i)
+        wb_mul_result_o <= wb_mul_result_m;
+      else
+        wb_mul_result_o <= {MULDW{1'b0}};
     end
   end // @clock
 
@@ -212,10 +201,7 @@ module mor1kx_divider_marocchino
   output                                exec_except_overflow_div_o,
   output reg                            wb_except_overflow_div_o,
   //  # division result
-  output reg [OPTION_OPERAND_WIDTH-1:0] wb_div_result_o,
-  output reg [OPTION_OPERAND_WIDTH-1:0] wb_div_result_cp1_o,
-  output reg [OPTION_OPERAND_WIDTH-1:0] wb_div_result_cp2_o,
-  output reg [OPTION_OPERAND_WIDTH-1:0] wb_div_result_cp3_o
+  output reg [OPTION_OPERAND_WIDTH-1:0] wb_div_result_o
 );
 
   localparam DIVDW        = OPTION_OPERAND_WIDTH; // short name
@@ -374,18 +360,10 @@ module mor1kx_divider_marocchino
   // ---
   always @(posedge cpu_clk) begin
     if (padv_wb_i) begin
-      if (grant_wb_to_div_i) begin
-        wb_div_result_o     <= wb_div_result_m;
-        wb_div_result_cp1_o <= wb_div_result_m;
-        wb_div_result_cp2_o <= wb_div_result_m;
-        wb_div_result_cp3_o <= wb_div_result_m;
-      end
-      else begin
-        wb_div_result_o     <= {DIVDW{1'b0}};
-        wb_div_result_cp1_o <= {DIVDW{1'b0}};
-        wb_div_result_cp2_o <= {DIVDW{1'b0}};
-        wb_div_result_cp3_o <= {DIVDW{1'b0}};
-      end
+      if (grant_wb_to_div_i)
+        wb_div_result_o <= wb_div_result_m;
+      else
+        wb_div_result_o <= {DIVDW{1'b0}};
     end
   end // @clock
 
@@ -475,9 +453,6 @@ module mor1kx_exec_1clk_marocchino
   input                           [3:0] exec_lut_logic_i,
   // WB-latched 1-clock arithmetic result
   output reg [OPTION_OPERAND_WIDTH-1:0] wb_alu_1clk_result_o,
-  output reg [OPTION_OPERAND_WIDTH-1:0] wb_alu_1clk_result_cp1_o,
-  output reg [OPTION_OPERAND_WIDTH-1:0] wb_alu_1clk_result_cp2_o,
-  output reg [OPTION_OPERAND_WIDTH-1:0] wb_alu_1clk_result_cp3_o,
   //  # update carry flag by 1clk-operation
   output reg                            wb_1clk_carry_set_o,
   output reg                            wb_1clk_carry_clear_o,
@@ -765,18 +740,10 @@ module mor1kx_exec_1clk_marocchino
   // ---
   always @(posedge cpu_clk) begin
     if (padv_wb_i) begin
-      if (grant_wb_to_1clk_i) begin
-        wb_alu_1clk_result_o     <= wb_alu_1clk_result_m;
-        wb_alu_1clk_result_cp1_o <= wb_alu_1clk_result_m;
-        wb_alu_1clk_result_cp2_o <= wb_alu_1clk_result_m;
-        wb_alu_1clk_result_cp3_o <= wb_alu_1clk_result_m;
-      end
-      else begin
-        wb_alu_1clk_result_o     <= {EXEDW{1'b0}};
-        wb_alu_1clk_result_cp1_o <= {EXEDW{1'b0}};
-        wb_alu_1clk_result_cp2_o <= {EXEDW{1'b0}};
-        wb_alu_1clk_result_cp3_o <= {EXEDW{1'b0}};
-      end
+      if (grant_wb_to_1clk_i)
+        wb_alu_1clk_result_o <= wb_alu_1clk_result_m;
+      else
+        wb_alu_1clk_result_o <= {EXEDW{1'b0}};
     end
   end //  @clock
 
