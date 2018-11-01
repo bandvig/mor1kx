@@ -94,13 +94,7 @@ module pfpu_top_marocchino
 
   // FPU-64 arithmetic part
   output                       [31:0] wb_fpxx_arith_res_hi_o,   // arithmetic result
-  output                       [31:0] wb_fpxx_arith_res_hi_cp1_o,
-  output                       [31:0] wb_fpxx_arith_res_hi_cp2_o,
-  output                       [31:0] wb_fpxx_arith_res_hi_cp3_o,
   output                       [31:0] wb_fpxx_arith_res_lo_o,   // arithmetic result 2
-  output                       [31:0] wb_fpxx_arith_res_lo_cp1_o,
-  output                       [31:0] wb_fpxx_arith_res_lo_cp2_o,
-  output                       [31:0] wb_fpxx_arith_res_lo_cp3_o,
   output  [`OR1K_FPCSR_ALLF_SIZE-1:0] wb_fpxx_arith_fpcsr_o,    // arithmetic exceptions
   output                              wb_fpxx_arith_wb_fpcsr_o, // update FPCSR
   output                              wb_except_fpxx_arith_o,   // generate exception
@@ -594,13 +588,7 @@ pfpu_rnd_marocchino u_pfpu_rnd
   .exec_except_fpxx_arith_o (exec_except_fpxx_arith_o), // PFPU_RND
   // output WB latches
   .wb_fpxx_arith_res_hi_o       (wb_fpxx_arith_res_hi_o), // PFPU_RND
-  .wb_fpxx_arith_res_hi_cp1_o   (wb_fpxx_arith_res_hi_cp1_o), // PFPU_RND
-  .wb_fpxx_arith_res_hi_cp2_o   (wb_fpxx_arith_res_hi_cp2_o), // PFPU_RND
-  .wb_fpxx_arith_res_hi_cp3_o   (wb_fpxx_arith_res_hi_cp3_o), // PFPU_RND
   .wb_fpxx_arith_res_lo_o       (wb_fpxx_arith_res_lo_o), // PFPU_RND
-  .wb_fpxx_arith_res_lo_cp1_o   (wb_fpxx_arith_res_lo_cp1_o), // PFPU_RND
-  .wb_fpxx_arith_res_lo_cp2_o   (wb_fpxx_arith_res_lo_cp2_o), // PFPU_RND
-  .wb_fpxx_arith_res_lo_cp3_o   (wb_fpxx_arith_res_lo_cp3_o), // PFPU_RND
   .wb_fpxx_arith_fpcsr_o        (wb_fpxx_arith_fpcsr_o), // PFPU_RND
   .wb_fpxx_arith_wb_fpcsr_o     (wb_fpxx_arith_wb_fpcsr_o), // PFPU_RND
   .wb_except_fpxx_arith_o       (wb_except_fpxx_arith_o) // PFPU_RND

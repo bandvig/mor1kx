@@ -113,13 +113,7 @@ module pfpu_rnd_marocchino
   output                                 exec_except_fpxx_arith_o, // generate exception
   // output WB latches
   output reg                      [31:0] wb_fpxx_arith_res_hi_o,   // result
-  output reg                      [31:0] wb_fpxx_arith_res_hi_cp1_o,
-  output reg                      [31:0] wb_fpxx_arith_res_hi_cp2_o,
-  output reg                      [31:0] wb_fpxx_arith_res_hi_cp3_o,
   output reg                      [31:0] wb_fpxx_arith_res_lo_o,   // result
-  output reg                      [31:0] wb_fpxx_arith_res_lo_cp1_o,
-  output reg                      [31:0] wb_fpxx_arith_res_lo_cp2_o,
-  output reg                      [31:0] wb_fpxx_arith_res_lo_cp3_o,
   output reg [`OR1K_FPCSR_ALLF_SIZE-1:0] wb_fpxx_arith_fpcsr_o,    // fp64 arithmetic flags
   output reg                             wb_fpxx_arith_wb_fpcsr_o, // update FPCSR
   output reg                             wb_except_fpxx_arith_o    // generate exception
@@ -732,24 +726,12 @@ module pfpu_rnd_marocchino
   always @(posedge cpu_clk) begin
     if(padv_wb_i) begin
       if (grant_wb_to_fpxx_arith_i) begin
-        wb_fpxx_arith_res_hi_o     <= wb_fpxx_arith_res_hi_m;
-        wb_fpxx_arith_res_hi_cp1_o <= wb_fpxx_arith_res_hi_m;
-        wb_fpxx_arith_res_hi_cp2_o <= wb_fpxx_arith_res_hi_m;
-        wb_fpxx_arith_res_hi_cp3_o <= wb_fpxx_arith_res_hi_m;
-        wb_fpxx_arith_res_lo_o     <= wb_fpxx_arith_res_lo_m;
-        wb_fpxx_arith_res_lo_cp1_o <= wb_fpxx_arith_res_lo_m;
-        wb_fpxx_arith_res_lo_cp2_o <= wb_fpxx_arith_res_lo_m;
-        wb_fpxx_arith_res_lo_cp3_o <= wb_fpxx_arith_res_lo_m;
+        wb_fpxx_arith_res_hi_o <= wb_fpxx_arith_res_hi_m;
+        wb_fpxx_arith_res_lo_o <= wb_fpxx_arith_res_lo_m;
       end
       else begin
-        wb_fpxx_arith_res_hi_o     <= 32'd0;
-        wb_fpxx_arith_res_hi_cp1_o <= 32'd0;
-        wb_fpxx_arith_res_hi_cp2_o <= 32'd0;
-        wb_fpxx_arith_res_hi_cp3_o <= 32'd0;
-        wb_fpxx_arith_res_lo_o     <= 32'd0;
-        wb_fpxx_arith_res_lo_cp1_o <= 32'd0;
-        wb_fpxx_arith_res_lo_cp2_o <= 32'd0;
-        wb_fpxx_arith_res_lo_cp3_o <= 32'd0;
+        wb_fpxx_arith_res_hi_o <= 32'd0;
+        wb_fpxx_arith_res_lo_o <= 32'd0;
       end
     end // WB-advance
   end // @clock
