@@ -424,6 +424,7 @@ module mor1kx_exec_1clk_marocchino
   input                                 padv_wb_i,
   input                                 grant_wb_to_1clk_i,
   output                                taking_1clk_op_o,
+  output                                op_1clk_valid_o,
 
   // flags for in-1clk-unit forwarding multiplexors
   input                                 exec_1clk_ff_d1a1_i,
@@ -439,6 +440,8 @@ module mor1kx_exec_1clk_marocchino
 
   // any 1-clock sub-unit
   input                                 exec_op_1clk_i,
+  // Reqired flag or carry
+  input                                 exec_flag_carry_req_i,
   // adder's inputs
   input                                 exec_op_add_i,
   input                                 exec_adder_do_sub_i,
@@ -718,15 +721,18 @@ module mor1kx_exec_1clk_marocchino
   //-----------------------------------//
   reg             alu_1clk_wb_miss_r;
   // ---
-  assign taking_1clk_op_o = exec_op_1clk_i & grant_wb_to_1clk_i & (~alu_1clk_wb_miss_r);
+  assign taking_1clk_op_o = exec_op_1clk_i & (~alu_1clk_wb_miss_r) & // 1CLK TAKING OP
+                            ((~exec_flag_carry_req_i) | grant_wb_to_1clk_i); // 1CLK TAKING OP
+  // ---
+  assign op_1clk_valid_o  = exec_op_1clk_i | alu_1clk_wb_miss_r;
   // ---
   always @(posedge cpu_clk) begin
     if (pipeline_flush_i)
       alu_1clk_wb_miss_r <= 1'b0;
     else if (padv_wb_i & grant_wb_to_1clk_i)
       alu_1clk_wb_miss_r <= 1'b0;
-    else if (~alu_1clk_wb_miss_r)
-      alu_1clk_wb_miss_r <= exec_op_1clk_i & grant_wb_to_1clk_i;
+    else if (taking_1clk_op_o)
+      alu_1clk_wb_miss_r <= 1'b1;
   end //  @clock
   // ---
   reg [EXEDW-1:0] alu_1clk_wb_result_p;

@@ -370,6 +370,8 @@ module mor1kx_cpu_marocchino
   wire                            exec_op_1clk;
   wire                            op_1clk_free;
 
+  wire                            dcod_flag_carry_req;
+
   wire                            dcod_op_add;
   wire                            dcod_adder_do_sub;
   wire                            dcod_adder_do_carry;
@@ -393,6 +395,7 @@ module mor1kx_cpu_marocchino
 
   wire                            grant_wb_to_1clk;
   wire                            taking_1clk_op;
+  wire                            op_1clk_valid;
 
 
   // Divider
@@ -849,6 +852,8 @@ module mor1kx_cpu_marocchino
     .dcod_op_push_wb_o                (dcod_op_push_wb), // DECODE
     // 1-clock instruction
     .dcod_op_1clk_o                   (dcod_op_1clk), // DECODE
+    // Reqired flag or carry
+    .dcod_flag_carry_req_o            (dcod_flag_carry_req), // DECODE
     // Adder related
     .dcod_op_add_o                    (dcod_op_add), // DECODE
     .dcod_adder_do_sub_o              (dcod_adder_do_sub), // DECODE
@@ -988,7 +993,7 @@ module mor1kx_cpu_marocchino
     .dcod_op_1clk_i             (dcod_op_1clk), // OMAN
 
     // collect valid flags from execution modules
-    .exec_op_1clk_i             (exec_op_1clk), // OMAN
+    .op_1clk_valid_i            (op_1clk_valid), // OMAN
     .div_valid_i                (div_valid), // OMAN
     .mul_valid_i                (mul_valid), // OMAN
     .fpxx_arith_valid_i         (fpxx_arith_valid), // OMAN
@@ -1140,6 +1145,7 @@ module mor1kx_cpu_marocchino
   localparam ONE_CLK_OP_WIDTH = 7;
 
   //  # attributes
+  wire                            exec_flag_carry_req;
   wire                            exec_adder_do_sub;
   wire                            exec_adder_do_carry;
   wire                            exec_opc_ffl1;
@@ -1147,7 +1153,7 @@ module mor1kx_cpu_marocchino
   wire                      [3:0] exec_lut_logic;
   wire [`OR1K_COMP_OPC_WIDTH-1:0] exec_opc_setflag;
   // attributes include all of earlier components:
-  localparam ONE_CLK_OPC_WIDTH = 11 + `OR1K_COMP_OPC_WIDTH;
+  localparam ONE_CLK_OPC_WIDTH = 12 + `OR1K_COMP_OPC_WIDTH;
 
   // flags for in-1clk-unit forwarding multiplexors
   wire                            exec_1clk_ff_d1a1;
@@ -1201,7 +1207,8 @@ module mor1kx_cpu_marocchino
     // command and its additional attributes
     .dcod_op_i                  ({dcod_op_ffl1, dcod_op_add, dcod_op_shift, dcod_op_movhi, // 1CLK_RSVRS
                                   dcod_op_cmov, dcod_op_logic, dcod_op_setflag}), // 1CLK_RSVRS
-    .dcod_opc_i                 ({dcod_adder_do_sub, dcod_adder_do_carry, // 1CLK_RSVRS
+    .dcod_opc_i                 ({dcod_flag_carry_req, // 1CLK_RSVRS
+                                  dcod_adder_do_sub, dcod_adder_do_carry, // 1CLK_RSVRS
                                   dcod_opc_ffl1, dcod_opc_shift, // 1CLK_RSVRS
                                   dcod_lut_logic, dcod_opc_setflag}), // 1CLK_RSVRS
     // outputs
@@ -1209,7 +1216,8 @@ module mor1kx_cpu_marocchino
     .exec_op_any_o              (exec_op_1clk), // 1CLK_RSVRS
     .exec_op_o                  ({exec_op_ffl1, exec_op_add, exec_op_shift, exec_op_movhi, // 1CLK_RSVRS
                                   exec_op_cmov, exec_op_logic, exec_op_setflag}), // 1CLK_RSVRS
-    .exec_opc_o                 ({exec_adder_do_sub, exec_adder_do_carry, // 1CLK_RSVRS
+    .exec_opc_o                 ({exec_flag_carry_req, // 1CLK_RSVRS
+                                  exec_adder_do_sub, exec_adder_do_carry, // 1CLK_RSVRS
                                   exec_opc_ffl1, exec_opc_shift, // 1CLK_RSVRS
                                   exec_lut_logic, exec_opc_setflag}), // 1CLK_RSVRS
     //   flags for in-1clk-unit forwarding multiplexors
@@ -1238,6 +1246,7 @@ module mor1kx_cpu_marocchino
     .padv_wb_i                        (padv_wb), // 1CLK_EXEC
     .grant_wb_to_1clk_i               (grant_wb_to_1clk), // 1CLK_EXEC
     .taking_1clk_op_o                 (taking_1clk_op), // 1CLK_EXEC
+    .op_1clk_valid_o                  (op_1clk_valid), // 1CLK_EXEC
 
     // flags for in-1clk-unit forwarding multiplexors
     .exec_1clk_ff_d1a1_i              (exec_1clk_ff_d1a1), // 1CLK_EXEC
@@ -1253,6 +1262,8 @@ module mor1kx_cpu_marocchino
 
     // any 1-clock sub-unit
     .exec_op_1clk_i                   (exec_op_1clk), // 1CLK_EXEC
+    // Reqired flag or carry
+    .exec_flag_carry_req_i            (exec_flag_carry_req), // 1CLK_EXEC
     // adder
     .exec_op_add_i                    (exec_op_add), // 1CLK_EXEC
     .exec_adder_do_sub_i              (exec_adder_do_sub), // 1CLK_EXEC

@@ -115,6 +115,8 @@ module mor1kx_decode_marocchino
 
   // 1-clock instruction
   output reg                            dcod_op_1clk_o,
+  // Reqired flag or carry
+  output reg                            dcod_flag_carry_req_o,
   // Adder related
   output reg                            dcod_op_add_o,
   output reg                            dcod_adder_do_sub_o,
@@ -828,6 +830,8 @@ module mor1kx_decode_marocchino
       dcod_lsu_length_o         <= lsu_length;
       dcod_lsu_zext_o           <= lsu_zext;
       dcod_op_msync_o           <= op_msync;
+      // Reqired flag or carry
+      dcod_flag_carry_req_o     <= op_cmov | adder_do_carry;
       // Adder related
       dcod_op_add_o             <= op_add;
       dcod_adder_do_sub_o       <= adder_do_sub;

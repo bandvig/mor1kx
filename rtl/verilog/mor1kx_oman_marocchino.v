@@ -196,7 +196,7 @@ module mor1kx_oman_marocchino
   input                                 dcod_op_1clk_i,
 
   // collect valid flags from execution modules
-  input                                 exec_op_1clk_i,
+  input                                 op_1clk_valid_i,
   input                                 div_valid_i,
   input                                 mul_valid_i,
   input                                 fpxx_arith_valid_i,
@@ -822,7 +822,7 @@ module mor1kx_oman_marocchino
   //   l.rfe and FETCH/DECODE exceptions are also should
   // push WB latches
   // ---
-  wire   op_1clk_valid = exec_op_1clk_i & ocbo[OCBTC_OP_1CLK_POS];
+  wire   op_1clk_valid_l = op_1clk_valid_i & ocbo[OCBTC_OP_1CLK_POS];
   // ---
   //   Declaration valid flag for jump/branch attributes
   //   For l.jal/l.jalr we use adder in 1-clk to compure return address,
@@ -830,7 +830,7 @@ module mor1kx_oman_marocchino
   wire   exec_jb_attr_valid;
   // ---
   assign exec_valid_o =
-    (op_1clk_valid            & ~ocbo[OCBTC_JUMP_OR_BRANCH_POS]) | // EXEC VALID: but wait attributes for l.jal/ljalr
+    (op_1clk_valid_l          & ~ocbo[OCBTC_JUMP_OR_BRANCH_POS]) | // EXEC VALID: but wait attributes for l.jal/ljalr
     (exec_jb_attr_valid       &  ocbo[OCBTC_JUMP_OR_BRANCH_POS]) | // EXEC VALID
     (div_valid_i              &  ocbo[OCBTC_OP_DIV_POS])         | // EXEC VALID
     (mul_valid_i              &  ocbo[OCBTC_OP_MUL_POS])         | // EXEC VALID
