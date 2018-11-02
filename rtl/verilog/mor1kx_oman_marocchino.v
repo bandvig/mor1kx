@@ -243,6 +243,9 @@ module mor1kx_oman_marocchino
   output reg                            omn2dec_hazard_d2b2_o,
   output reg    [DEST_EXTADR_WIDTH-1:0] omn2dec_extadr_dxb2_o,
 
+  // support in-1clk-unit forwarding
+  output        [DEST_EXTADR_WIDTH-1:0] dcod_extadr_o,
+
   // [O]rder [C]ontrol [B]uffer statuses
   output                                ocb_full_o,
   output                                ocb_empty_o,
@@ -422,6 +425,8 @@ module mor1kx_oman_marocchino
     else if (padv_dcod_i)
       dcod_extadr_r <= fetch_valid_i ? extadr_adder : dcod_extadr_r;
   end // @clock
+  // support in-1clk-unit forwarding
+  assign dcod_extadr_o = dcod_extadr_r;
 
 
   // Flag that istruction is restrartable.

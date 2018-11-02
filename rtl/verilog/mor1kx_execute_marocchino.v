@@ -425,6 +425,10 @@ module mor1kx_exec_1clk_marocchino
   input                                 grant_wb_to_1clk_i,
   output                                taking_1clk_op_o,
 
+  // flags for in-1clk-unit forwarding multiplexors
+  input                                 exec_1clk_ff_d1a1_i,
+  input                                 exec_1clk_ff_d1b1_i,
+
   // input operands A and B with forwarding from WB
   input      [OPTION_OPERAND_WIDTH-1:0] exec_1clk_a1_i,
   input      [OPTION_OPERAND_WIDTH-1:0] exec_1clk_b1_i,
@@ -489,6 +493,17 @@ module mor1kx_exec_1clk_marocchino
   endfunction
 
 
+  //-------------------------//
+  // In-unit fast forwarding //
+  //-------------------------//
+  reg  [EXEDW-1:0] ff_1clk_result_r;
+  wire [EXEDW-1:0] exec_1clk_a1_m;
+  wire [EXEDW-1:0] exec_1clk_b1_m;
+  // ---
+  assign exec_1clk_a1_m = exec_1clk_ff_d1a1_i ? ff_1clk_result_r : exec_1clk_a1_i;
+  assign exec_1clk_b1_m = exec_1clk_ff_d1b1_i ? ff_1clk_result_r : exec_1clk_b1_i;
+
+
   //------------------//
   // Adder/subtractor //
   //------------------//
@@ -496,18 +511,18 @@ module mor1kx_exec_1clk_marocchino
   wire             adder_carryout;
   wire [EXEDW-1:0] adder_result;
   // inputs
-  wire [EXEDW-1:0] b_mux = {EXEDW{exec_adder_do_sub_i}} ^ exec_1clk_b1_i; // inverse for l.sub
+  wire [EXEDW-1:0] b_mux = {EXEDW{exec_adder_do_sub_i}} ^ exec_1clk_b1_m; // inverse for l.sub
   wire carry_in = exec_adder_do_sub_i | (exec_adder_do_carry_i & carry_i);
   // Adder
   assign {adder_carryout, adder_result} =
-           exec_1clk_a1_i + b_mux + {{(EXEDW-1){1'b0}},carry_in};
+           exec_1clk_a1_m + b_mux + {{(EXEDW-1){1'b0}},carry_in};
   // result sign
   wire adder_result_sign = adder_result[EXEDW-1];
   // signed overflow detection
   // Input signs are same and result sign is different to input signs
   wire adder_s_ovf =
-         (exec_1clk_a1_i[EXEDW-1] == b_mux[EXEDW-1]) &
-         (exec_1clk_a1_i[EXEDW-1] ^ adder_result[EXEDW-1]);
+         (exec_1clk_a1_m[EXEDW-1] == b_mux[EXEDW-1]) &
+         (exec_1clk_a1_m[EXEDW-1] ^ adder_result[EXEDW-1]);
   // unsigned overflow detection
   wire adder_u_ovf = adder_carryout;
 
@@ -521,9 +536,9 @@ module mor1kx_exec_1clk_marocchino
   // ---
   wire [EXEDW-1:0] ffl1_result = {{(EXEDW-6){1'b0}}, (exec_opc_ffl1_i ? fl1_r : ff1_r)};
   // ---
-  always @(exec_1clk_a1_i) begin
+  always @(exec_1clk_a1_m) begin
     // synthesis parallel_case
-    casez  (exec_1clk_a1_i)
+    casez  (exec_1clk_a1_m)
       32'b1???????????????????????????????: fl1_r = 6'd32;
       32'b01??????????????????????????????: fl1_r = 6'd31;
       32'b001?????????????????????????????: fl1_r = 6'd30;
@@ -559,7 +574,7 @@ module mor1kx_exec_1clk_marocchino
       32'b00000000000000000000000000000000: fl1_r = 6'd0;
     endcase
     // synthesis parallel_case
-    casez  (exec_1clk_a1_i)
+    casez  (exec_1clk_a1_m)
       32'b10000000000000000000000000000000: ff1_r = 6'd32;
       32'b?1000000000000000000000000000000: ff1_r = 6'd31;
       32'b??100000000000000000000000000000: ff1_r = 6'd30;
@@ -616,11 +631,11 @@ module mor1kx_exec_1clk_marocchino
 
   wire   [EXEDW-1:0] shift_result;
 
-  assign shift_lsw =  op_sll ? reverse(exec_1clk_a1_i) : exec_1clk_a1_i;
-  assign shift_msw =  op_sra ? {EXEDW{exec_1clk_a1_i[EXEDW-1]}} :
-                     (op_ror ? exec_1clk_a1_i : {EXEDW{1'b0}});
+  assign shift_lsw =  op_sll ? reverse(exec_1clk_a1_m) : exec_1clk_a1_m;
+  assign shift_msw =  op_sra ? {EXEDW{exec_1clk_a1_m[EXEDW-1]}} :
+                     (op_ror ? exec_1clk_a1_m : {EXEDW{1'b0}});
 
-  assign shift_wide   = {shift_msw, shift_lsw} >> exec_1clk_b1_i[4:0];
+  assign shift_wide   = {shift_msw, shift_lsw} >> exec_1clk_b1_m[4:0];
   assign shift_right  = shift_wide[EXEDW-1:0];
   assign shift_result = op_sll ? reverse(shift_right) : shift_right;
 
@@ -629,7 +644,7 @@ module mor1kx_exec_1clk_marocchino
   // Conditional move //
   //------------------//
   wire [EXEDW-1:0] cmov_result;
-  assign cmov_result = flag_i ? exec_1clk_a1_i : exec_1clk_b1_i;
+  assign cmov_result = flag_i ? exec_1clk_a1_m : exec_1clk_b1_m;
 
 
   //--------------------//
@@ -639,9 +654,9 @@ module mor1kx_exec_1clk_marocchino
   reg  [EXEDW-1:0] logic_result;
   // Extract the result, bit-for-bit, from the look-up-table
   integer i;
-  always @(exec_lut_logic_i or exec_1clk_a1_i or exec_1clk_b1_i) begin
+  always @(exec_lut_logic_i or exec_1clk_a1_m or exec_1clk_b1_m) begin
     for (i = 0; i < EXEDW; i=i+1) begin
-      logic_result[i] = exec_lut_logic_i[{exec_1clk_a1_i[i], exec_1clk_b1_i[i]}];
+      logic_result[i] = exec_lut_logic_i[{exec_1clk_a1_m[i], exec_1clk_b1_m[i]}];
     end
   end
 
@@ -654,7 +669,7 @@ module mor1kx_exec_1clk_marocchino
                                          ({EXEDW{exec_op_add_i}}   & adder_result   ) |
                                          ({EXEDW{exec_op_logic_i}} & logic_result   ) |
                                          ({EXEDW{exec_op_cmov_i}}  & cmov_result    ) |
-                                         ({EXEDW{exec_op_movhi_i}} & exec_1clk_b1_i );
+                                         ({EXEDW{exec_op_movhi_i}} & exec_1clk_b1_m );
 
   //-------------------------------------//
   // update carry flag by 1clk-operation //
@@ -672,7 +687,7 @@ module mor1kx_exec_1clk_marocchino
   //--------------------------//
   // Integer comparison logic //
   //--------------------------//
-  wire a_eq_b  = (exec_1clk_a1_i == exec_1clk_b1_i); // Equal compare
+  wire a_eq_b  = (exec_1clk_a1_m == exec_1clk_b1_m); // Equal compare
   wire a_lts_b = (adder_result_sign ^ adder_s_ovf); // Signed compare (sign != ovf)
   wire a_ltu_b = ~adder_carryout; // Unsigned compare
   // comb.
@@ -732,6 +747,13 @@ module mor1kx_exec_1clk_marocchino
       alu_1clk_wb_flag_set_p       <= alu_1clk_flag_set;
       alu_1clk_wb_flag_clear_p     <= alu_1clk_flag_clear;
     end
+  end //  @clock
+
+
+  // result for in-1clk-unit forwarding
+  always @(posedge cpu_clk) begin
+    if (taking_1clk_op_o)
+      ff_1clk_result_r <= alu_1clk_result_mux;
   end //  @clock
 
 

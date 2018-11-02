@@ -297,6 +297,11 @@ module mor1kx_cpu_marocchino
   //  ## for hazards resolution in RSRVS
   wire    [DEST_EXTADR_WIDTH-1:0] wb_extadr;
 
+
+  // support in-1clk-unit forwarding
+  wire    [DEST_EXTADR_WIDTH-1:0] dcod_extadr;
+
+
   // Special WB-controls for RF
   wire [OPTION_RF_ADDR_WIDTH-1:0] wb_rf_even_addr;
   wire                            wb_rf_even_wb;
@@ -1030,6 +1035,9 @@ module mor1kx_cpu_marocchino
     .omn2dec_hazard_d2b2_o      (omn2dec_hazard_d2b2), // OMAN
     .omn2dec_extadr_dxb2_o      (omn2dec_extadr_dxb2), // OMAN
 
+    // support in-1clk-unit forwarding
+    .dcod_extadr_o              (dcod_extadr), // OMAN
+
     // [O]rder [C]ontrol [B]uffer statuses
     .ocb_full_o                 (ocb_full), // OMAN
     .ocb_empty_o                (ocb_empty), // OMAN
@@ -1141,6 +1149,10 @@ module mor1kx_cpu_marocchino
   // attributes include all of earlier components:
   localparam ONE_CLK_OPC_WIDTH = 11 + `OR1K_COMP_OPC_WIDTH;
 
+  // flags for in-1clk-unit forwarding multiplexors
+  wire                            exec_1clk_ff_d1a1;
+  wire                            exec_1clk_ff_d1b1;
+
   // input operands A and B with forwarding from WB
   wire [OPTION_OPERAND_WIDTH-1:0] exec_1clk_a1;
   wire [OPTION_OPERAND_WIDTH-1:0] exec_1clk_b1;
@@ -1154,42 +1166,12 @@ module mor1kx_cpu_marocchino
   wire wb_1clk_overflow_clear;
 
   // **** reservation station for 1-clk ****
-  mor1kx_rsrvs_marocchino // 1CLK_RSVRS
+  mor1kx_rsrvs_1clk_marocchino // 1CLK_RSVRS
   #(
     .OPTION_OPERAND_WIDTH         (OPTION_OPERAND_WIDTH), // 1CLK_RSVRS
     .OP_WIDTH                     (ONE_CLK_OP_WIDTH), // 1CLK_RSVRS
     .OPC_WIDTH                    (ONE_CLK_OPC_WIDTH), // 1CLK_RSVRS
-    .DEST_EXTADR_WIDTH            (DEST_EXTADR_WIDTH), // 1CLK_RSVRS
-    // Reservation station is used for 1-clock execution module.
-    // As 1-clock pushed if only it is granted by write-back access
-    // all input operandes already forwarder. So we don't use
-    // exec_op_o and we remove exra logic for it.
-    .RSRVS_1CLK                   (1), // 1CLK_RSVRS
-    // Reservation station is used for LSU
-    .RSRVS_LSU                    (0), // 1CLK_RSVRS
-    // Reservation station is used for integer MUL/DIV.
-    .RSRVS_MULDIV                 (0), // 1CLK_RSVRS
-    // Reservation station is used for FPU3264.
-    // Extra logic for the A2 and B2 related hazards is generated.
-    .RSRVS_FPU                    (0), // 1CLK_RSVRS
-    // Packed operands for various reservation stations:
-    //  # LSU :   {   x,    x, rfb1, rfa1}
-    //  # 1CLK:   {   x,    x, rfb1, rfa1}
-    //  # MULDIV: {   x,    x, rfb1, rfa1}
-    //  # FPU:    {rfb2, rfa2, rfb1, rfa1}
-    .DCOD_RFXX_WIDTH              (2 * OPTION_OPERAND_WIDTH), // 1CLK_RSRVS
-    // OMAN-to-DECODE hazard flags layout for various reservation stations:
-    //  # LSU :   {   x,    x,     x,    x,  d2b1, d1b1,  d2a1, d1a1 }
-    //  # 1CLK:   {   x,    x,     x,    x,  d2b1, d1b1,  d2a1, d1a1 }
-    //  # MULDIV: {   x,    x,     x,    x,  d2b1, d1b1,  d2a1, d1a1 }
-    //  # FPU:    {d2b2, d1b2,  d2a2, d1a2,  d2b1, d1b1,  d2a1, d1a1 }
-    .OMN2DEC_HAZARDS_FLAGS_WIDTH  (4), // 1CLK_RSVRS
-    // OMAN-to-DECODE hazard id layout for various reservation stations:
-    //  # LSU :   {   x,    x, dxb1, dxa1 }
-    //  # 1CLK:   {   x,    x, dxb1, dxa1 }
-    //  # MULDIV: {   x,    x, dxb1, dxa1 }
-    //  # FPU:    {dxb2, dxa2, dxb1, dxa1 }
-    .OMN2DEC_HAZARDS_ADDRS_WIDTH  (2 * DEST_EXTADR_WIDTH) // 1CLK_RSVRS
+    .DEST_EXTADR_WIDTH            (DEST_EXTADR_WIDTH) // 1CLK_RSVRS
   )
   u_1clk_rsrvs
   (
@@ -1207,6 +1189,9 @@ module mor1kx_cpu_marocchino
                                   omn2dec_hazard_d2a1, omn2dec_hazard_d1a1}), // 1CLK_RSVRS
     //  # hasards addresses
     .omn2dec_hazards_addrs_i    ({omn2dec_extadr_dxb1, omn2dec_extadr_dxa1}), // 1CLK_RSVRS
+    // support in-1clk-unit forwarding
+    .dcod_rfd1_wb_i             (dcod_rfd1_wb), // 1CLK_RSVRS
+    .dcod_extadr_i              (dcod_extadr), // 1CLK_RSVRS
     // Hazard could be resolving
     //  ## write-back attributes
     .wb_extadr_i                (wb_extadr), // 1CLK_RSVRS
@@ -1227,12 +1212,12 @@ module mor1kx_cpu_marocchino
     .exec_opc_o                 ({exec_adder_do_sub, exec_adder_do_carry, // 1CLK_RSVRS
                                   exec_opc_ffl1, exec_opc_shift, // 1CLK_RSVRS
                                   exec_lut_logic, exec_opc_setflag}), // 1CLK_RSVRS
+    //   flags for in-1clk-unit forwarding multiplexors
+    .exec_1clk_ff_d1a1_o        (exec_1clk_ff_d1a1), // 1CLK_RSVRS
+    .exec_1clk_ff_d1b1_o        (exec_1clk_ff_d1b1), // 1CLK_RSVRS
     //   operands
     .exec_rfa1_o                (exec_1clk_a1), // 1CLK_RSVRS
     .exec_rfb1_o                (exec_1clk_b1), // 1CLK_RSVRS
-    //  ## for FPU64
-    .exec_rfa2_o                (), // 1CLK_RSVRS
-    .exec_rfb2_o                (), // 1CLK_RSVRS
     //   unit-is-busy flag
     .unit_free_o                (op_1clk_free) // 1CLK_RSVRS
   );
@@ -1253,6 +1238,10 @@ module mor1kx_cpu_marocchino
     .padv_wb_i                        (padv_wb), // 1CLK_EXEC
     .grant_wb_to_1clk_i               (grant_wb_to_1clk), // 1CLK_EXEC
     .taking_1clk_op_o                 (taking_1clk_op), // 1CLK_EXEC
+
+    // flags for in-1clk-unit forwarding multiplexors
+    .exec_1clk_ff_d1a1_i              (exec_1clk_ff_d1a1), // 1CLK_EXEC
+    .exec_1clk_ff_d1b1_i              (exec_1clk_ff_d1b1), // 1CLK_EXEC
 
     // input operands A and B with forwarding from WB
     .exec_1clk_a1_i                   (exec_1clk_a1), // 1CLK_EXEC
@@ -1335,11 +1324,6 @@ module mor1kx_cpu_marocchino
     .OP_WIDTH                     (MULDIV_OP_WIDTH), // MULDIV_RSRVS
     .OPC_WIDTH                    (MULDIV_OPC_WIDTH), // MULDIV_RSRVS
     .DEST_EXTADR_WIDTH            (DEST_EXTADR_WIDTH), // MULDIV_RSRVS
-    // Reservation station is used for 1-clock execution module.
-    // As 1-clock pushed if only it is granted by write-back access
-    // all input operandes already forwarder. So we don't use
-    // exec_op_o and we remove exra logic for it.
-    .RSRVS_1CLK                   (0), // MULDIV_RSRVS
     // Reservation station is used for LSU
     .RSRVS_LSU                    (0), // MULDIV_RSRVS
     // Reservation station is used for integer MUL/DIV.
@@ -1518,11 +1502,6 @@ module mor1kx_cpu_marocchino
     .OP_WIDTH                     (FPU_OP_WIDTH), // FPU_RSRVS
     .OPC_WIDTH                    (FPU_OPC_WIDTH), // FPU_RSRVS
     .DEST_EXTADR_WIDTH            (DEST_EXTADR_WIDTH), // FPU_RSRVS
-    // Reservation station is used for 1-clock execution module.
-    // As 1-clock pushed if only it is granted by write-back access
-    // all input operandes already forwarder. So we don't use
-    // exec_op_o and we remove exra logic for it.
-    .RSRVS_1CLK                   (0), // FPU_RSRVS
     // Reservation station is used for LSU
     .RSRVS_LSU                    (0), // FPU_RSRVS
     // Reservation station is used for integer MUL/DIV.
@@ -1708,11 +1687,6 @@ module mor1kx_cpu_marocchino
     .OP_WIDTH                     (LSU_OP_WIDTH), // LSU_RSRVS
     .OPC_WIDTH                    (LSU_OPC_WIDTH), // LSU_RSRVS
     .DEST_EXTADR_WIDTH            (DEST_EXTADR_WIDTH), // LSU_RSRVS
-    // Reservation station is used for 1-clock execution module.
-    // As 1-clock pushed if only it is granted by write-back access
-    // all input operandes already forwarder. So we don't use
-    // exec_op_o and we remove exra logic for it.
-    .RSRVS_1CLK                   (0), // LSU_RSRVS
     // Reservation station is used for LSU
     .RSRVS_LSU                    (1), // LSU_RSRVS
     // Reservation station is used for integer MUL/DIV.
