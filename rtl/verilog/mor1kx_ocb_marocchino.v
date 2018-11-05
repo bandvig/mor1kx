@@ -1939,16 +1939,12 @@ module mor1kx_rsrvs_1clk_marocchino
   wire   [(DEST_EXTADR_WIDTH-1):0] omn2dec_extadr_dxb1;
   assign  omn2dec_extadr_dxb1 = omn2dec_hazards_addrs_i[(2*DEST_EXTADR_WIDTH-1):DEST_EXTADR_WIDTH];
 
-  // EXECUTE-to-DECODE same addresses
-  wire exe2dec_same_extadr_dxa1 = (omn2dec_extadr_dxa1 == exec_extadr_r);
-  wire exe2dec_same_extadr_dxb1 = (omn2dec_extadr_dxb1 == exec_extadr_r);
-
   // OMAN-to-DECODE hazard flags: { d2b1, d1b1, d2a1, d1a1 }
   //  # relative operand A1
-  wire omn2dec_hazard_d1a1 = omn2dec_hazards_flags_i[0] & (~exe2dec_same_extadr_dxa1);
+  wire omn2dec_hazard_d1a1 = omn2dec_hazards_flags_i[0] & (omn2dec_extadr_dxa1 != exec_extadr_r);
   wire omn2dec_hazard_d2a1 = omn2dec_hazards_flags_i[1];
   //  # relative operand B1
-  wire omn2dec_hazard_d1b1 = omn2dec_hazards_flags_i[2] & (~exe2dec_same_extadr_dxb1);
+  wire omn2dec_hazard_d1b1 = omn2dec_hazards_flags_i[2] & (omn2dec_extadr_dxb1 != exec_extadr_r);
   wire omn2dec_hazard_d2b1 = omn2dec_hazards_flags_i[3];
 
   // an OMAN-to-DECODE hazard
@@ -1960,8 +1956,8 @@ module mor1kx_rsrvs_1clk_marocchino
   assign dcod_extadr = dcod_rfd1_wb_i ? dcod_extadr_i : EXTADR_ZERO;
 
   // EXECUTE-to-DECODE forwarding
-  wire exe2dec_ff_d1a1 = omn2dec_hazards_flags_i[0] & exe2dec_same_extadr_dxa1;
-  wire exe2dec_ff_d1b1 = omn2dec_hazards_flags_i[2] & exe2dec_same_extadr_dxb1;
+  wire exe2dec_ff_d1a1 = omn2dec_hazards_flags_i[0] & (omn2dec_extadr_dxa1 == exec_extadr_r);
+  wire exe2dec_ff_d1b1 = omn2dec_hazards_flags_i[2] & (omn2dec_extadr_dxb1 == exec_extadr_r);
 
   // all hazards are resolved
   wire busy_free_of_hazards;
@@ -2167,21 +2163,17 @@ module mor1kx_rsrvs_1clk_marocchino
     end
   end // @cpu-clock
 
-  // detect extention bits equality
-  wire wb2busy_same_extadr_dxa1 = (busy_extadr_dxa1_r == wb_extadr_i);
-  wire wb2busy_same_extadr_dxb1 = (busy_extadr_dxb1_r == wb_extadr_i);
-
   // muxing write-back
-  assign busy_dxa1_muxing_wb = busy_hazard_dxa1_r & wb2busy_same_extadr_dxa1;
-  assign busy_dxb1_muxing_wb = busy_hazard_dxb1_r & wb2busy_same_extadr_dxb1;
+  assign busy_dxa1_muxing_wb = busy_hazard_dxa1_r & (busy_extadr_dxa1_r == wb_extadr_i);
+  assign busy_dxb1_muxing_wb = busy_hazard_dxb1_r & (busy_extadr_dxb1_r == wb_extadr_i);
 
   // waiting write-back
-  assign busy_dxa1_waiting_wb = busy_hazard_dxa1_r & (~wb2busy_same_extadr_dxa1);
-  assign busy_dxb1_waiting_wb = busy_hazard_dxb1_r & (~wb2busy_same_extadr_dxb1);
+  assign busy_dxa1_waiting_wb = busy_hazard_dxa1_r & (busy_extadr_dxa1_r != wb_extadr_i);
+  assign busy_dxb1_waiting_wb = busy_hazard_dxb1_r & (busy_extadr_dxb1_r != wb_extadr_i);
 
   // no hazards in BUSY
-  assign busy_free_of_hazards = ((~busy_hazard_dxa1_r) | wb2busy_same_extadr_dxa1) &  // BUSY is free of hazadrs
-                                ((~busy_hazard_dxb1_r) | wb2busy_same_extadr_dxb1);   // BUSY is free of hazadrs
+  assign busy_free_of_hazards = ((~busy_hazard_dxa1_r) | (busy_extadr_dxa1_r == wb_extadr_i)) &  // BUSY is free of hazadrs
+                                ((~busy_hazard_dxb1_r) | (busy_extadr_dxb1_r == wb_extadr_i));   // BUSY is free of hazadrs
 
   // BUSY stage operands A1 & B1
   always @(posedge cpu_clk) begin
