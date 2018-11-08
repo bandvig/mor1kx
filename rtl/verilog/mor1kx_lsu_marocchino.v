@@ -109,16 +109,16 @@ module mor1kx_lsu_marocchino
   //  Pre-WriteBack "an exception" flag
   output                                exec_an_except_lsu_o,
   // WriteBack load  result
-  output     [OPTION_OPERAND_WIDTH-1:0] wb_lsu_result_o,
+  output reg [OPTION_OPERAND_WIDTH-1:0] wb_lsu_result_o,
   // Atomic operation flag set/clear logic
-  output                                wb_atomic_flag_set_o,
-  output                                wb_atomic_flag_clear_o,
+  output reg                            wb_atomic_flag_set_o,
+  output reg                            wb_atomic_flag_clear_o,
   // Exceptions & errors
-  output                                wb_except_dbus_err_o,
-  output                                wb_except_dpagefault_o,
-  output                                wb_except_dtlb_miss_o,
-  output                                wb_except_dbus_align_o,
-  output     [OPTION_OPERAND_WIDTH-1:0] wb_lsu_except_addr_o
+  output reg                            wb_except_dbus_err_o,
+  output reg                            wb_except_dpagefault_o,
+  output reg                            wb_except_dtlb_miss_o,
+  output reg                            wb_except_dbus_align_o,
+  output reg [OPTION_OPERAND_WIDTH-1:0] wb_lsu_except_addr_o
 );
 
 
@@ -580,7 +580,7 @@ module mor1kx_lsu_marocchino
   // --- bus error during bus access from store buffer ---
   //  ## pay attention that l.swa is executed around of
   //     store buffer, so we don't take it into accaunt here.
-  wire sbuf_err = dbus_stna_cmd_o & dbus_err_i ; // to force empty STORE_BUFFER
+  wire sbuf_err = dbus_stna_cmd_o & dbus_err_i; // to force empty STORE_BUFFER
   // ---
   always @(posedge cpu_clk) begin
     if (flush_by_ctrl) // reset store buffer DBUS error
@@ -1032,77 +1032,88 @@ module mor1kx_lsu_marocchino
   end
 
 
-  localparam  ODAT_LDAT_LSB          = 0;
-  localparam  ODAT_LDAT_MSB          = LSUOOW - 1;
-  localparam  ODAT_EXCEPT_ADDR_LSB   = ODAT_LDAT_MSB          + 1;
-  localparam  ODAT_EXCEPT_ADDR_MSB   = ODAT_EXCEPT_ADDR_LSB   + LSUOOW - 1;
-  localparam  ODAT_ATOMIC_FLAG_SET   = ODAT_EXCEPT_ADDR_MSB   + 1;
-  localparam  ODAT_ATOMIC_FLAG_CLR   = ODAT_ATOMIC_FLAG_SET   + 1;
-  localparam  ODAT_EXCEPT_DBUS_ERR   = ODAT_ATOMIC_FLAG_CLR   + 1;
-  localparam  ODAT_EXCEPT_DPAGEFAULT = ODAT_EXCEPT_DBUS_ERR   + 1;
-  localparam  ODAT_EXCEPT_DTLB_MISS  = ODAT_EXCEPT_DPAGEFAULT + 1;
-  localparam  ODAT_EXCEPT_DBUS_ALIGN = ODAT_EXCEPT_DTLB_MISS  + 1;
-  localparam  ODAT_EXCEPTS_ANY       = ODAT_EXCEPT_DBUS_ALIGN + 1;
-
-  // MSB and data width for 1st and Write-Back taps
-  //  -- without "result or except" bit
-  localparam  ODAT_MISS_MSB = ODAT_EXCEPTS_ANY;
-
-  // LSU's output data set
-  wire [ODAT_MISS_MSB:0] s3t_odat =
-    {
-      // Any exception
-      s2o_excepts_any,        // tap of output data set
-      // Particular LSU exception flags
-      s2o_align,              // tap of output data set
-      s2o_tlb_miss,           // tap of output data set
-      s2o_pagefault,          // tap of output data set
-      s2o_dbus_err_nsbuf,     // tap of output data set
-      // Atomic operation flag set/clear logic
-      s2o_atomic_flag_clear,  // tap of output data set
-      s2o_atomic_flag_set,    // tap of output data set
-      // WB-output assignement
-      s2o_virt_addr,          // tap of output data set
-      s3t_ldat_extended       // tap of output data set
-    };
   // LSU's output data set registered by WriteBack miss
-  reg [ODAT_MISS_MSB:0] s3o_odat_miss;
+  // WB-output assignement
+  reg  [LSUOOW-1:0] s3o_lsu_result;
+  reg  [LSUOOW-1:0] s3o_lsu_except_addr;
+  // Atomic operation flag set/clear logic
+  reg               s3o_atomic_flag_set;
+  reg               s3o_atomic_flag_clear;
+  // Particular LSU exception flags
+  reg               s3o_dbus_err_nsbuf;
+  reg               s3o_pagefault;
+  reg               s3o_tlb_miss;
+  reg               s3o_align;
+  // Any exception
+  reg               s3o_excepts_any;
+  
   // ---
   always @(posedge cpu_clk) begin
-    if (lsu_s3_adv) // save output data set in "miss" register
-      s3o_odat_miss <= s3t_odat;
-  end // @clock
-
-  // pre-WB exceprions & errors
-  // MAROCCHINO_TODO: need more accurate processing for store buffer bus error
-  assign exec_an_except_lsu_o = (lsu_wb_miss ? s3o_odat_miss[ODAT_EXCEPTS_ANY] : s2o_excepts_any) & grant_wb_to_lsu_i;
-
-  // LSU's WB-registered output data set (without "an except flag)
-  localparam  ODAT_WB_MSB = ODAT_MISS_MSB - 1;
-  localparam  ODAT_WB_DW  = ODAT_WB_MSB   + 1;
-  // ---
-  reg  [ODAT_WB_MSB:0] wb_odat;
-  wire [LSUOOW-1:0] wb_lsu_result_m = lsu_wb_miss ? s3o_odat_miss[ODAT_LDAT_MSB:ODAT_LDAT_LSB] : s3t_odat[ODAT_LDAT_MSB:ODAT_LDAT_LSB];
-  // ---
-  always @(posedge cpu_clk) begin
-    if (padv_wb_i) begin
-      if (grant_wb_to_lsu_i)
-        wb_odat <= lsu_wb_miss ? s3o_odat_miss[ODAT_WB_MSB:0] : s3t_odat[ODAT_WB_MSB:0];
-      else
-        wb_odat <= {ODAT_WB_DW{1'b0}};
+    if (lsu_s3_adv) begin // save output data set in "miss" register
+      // WB-output assignement
+      s3o_lsu_result        <= s3t_ldat_extended;
+      s3o_lsu_except_addr   <= s2o_virt_addr;
+      // Atomic operation flag set/clear logic
+      s3o_atomic_flag_set   <= s2o_atomic_flag_set;
+      s3o_atomic_flag_clear <= s2o_atomic_flag_clear;
+      // Particular LSU exception flags
+      s3o_dbus_err_nsbuf    <= s2o_dbus_err_nsbuf;
+      s3o_pagefault         <= s2o_pagefault;
+      s3o_tlb_miss          <= s2o_tlb_miss;
+      s3o_align             <= s2o_align;
+      // Any exception
+      s3o_excepts_any       <= s2o_excepts_any;
     end
   end // @clock
 
-  // WB-output assignement
-  assign wb_lsu_result_o        = wb_odat[ODAT_LDAT_MSB:ODAT_LDAT_LSB];
-  assign wb_lsu_except_addr_o   = wb_odat[ODAT_EXCEPT_ADDR_MSB:ODAT_EXCEPT_ADDR_LSB];
-  // Atomic operation flag set/clear logic
-  assign wb_atomic_flag_set_o   = wb_odat[ODAT_ATOMIC_FLAG_SET];
-  assign wb_atomic_flag_clear_o = wb_odat[ODAT_ATOMIC_FLAG_CLR];
-  // Particular LSU exception flags
-  assign wb_except_dbus_err_o   = wb_odat[ODAT_EXCEPT_DBUS_ERR];
-  assign wb_except_dpagefault_o = wb_odat[ODAT_EXCEPT_DPAGEFAULT];
-  assign wb_except_dtlb_miss_o  = wb_odat[ODAT_EXCEPT_DTLB_MISS];
-  assign wb_except_dbus_align_o = wb_odat[ODAT_EXCEPT_DBUS_ALIGN];
+  // pre-WB exceprions & errors
+  assign exec_an_except_lsu_o = (lsu_wb_miss ? s3o_excepts_any : s2o_excepts_any) & grant_wb_to_lsu_i;
 
+  // WB-registered load result and exception address
+  always @(posedge cpu_clk) begin
+    if (padv_wb_i) begin
+      if (grant_wb_to_lsu_i) begin
+        wb_lsu_result_o      <= lsu_wb_miss ? s3o_lsu_result : s3t_ldat_extended;
+        wb_lsu_except_addr_o <= lsu_wb_miss ? s3o_lsu_except_addr : s2o_virt_addr;
+      end
+      else begin
+        wb_lsu_result_o      <= {LSUOOW{1'b0}};
+      end
+    end
+  end // @clock
+
+  // WB-registered atomic flag and exception flags
+  always @(posedge cpu_clk) begin
+    if (pipeline_flush_i) begin
+      // Atomic operation flag set/clear logic
+      wb_atomic_flag_set_o   <= 1'b0; // flush
+      wb_atomic_flag_clear_o <= 1'b0; // flush
+      // Particular LSU exception flags
+      wb_except_dbus_err_o   <= 1'b0; // flush
+      wb_except_dpagefault_o <= 1'b0; // flush
+      wb_except_dtlb_miss_o  <= 1'b0; // flush
+      wb_except_dbus_align_o <= 1'b0; // flush
+    end
+    else if (padv_wb_i & grant_wb_to_lsu_i) begin
+      // Atomic operation flag set/clear logic
+      wb_atomic_flag_set_o   <= lsu_wb_miss ? s3o_atomic_flag_set   : s2o_atomic_flag_set;
+      wb_atomic_flag_clear_o <= lsu_wb_miss ? s3o_atomic_flag_clear : s2o_atomic_flag_clear;
+      // Particular LSU exception flags
+      wb_except_dbus_err_o   <= lsu_wb_miss ? s3o_dbus_err_nsbuf : s2o_dbus_err_nsbuf;
+      wb_except_dpagefault_o <= lsu_wb_miss ? s3o_pagefault      : s2o_pagefault;
+      wb_except_dtlb_miss_o  <= lsu_wb_miss ? s3o_tlb_miss       : s2o_tlb_miss;
+      wb_except_dbus_align_o <= lsu_wb_miss ? s3o_align          : s2o_align;
+    end
+    else begin
+      // Atomic operation flag set/clear logic
+      wb_atomic_flag_set_o   <= 1'b0; // 1-clk-length
+      wb_atomic_flag_clear_o <= 1'b0; // 1-clk-length
+      // Particular LSU exception flags
+      wb_except_dbus_err_o   <= 1'b0; // 1-clk-length
+      wb_except_dpagefault_o <= 1'b0; // 1-clk-length
+      wb_except_dtlb_miss_o  <= 1'b0; // 1-clk-length
+      wb_except_dbus_align_o <= 1'b0; // 1-clk-length
+    end
+  end // @clock
+  
 endmodule // mor1kx_lsu_marocchino

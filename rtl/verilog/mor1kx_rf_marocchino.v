@@ -40,7 +40,7 @@ module mor1kx_rf_marocchino
   input                             cpu_rst,
 
   // pipeline control signals
-  input                             pipeline_flush_i,
+  input                             wb_rfe_or_except_i,
   input                             padv_dcod_i,
 
   // SPR bus
@@ -192,7 +192,7 @@ module mor1kx_rf_marocchino
   //  # signals for Write port *_wp_*
   //  # we also use this port for SPR GPR read access
   wire rfa_even_wp_en  = (write_even_req & (even_wadr != rfa_even_radr)) | spr_gpr0_re;
-  wire rfa_even_wp_we  = (~pipeline_flush_i) & (~spr_gpr0_re);
+  wire rfa_even_wp_we  = (~wb_rfe_or_except_i) & (~spr_gpr0_re);
   //  # Write port address
   wire [(RF_AW-2):0] rfa_even_wpadr;
   assign rfa_even_wpadr = spr_gpr0_re ? spr_gpr0_addr[(RF_AW-1):1] : even_wadr[(RF_AW-1):1];
@@ -209,7 +209,7 @@ module mor1kx_rf_marocchino
     .clk    (cpu_clk),
     // port "a": Read / Write (for RW-conflict case)
     .en_a   (rfa_even_rwp_en),
-    .we_a   (rfa_even_rwp_we & (~pipeline_flush_i)),
+    .we_a   (rfa_even_rwp_we & (~wb_rfe_or_except_i)),
     .addr_a (rfa_even_radr[(RF_AW-1):1]),
     .din_a  (even_wdat),
     .dout_a (rfa_even_dout),
@@ -236,7 +236,7 @@ module mor1kx_rf_marocchino
   //  # signals for Write port *_wp_*
   //  # we also use this port for SPR GPR read access
   wire rfa_odd_wp_en  = (write_odd_req & (odd_wadr != rfa_odd_radr)) | spr_gpr0_re;
-  wire rfa_odd_wp_we  = (~pipeline_flush_i) & (~spr_gpr0_re);
+  wire rfa_odd_wp_we  = (~wb_rfe_or_except_i) & (~spr_gpr0_re);
   //  # Write port address
   wire [(RF_AW-2):0] rfa_odd_wpadr;
   assign rfa_odd_wpadr = spr_gpr0_re ? spr_gpr0_addr[(RF_AW-1):1] : odd_wadr[(RF_AW-1):1];
@@ -253,7 +253,7 @@ module mor1kx_rf_marocchino
     .clk    (cpu_clk),
     // port "a": Read / Write (for RW-conflict case)
     .en_a   (rfa_odd_rwp_en),
-    .we_a   (rfa_odd_rwp_we & (~pipeline_flush_i)),
+    .we_a   (rfa_odd_rwp_we & (~wb_rfe_or_except_i)),
     .addr_a (rfa_odd_radr[(RF_AW-1):1]),
     .din_a  (odd_wdat),
     .dout_a (rfa_odd_dout),
@@ -292,13 +292,13 @@ module mor1kx_rf_marocchino
     .clk    (cpu_clk),
     // port "a": Read / Write (for RW-conflict case)
     .en_a   (rfb_even_rwp_en),
-    .we_a   (rfb_even_rwp_we & (~pipeline_flush_i)),
+    .we_a   (rfb_even_rwp_we & (~wb_rfe_or_except_i)),
     .addr_a (rfb_even_radr[(RF_AW-1):1]),
     .din_a  (even_wdat),
     .dout_a (rfb_even_dout),
     // port "b": Write if no RW-conflict
     .en_b   (rfb_even_wp_en),
-    .we_b   (~pipeline_flush_i),
+    .we_b   (~wb_rfe_or_except_i),
     .addr_b (even_wadr[(RF_AW-1):1]),
     .din_b  (even_wdat),
     .dout_b ()
@@ -331,13 +331,13 @@ module mor1kx_rf_marocchino
     .clk    (cpu_clk),
     // port "a": Read / Write (for RW-conflict case)
     .en_a   (rfb_odd_rwp_en),
-    .we_a   (rfb_odd_rwp_we & (~pipeline_flush_i)),
+    .we_a   (rfb_odd_rwp_we & (~wb_rfe_or_except_i)),
     .addr_a (rfb_odd_radr[(RF_AW-1):1]),
     .din_a  (odd_wdat),
     .dout_a (rfb_odd_dout),
     // port "b": Write if no RW-conflict
     .en_b   (rfb_odd_wp_en),
-    .we_b   (~pipeline_flush_i),
+    .we_b   (~wb_rfe_or_except_i),
     .addr_b (odd_wadr[(RF_AW-1):1]),
     .din_b  (odd_wdat),
     .dout_b ()

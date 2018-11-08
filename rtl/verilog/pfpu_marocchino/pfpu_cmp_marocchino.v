@@ -306,58 +306,41 @@ module pfpu_cmp_marocchino
   assign exec_except_fpxx_cmp_o = grant_wb_to_fpxx_cmp_i & mux_except_fpxx_cmp;
 
   ////////////////////////////////////////////////////////////////////////
-  // WB latches: flag set/clear
+  // WB latches: 
   always @(posedge cpu_clk) begin
     if (pipeline_flush_i) begin
-      wb_fpxx_flag_set_o   <= 1'b0;
-      wb_fpxx_flag_clear_o <= 1'b0;
+      // flag set/clear
+      wb_fpxx_flag_set_o     <= 1'b0; // flush
+      wb_fpxx_flag_clear_o   <= 1'b0; // flush
+      // comparison exception flags
+      wb_fpxx_cmp_inv_o      <= 1'b0; // flush
+      wb_fpxx_cmp_inf_o      <= 1'b0; // flush
+      wb_except_fpxx_cmp_o   <= 1'b0; // flush
+      // update FPCSR
+      wb_fpxx_cmp_wb_fpcsr_o <= 1'b0; // flush
     end
-    else if (padv_wb_i) begin
-      if (grant_wb_to_fpxx_cmp_i) begin
-        wb_fpxx_flag_set_o   <= fpxx_cmp_wb_miss_r ? fpxx_wb_flag_set_p : exec_fpxx_flag_set;
-        wb_fpxx_flag_clear_o <= fpxx_cmp_wb_miss_r ? fpxx_wb_flag_clear_p : exec_fpxx_flag_clear;
-      end
-      else begin
-        wb_fpxx_flag_set_o   <= 1'b0;
-        wb_fpxx_flag_clear_o <= 1'b0;
-      end
+    else if (padv_wb_i & grant_wb_to_fpxx_cmp_i) begin
+      // flag set/clear
+      wb_fpxx_flag_set_o     <= fpxx_cmp_wb_miss_r ? fpxx_wb_flag_set_p : exec_fpxx_flag_set;
+      wb_fpxx_flag_clear_o   <= fpxx_cmp_wb_miss_r ? fpxx_wb_flag_clear_p : exec_fpxx_flag_clear;
+      // comparison exception flags
+      wb_fpxx_cmp_inv_o      <= fpxx_cmp_wb_miss_r ? fpxx_wb_cmp_inv_p : exec_fpxx_cmp_inv;
+      wb_fpxx_cmp_inf_o      <= fpxx_cmp_wb_miss_r ? fpxx_wb_cmp_inf_p : exec_fpxx_cmp_inf;
+      wb_except_fpxx_cmp_o   <= mux_except_fpxx_cmp;
+      // update FPCSR
+      wb_fpxx_cmp_wb_fpcsr_o <= 1'b1;
+    end
+    else begin
+      // flag set/clear
+      wb_fpxx_flag_set_o     <= 1'b0; // 1-clk-length
+      wb_fpxx_flag_clear_o   <= 1'b0; // 1-clk-length
+      // comparison exception flags
+      wb_fpxx_cmp_inv_o      <= 1'b0; // 1-clk-length
+      wb_fpxx_cmp_inf_o      <= 1'b0; // 1-clk-length
+      wb_except_fpxx_cmp_o   <= 1'b0; // 1-clk-length
+      // update FPCSR
+      wb_fpxx_cmp_wb_fpcsr_o <= 1'b0; // 1-clk-length
     end // advance WB latches
-  end // @clock
-
-  ////////////////////////////////////////////////////////////////////////
-  // WB latches: fp-related comparison flags
-  // They make sence only if wb_fpxx_cmp_wb_fpcsr is rised (see CTRL)
-  always @(posedge cpu_clk) begin
-    if(padv_wb_i) begin
-      if (grant_wb_to_fpxx_cmp_i) begin
-        wb_fpxx_cmp_inv_o <= fpxx_cmp_wb_miss_r ? fpxx_wb_cmp_inv_p : exec_fpxx_cmp_inv;
-        wb_fpxx_cmp_inf_o <= fpxx_cmp_wb_miss_r ? fpxx_wb_cmp_inf_p : exec_fpxx_cmp_inf;
-      end
-      else begin
-        wb_fpxx_cmp_inv_o <= 1'b0;
-        wb_fpxx_cmp_inf_o <= 1'b0;
-      end
-    end // advance WB latches
-  end // @clock
-
-  ////////////////////////////////////////////////////////////////////////
-  // WB latches: update FPCSR (1-clock to prevent extra writes into FPCSR)
-  always @(posedge cpu_clk) begin
-    if (pipeline_flush_i)
-      wb_fpxx_cmp_wb_fpcsr_o <= 1'b0;
-    else if (padv_wb_i)
-      wb_fpxx_cmp_wb_fpcsr_o <= grant_wb_to_fpxx_cmp_i;
-    else
-      wb_fpxx_cmp_wb_fpcsr_o <= 1'b0;
-  end // @clock
-
-  ////////////////////////////////////////////////////////////////////////
-  // WB latches: an fp-comparison exception
-  always @(posedge cpu_clk) begin
-    if (pipeline_flush_i)
-      wb_except_fpxx_cmp_o <= 1'b0;
-    else if (padv_wb_i)
-      wb_except_fpxx_cmp_o <= exec_except_fpxx_cmp_o;
   end // @clock
 
 endmodule // pfpu_cmp_marocchino

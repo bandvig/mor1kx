@@ -499,28 +499,25 @@ module mor1kx_ctrl_marocchino
   // State Machine To Collect Exception PC and Push it to IFETCH //
   //-------------------------------------------------------------//
 
-  localparam [4:0] EXCEPT_PROC_FSM_WAITING    = 5'b00001,
-                   EXCEPT_PROC_FSM_GET_NPC    = 5'b00010, // DU unstall processing
-                   EXCEPT_PROC_FSM_GET_EPC    = 5'b00100, // an exception processing
-                   EXCEPT_PROC_FSM_GET_EPCR   = 5'b01000, // l.rfe processing
-                   EXCEPT_PROC_FSM_TO_IFETCH  = 5'b10000; // put collected target to IFETCH
+  localparam [5:0] EXCEPT_PROC_FSM_WAITING    = 6'b000001,
+                   EXCEPT_PROC_FSM_GET_RST    = 6'b000010, // CPU reset processing
+                   EXCEPT_PROC_FSM_GET_NPC    = 6'b000100, // DU unstall processing
+                   EXCEPT_PROC_FSM_GET_EPC    = 6'b001000, // an exception processing
+                   EXCEPT_PROC_FSM_GET_EPCR   = 6'b010000, // l.rfe processing
+                   EXCEPT_PROC_FSM_TO_IFETCH  = 6'b100000; // put collected target to IFETCH
 
-  reg                       [4:0] except_proc_fsm_state;
+  reg                       [5:0] except_proc_fsm_state;
   reg  [OPTION_OPERAND_WIDTH-1:0] ctrl_branch_except_pc_r;
   reg                             ctrl_branch_exception_r;
-
-  wire except_proc_fsm_get_npc  = except_proc_fsm_state[1];
-  wire except_proc_fsm_get_epc  = except_proc_fsm_state[2];
-//wire except_proc_fsm_get_epcr = except_proc_fsm_state[3];
 
   assign ctrl_branch_exception_o = ctrl_branch_exception_r;
   assign ctrl_branch_except_pc_o = ctrl_branch_except_pc_r;
 
   always @(posedge cpu_clk) begin
     if (cpu_rst) begin
-      ctrl_branch_exception_r <= 1'b1; // at reset
-      ctrl_branch_except_pc_r <= OPTION_RESET_PC; // at reset
-      except_proc_fsm_state   <= EXCEPT_PROC_FSM_TO_IFETCH; // at reset
+      ctrl_branch_exception_r <= 1'b0; // at reset
+      ctrl_branch_except_pc_r <= {OPTION_OPERAND_WIDTH{1'b0}}; // at reset
+      except_proc_fsm_state   <= EXCEPT_PROC_FSM_GET_RST; // at reset
     end
     else begin
       // synthesis parallel_case
@@ -532,15 +529,29 @@ module mor1kx_ctrl_marocchino
                                         (wb_op_rfe_i ? EXCEPT_PROC_FSM_GET_EPCR :
                                                        EXCEPT_PROC_FSM_WAITING));
         end // waiting
-        // collect exception target
-        EXCEPT_PROC_FSM_GET_NPC,
-        EXCEPT_PROC_FSM_GET_EPC,
+        // CPU reset processing
+        EXCEPT_PROC_FSM_GET_RST: begin
+          ctrl_branch_exception_r <= 1'b1;
+          ctrl_branch_except_pc_r <= OPTION_RESET_PC;
+          except_proc_fsm_state   <= EXCEPT_PROC_FSM_TO_IFETCH;
+        end
+        // DU unstall processing
+        EXCEPT_PROC_FSM_GET_NPC: begin
+          ctrl_branch_exception_r <= 1'b1;
+          ctrl_branch_except_pc_r <= spr_npc;
+          except_proc_fsm_state   <= EXCEPT_PROC_FSM_TO_IFETCH;
+        end
+        // an exception processing
+        EXCEPT_PROC_FSM_GET_EPC: begin
+          ctrl_branch_exception_r <= 1'b1;
+          ctrl_branch_except_pc_r <= exception_pc_addr;
+          except_proc_fsm_state   <= EXCEPT_PROC_FSM_TO_IFETCH;
+        end
+        // l.rfe processing
         EXCEPT_PROC_FSM_GET_EPCR: begin
-          ctrl_branch_exception_r <= 1'b1; // collect exception target
-          ctrl_branch_except_pc_r <= except_proc_fsm_get_npc ? spr_npc : // collect exception target
-                                      (except_proc_fsm_get_epc ? exception_pc_addr : // collect exception target
-                                                                 spr_epcr); // collect exception target
-          except_proc_fsm_state   <= EXCEPT_PROC_FSM_TO_IFETCH;  // collect exception target
+          ctrl_branch_exception_r <= 1'b1;
+          ctrl_branch_except_pc_r <= spr_epcr;
+          except_proc_fsm_state   <= EXCEPT_PROC_FSM_TO_IFETCH;
         end // collect exception target
         // put collected target to IFETCH
         EXCEPT_PROC_FSM_TO_IFETCH: begin
@@ -616,12 +627,14 @@ module mor1kx_ctrl_marocchino
   reg  ctrl_spr_wb_r;
   // ---
   always @(posedge cpu_clk) begin
-    if (pipeline_flush_r)
-      ctrl_spr_wb_r <= 1'b0;
+    if (cpu_rst)
+      ctrl_spr_wb_r <= 1'b0;    // reset
+    else if (pipeline_flush_r)
+      ctrl_spr_wb_r <= 1'b0;    // flush
     else if (padv_wb_o)
-      ctrl_spr_wb_r <= 1'b1;
+      ctrl_spr_wb_r <= 1'b1;    // proc write-back
     else
-      ctrl_spr_wb_r <= 1'b0;
+      ctrl_spr_wb_r <= 1'b0;    // 1-clk-length
   end // @ clock
 
 
@@ -751,6 +764,13 @@ module mor1kx_ctrl_marocchino
       spr_sr[`OR1K_SPR_SR_OV ]  <= wb_except_overflow_div_i | wb_except_overflow_1clk_i;
       spr_sr[`OR1K_SPR_SR_DSX]  <= wb_delay_slot_i;
     end
+    else if (wb_op_rfe_i) begin
+      // Skip FO. TODO: make this even more selective.
+      spr_sr[14:0]              <= spr_esr[14:0];
+      // Copies of SR[F] to simplify routing
+      flag_1clk_r               <= spr_esr[`OR1K_SPR_SR_F]; // l.rfe
+      flag_oman_r               <= spr_esr[`OR1K_SPR_SR_F]; // l.rfe
+    end
     else if ((`SPR_OFFSET(spr_sys_group_wadr_r) == `SPR_OFFSET(`OR1K_SPR_SR_ADDR)) &
              spr_sys_group_we &
              spr_sr[`OR1K_SPR_SR_SM]) begin
@@ -772,13 +792,6 @@ module mor1kx_ctrl_marocchino
       // Copies of SR[F] to simplify routing
       flag_1clk_r               <= spr_sys_group_wdat_r[`OR1K_SPR_SR_F]; // l.mtspr
       flag_oman_r               <= spr_sys_group_wdat_r[`OR1K_SPR_SR_F]; // l.mtspr
-    end
-    else if (wb_op_rfe_i) begin
-      // Skip FO. TODO: make this even more selective.
-      spr_sr[14:0]              <= spr_esr[14:0];
-      // Copies of SR[F] to simplify routing
-      flag_1clk_r               <= spr_esr[`OR1K_SPR_SR_F]; // l.rfe
-      flag_oman_r               <= spr_esr[`OR1K_SPR_SR_F]; // l.rfe
     end
     else begin
       // OVERFLOW field update
@@ -956,7 +969,7 @@ module mor1kx_ctrl_marocchino
   assign     du_ack_o            = spr_bus_state[6];
 
   // Access to SPR BUS from Debug System
-  wire take_access_du = (~dcod_op_mXspr_i) & (~spr_bus_cpu_stall_r) & du_stb_i;
+  wire take_access_du = (~dcod_op_mXspr_i) & spr_bus_wait_req & du_stb_i;
 
   // registering l.mf(t)spr data
   reg                            ctrl_op_mtspr_r;
@@ -1299,7 +1312,7 @@ module mor1kx_ctrl_marocchino
     reg [OPTION_OPERAND_WIDTH-1:0] du2spr_wdat_r;
     // ---
     always @(posedge cpu_clk) begin
-      if (take_access_du & spr_bus_wait_req) begin
+      if (take_access_du) begin
         du2spr_we_r    <= du_we_i;
         du2spr_waddr_r <= du_addr_i;
         du2spr_wdat_r  <= du_dat_i;

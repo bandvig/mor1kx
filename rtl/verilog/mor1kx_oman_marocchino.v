@@ -1393,6 +1393,8 @@ module mor1kx_oman_marocchino
       wb_delay_slot_o <= 1'b0;
     else if (padv_wb_i)
       wb_delay_slot_o <= ocbo[OCBTA_DELAY_SLOT_POS];
+    else
+      wb_delay_slot_o <= 1'b0;
   end // @clock
 
 

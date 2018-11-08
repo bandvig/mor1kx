@@ -736,33 +736,23 @@ module pfpu_rnd_marocchino
     end // WB-advance
   end // @clock
 
-  // WB: FPU flags.
-  // They make sence only if  wb_fpxx_arith_wb_fpcsr is rised (see CTRL)
+  // WB: flags
   always @(posedge cpu_clk) begin
-    if(padv_wb_i) begin
-      if (grant_wb_to_fpxx_arith_i)
-        wb_fpxx_arith_fpcsr_o <= fpxx_arith_wb_miss_r ? fpxx_arith_wb_fpcsr_p : exec_fpxx_arith_fpcsr;
-      else
-        wb_fpxx_arith_fpcsr_o <= {`OR1K_FPCSR_ALLF_SIZE{1'b0}};
-    end // WB-advance
-  end // @clock
-
-  // WB: update FPCSR (1-clock to prevent extra writes into FPCSR)
-  always @(posedge cpu_clk) begin
-    if (pipeline_flush_i)
+    if (pipeline_flush_i) begin
+      wb_fpxx_arith_fpcsr_o    <= {`OR1K_FPCSR_ALLF_SIZE{1'b0}};
+      wb_except_fpxx_arith_o   <= 1'b0;
       wb_fpxx_arith_wb_fpcsr_o <= 1'b0;
-    else if (padv_wb_i)
-      wb_fpxx_arith_wb_fpcsr_o <= grant_wb_to_fpxx_arith_i;
-    else
+    end
+    else if (padv_wb_i & grant_wb_to_fpxx_arith_i) begin
+      wb_fpxx_arith_fpcsr_o    <= fpxx_arith_wb_miss_r ? fpxx_arith_wb_fpcsr_p : exec_fpxx_arith_fpcsr;
+      wb_except_fpxx_arith_o   <= mux_except_fpxx_arith;
+      wb_fpxx_arith_wb_fpcsr_o <= 1'b1;
+    end
+    else begin
+      wb_fpxx_arith_fpcsr_o    <= {`OR1K_FPCSR_ALLF_SIZE{1'b0}};
+      wb_except_fpxx_arith_o   <= 1'b0;
       wb_fpxx_arith_wb_fpcsr_o <= 1'b0;
-  end // @clock
-
-  // WB: an exception
-  always @(posedge cpu_clk) begin
-    if (pipeline_flush_i)
-      wb_except_fpxx_arith_o <= 1'b0;
-    else if (padv_wb_i)
-      wb_except_fpxx_arith_o <= exec_except_fpxx_arith_o;
+    end
   end // @clock
 
 endmodule // pfpu_rnd_marocchino

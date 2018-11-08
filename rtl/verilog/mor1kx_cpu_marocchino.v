@@ -720,7 +720,7 @@ module mor1kx_cpu_marocchino
     .cpu_clk                          (cpu_clk), // RF
     .cpu_rst                          (cpu_rst), // RF
     // pipeline control signals
-    .pipeline_flush_i                 (pipeline_flush), // RF
+    .wb_rfe_or_except_i               (pipeline_flush), // RF
     .padv_dcod_i                      (padv_dcod), // RF
     // SPR bus
     .spr_bus_addr_i                   (spr_bus_addr_o), // RF
@@ -1867,6 +1867,7 @@ module mor1kx_cpu_marocchino
   //-----------//
   // WB:result //
   //-----------//
+
   // --- regular ---
   always @(wb_alu_1clk_result   or wb_div_result or wb_mul_result or
            wb_fpxx_arith_res_hi or wb_lsu_result or wb_mfspr_result)
@@ -1874,6 +1875,7 @@ module mor1kx_cpu_marocchino
     wb_result1 = wb_alu_1clk_result   | wb_div_result | wb_mul_result |
                  wb_fpxx_arith_res_hi | wb_lsu_result | wb_mfspr_result;
   end
+
   // --- FPU64 extention ---
   assign wb_result2 = wb_fpxx_arith_res_lo;
 
