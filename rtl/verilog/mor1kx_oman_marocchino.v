@@ -181,7 +181,6 @@ module mor1kx_oman_marocchino
   input      [OPTION_OPERAND_WIDTH-1:0] pc_decode_i,            // instruction virtual address
   input      [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfd1_adr_i,        // WB address
   input                                 dcod_rfd1_wb_i,         // instruction generates WB to D1
-  input                                 dcod_carry_wb_i,        // instruction affects carry flag
   input                                 dcod_flag_wb_i,         // any instruction which affects comparison flag
   input                                 dcod_delay_slot_i,      // instruction is in delay slot
   input      [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfd2_adr_i,        // WB2 address for FPU64
@@ -210,6 +209,7 @@ module mor1kx_oman_marocchino
   input                                 dcod_except_illegal_i,
   input                                 dcod_except_syscall_i,
   input                                 dcod_except_trap_i,
+  input                                 dcod_an_except_fd_i,
 
   // 1-clock "WB to DECODE operand forwarding" flags
   //  # relative operand A1
@@ -314,6 +314,8 @@ module mor1kx_oman_marocchino
   output                                exec_except_illegal_o,
   output                                exec_except_syscall_o,
   output                                exec_except_trap_o,
+  // pre-WB output exceptions: IFETCH/DECODE
+  output                                exec_an_except_fd_o,
 
   // WB outputs
   //  ## special WB-controls for RF
@@ -327,8 +329,6 @@ module mor1kx_oman_marocchino
   output reg [OPTION_OPERAND_WIDTH-1:0] pc_nxt2_wb_o, // pc-wb + 8
   output reg                            wb_delay_slot_o,
   output reg                            wb_rfd1_odd_o,
-  output reg                            wb_flag_wb_o,
-  output reg                            wb_carry_wb_o,
   // for hazards resolution in RSRVS
   output reg    [DEST_EXTADR_WIDTH-1:0] wb_extadr_o
 );
@@ -339,18 +339,16 @@ module mor1kx_oman_marocchino
   //    (a) Doesn't include IBUS align violation.
   //        It goes through "jump/branch attributes order control buffer".
   //    (b) LSU exceptions go to WB around any OCB
-  //  [6] Flag that external interrupt is enabled (instruction is re-startable)
-  localparam  OCBTA_INTERRUPTS_EN_POS  =                           6;
+  //  [6] Combined IFETCH/DECODE an exception flag
+  localparam  OCBTA_AN_EXCEPT_FD_POS   =                           6;
+  //  Flag that external interrupt is enabled (instruction is re-startable)
+  localparam  OCBTA_INTERRUPTS_EN_POS  = OCBTA_AN_EXCEPT_FD_POS  + 1;
   //  Unit wise requested/ready
   localparam  OCBTA_OP_RFE_POS         = OCBTA_INTERRUPTS_EN_POS + 1;
   //  Instruction is in delay slot
   localparam  OCBTA_DELAY_SLOT_POS     = OCBTA_OP_RFE_POS        + 1;
-  //  Instruction writting comparison flag
-  localparam  OCBTA_FLAG_WB_POS        = OCBTA_DELAY_SLOT_POS    + 1; // any such instruction
-  //  Instruction writting carry flag
-  localparam  OCBTA_CARRY_WB_POS       = OCBTA_FLAG_WB_POS       + 1;
   //  Instruction generates WB to D1
-  localparam  OCBTA_RFD1_WB_POS        = OCBTA_CARRY_WB_POS      + 1;
+  localparam  OCBTA_RFD1_WB_POS        = OCBTA_DELAY_SLOT_POS    + 1;
   localparam  OCBTA_RFD1_ADR_LSB       = OCBTA_RFD1_WB_POS       + 1;
   localparam  OCBTA_RFD1_ADR_MSB       = OCBTA_RFD1_WB_POS       + OPTION_RF_ADDR_WIDTH;
   //  Instruction generates WB to D2
@@ -477,12 +475,12 @@ module mor1kx_oman_marocchino
       dcod_rfd2_wb_i, // OCB-Attributes entrance
       dcod_rfd1_adr_i, // OCB-Attributes entrance
       dcod_rfd1_wb_i, // OCB-Attributes entrance
-      dcod_carry_wb_i, // OCB-Attributes entrance
-      dcod_flag_wb_i, // OCB-Attributes entrance
       dcod_delay_slot_i, // OCB-Attributes entrance
       dcod_op_rfe_i, // OCB-Attributes entrance
       // Flag that istruction is restartable
       interrupts_en, // OCB-Attributes entrance
+      // Combined IFETCH/DECODE an exception flag
+      dcod_an_except_fd_i, // OCB-Attributes entrance
       // FETCH & DECODE exceptions
       dcod_fetch_except_ibus_err_r, // OCB-Attributes entrance
       dcod_fetch_except_ipagefault_r, // OCB-Attributes entrance
@@ -1317,6 +1315,8 @@ module mor1kx_oman_marocchino
 
   // pre-WB l.rfe
   assign exec_op_rfe_o            = ocbo[OCBTA_OP_RFE_POS];
+  // IFETCH/DECODE an exception
+  assign exec_an_except_fd_o      = ocbo[OCBTA_AN_EXCEPT_FD_POS];
   // IFETCH exceptions
   assign exec_except_ibus_err_o   = ocbo[5];
   assign exec_except_ipagefault_o = ocbo[4];
@@ -1362,28 +1362,6 @@ module mor1kx_oman_marocchino
       wb_rf_even_addr_o <= exec_rfd1_adr[0] ? exec_rfd2_adr : exec_rfd1_adr;
       wb_rf_odd_addr_o  <= exec_rfd1_adr[0] ? exec_rfd1_adr : exec_rfd2_adr;
     end
-  end // @clock
-
-
-  // OMAN WB-to-FLAG-request
-  always @(posedge cpu_clk) begin
-    if (pipeline_flush_i)
-      wb_flag_wb_o <= 1'b0;
-    else if (padv_wb_i)
-      wb_flag_wb_o <= ocbo[OCBTA_FLAG_WB_POS];
-    else
-      wb_flag_wb_o <= 1'b0;
-  end // @clock
-
-
-  // WB-to-CARRY-request (1-clock to prevent extra writes)
-  always @(posedge cpu_clk) begin
-    if (pipeline_flush_i)
-      wb_carry_wb_o <= 1'b0;
-    else if (padv_wb_i)
-      wb_carry_wb_o <= ocbo[OCBTA_CARRY_WB_POS];
-    else
-      wb_carry_wb_o <= 1'b0;
   end // @clock
 
 

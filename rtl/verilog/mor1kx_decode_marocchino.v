@@ -96,7 +96,6 @@ module mor1kx_decode_marocchino
 
   // various instruction attributes
   output reg                            dcod_flag_wb_o,   // instruction writes comparison flag
-  output reg                            dcod_carry_wb_o,  // instruction writes carry flag
 
   // LSU related
   output reg      [`OR1K_IMM_WIDTH-1:0] dcod_imm16_o,
@@ -178,6 +177,8 @@ module mor1kx_decode_marocchino
   output reg                            dcod_except_illegal_o,
   output reg                            dcod_except_syscall_o,
   output reg                            dcod_except_trap_o,
+  //  ## combined IFETCH/DECODE an exception flag
+  output reg                            dcod_an_except_fd_o,
 
   // RFE
   output reg                            dcod_op_rfe_o
@@ -755,11 +756,16 @@ module mor1kx_decode_marocchino
   //--------------------------//
   // IFETCH -> DECODE latches //
   //--------------------------//
+
   // Notes about instructions which push EXECUTION / WRITE-BACK without extra conditions
   //  # l.msync - locks LSU, but takes slot in OMAN to pushing WB
   //  # l.jal / l.jalr - go through 1-CLK
   wire op_jb_push_exec = (opc_insn == `OR1K_OPCODE_J)  | (opc_insn == `OR1K_OPCODE_JR) | // J/B PUSH EXECUTE
                          (opc_insn == `OR1K_OPCODE_BF) | (opc_insn == `OR1K_OPCODE_BNF); // J/B PUSH EXECUTE
+
+  // Combined IFETCH/DECODE exceptions flag
+  wire an_except_fd = fetch_an_except_i   |                               // AN EXCEPT F/D
+                      attr_except_illegal | except_syscall | except_trap; // AN EXCEPT F/D
 
   // signals which affect pipeline control (see OMAN)
   always @(posedge cpu_clk) begin
@@ -784,12 +790,8 @@ module mor1kx_decode_marocchino
       dcod_op_fpxx_any_o  <= op_fpxx_arith | op_fpxx_cmp;
       dcod_op_lsu_any_o   <= op_lsu_load | op_lsu_store | op_msync;
       dcod_op_mXspr_o     <= op_mfspr | op_mtspr;
-      dcod_op_push_exec_o <= fetch_an_except_i   |                                // PUSH EXECUTE
-                             attr_except_illegal | except_syscall | except_trap | // PUSH EXECUTE
-                             op_nop | op_rfe | op_jb_push_exec;                   // PUSH EXECUTE
-      dcod_op_push_wb_o   <= fetch_an_except_i   |                                // PUSH WRITE-BACK
-                             attr_except_illegal | except_syscall | except_trap | // PUSH WRITE-BACK
-                             op_nop | op_rfe | op_msync | op_mfspr | op_mtspr;    // PUSH WRITE-BACK
+      dcod_op_push_exec_o <= an_except_fd | op_nop | op_rfe | op_jb_push_exec;
+      dcod_op_push_wb_o   <= an_except_fd | op_nop | op_rfe | op_msync;
       // for correct tracking data dependacy
       dcod_rfd1_wb_o      <= ratin_rfd1_wb_o;
       dcod_rfd2_wb_o      <= ratin_rfd2_wb_o;
@@ -877,15 +879,14 @@ module mor1kx_decode_marocchino
       // MTSPR / MFSPR
       dcod_op_mtspr_o           <= op_mtspr;
       // outcome exception flags
+      dcod_except_illegal_o     <= attr_except_illegal;
       dcod_except_syscall_o     <= except_syscall;
       dcod_except_trap_o        <= except_trap;
+      // combined IFETCH/DECODE an exception flag
+      dcod_an_except_fd_o       <= an_except_fd;
       // RFE
       dcod_op_rfe_o             <= op_rfe;
-      // various attributes
-      dcod_except_illegal_o     <= attr_except_illegal;
-      // Which instruction writes carry flag?
-      dcod_carry_wb_o           <= op_add | op_div;
-      // INSN PC
+       // INSN PC
       pc_decode_o               <= pc_fetch_i;
     end
   end // @cpu-clk

@@ -175,14 +175,12 @@ module mor1kx_ctrl_marocchino
   input                                 wb_fpxx_flag_clear_i,
   input                                 wb_atomic_flag_set_i,
   input                                 wb_atomic_flag_clear_i,
-  input                                 wb_flag_wb_i,
 
   // WB: carry
   input                                 wb_div_carry_set_i,
   input                                 wb_div_carry_clear_i,
   input                                 wb_1clk_carry_set_i,
   input                                 wb_1clk_carry_clear_i,
-  input                                 wb_carry_wb_i,
 
   // WB: overflow
   input                                 wb_div_overflow_set_i,
@@ -266,10 +264,8 @@ module mor1kx_ctrl_marocchino
 
   // Status Register
   reg [SPR_SR_WIDTH-1:0]            spr_sr;
-  // Copies of SR[F] to simplify routing
-  reg                               flag_1clk_r; // feed-back to 1-CLOCK execution unit
-  reg                               flag_oman_r; // feed-bach to OMAN for branch processing
-  wire                              flag_lcl;    // local usage (alias for SR[F])
+  // alias for SR[F]
+  wire                              sr_flag;
 
   reg [SPR_SR_WIDTH-1:0]            spr_esr;
   reg [OPTION_OPERAND_WIDTH-1:0]    spr_epcr;
@@ -318,7 +314,7 @@ module mor1kx_ctrl_marocchino
 
   /* For SPR BUS transactions */
   reg                               spr_bus_cpu_stall_r; // stall pipe
-  wire                              spr_bus_wb;          // push l.mf(t)spr to write-back stage
+  wire                              op_mXspr_valid;      // push l.mf(t)spr to write-back stage
   wire                              spr_bus_wait_du_ack; // "move to/from Debug System"
   //  # instant ACK and data
   wire                              spr_bus_ack;
@@ -356,9 +352,9 @@ module mor1kx_ctrl_marocchino
   wire   ctrl_flag_clear = wb_int_flag_clear_i | wb_fpxx_flag_clear_i | wb_atomic_flag_clear_i;
   wire   ctrl_flag_set   = wb_int_flag_set_i   | wb_fpxx_flag_set_i   | wb_atomic_flag_set_i;
   // ---
-  assign ctrl_flag_o     = (~ctrl_flag_clear) & (ctrl_flag_set | flag_1clk_r);
+  assign ctrl_flag_o     = (~ctrl_flag_clear) & (ctrl_flag_set | sr_flag);
   // ---
-  assign ctrl_flag_sr_o  = flag_oman_r;
+  assign ctrl_flag_sr_o  = sr_flag;
 
 
   // Carry output
@@ -683,7 +679,8 @@ module mor1kx_ctrl_marocchino
 
 
   // Advance Write Back latches
-  assign padv_wb_o = exec_valid_i & padv_all & ((~stepping) | pstep[2]);
+  wire   exec_valid_l = exec_valid_i | op_mXspr_valid;
+  assign padv_wb_o    = exec_valid_l & padv_all & ((~stepping) | pstep[2]);
   // Complete the step
   wire   pass_step_to_stall = padv_wb_o; // for DU
 
@@ -733,8 +730,8 @@ module mor1kx_ctrl_marocchino
   // Supervision register //
   //----------------------//
 
-  // local alias for SR[F]
-  assign  flag_lcl = spr_sr[`OR1K_SPR_SR_F];
+  // alias for SR[F]
+  assign  sr_flag = spr_sr[`OR1K_SPR_SR_F];
   // WB: External Interrupt Collection
   assign  tt_interrupt_enable_o  = spr_sr[`OR1K_SPR_SR_TEE];
   assign  pic_interrupt_enable_o = spr_sr[`OR1K_SPR_SR_IEE];
@@ -748,9 +745,6 @@ module mor1kx_ctrl_marocchino
   always @(posedge cpu_clk) begin
     if (cpu_rst) begin
       spr_sr                    <= SPR_SR_RESET_VALUE;
-      // Copies of SR[F] to simplify routing
-      flag_1clk_r               <= 1'b0; // reset
-      flag_oman_r               <= 1'b0; // reset
     end
     else if (wb_an_except_i) begin
       // Go into supervisor mode, disable interrupts, MMUs
@@ -767,9 +761,6 @@ module mor1kx_ctrl_marocchino
     else if (wb_op_rfe_i) begin
       // Skip FO. TODO: make this even more selective.
       spr_sr[14:0]              <= spr_esr[14:0];
-      // Copies of SR[F] to simplify routing
-      flag_1clk_r               <= spr_esr[`OR1K_SPR_SR_F]; // l.rfe
-      flag_oman_r               <= spr_esr[`OR1K_SPR_SR_F]; // l.rfe
     end
     else if ((`SPR_OFFSET(spr_sys_group_wadr_r) == `SPR_OFFSET(`OR1K_SPR_SR_ADDR)) &
              spr_sys_group_we &
@@ -789,24 +780,12 @@ module mor1kx_ctrl_marocchino
       spr_sr[`OR1K_SPR_SR_OVE]  <= spr_sys_group_wdat_r[`OR1K_SPR_SR_OVE];
       spr_sr[`OR1K_SPR_SR_DSX]  <= spr_sys_group_wdat_r[`OR1K_SPR_SR_DSX];
       spr_sr[`OR1K_SPR_SR_EPH]  <= spr_sys_group_wdat_r[`OR1K_SPR_SR_EPH];
-      // Copies of SR[F] to simplify routing
-      flag_1clk_r               <= spr_sys_group_wdat_r[`OR1K_SPR_SR_F]; // l.mtspr
-      flag_oman_r               <= spr_sys_group_wdat_r[`OR1K_SPR_SR_F]; // l.mtspr
     end
     else begin
-      // OVERFLOW field update
-      if (ctrl_spr_wb_r)                           // OVERFLOW field update
-        spr_sr[`OR1K_SPR_SR_OV] <= ctrl_overflow;
-      // FLAG field update (taking into accaunt specualtive WB for LSU)
-      if (wb_flag_wb_i) begin                      // FLAG field update
-        spr_sr[`OR1K_SPR_SR_F]  <= ctrl_flag_set;  // write-back (either set or clear)
-        // Copies of SR[F] to simplify routing
-        flag_1clk_r             <= ctrl_flag_set;  // write-back (either set or clear)
-        flag_oman_r             <= ctrl_flag_set;  // write-back (either set or clear)
-      end
-      // CARRY field update
-      if (wb_carry_wb_i)                           // CARRY field update
-        spr_sr[`OR1K_SPR_SR_CY] <= ctrl_carry_o;
+      // OVERFLOW / FLAG / CARRY fields update
+      spr_sr[`OR1K_SPR_SR_OV] <= ctrl_overflow;
+      spr_sr[`OR1K_SPR_SR_F]  <= ctrl_flag_o;
+      spr_sr[`OR1K_SPR_SR_CY] <= ctrl_carry_o;
     end
   end // @ clock
 
@@ -832,7 +811,7 @@ module mor1kx_ctrl_marocchino
 
 
   // Last conditional branch taken
-  wire wb_bc_taken = wb_op_bf_i ? flag_lcl : (~flag_lcl);
+  wire wb_bc_taken = wb_op_bf_i ? sr_flag : (~sr_flag);
   // Target of last taken branch.
   // To set correct NPC at delay slot in WB
   reg [OPTION_OPERAND_WIDTH-1:0] pc_next_to_delay_slot;
@@ -949,13 +928,13 @@ module mor1kx_ctrl_marocchino
   //
 
   // SPR BUS controller states
-  localparam [6:0] SPR_BUS_WAIT_REQ    = 7'b0000001,
-                   SPR_BUS_RUN_MXSPR   = 7'b0000010,
-                   SPR_BUS_WAIT_MXSPR  = 7'b0000100,
-                   SPR_BUS_WB_MXSPR    = 7'b0001000,
-                   SPR_BUS_RUN_DU_REQ  = 7'b0010000,
-                   SPR_BUS_WAIT_DU_ACK = 7'b0100000,
-                   SPR_BUS_DU_ACK_O    = 7'b1000000;
+  localparam [6:0] SPR_BUS_WAIT_REQ       = 7'b0000001,
+                   SPR_BUS_RUN_MXSPR      = 7'b0000010,
+                   SPR_BUS_WAIT_MXSPR     = 7'b0000100,
+                   SPR_BUS_OP_MXSPR_VALID = 7'b0001000,
+                   SPR_BUS_RUN_DU_REQ     = 7'b0010000,
+                   SPR_BUS_WAIT_DU_ACK    = 7'b0100000,
+                   SPR_BUS_DU_ACK_O       = 7'b1000000;
 
   reg  [6:0] spr_bus_state;
   wire       spr_bus_wait_req    = spr_bus_state[0]; // for DU
@@ -964,7 +943,7 @@ module mor1kx_ctrl_marocchino
   wire       spr_bus_run_du      = spr_bus_state[4];
   assign     spr_bus_wait_du_ack = spr_bus_state[5];
   // ---
-  assign     spr_bus_wb          = spr_bus_state[3];
+  assign     op_mXspr_valid      = spr_bus_state[3];
   // ---
   assign     du_ack_o            = spr_bus_state[6];
 
@@ -1072,11 +1051,15 @@ module mor1kx_ctrl_marocchino
             spr_access_valid_reg <= 1'b1;
             spr_bus_cpu_stall_r  <= 1'b0;
             // next state
-            spr_bus_state <= spr_bus_wait_mxspr ? SPR_BUS_WB_MXSPR : SPR_BUS_DU_ACK_O;
+            spr_bus_state <= spr_bus_wait_mxspr ? SPR_BUS_OP_MXSPR_VALID : SPR_BUS_DU_ACK_O;
           end
         end
         // push l.mf(t)spr instruction to write-back stage
-        SPR_BUS_WB_MXSPR,
+        SPR_BUS_OP_MXSPR_VALID: begin
+          if (padv_wb_o)
+            spr_bus_state <= SPR_BUS_WAIT_REQ;
+        end
+        //  complete DU request
         SPR_BUS_DU_ACK_O: begin
           spr_bus_state <= SPR_BUS_WAIT_REQ;
         end
@@ -1135,13 +1118,10 @@ module mor1kx_ctrl_marocchino
                            spr_bus_dat_fpu_i;
 
 
-  // MFSPR data and flag for WB_MUX
-  wire [OPTION_OPERAND_WIDTH-1:0] wb_mfspr_result_m;
-  assign wb_mfspr_result_m = {OPTION_OPERAND_WIDTH{spr_bus_wb}} & spr_bus_dat_r;
-  // ---
+  // M(X)SPR data
   always @(posedge cpu_clk) begin
     if (padv_wb_o)
-      wb_mfspr_result_o <= wb_mfspr_result_m;
+      wb_mfspr_result_o <= {OPTION_OPERAND_WIDTH{op_mXspr_valid}} & spr_bus_dat_r;
   end // @clock
 
 

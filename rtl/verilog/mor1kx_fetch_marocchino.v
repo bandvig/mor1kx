@@ -187,8 +187,8 @@ module mor1kx_fetch_marocchino
   // ACK from ICACHE or IBUS without exceptions
   reg                             s2o_imem_ack;
 
-  //--- Exceptions ---
-
+  //--- RFE/Exceptions ---
+  wire                            s2t_op_rfe;
   reg                             s2o_ibus_err;
   reg                             s2o_tlb_miss;
   reg                             s2o_pagefault;
@@ -590,7 +590,7 @@ module mor1kx_fetch_marocchino
     end
     else if (padv_s2) begin           // latch "an except" and "IBUS err"
       s2o_ibus_err        <= 1'b0;  // s1/s2 advancing
-      s2o_fetch_an_except <= s2t_immu_an_except; // s1/s2 advancing
+      s2o_fetch_an_except <= s2t_immu_an_except | s2t_op_rfe; // s1/s2 advancing
     end
   end // @ clock
 
@@ -841,6 +841,9 @@ module mor1kx_fetch_marocchino
   assign fetch_op_jb_o    = fetch_op_jimm_o | fetch_op_jr_o | fetch_op_bf_o | fetch_op_bnf_o;
   //  # "to immediate driven target"
   assign fetch_to_imm_target_o = pc_fetch_o + {{4{fetch_insn_o[25]}},fetch_insn_o[25:0],2'b00};
+
+  // l.rfe
+  assign s2t_op_rfe = (opc_insn == `OR1K_OPCODE_RFE);
 
 
   //-----------------//

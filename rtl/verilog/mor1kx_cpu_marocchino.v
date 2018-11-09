@@ -202,7 +202,6 @@ module mor1kx_cpu_marocchino
   wire                            ctrl_carry;
 
   wire                            dcod_flag_wb; // instruction writes comparison flag
-  wire                            dcod_carry_wb; // instruction writes carry flag
 
   wire                            dcod_op_mtspr;
   wire                            dcod_op_mXspr; // (l.mfspr | l.mtspr)
@@ -289,9 +288,6 @@ module mor1kx_cpu_marocchino
   wire                            omn2dec_hazard_d2b2;
   wire    [DEST_EXTADR_WIDTH-1:0] omn2dec_extadr_dxb2;
   // Hazard could be resolving
-  //  ## FLAG or CARRY
-  wire                            wb_flag_wb;
-  wire                            wb_carry_wb;
   //  ## A or B operand
   wire                            wb_rfd1_odd;
   //  ## for hazards resolution in RSRVS
@@ -538,6 +534,10 @@ module mor1kx_cpu_marocchino
   reg  wb_except_illegal_r;
   reg  wb_except_syscall_r;
   reg  wb_except_trap_r;
+
+  // combined IFETCH/DECODE an exception flag
+  wire dcod_an_except_fd;
+  wire exec_an_except_fd;
 
   //  # overflow exception
   wire except_overflow_enable;
@@ -836,7 +836,6 @@ module mor1kx_cpu_marocchino
     .dcod_immediate_sel_o             (dcod_immediate_sel), // DECODE
     // various instruction attributes
     .dcod_flag_wb_o                   (dcod_flag_wb), // DECODE
-    .dcod_carry_wb_o                  (dcod_carry_wb), // DECODE
     // LSU related
     .dcod_imm16_o                     (dcod_imm16), // DECODE
     .dcod_op_lsu_load_o               (dcod_op_lsu_load), // DECODE
@@ -907,6 +906,8 @@ module mor1kx_cpu_marocchino
     .dcod_except_illegal_o            (dcod_except_illegal), // DECODE
     .dcod_except_syscall_o            (dcod_except_syscall), // DECODE
     .dcod_except_trap_o               (dcod_except_trap), // DECODE
+    //  ## combined IFETCH/DECODE an exception flag
+    .dcod_an_except_fd_o              (dcod_an_except_fd), // DECODE
     // RFE proc
     .dcod_op_rfe_o                    (dcod_op_rfe) // DECODE
   );
@@ -978,7 +979,6 @@ module mor1kx_cpu_marocchino
     .pc_decode_i                (pc_decode), // OMAN
     .dcod_rfd1_adr_i            (dcod_rfd1_adr), // OMAN
     .dcod_rfd1_wb_i             (dcod_rfd1_wb), // OMAN
-    .dcod_carry_wb_i            (dcod_carry_wb), // OMAN
     .dcod_flag_wb_i             (dcod_flag_wb), // OMAN
     .dcod_delay_slot_i          (dcod_delay_slot), // OMAN
     .dcod_rfd2_adr_i            (dcod_rfd2_adr), // OMAN for FPU64
@@ -1007,6 +1007,7 @@ module mor1kx_cpu_marocchino
     .dcod_except_illegal_i      (dcod_except_illegal), // OMAN
     .dcod_except_syscall_i      (dcod_except_syscall), // OMAN
     .dcod_except_trap_i         (dcod_except_trap), // OMAN
+    .dcod_an_except_fd_i        (dcod_an_except_fd), // OMAN
 
     // 1-clock "WB to DECODE operand forwarding" flags
     //  # relative operand A1
@@ -1109,6 +1110,8 @@ module mor1kx_cpu_marocchino
     .exec_except_illegal_o      (exec_except_illegal), // OMAN
     .exec_except_syscall_o      (exec_except_syscall), // OMAN
     .exec_except_trap_o         (exec_except_trap), // OMAN
+    // pre-WB output exceptions: IFETCH/DECODE
+    .exec_an_except_fd_o        (exec_an_except_fd), // OMAN
 
     // WB outputs
     //  ## special WB-controls for RF
@@ -1122,8 +1125,6 @@ module mor1kx_cpu_marocchino
     .pc_nxt2_wb_o               (pc_nxt2_wb), // OMAN
     .wb_delay_slot_o            (wb_delay_slot), // OMAN
     .wb_rfd1_odd_o              (wb_rfd1_odd), // OMAN
-    .wb_flag_wb_o               (wb_flag_wb), // OMAN
-    .wb_carry_wb_o              (wb_carry_wb), // OMAN
     // for hazards resolution in RSRVS
     .wb_extadr_o                (wb_extadr) // OMAN
   );
@@ -1881,73 +1882,58 @@ module mor1kx_cpu_marocchino
 
 
   //------------------------------------//
-  // WB: External Interrupts Collection //
+  // Exceptions and External Interrupts //
   //------------------------------------//
-  wire exec_tt_interrupt  = tt_rdy  & tt_interrupt_enable  & exec_interrupts_en; // from "Tick Timer"
-  wire exec_pic_interrupt = pic_rdy & pic_interrupt_enable & exec_interrupts_en; // from "Programmble Interrupt Controller"
-  // --- wb-latches ---
-  always @(posedge cpu_clk) begin
-    if (pipeline_flush) begin  // WB: External Interrupts Collection
-      wb_tt_interrupt_r   <= 1'b0;
-      wb_pic_interrupt_r  <= 1'b0;
-    end
-    else if (padv_wb) begin  // WB: External Interrupts Collection
-      wb_tt_interrupt_r   <= exec_tt_interrupt;
-      wb_pic_interrupt_r  <= exec_pic_interrupt;
-    end
-  end // @clock
 
-
-  //--------------------------------//
-  // RFE & IFETCH/DECODE EXCEPTIONS //
-  //--------------------------------//
-
-  always @(posedge cpu_clk) begin
-    if (pipeline_flush) begin
-      // RFE
-      wb_op_rfe_r            <= 1'b0;
-      // FETCH/DECODE exceptions
-      wb_except_ibus_err_r   <= 1'b0;
-      wb_except_ipagefault_r <= 1'b0;
-      wb_except_itlb_miss_r  <= 1'b0;
-      wb_except_ibus_align_r <= 1'b0;
-      // DECODE exceptions
-      wb_except_illegal_r    <= 1'b0;
-      wb_except_syscall_r    <= 1'b0;
-      wb_except_trap_r       <= 1'b0;
-    end
-    else if (padv_wb) begin
-      // RFE
-      wb_op_rfe_r            <= exec_op_rfe;
-      // IFETCH exceptions
-      wb_except_ibus_err_r   <= exec_except_ibus_err;
-      wb_except_ipagefault_r <= exec_except_ipagefault;
-      wb_except_itlb_miss_r  <= exec_except_itlb_miss;
-      wb_except_ibus_align_r <= exec_except_ibus_align;
-      // DECODE exceptions
-      wb_except_illegal_r    <= exec_except_illegal;
-      wb_except_syscall_r    <= exec_except_syscall;
-      wb_except_trap_r       <= exec_except_trap;
-    end
-  end // @clock
-
-  //---------------------------------------//
-  // WB: Combined exception/interrupt flag //
-  //---------------------------------------//
-  assign exec_an_except = exec_except_ibus_err     | exec_except_ipagefault    |  // EXEC-AN-EXCEPT
-                          exec_except_itlb_miss    | exec_except_ibus_align    |  // EXEC-AN-EXCEPT
-                          exec_except_illegal      | exec_except_syscall       |  // EXEC-AN-EXCEPT
-                          exec_except_trap         |                              // EXEC-AN-EXCEPT
+  // --- exceptions ---
+  assign exec_an_except = exec_an_except_fd        | exec_except_ibus_align    |  // EXEC-AN-EXCEPT
                           exec_except_overflow_div | exec_except_overflow_1clk |  // EXEC-AN-EXCEPT
                           exec_except_fpxx_cmp     | exec_except_fpxx_arith    |  // EXEC-AN-EXCEPT
                           exec_an_except_lsu       | sbuf_err                  |  // EXEC-AN-EXCEPT
                           exec_tt_interrupt        | exec_pic_interrupt;          // EXEC-AN-EXCEPT
-  // --- wb-latch ---
+
+  // --- external interrupts ---
+  wire exec_tt_interrupt  = tt_rdy  & tt_interrupt_enable  & exec_interrupts_en; // from "Tick Timer"
+  wire exec_pic_interrupt = pic_rdy & pic_interrupt_enable & exec_interrupts_en; // from "Programmble Interrupt Controller"
+
+  // --- wb-latches ---
   always @(posedge cpu_clk) begin
-    if (pipeline_flush) // WB: combined exception/interrupt flag
-      wb_an_except_r <= 1'b0;
-    else if (padv_wb) // WB: combined exception/interrupt flag
-      wb_an_except_r <= exec_an_except;
+    if (pipeline_flush) begin  // WB: Exceptions and External Interrupts
+      // FETCH exceptions
+      wb_except_ibus_err_r   <= 1'b0; // flush
+      wb_except_ipagefault_r <= 1'b0; // flush
+      wb_except_itlb_miss_r  <= 1'b0; // flush
+      wb_except_ibus_align_r <= 1'b0; // flush
+      // DECODE exceptions
+      wb_except_illegal_r    <= 1'b0; // flush
+      wb_except_syscall_r    <= 1'b0; // flush
+      wb_except_trap_r       <= 1'b0; // flush
+      // External Interrupts
+      wb_tt_interrupt_r      <= 1'b0; // flush
+      wb_pic_interrupt_r     <= 1'b0; // flush
+      // Combined exceptions/interrupts flag
+      wb_an_except_r         <= 1'b0; // flush
+      // RFE
+      wb_op_rfe_r            <= 1'b0; // flush
+    end
+    else if (padv_wb) begin  // WB: Exceptions and External Interrupts
+      // IFETCH exceptions
+      wb_except_ibus_err_r   <= exec_except_ibus_err; // wb-update
+      wb_except_ipagefault_r <= exec_except_ipagefault; // wb-update
+      wb_except_itlb_miss_r  <= exec_except_itlb_miss; // wb-update
+      wb_except_ibus_align_r <= exec_except_ibus_align; // wb-update
+      // DECODE exceptions
+      wb_except_illegal_r    <= exec_except_illegal; // wb-update
+      wb_except_syscall_r    <= exec_except_syscall; // wb-update
+      wb_except_trap_r       <= exec_except_trap; // wb-update
+      // External Interrupts
+      wb_tt_interrupt_r      <= exec_tt_interrupt; // wb-update
+      wb_pic_interrupt_r     <= exec_pic_interrupt; // wb-update
+      // Combined exceptions/interrupts flag
+      wb_an_except_r         <= exec_an_except; // wb-update
+      // RFE
+      wb_op_rfe_r            <= exec_op_rfe; // wb-update
+    end
   end // @clock
 
 
@@ -2150,14 +2136,12 @@ module mor1kx_cpu_marocchino
     .wb_fpxx_flag_clear_i             (wb_fpxx_flag_clear), // CTRL
     .wb_atomic_flag_set_i             (wb_atomic_flag_set), // CTRL
     .wb_atomic_flag_clear_i           (wb_atomic_flag_clear), // CTRL
-    .wb_flag_wb_i                     (wb_flag_wb), // CTRL
 
     // WB: carry
     .wb_div_carry_set_i               (wb_div_carry_set), // CTRL
     .wb_div_carry_clear_i             (wb_div_carry_clear), // CTRL
     .wb_1clk_carry_set_i              (wb_1clk_carry_set), // CTRL
     .wb_1clk_carry_clear_i            (wb_1clk_carry_clear), // CTRL
-    .wb_carry_wb_i                    (wb_carry_wb), // CTRL
 
     // WB: overflow
     .wb_div_overflow_set_i            (wb_div_overflow_set), // CTRL
