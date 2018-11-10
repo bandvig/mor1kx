@@ -816,12 +816,11 @@ module mor1kx_ctrl_marocchino
   // Target of last taken branch.
   // To set correct NPC at delay slot in WB
   reg [OPTION_OPERAND_WIDTH-1:0] pc_next_to_delay_slot;
-  // ---
+  // !!! don't flush it because it is used for stepped_into_delay_slot !!!
   always @(posedge cpu_clk) begin
     if (cpu_rst)
       pc_next_to_delay_slot <= {OPTION_OPERAND_WIDTH{1'b0}};
-    // !!! don't flush it because it is used for stepped_into_delay_slot !!!
-    else if (wb_jump_or_branch_i)
+    else if (ctrl_spr_wb_r & wb_jump_or_branch_i) // PC next to delay slot
       pc_next_to_delay_slot <= (wb_jump_i | wb_bc_taken) ? wb_jb_target_i : pc_nxt2_wb_i;
   end // @ clock
 
@@ -1016,15 +1015,13 @@ module mor1kx_ctrl_marocchino
       case (spr_bus_state)
         // wait SPR BUS access request
         SPR_BUS_WAIT_REQ: begin
-          if (~pipeline_flush_r) begin // prevent execution l.mf(t)spr
-            if (padv_op_mXspr) begin
-              spr_bus_state       <= SPR_BUS_RUN_MXSPR;
-              spr_bus_cpu_stall_r <= 1'b1;
-            end
-            else if (take_access_du) begin
-              spr_bus_state       <= SPR_BUS_RUN_DU_REQ;
-              spr_bus_cpu_stall_r <= 1'b1;
-            end
+          if (padv_op_mXspr) begin
+            spr_bus_state       <= SPR_BUS_RUN_MXSPR;
+            spr_bus_cpu_stall_r <= 1'b1;
+          end
+          else if (take_access_du) begin
+            spr_bus_state       <= SPR_BUS_RUN_DU_REQ;
+            spr_bus_cpu_stall_r <= 1'b1;
           end
         end
         // run l.mf(t)spr processing
