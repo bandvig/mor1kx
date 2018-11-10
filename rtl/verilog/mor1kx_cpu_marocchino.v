@@ -586,6 +586,9 @@ module mor1kx_cpu_marocchino
   wire exec_an_except;
   reg  wb_an_except_r;
 
+  // Combined exception/interrupt/rfe flag
+  reg  wb_rfe_or_except_r;
+
 
   //----------------------------//
   // Instruction FETCH instance //
@@ -720,7 +723,7 @@ module mor1kx_cpu_marocchino
     .cpu_clk                          (cpu_clk), // RF
     .cpu_rst                          (cpu_rst), // RF
     // pipeline control signals
-    .wb_rfe_or_except_i               (pipeline_flush), // RF
+    .wb_rfe_or_except_i               (wb_rfe_or_except_r), // RF
     .padv_dcod_i                      (padv_dcod), // RF
     // SPR bus
     .spr_bus_addr_i                   (spr_bus_addr_o), // RF
@@ -1898,25 +1901,7 @@ module mor1kx_cpu_marocchino
 
   // --- wb-latches ---
   always @(posedge cpu_clk) begin
-    if (pipeline_flush) begin  // WB: Exceptions and External Interrupts
-      // FETCH exceptions
-      wb_except_ibus_err_r   <= 1'b0; // flush
-      wb_except_ipagefault_r <= 1'b0; // flush
-      wb_except_itlb_miss_r  <= 1'b0; // flush
-      wb_except_ibus_align_r <= 1'b0; // flush
-      // DECODE exceptions
-      wb_except_illegal_r    <= 1'b0; // flush
-      wb_except_syscall_r    <= 1'b0; // flush
-      wb_except_trap_r       <= 1'b0; // flush
-      // External Interrupts
-      wb_tt_interrupt_r      <= 1'b0; // flush
-      wb_pic_interrupt_r     <= 1'b0; // flush
-      // Combined exceptions/interrupts flag
-      wb_an_except_r         <= 1'b0; // flush
-      // RFE
-      wb_op_rfe_r            <= 1'b0; // flush
-    end
-    else if (padv_wb) begin  // WB: Exceptions and External Interrupts
+    if (padv_wb) begin  // WB: Exceptions and External Interrupts
       // IFETCH exceptions
       wb_except_ibus_err_r   <= exec_except_ibus_err; // wb-update
       wb_except_ipagefault_r <= exec_except_ipagefault; // wb-update
@@ -1934,6 +1919,34 @@ module mor1kx_cpu_marocchino
       // RFE
       wb_op_rfe_r            <= exec_op_rfe; // wb-update
     end
+    else begin
+      // IFETCH exceptions
+      wb_except_ibus_err_r   <= 1'b0; // 1-clk-length
+      wb_except_ipagefault_r <= 1'b0; // 1-clk-length
+      wb_except_itlb_miss_r  <= 1'b0; // 1-clk-length
+      wb_except_ibus_align_r <= 1'b0; // 1-clk-length
+      // DECODE exceptions
+      wb_except_illegal_r    <= 1'b0; // 1-clk-length
+      wb_except_syscall_r    <= 1'b0; // 1-clk-length
+      wb_except_trap_r       <= 1'b0; // 1-clk-length
+      // External Interrupts
+      wb_tt_interrupt_r      <= 1'b0; // 1-clk-length
+      wb_pic_interrupt_r     <= 1'b0; // 1-clk-length
+      // Combined exceptions/interrupts flag
+      wb_an_except_r         <= 1'b0; // 1-clk-length
+      // RFE
+      wb_op_rfe_r            <= 1'b0; // 1-clk-length
+    end
+  end // @clock
+
+  // --- special behavior for combined "l.rfe OR an except" ---
+  always @(posedge cpu_clk) begin
+    if (cpu_rst)
+      wb_rfe_or_except_r <= 1'b1; // reset
+    else if (pipeline_flush)
+      wb_rfe_or_except_r <= 1'b0; // flush
+    else if (padv_wb)
+      wb_rfe_or_except_r <= exec_an_except | exec_op_rfe;
   end // @clock
 
 
@@ -2168,6 +2181,7 @@ module mor1kx_cpu_marocchino
     //  # combined exceptions/interrupt flag
     .exec_an_except_i                 (exec_an_except), // CTRL
     .wb_an_except_i                   (wb_an_except_r), // CTRL
+    .wb_rfe_or_except_i               (wb_rfe_or_except_r), // CTRL
 
     //  # particular IFETCH exception flags
     .wb_except_ibus_err_i             (wb_except_ibus_err_r), // CTRL

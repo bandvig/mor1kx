@@ -1084,17 +1084,7 @@ module mor1kx_lsu_marocchino
 
   // WB-registered atomic flag and exception flags
   always @(posedge cpu_clk) begin
-    if (pipeline_flush_i) begin
-      // Atomic operation flag set/clear logic
-      wb_atomic_flag_set_o   <= 1'b0; // flush
-      wb_atomic_flag_clear_o <= 1'b0; // flush
-      // Particular LSU exception flags
-      wb_except_dbus_err_o   <= 1'b0; // flush
-      wb_except_dpagefault_o <= 1'b0; // flush
-      wb_except_dtlb_miss_o  <= 1'b0; // flush
-      wb_except_dbus_align_o <= 1'b0; // flush
-    end
-    else if (padv_wb_i & grant_wb_to_lsu_i) begin
+    if (padv_wb_i & grant_wb_to_lsu_i) begin
       // Atomic operation flag set/clear logic
       wb_atomic_flag_set_o   <= lsu_wb_miss ? s3o_atomic_flag_set   : s2o_atomic_flag_set;
       wb_atomic_flag_clear_o <= lsu_wb_miss ? s3o_atomic_flag_clear : s2o_atomic_flag_clear;

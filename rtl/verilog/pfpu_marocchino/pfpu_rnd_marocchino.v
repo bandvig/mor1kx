@@ -738,12 +738,7 @@ module pfpu_rnd_marocchino
 
   // WB: flags
   always @(posedge cpu_clk) begin
-    if (pipeline_flush_i) begin
-      wb_fpxx_arith_fpcsr_o    <= {`OR1K_FPCSR_ALLF_SIZE{1'b0}};
-      wb_except_fpxx_arith_o   <= 1'b0;
-      wb_fpxx_arith_wb_fpcsr_o <= 1'b0;
-    end
-    else if (padv_wb_i & grant_wb_to_fpxx_arith_i) begin
+    if (padv_wb_i & grant_wb_to_fpxx_arith_i) begin
       wb_fpxx_arith_fpcsr_o    <= fpxx_arith_wb_miss_r ? fpxx_arith_wb_fpcsr_p : exec_fpxx_arith_fpcsr;
       wb_except_fpxx_arith_o   <= mux_except_fpxx_arith;
       wb_fpxx_arith_wb_fpcsr_o <= 1'b1;

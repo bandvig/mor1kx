@@ -369,17 +369,7 @@ module mor1kx_divider_marocchino
 
   // WB-latchers
   always @(posedge cpu_clk) begin
-    if (pipeline_flush_i) begin
-      //  # update carry flag by division
-      wb_div_carry_set_o        <= 1'b0;
-      wb_div_carry_clear_o      <= 1'b0;
-      //  # update overflow flag by division
-      wb_div_overflow_set_o     <= 1'b0;
-      wb_div_overflow_clear_o   <= 1'b0;
-      //  # generate overflow exception by division
-      wb_except_overflow_div_o  <= 1'b0;
-    end
-    else if (padv_wb_i & grant_wb_to_div_i) begin
+    if (padv_wb_i & grant_wb_to_div_i) begin
       //  # update carry flag by division
       wb_div_carry_set_o        <= div_wb_miss_r ? div_wb_carry_set_p : exec_div_carry_set;
       wb_div_carry_clear_o      <= div_wb_miss_r ? div_wb_carry_clear_p : exec_div_carry_clear;
@@ -778,20 +768,7 @@ module mor1kx_exec_1clk_marocchino
 
   // WB-latchers
   always @(posedge cpu_clk) begin
-    if (pipeline_flush_i) begin
-      //  # update carry flag by 1clk-operation
-      wb_1clk_carry_set_o        <= 1'b0;
-      wb_1clk_carry_clear_o      <= 1'b0;
-      //  # update overflow flag by 1clk-operation
-      wb_1clk_overflow_set_o     <= 1'b0;
-      wb_1clk_overflow_clear_o   <= 1'b0;
-      //  # generate overflow exception by 1clk-operation
-      wb_except_overflow_1clk_o  <= 1'b0;
-      //  # update SR[F] by 1clk-operation
-      wb_int_flag_set_o          <= 1'b0;
-      wb_int_flag_clear_o        <= 1'b0;
-    end
-    else if (padv_wb_i & grant_wb_to_1clk_i) begin
+    if (padv_wb_i & grant_wb_to_1clk_i) begin
       //  # update carry flag by 1clk-operation
       wb_1clk_carry_set_o        <= alu_1clk_wb_miss_r ? alu_1clk_wb_carry_set_p : alu_1clk_carry_set;
       wb_1clk_carry_clear_o      <= alu_1clk_wb_miss_r ? alu_1clk_wb_carry_clear_p : alu_1clk_carry_clear;

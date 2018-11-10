@@ -209,6 +209,7 @@ module mor1kx_ctrl_marocchino
   //  # combined exceptions/interrupt flag
   input                                 exec_an_except_i, // to generate registered pipeline-flush
   input                                 wb_an_except_i,
+  input                                 wb_rfe_or_except_i,
 
   //  # particular IFETCH exception flags
   input                                 wb_except_ibus_err_i,
@@ -635,7 +636,7 @@ module mor1kx_ctrl_marocchino
 
 
   // Advance all stages condition
-  wire   padv_all = (~spr_bus_cpu_stall_r) & (~du_cpu_stall);
+  wire   padv_all = (~spr_bus_cpu_stall_r) & (~wb_rfe_or_except_i) & (~du_cpu_stall);
 
 
   // Advance IFETCH
@@ -948,7 +949,7 @@ module mor1kx_ctrl_marocchino
   assign     du_ack_o            = spr_bus_state[6];
 
   // Access to SPR BUS from Debug System
-  wire take_access_du = (~dcod_op_mXspr_i) & spr_bus_wait_req & du_stb_i;
+  wire take_access_du = (~dcod_op_mXspr_i) & (~wb_rfe_or_except_i) & spr_bus_wait_req & du_stb_i;
 
   // registering l.mf(t)spr data
   reg                            ctrl_op_mtspr_r;

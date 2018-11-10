@@ -1285,12 +1285,7 @@ module mor1kx_oman_marocchino
   // WB JUMP or BRANCH attributes
   //  # flags (all 1-clock length)
   always @(posedge cpu_clk) begin
-    if (pipeline_flush_i) begin
-      wb_jump_or_branch_o <= 1'b0;
-      wb_jump_o           <= 1'b0;
-      wb_op_bf_o          <= 1'b0;
-    end
-    else if (padv_wb_i) begin
+    if (padv_wb_i) begin
       wb_jump_or_branch_o <= ocbo[OCBTC_JUMP_OR_BRANCH_POS];
       wb_jump_o           <= jb_attr_ocbo[JB_ATTR_C_JUMP_POS];
       wb_op_bf_o          <= jb_attr_ocbo[JB_ATTR_C_BF_POS];
@@ -1343,11 +1338,7 @@ module mor1kx_oman_marocchino
   //  if A(B)'s address is odd than A2(B2)=A(B)+1 is even and vise verse
   //  1-clock WB-pulses
   always @(posedge cpu_clk) begin
-    if (pipeline_flush_i) begin
-      wb_rf_even_wb_o <= 1'b0;
-      wb_rf_odd_wb_o  <= 1'b0;
-    end
-    else if (padv_wb_i) begin
+    if (padv_wb_i) begin
       wb_rf_even_wb_o <= (exec_rfd1_wb & ~exec_rfd1_adr[0]) | (exec_rfd2_wb & ~exec_rfd2_adr[0]);
       wb_rf_odd_wb_o  <= (exec_rfd1_wb &  exec_rfd1_adr[0]) | (exec_rfd2_wb &  exec_rfd2_adr[0]);
     end
@@ -1367,9 +1358,7 @@ module mor1kx_oman_marocchino
 
   // WB delay slot
   always @(posedge cpu_clk) begin
-    if (pipeline_flush_i)
-      wb_delay_slot_o <= 1'b0;
-    else if (padv_wb_i)
+    if (padv_wb_i)
       wb_delay_slot_o <= ocbo[OCBTA_DELAY_SLOT_POS];
     else
       wb_delay_slot_o <= 1'b0;
@@ -1386,9 +1375,7 @@ module mor1kx_oman_marocchino
   // extention bits: valid for 1-clock
   // to reolve hazards in rezervation stations
   always @(posedge cpu_clk) begin
-    if (pipeline_flush_i)
-      wb_extadr_o <= {DEST_EXTADR_WIDTH{1'b0}};
-    else if (padv_wb_i)
+    if (padv_wb_i)
       wb_extadr_o <= exec_extadr;
     else
       wb_extadr_o <= {DEST_EXTADR_WIDTH{1'b0}};

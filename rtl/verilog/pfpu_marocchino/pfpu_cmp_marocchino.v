@@ -308,18 +308,7 @@ module pfpu_cmp_marocchino
   ////////////////////////////////////////////////////////////////////////
   // WB latches: 
   always @(posedge cpu_clk) begin
-    if (pipeline_flush_i) begin
-      // flag set/clear
-      wb_fpxx_flag_set_o     <= 1'b0; // flush
-      wb_fpxx_flag_clear_o   <= 1'b0; // flush
-      // comparison exception flags
-      wb_fpxx_cmp_inv_o      <= 1'b0; // flush
-      wb_fpxx_cmp_inf_o      <= 1'b0; // flush
-      wb_except_fpxx_cmp_o   <= 1'b0; // flush
-      // update FPCSR
-      wb_fpxx_cmp_wb_fpcsr_o <= 1'b0; // flush
-    end
-    else if (padv_wb_i & grant_wb_to_fpxx_cmp_i) begin
+    if (padv_wb_i & grant_wb_to_fpxx_cmp_i) begin
       // flag set/clear
       wb_fpxx_flag_set_o     <= fpxx_cmp_wb_miss_r ? fpxx_wb_flag_set_p : exec_fpxx_flag_set;
       wb_fpxx_flag_clear_o   <= fpxx_cmp_wb_miss_r ? fpxx_wb_flag_clear_p : exec_fpxx_flag_clear;
