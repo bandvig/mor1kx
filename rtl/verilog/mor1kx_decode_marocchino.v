@@ -63,13 +63,6 @@ module mor1kx_decode_marocchino
   input      [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfd2_adr_i,
 
   // for RAT
-  //  # allocated as D1
-  output                                ratin_rfd1_wb_o,
-  output     [OPTION_RF_ADDR_WIDTH-1:0] ratin_rfd1_adr_o,
-  //  # allocated as D2
-  output                                ratin_rfd2_wb_o,
-  output     [OPTION_RF_ADDR_WIDTH-1:0] ratin_rfd2_adr_o,
-  //  # requested operands
   output                                ratin_rfa1_req_o,
   output                                ratin_rfb1_req_o,
   output                                ratin_rfa2_req_o,
@@ -740,13 +733,6 @@ module mor1kx_decode_marocchino
   // for RAT //
   //---------//
 
-  //  # allocated as D1
-  assign ratin_rfd1_wb_o  = attr_rfd1_wb;
-  assign ratin_rfd1_adr_o = op_jal ? JAL_RFD1_ADR : fetch_rfd1_adr_i;
-  //  # allocated as D2
-  assign ratin_rfd2_wb_o  = op_fpxx_arith & op_fp64_arith;
-  assign ratin_rfd2_adr_o = op_jal ? JAL_RFD2_ADR : fetch_rfd2_adr_i;
-  //  # operands requestes
   assign ratin_rfa1_req_o = attr_rfa1_req;
   assign ratin_rfb1_req_o = attr_rfb1_req;
   assign ratin_rfa2_req_o = attr_rfa2_req;
@@ -793,8 +779,8 @@ module mor1kx_decode_marocchino
       dcod_op_push_exec_o <= an_except_fd | op_nop | op_rfe | op_jb_push_exec;
       dcod_op_push_wb_o   <= an_except_fd | op_nop | op_rfe | op_msync;
       // for correct tracking data dependacy
-      dcod_rfd1_wb_o      <= ratin_rfd1_wb_o;
-      dcod_rfd2_wb_o      <= ratin_rfd2_wb_o;
+      dcod_rfd1_wb_o      <= attr_rfd1_wb;
+      dcod_rfd2_wb_o      <= op_fpxx_arith & op_fp64_arith;
       dcod_flag_wb_o      <= op_setflag | op_fpxx_cmp | (opc_insn == `OR1K_OPCODE_SWA);
     end
     else if (padv_exec_i) begin
@@ -818,9 +804,9 @@ module mor1kx_decode_marocchino
     if (padv_dcod_i) begin
       dcod_delay_slot_o         <= fetch_delay_slot_i;
       // destiny D1
-      dcod_rfd1_adr_o           <= ratin_rfd1_adr_o;
+      dcod_rfd1_adr_o           <= op_jal ? JAL_RFD1_ADR : fetch_rfd1_adr_i;
       // destiny D2 (for FPU64)
-      dcod_rfd2_adr_o           <= ratin_rfd2_adr_o;
+      dcod_rfd2_adr_o           <= op_jal ? JAL_RFD2_ADR : fetch_rfd2_adr_i;
       // IMM
       dcod_immediate_o          <= immediate;
       dcod_immediate_sel_o      <= immediate_sel;

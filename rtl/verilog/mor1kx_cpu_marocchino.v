@@ -175,13 +175,6 @@ module mor1kx_cpu_marocchino
 
 
   // for RAT
-  //  # allocated as D1
-  wire                            ratin_rfd1_wb;
-  wire [OPTION_RF_ADDR_WIDTH-1:0] ratin_rfd1_adr;
-  //  # allocated as D2
-  wire                            ratin_rfd2_wb;
-  wire [OPTION_RF_ADDR_WIDTH-1:0] ratin_rfd2_adr;
-  //  # operands requestes
   wire                            ratin_rfa1_req;
   wire                            ratin_rfb1_req;
   wire                            ratin_rfa2_req;
@@ -811,13 +804,6 @@ module mor1kx_cpu_marocchino
     .fetch_rfd1_adr_i                 (fetch_rfd1_adr), // DECODE
     .fetch_rfd2_adr_i                 (fetch_rfd2_adr), // DECODE
     // for RAT
-    //  # allocated as D1
-    .ratin_rfd1_wb_o                  (ratin_rfd1_wb), // DECODE
-    .ratin_rfd1_adr_o                 (ratin_rfd1_adr), // DECODE
-    //  # allocated as D2
-    .ratin_rfd2_wb_o                  (ratin_rfd2_wb), // DECODE
-    .ratin_rfd2_adr_o                 (ratin_rfd2_adr), // DECODE
-    //  # requested operands
     .ratin_rfa1_req_o                 (ratin_rfa1_req), // DECODE
     .ratin_rfb1_req_o                 (ratin_rfb1_req), // DECODE
     .ratin_rfa2_req_o                 (ratin_rfa2_req), // DECODE
@@ -945,13 +931,6 @@ module mor1kx_cpu_marocchino
     .fetch_delay_slot_i         (fetch_delay_slot), // OMAN
 
     // for RAT
-    //  # allocated as D1
-    .ratin_rfd1_wb_i            (ratin_rfd1_wb), // OMAN
-    .ratin_rfd1_adr_i           (ratin_rfd1_adr), // OMAN
-    //  # allocated as D2
-    .ratin_rfd2_wb_i            (ratin_rfd2_wb), // OMAN
-    .ratin_rfd2_adr_i           (ratin_rfd2_adr), // OMAN
-    //  # requested operands
     // operand A1
     .ratin_rfa1_req_i           (ratin_rfa1_req), // OMAN
     .fetch_rfa1_adr_i           (fetch_rfa1_adr), // OMAN
