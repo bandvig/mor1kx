@@ -98,14 +98,10 @@ module mor1kx_icache_marocchino
   localparam TAGMEM_WAY_WIDTH = TAG_WIDTH + 1;
   localparam TAGMEM_WAY_VALID = TAGMEM_WAY_WIDTH - 1;
 
-  // Additionally, the tag memory entry contains an LRU value. The
-  // width of this is actually 0 for OPTION_ICACHE_LIMIT_WIDTH==1
-  localparam TAG_LRU_WIDTH = OPTION_ICACHE_WAYS*(OPTION_ICACHE_WAYS-1) >> 1;
-
-  // We have signals for the LRU which are not used for one way
-  // caches. To avoid signal width [-1:0] this generates [0:0]
-  // vectors for them, which are removed automatically then.
-  localparam TAG_LRU_WIDTH_BITS = (OPTION_ICACHE_WAYS >= 2) ? TAG_LRU_WIDTH : 1;
+  // Additionally, the tag memory entry contains an LRU value.
+  // To avoid signal width [-1:0] for 1-way cache this generates
+  // at least 1-bit LRU field.
+  localparam TAG_LRU_WIDTH = (OPTION_ICACHE_WAYS > 1) ? (OPTION_ICACHE_WAYS*(OPTION_ICACHE_WAYS-1) >> 1) : 1;
 
   // Compute the total sum of the entry elements
   localparam TAGMEM_WIDTH = TAGMEM_WAY_WIDTH * OPTION_ICACHE_WAYS + TAG_LRU_WIDTH;
@@ -142,7 +138,7 @@ module mor1kx_icache_marocchino
   // The data to the tag memory
   wire       [TAGMEM_WIDTH-1:0] tag_din;
   reg    [TAGMEM_WAY_WIDTH-1:0] tag_din_way [OPTION_ICACHE_WAYS-1:0];
-  reg  [TAG_LRU_WIDTH_BITS-1:0] tag_din_lru;
+  reg       [TAG_LRU_WIDTH-1:0] tag_din_lru;
 
 
   // Whether to write to the tag memory in this cycle
@@ -157,7 +153,7 @@ module mor1kx_icache_marocchino
 
   // This is the least recently used value before access the memory.
   // Those are one hot encoded.
-  wire [OPTION_ICACHE_WAYS-1:0] lru_way;          // computed by mor1kx_cache_lru
+  wire [OPTION_ICACHE_WAYS-1:0] lru_way;
   reg  [OPTION_ICACHE_WAYS-1:0] lru_way_refill_r; // register for re-fill process
 
   // The access vector to update the LRU history is the way that has
@@ -165,9 +161,9 @@ module mor1kx_icache_marocchino
   reg  [OPTION_ICACHE_WAYS-1:0] access_way_for_lru;
   reg  [OPTION_ICACHE_WAYS-1:0] access_way_for_lru_s2o; // register on IFETCH output
   // The current LRU history as read from tag memory.
-  reg  [TAG_LRU_WIDTH_BITS-1:0] current_lru_history_s2o; // register on IFETCH output
+  reg       [TAG_LRU_WIDTH-1:0] current_lru_history_s2o; // register on IFETCH output
   // The update value after we accessed it to write back to tag memory.
-  wire [TAG_LRU_WIDTH_BITS-1:0] next_lru_history;          // computed by mor1kx_cache_lru
+  wire      [TAG_LRU_WIDTH-1:0] next_lru_history;
 
 
   genvar i;
@@ -449,24 +445,23 @@ module mor1kx_icache_marocchino
   /* verilator lint_off WIDTH */
   if (OPTION_ICACHE_WAYS >= 2) begin : gen_u_lru
   /* verilator lint_on WIDTH */
-    mor1kx_cache_lru
+    mor1kx_cache_lru_marocchino
     #(
       .NUMWAYS(OPTION_ICACHE_WAYS) // ICACHE_LRU
     )
     ic_lru
     (
-      // Outputs
-      .update      (next_lru_history), // ICACHE_LRU
-      .lru_pre     (lru_way), // ICACHE_LRU
-      .lru_post    (), // ICACHE_LRU
       // Inputs
       .current     (current_lru_history_s2o), // ICACHE_LRU
-      .access      (access_way_for_lru) // ICACHE_LRU
+      .access      (access_way_for_lru), // ICACHE_LRU
+      // Outputs
+      .update      (next_lru_history), // ICACHE_LRU
+      .lru_post    (lru_way) // ICACHE_LRU
     );
   end
   else begin // single way
-    assign next_lru_history = 1'b0; // one way cache
-    assign lru_way          = 1'b1; // one way cache
+    assign next_lru_history = 1'b1; // single way cache
+    assign lru_way          = 1'b1; // single way cache
   end
   endgenerate
 
@@ -528,18 +523,17 @@ module mor1kx_icache_marocchino
       end
 
       IC_REFILL: begin
-        //  (a) In according with WISHBONE-B3 rule 3.45:
-        // "SLAVE MUST NOT assert more than one of ACK, ERR or RTY"
-        //  (b) We don't interrupt re-fill on flushing, so the only reason
-        // for invalidation is IBUS error occurence
         if (ibus_err_i) begin
+          //  (a) In according with WISHBONE-B3 rule 3.45:
+          // "SLAVE MUST NOT assert more than one of ACK, ERR or RTY"
+          //  (b) We don't interrupt re-fill on flushing, so the only reason
+          // for invalidation is IBUS error occurence
+          //  (c) Lazy invalidation, invalidate everything that matches tag address
           for (w2 = 0; w2 < OPTION_ICACHE_WAYS; w2 = w2 + 1) begin
-            if (lru_way_refill_r[w2]) begin // IBUS error at re-fill
-              tag_din_way[w2] = {TAGMEM_WAY_WIDTH{1'b0}}; // IBUS error at re-fill
-            end
+            tag_din_way[w2] = {TAGMEM_WAY_WIDTH{1'b0}}; // IBUS error at re-fill
           end
-          // MAROCCHINO_TODO: how to handle LRU in the case?
-          tag_we = 1'b1;
+          tag_din_lru = {TAG_LRU_WIDTH{1'b1}};  // by IBUS error at re-fill
+          tag_we      = 1'b1;                   // by IBUS error at re-fill
         end
         else if (ibus_ack_i & ibus_burst_last_i) begin
           // After refill update the tag memory entry of the
@@ -550,18 +544,18 @@ module mor1kx_icache_marocchino
               tag_din_way[w2] = {1'b1,phys_addr_s2o_i[OPTION_ICACHE_LIMIT_WIDTH-1:WAY_WIDTH]}; // last re-fill
             end
           end
-          access_way_for_lru = lru_way_refill_r; // last re-fill
-          tag_we             = 1'b1;
+          access_way_for_lru = lru_way_refill_r;  // last re-fill
+          tag_we             = 1'b1;              // last re-fill
         end
       end
 
       IC_INVALIDATE: begin
         // Lazy invalidation, invalidate everything that matches tag address
-        tag_din_lru = 0; // by invalidate
         for (w2 = 0; w2 < OPTION_ICACHE_WAYS; w2 = w2 + 1) begin
-          tag_din_way[w2] = {TAGMEM_WAY_WIDTH{1'b0}};
+          tag_din_way[w2] = {TAGMEM_WAY_WIDTH{1'b0}}; // by invalidate
         end
-        tag_we = 1'b1;
+        tag_din_lru = {TAG_LRU_WIDTH{1'b1}};  // by invalidate
+        tag_we      = 1'b1;                   // by invalidate
       end
 
       default:;
@@ -569,7 +563,7 @@ module mor1kx_icache_marocchino
   end // always
 
 
-  // Packed TAG-RAM data input
+  // Pack TAG-RAM data input
   //  # LRU section
   assign tag_din[TAG_LRU_MSB:TAG_LRU_LSB] = tag_din_lru;
   //  # WAY sections collection
