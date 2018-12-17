@@ -163,7 +163,8 @@ module mor1kx_ticktimer_marocchino
           spr_tt_state  <= SPR_TT_WAIT;
         end
         // default
-        default;
+        default: begin
+        end
       endcase
     end
   end // at wb-clock

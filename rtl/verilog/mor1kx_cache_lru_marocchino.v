@@ -188,7 +188,7 @@ module mor1kx_cache_lru_marocchino
   // The LRU_post vector is the vector of the ANDs of each row.
   generate
   genvar i;
-  for (i = 0; i < NUMWAYS; i = i + 1) begin
+  for (i = 0; i < NUMWAYS; i = i + 1) begin: lru_res
     assign lru_post[i] = &expand[i];
   end
   endgenerate

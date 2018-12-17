@@ -167,7 +167,8 @@ module mor1kx_pic_marocchino
           spr_pic_state  <= SPR_PIC_WAIT;
         end
         // default
-        default;
+        default: begin
+        end
       endcase
     end
   end // at wb-clock
