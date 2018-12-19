@@ -667,13 +667,22 @@ module mor1kx_bus_if_wb32_marocchino
     // As positive edges of wb-clock and cpu-clock assumed be aligned,
     // we use simplest clock domain pseudo-synchronizers.
     //
-    reg  pipeline_flush_toggle_r; // MAROCCHINO_TODO: implement in CTRL ?
+    reg  pipeline_flush_toggle_r;
+    reg  pipeline_flush_state_r;  // to prevent multiple toggling for case of multi-clock pipeline-flush
     // ---
     always @(posedge cpu_clk) begin
-      if (cpu_rst)
+      if (cpu_rst) begin
         pipeline_flush_toggle_r <= 1'b0;
-      else if (pipeline_flush_i)
+        pipeline_flush_state_r  <= 1'b0;
+      end
+      else if (pipeline_flush_state_r) begin
+        pipeline_flush_toggle_r <= pipeline_flush_toggle_r;
+        pipeline_flush_state_r  <= pipeline_flush_i;
+      end
+      else if (pipeline_flush_i) begin
         pipeline_flush_toggle_r <= ~pipeline_flush_toggle_r;
+        pipeline_flush_state_r  <= 1'b1;
+      end
     end // @cpu-clock
     // ---
     reg  pipeline_flush_r1;

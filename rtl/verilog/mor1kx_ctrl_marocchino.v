@@ -103,9 +103,6 @@ module mor1kx_ctrl_marocchino
   input                                 dcod_op_mXspr_i, // (l.mfspr | l.mtspr)
   //  ## result to WB_MUX
   output reg [OPTION_OPERAND_WIDTH-1:0] wb_mfspr_result_o,
-  output reg [OPTION_OPERAND_WIDTH-1:0] wb_mfspr_result_cp1_o,
-  output reg [OPTION_OPERAND_WIDTH-1:0] wb_mfspr_result_cp2_o,
-  output reg [OPTION_OPERAND_WIDTH-1:0] wb_mfspr_result_cp3_o,
 
   // Support IBUS error handling in CTRL
   input                                 wb_jump_or_branch_i,
@@ -522,8 +519,8 @@ module mor1kx_ctrl_marocchino
         // waiting
         EXCEPT_PROC_FSM_WAITING: begin
           except_proc_fsm_state <= du_cpu_unstall ? EXCEPT_PROC_FSM_GET_NPC :
+                                      (wb_op_rfe_i ? EXCEPT_PROC_FSM_GET_EPCR :
                                     (wb_an_except_i ? EXCEPT_PROC_FSM_GET_EPC :
-                                        (wb_op_rfe_i ? EXCEPT_PROC_FSM_GET_EPCR :
                                                        EXCEPT_PROC_FSM_WAITING));
         end // waiting
         // CPU reset processing
@@ -747,6 +744,10 @@ module mor1kx_ctrl_marocchino
     if (cpu_rst) begin
       spr_sr                    <= SPR_SR_RESET_VALUE;
     end
+    else if (wb_op_rfe_i) begin
+      // Skip FO. TODO: make this even more selective.
+      spr_sr[14:0]              <= spr_esr[14:0];
+    end
     else if (wb_an_except_i) begin
       // Go into supervisor mode, disable interrupts, MMUs
       // it doesn't matter if the next features are enabled or not
@@ -758,10 +759,6 @@ module mor1kx_ctrl_marocchino
       spr_sr[`OR1K_SPR_SR_OVE]  <= 1'b0; // block overflow excep.
       spr_sr[`OR1K_SPR_SR_OV ]  <= wb_except_overflow_div_i | wb_except_overflow_1clk_i;
       spr_sr[`OR1K_SPR_SR_DSX]  <= wb_delay_slot_i;
-    end
-    else if (wb_op_rfe_i) begin
-      // Skip FO. TODO: make this even more selective.
-      spr_sr[14:0]              <= spr_esr[14:0];
     end
     else if ((`SPR_OFFSET(spr_sys_group_wadr_r) == `SPR_OFFSET(`OR1K_SPR_SR_ADDR)) &
              spr_sys_group_we &

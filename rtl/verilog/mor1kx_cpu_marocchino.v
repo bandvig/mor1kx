@@ -1922,8 +1922,8 @@ module mor1kx_cpu_marocchino
   always @(posedge cpu_clk) begin
     if (cpu_rst)
       wb_rfe_or_except_r <= 1'b1; // reset
-    else if (pipeline_flush)
-      wb_rfe_or_except_r <= 1'b0; // flush
+    else if (ctrl_branch_exception)
+      wb_rfe_or_except_r <= 1'b0; // branch by an exception
     else if (padv_wb)
       wb_rfe_or_except_r <= exec_an_except | exec_op_rfe;
   end // @clock
