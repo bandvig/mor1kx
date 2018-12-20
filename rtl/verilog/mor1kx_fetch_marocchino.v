@@ -410,7 +410,6 @@ module mor1kx_fetch_marocchino
     // pipe controls
     .padv_s1_i                (padv_s1), // ICACHE
     .padv_s2_i                (padv_s2), // ICACHE
-    .pipeline_flush_i         (pipeline_flush_i), // ICACHE
     // fetch exceptions
     .ibus_err_i               (ibus_err_i), // ICACHE: cancel re-fill
     // configuration

@@ -44,7 +44,6 @@ module mor1kx_icache_marocchino
   // pipe controls
   input                                 padv_s1_i,
   input                                 padv_s2_i,
-  input                                 pipeline_flush_i,
   // fetch exceptions
   input                                 ibus_err_i,
 
@@ -183,25 +182,6 @@ module mor1kx_icache_marocchino
   endgenerate
 
 
-  //
-  // Local copy of ICACHE-related control bit(s) to simplify routing
-  //
-  // MT(F)SPR_RULE:
-  //   Before issuing MT(F)SPR, OMAN waits till order control buffer has become
-  // empty. Also we don't issue new instruction till l.mf(t)spr completion.
-  //   So, it is safely to detect changing ICACHE-related control bit(s) here
-  // and update local copies.
-  //
-  reg ic_enable_r;
-  // ---
-  always @(posedge cpu_clk) begin
-    if (pipeline_flush_i)           // clean up ICACHE enable
-      ic_enable_r <= 1'b0;          // flush
-    else if (padv_s1_i)             // update ICACHE enable
-      ic_enable_r <= ic_enable_i;
-  end // @ clock
-
-
   // detect per-way hit
   generate
   for (i = 0; i < OPTION_ICACHE_WAYS; i=i+1) begin : ways_out
@@ -220,7 +200,7 @@ module mor1kx_icache_marocchino
 
 
   // Is the area cachable?
-  wire   is_cacheble  = ic_enable_r & (~immu_cache_inhibit_i);
+  wire   is_cacheble  = ic_enable_i & (~immu_cache_inhibit_i);
   // ICACHE ACK
   assign ic_ack_o     = is_cacheble & ic_read &   hit;
   // RE-FILL request
