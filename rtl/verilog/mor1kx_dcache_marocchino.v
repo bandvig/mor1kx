@@ -232,22 +232,6 @@ module mor1kx_dcache_marocchino
   endgenerate
 
 
-  //
-  // Local copy of DCACHE-related control bit(s) to simplify routing
-  //
-  // MT(F)SPR_RULE:
-  //   Before issuing MT(F)SPR, OMAN waits till order control buffer has become
-  // empty. Also we don't issue new instruction till l.mf(t)spr completion.
-  //   So, it is safely to detect changing DCACHE-related control bit(s) here
-  // and update local copies.
-  //
-  reg dc_enable_r;
-  // ---
-  always @(posedge cpu_clk) begin
-    dc_enable_r <= dc_enable_i;
-  end
-
-
   // detect per-way hit
   generate
   for (i = 0; i < OPTION_DCACHE_WAYS; i = i + 1) begin : gen_per_way_hit
@@ -265,7 +249,7 @@ module mor1kx_dcache_marocchino
 
 
   // Is the area cachable?
-  wire   is_cacheble     = dc_enable_r & (~dmmu_cache_inhibit_i);
+  wire   is_cacheble     = dc_enable_i & (~dmmu_cache_inhibit_i);
 
   // for write processing
   wire   dc_ack_write    = s1o_op_lsu_store_i & (~s1o_op_lsu_atomic_i) & is_cacheble &   dc_hit;
