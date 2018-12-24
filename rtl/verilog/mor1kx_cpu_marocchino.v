@@ -579,9 +579,6 @@ module mor1kx_cpu_marocchino
   wire exec_an_except;
   reg  wb_an_except_r;
 
-  // Combined exception/interrupt/rfe flag
-  reg  wb_rfe_or_except_r;
-
 
   //----------------------------//
   // Instruction FETCH instance //
@@ -716,7 +713,7 @@ module mor1kx_cpu_marocchino
     .cpu_clk                          (cpu_clk), // RF
     .cpu_rst                          (cpu_rst), // RF
     // pipeline control signals
-    .wb_rfe_or_except_i               (wb_rfe_or_except_r), // RF
+    .pipeline_flush_i                 (pipeline_flush), // RF
     .padv_dcod_i                      (padv_dcod), // RF
     // SPR bus
     .spr_bus_addr_i                   (spr_bus_addr_o), // RF
@@ -1918,16 +1915,6 @@ module mor1kx_cpu_marocchino
     end
   end // @clock
 
-  // --- special behavior for combined "l.rfe OR an except" ---
-  always @(posedge cpu_clk) begin
-    if (cpu_rst)
-      wb_rfe_or_except_r <= 1'b1; // reset
-    else if (ctrl_branch_exception)
-      wb_rfe_or_except_r <= 1'b0; // branch by an exception
-    else if (padv_wb)
-      wb_rfe_or_except_r <= exec_an_except | exec_op_rfe;
-  end // @clock
-
 
   //-------//
   // TIMER //
@@ -2160,7 +2147,6 @@ module mor1kx_cpu_marocchino
     //  # combined exceptions/interrupt flag
     .exec_an_except_i                 (exec_an_except), // CTRL
     .wb_an_except_i                   (wb_an_except_r), // CTRL
-    .wb_rfe_or_except_i               (wb_rfe_or_except_r), // CTRL
 
     //  # particular IFETCH exception flags
     .wb_except_ibus_err_i             (wb_except_ibus_err_r), // CTRL
