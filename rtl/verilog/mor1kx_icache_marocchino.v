@@ -119,7 +119,7 @@ module mor1kx_icache_marocchino
   // FSM state pointer
   reg [3:0] ic_state;
   // Particular state indicators
-  wire   ic_read       = ic_state[0];
+//wire   ic_read       = ic_state[0];
   wire   ic_refill     = ic_state[1];
   wire   ic_invalidate = ic_state[2];
   assign spr_bus_ack_o = ic_state[3];
@@ -202,9 +202,9 @@ module mor1kx_icache_marocchino
   // Is the area cachable?
   wire   is_cacheble  = ic_enable_i & (~immu_cache_inhibit_i);
   // ICACHE ACK
-  assign ic_ack_o     = is_cacheble & ic_read &   hit;
+  assign ic_ack_o     = is_cacheble &   hit;
   // RE-FILL request
-  assign refill_req_o = is_cacheble & ic_read & (~hit);
+  assign refill_req_o = is_cacheble & (~hit);
 
   // IBUS access request
   assign ibus_read_req_o = (~is_cacheble);
