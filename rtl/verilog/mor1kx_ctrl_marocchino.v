@@ -91,7 +91,7 @@ module mor1kx_ctrl_marocchino
   output                                padv_dcod_o,
   output                                padv_exec_o,
   input                                 exec_valid_i,
-  output                                padv_wb_o,
+  output                                padv_wrbk_o,
   output                                pipeline_flush_o,
 
   // MF(T)SPR coomand processing
@@ -102,13 +102,13 @@ module mor1kx_ctrl_marocchino
   input                                 dcod_op_mtspr_i,
   input                                 dcod_op_mXspr_i, // (l.mfspr | l.mtspr)
   //  ## result to WB_MUX
-  output reg [OPTION_OPERAND_WIDTH-1:0] wb_mfspr_result_o,
+  output reg [OPTION_OPERAND_WIDTH-1:0] wrbk_mfspr_result_o,
 
   // Support IBUS error handling in CTRL
-  input                                 wb_jump_or_branch_i,
-  input                                 wb_jump_i,
-  input                                 wb_op_bf_i,
-  input      [OPTION_OPERAND_WIDTH-1:0] wb_jb_target_i,
+  input                                 wrbk_jump_or_branch_i,
+  input                                 wrbk_jump_i,
+  input                                 wrbk_op_bf_i,
+  input      [OPTION_OPERAND_WIDTH-1:0] wrbk_jb_target_i,
 
   // Debug System accesses CPU SPRs through DU
   input                          [15:0] du_addr_i,
@@ -157,43 +157,43 @@ module mor1kx_ctrl_marocchino
   // WB: External Interrupt Collection
   output                                tt_interrupt_enable_o,
   output                                pic_interrupt_enable_o,
-  input                                 wb_tt_interrupt_i,
-  input                                 wb_pic_interrupt_i,
+  input                                 wrbk_tt_interrupt_i,
+  input                                 wrbk_pic_interrupt_i,
 
   // WB: programm counter
-  input      [OPTION_OPERAND_WIDTH-1:0] pc_wb_i,
-  input      [OPTION_OPERAND_WIDTH-1:0] pc_nxt_wb_i,
-  input      [OPTION_OPERAND_WIDTH-1:0] pc_nxt2_wb_i,
+  input      [OPTION_OPERAND_WIDTH-1:0] pc_wrbk_i,
+  input      [OPTION_OPERAND_WIDTH-1:0] pc_nxt_wrbk_i,
+  input      [OPTION_OPERAND_WIDTH-1:0] pc_nxt2_wrbk_i,
 
   // WB: flag
-  input                                 wb_int_flag_set_i,
-  input                                 wb_int_flag_clear_i,
-  input                                 wb_fpxx_flag_set_i,
-  input                                 wb_fpxx_flag_clear_i,
-  input                                 wb_atomic_flag_set_i,
-  input                                 wb_atomic_flag_clear_i,
+  input                                 wrbk_int_flag_set_i,
+  input                                 wrbk_int_flag_clear_i,
+  input                                 wrbk_fpxx_flag_set_i,
+  input                                 wrbk_fpxx_flag_clear_i,
+  input                                 wrbk_atomic_flag_set_i,
+  input                                 wrbk_atomic_flag_clear_i,
 
   // WB: carry
-  input                                 wb_div_carry_set_i,
-  input                                 wb_div_carry_clear_i,
-  input                                 wb_1clk_carry_set_i,
-  input                                 wb_1clk_carry_clear_i,
+  input                                 wrbk_div_carry_set_i,
+  input                                 wrbk_div_carry_clear_i,
+  input                                 wrbk_1clk_carry_set_i,
+  input                                 wrbk_1clk_carry_clear_i,
 
   // WB: overflow
-  input                                 wb_div_overflow_set_i,
-  input                                 wb_div_overflow_clear_i,
-  input                                 wb_1clk_overflow_set_i,
-  input                                 wb_1clk_overflow_clear_i,
+  input                                 wrbk_div_overflow_set_i,
+  input                                 wrbk_div_overflow_clear_i,
+  input                                 wrbk_1clk_overflow_set_i,
+  input                                 wrbk_1clk_overflow_clear_i,
 
   //  # FPX3264 arithmetic part
-  input     [`OR1K_FPCSR_ALLF_SIZE-1:0] wb_fpxx_arith_fpcsr_i,
-  input                                 wb_fpxx_arith_wb_fpcsr_i,
-  input                                 wb_except_fpxx_arith_i,
+  input     [`OR1K_FPCSR_ALLF_SIZE-1:0] wrbk_fpxx_arith_fpcsr_i,
+  input                                 wrbk_fpxx_arith_wb_fpcsr_i,
+  input                                 wrbk_except_fpxx_arith_i,
   //  # FPX64 comparison part
-  input                                 wb_fpxx_cmp_inv_i,
-  input                                 wb_fpxx_cmp_inf_i,
-  input                                 wb_fpxx_cmp_wb_fpcsr_i,
-  input                                 wb_except_fpxx_cmp_i,
+  input                                 wrbk_fpxx_cmp_inv_i,
+  input                                 wrbk_fpxx_cmp_inf_i,
+  input                                 wrbk_fpxx_cmp_wb_fpcsr_i,
+  input                                 wrbk_except_fpxx_cmp_i,
 
   //  # Excepion processing auxiliaries
   //    ## Exception PC input coming from the store buffer
@@ -201,41 +201,41 @@ module mor1kx_ctrl_marocchino
   input      [OPTION_OPERAND_WIDTH-1:0] sbuf_epcr_i,
   input                                 sbuf_err_i,
   //    ## Instriction is in delay slot
-  input                                 wb_delay_slot_i,
+  input                                 wrbk_delay_slot_i,
 
   //  # combined exceptions/interrupt flag
   input                                 exec_an_except_i, // to generate registered pipeline-flush
-  input                                 wb_an_except_i,
+  input                                 wrbk_an_except_i,
 
   //  # particular IFETCH exception flags
-  input                                 wb_except_ibus_err_i,
-  input                                 wb_except_itlb_miss_i,
-  input                                 wb_except_ipagefault_i,
-  input                                 wb_except_ibus_align_i,
+  input                                 wrbk_except_ibus_err_i,
+  input                                 wrbk_except_itlb_miss_i,
+  input                                 wrbk_except_ipagefault_i,
+  input                                 wrbk_except_ibus_align_i,
 
   //  # particular DECODE exception flags
-  input                                 wb_except_illegal_i,
-  input                                 wb_except_syscall_i,
-  input                                 wb_except_trap_i,
+  input                                 wrbk_except_illegal_i,
+  input                                 wrbk_except_syscall_i,
+  input                                 wrbk_except_trap_i,
 
   //  # particular LSU exception flags
-  input                                 wb_except_dbus_err_i,
-  input                                 wb_except_dtlb_miss_i,
-  input                                 wb_except_dpagefault_i,
-  input                                 wb_except_dbus_align_i,
-  input      [OPTION_OPERAND_WIDTH-1:0] wb_lsu_except_addr_i,
+  input                                 wrbk_except_dbus_err_i,
+  input                                 wrbk_except_dtlb_miss_i,
+  input                                 wrbk_except_dpagefault_i,
+  input                                 wrbk_except_dbus_align_i,
+  input      [OPTION_OPERAND_WIDTH-1:0] wrbk_lsu_except_addr_i,
 
   //  # overflow exception processing
   output                                except_overflow_enable_o,
-  input                                 wb_except_overflow_div_i,
-  input                                 wb_except_overflow_1clk_i,
+  input                                 wrbk_except_overflow_div_i,
+  input                                 wrbk_except_overflow_1clk_i,
 
   //  # Branch to exception/rfe processing address
   output                                ctrl_branch_exception_o,
   output     [OPTION_OPERAND_WIDTH-1:0] ctrl_branch_except_pc_o,
   //  # l.rfe
   input                                 exec_op_rfe_i, // to generate registered pipeline-flush
-  input                                 wb_op_rfe_i,
+  input                                 wrbk_op_rfe_i,
 
   // Multicore related
   input      [OPTION_OPERAND_WIDTH-1:0] multicore_coreid_i,
@@ -346,8 +346,8 @@ module mor1kx_ctrl_marocchino
 
 
   // Flag output
-  wire   ctrl_flag_clear = wb_int_flag_clear_i | wb_fpxx_flag_clear_i | wb_atomic_flag_clear_i;
-  wire   ctrl_flag_set   = wb_int_flag_set_i   | wb_fpxx_flag_set_i   | wb_atomic_flag_set_i;
+  wire   ctrl_flag_clear = wrbk_int_flag_clear_i | wrbk_fpxx_flag_clear_i | wrbk_atomic_flag_clear_i;
+  wire   ctrl_flag_set   = wrbk_int_flag_set_i   | wrbk_fpxx_flag_set_i   | wrbk_atomic_flag_set_i;
   // ---
   assign ctrl_flag_o     = (~ctrl_flag_clear) & (ctrl_flag_set | sr_flag);
   // ---
@@ -355,15 +355,15 @@ module mor1kx_ctrl_marocchino
 
 
   // Carry output
-  wire   ctrl_carry_clear = wb_div_carry_clear_i | wb_1clk_carry_clear_i;
-  wire   ctrl_carry_set   = wb_div_carry_set_i   | wb_1clk_carry_set_i;
+  wire   ctrl_carry_clear = wrbk_div_carry_clear_i | wrbk_1clk_carry_clear_i;
+  wire   ctrl_carry_set   = wrbk_div_carry_set_i   | wrbk_1clk_carry_set_i;
   // ---
   assign ctrl_carry_o = (~ctrl_carry_clear) & (ctrl_carry_set | spr_sr[`OR1K_SPR_SR_CY]);
 
 
   // Overflow flag
-  wire ctrl_overflow_clear = wb_div_overflow_clear_i | wb_1clk_overflow_clear_i;
-  wire ctrl_overflow_set   = wb_div_overflow_set_i   | wb_1clk_overflow_set_i;
+  wire ctrl_overflow_clear = wrbk_div_overflow_clear_i | wrbk_1clk_overflow_clear_i;
+  wire ctrl_overflow_set   = wrbk_div_overflow_set_i   | wrbk_1clk_overflow_set_i;
   // ---
   wire ctrl_overflow = (~ctrl_overflow_clear) & (ctrl_overflow_set | spr_sr[`OR1K_SPR_SR_OV]);
 
@@ -381,7 +381,7 @@ module mor1kx_ctrl_marocchino
   // default EPCR (for most exception cases)
   // If exception is in delay slot than we use PC of last jump/branch instruction.
   // In fact the PC is already stored in PPC.
-  wire [OPTION_OPERAND_WIDTH-1:0] epcr_default = wb_delay_slot_i ? spr_ppc : pc_wb_i;
+  wire [OPTION_OPERAND_WIDTH-1:0] epcr_default = wrbk_delay_slot_i ? spr_ppc : pc_wrbk_i;
 
   // E-P-C-R update (hierarchy is same to exception vector)
   //   (a) On Syscall we return back to the instruction _after_
@@ -391,24 +391,24 @@ module mor1kx_ctrl_marocchino
   always @(posedge cpu_clk) begin
     if (cpu_rst)
       spr_epcr <= {OPTION_OPERAND_WIDTH{1'b0}};
-    else if (wb_an_except_i) begin
+    else if (wrbk_an_except_i) begin
       // synthesis parallel_case
-      casez({(wb_except_itlb_miss_i | wb_except_ipagefault_i |
-              wb_except_ibus_err_i  |
-              wb_except_illegal_i   | wb_except_dbus_align_i | wb_except_ibus_align_i),
-             wb_except_syscall_i,
-             (wb_except_dtlb_miss_i | wb_except_dpagefault_i),
-             wb_except_trap_i,
+      casez({(wrbk_except_itlb_miss_i | wrbk_except_ipagefault_i |
+              wrbk_except_ibus_err_i  |
+              wrbk_except_illegal_i   | wrbk_except_dbus_align_i | wrbk_except_ibus_align_i),
+             wrbk_except_syscall_i,
+             (wrbk_except_dtlb_miss_i | wrbk_except_dpagefault_i),
+             wrbk_except_trap_i,
              sbuf_err_i,
-             wb_except_dbus_err_i
+             wrbk_except_dbus_err_i
             })
-        6'b1?????: spr_epcr <= epcr_default; // ITLB miss, IPAGE fault, IBUS error, Illegal, DBUS align, IBUS align
-        6'b01????: spr_epcr <= wb_delay_slot_i ? spr_ppc : pc_nxt_wb_i;   // syscall
-        6'b001???: spr_epcr <= epcr_default;                              // DTLB miss, DPAGE fault
-        6'b0001??: spr_epcr <= spr_epcr;                                  // software breakpoint
-        6'b00001?: spr_epcr <= sbuf_epcr_i;                               // Store buffer error
-        6'b000001: spr_epcr <= epcr_default;                              // load or atomic load/store
-        default  : spr_epcr <= epcr_default;                              // by default
+        6'b1?????: spr_epcr <= epcr_default;  // ITLB miss, IPAGE fault, IBUS error, Illegal, DBUS align, IBUS align
+        6'b01????: spr_epcr <= wrbk_delay_slot_i ? spr_ppc : pc_nxt_wrbk_i; // syscall
+        6'b001???: spr_epcr <= epcr_default;  // DTLB miss, DPAGE fault
+        6'b0001??: spr_epcr <= spr_epcr;      // software breakpoint
+        6'b00001?: spr_epcr <= sbuf_epcr_i;   // Store buffer error
+        6'b000001: spr_epcr <= epcr_default;  // load or atomic load/store
+        default  : spr_epcr <= epcr_default;  // by default
       endcase
     end
     else if ((`SPR_OFFSET(spr_sys_group_wadr_r) == `SPR_OFFSET(`OR1K_SPR_EPCR0_ADDR)) &
@@ -422,18 +422,18 @@ module mor1kx_ctrl_marocchino
   always @(posedge cpu_clk) begin
     if (cpu_rst)
       spr_eear <= {OPTION_OPERAND_WIDTH{1'b0}};
-    else if (wb_an_except_i) begin
+    else if (wrbk_an_except_i) begin
       // synthesis parallel_case
-      casez({(wb_except_itlb_miss_i | wb_except_ipagefault_i | wb_except_ibus_align_i | wb_except_ibus_err_i),
-             (wb_except_dtlb_miss_i | wb_except_dpagefault_i | wb_except_dbus_align_i),
+      casez({(wrbk_except_itlb_miss_i | wrbk_except_ipagefault_i | wrbk_except_ibus_align_i | wrbk_except_ibus_err_i),
+             (wrbk_except_dtlb_miss_i | wrbk_except_dpagefault_i | wrbk_except_dbus_align_i),
              sbuf_err_i,
-             wb_except_dbus_err_i
+             wrbk_except_dbus_err_i
             })
-        4'b1???: spr_eear <= pc_wb_i;              // ITLB miss, IPAGE fault, IBUS error, IBUS align
-        4'b01??: spr_eear <= wb_lsu_except_addr_i; // DTLB miss, DPAGE fault, DBUS align
-        4'b001?: spr_eear <= sbuf_eear_i;          // STORE BUFFER write error
-        4'b0001: spr_eear <= wb_lsu_except_addr_i; // load or atomic load/store
-        default: spr_eear <= pc_wb_i;              // by default
+        4'b1???: spr_eear <= pc_wrbk_i;              // ITLB miss, IPAGE fault, IBUS error, IBUS align
+        4'b01??: spr_eear <= wrbk_lsu_except_addr_i; // DTLB miss, DPAGE fault, DBUS align
+        4'b001?: spr_eear <= sbuf_eear_i;            // STORE BUFFER write error
+        4'b0001: spr_eear <= wrbk_lsu_except_addr_i; // load or atomic load/store
+        default: spr_eear <= pc_wrbk_i;              // by default
       endcase
     end
   end // @ clock
@@ -451,22 +451,22 @@ module mor1kx_ctrl_marocchino
 
   // Store exception vector
   always @(posedge cpu_clk) begin
-    if (wb_an_except_i) begin
+    if (wrbk_an_except_i) begin
       // synthesis parallel_case
-      casez({wb_except_itlb_miss_i,
-             wb_except_ipagefault_i,
-             wb_except_ibus_err_i,
-             wb_except_illegal_i,
-             (wb_except_dbus_align_i | wb_except_ibus_align_i),
-             wb_except_syscall_i,
-             wb_except_dtlb_miss_i,
-             wb_except_dpagefault_i,
-             wb_except_trap_i,
-             (wb_except_dbus_err_i | sbuf_err_i),
-             (wb_except_overflow_div_i | wb_except_overflow_1clk_i),
-             (wb_except_fpxx_cmp_i | wb_except_fpxx_arith_i),
-             wb_pic_interrupt_i,
-             wb_tt_interrupt_i
+      casez({wrbk_except_itlb_miss_i,
+             wrbk_except_ipagefault_i,
+             wrbk_except_ibus_err_i,
+             wrbk_except_illegal_i,
+             (wrbk_except_dbus_align_i | wrbk_except_ibus_align_i),
+             wrbk_except_syscall_i,
+             wrbk_except_dtlb_miss_i,
+             wrbk_except_dpagefault_i,
+             wrbk_except_trap_i,
+             (wrbk_except_dbus_err_i | sbuf_err_i),
+             (wrbk_except_overflow_div_i | wrbk_except_overflow_1clk_i),
+             (wrbk_except_fpxx_cmp_i | wrbk_except_fpxx_arith_i),
+             wrbk_pic_interrupt_i,
+             wrbk_tt_interrupt_i
             })
         14'b1?????????????: exception_pc_addr <= {spr_evbar,`OR1K_ITLB_VECTOR,8'd0};
         14'b01????????????: exception_pc_addr <= {spr_evbar,`OR1K_IPF_VECTOR,8'd0};
@@ -518,8 +518,8 @@ module mor1kx_ctrl_marocchino
         // waiting
         EXCEPT_PROC_FSM_WAITING: begin
           except_proc_fsm_state <= du_cpu_unstall ? EXCEPT_PROC_FSM_GET_NPC :
-                                      (wb_op_rfe_i ? EXCEPT_PROC_FSM_GET_EPCR :
-                                    (wb_an_except_i ? EXCEPT_PROC_FSM_GET_EPC :
+                                   (wrbk_op_rfe_i ? EXCEPT_PROC_FSM_GET_EPCR :
+                                    (wrbk_an_except_i ? EXCEPT_PROC_FSM_GET_EPC :
                                                        EXCEPT_PROC_FSM_WAITING));
         end // waiting
         // CPU reset processing
@@ -586,7 +586,7 @@ module mor1kx_ctrl_marocchino
             pipeline_flush_r <= 1'b1;
             flush_fsm_state  <= FLUSH_FSM_BY_DU;
           end
-          else if (padv_wb_o) begin
+          else if (padv_wrbk_o) begin
             if (exec_an_except_i | exec_op_rfe_i) begin
               pipeline_flush_r <= 1'b1;
               flush_fsm_state  <= FLUSH_FSM_BY_EXCEPT;
@@ -622,7 +622,7 @@ module mor1kx_ctrl_marocchino
   always @(posedge cpu_clk) begin
     if (cpu_rst)
       ctrl_spr_wb_r <= 1'b0;    // cpu reset
-    else if (padv_wb_o)
+    else if (padv_wrbk_o)
       ctrl_spr_wb_r <= 1'b1;    // proc write-back
     else
       ctrl_spr_wb_r <= 1'b0;    // 1-clk-length
@@ -675,9 +675,9 @@ module mor1kx_ctrl_marocchino
 
   // Advance Write Back latches
   wire   exec_valid_l = exec_valid_i | op_mXspr_valid;
-  assign padv_wb_o    = exec_valid_l & padv_all & ((~stepping) | pstep[2]);
+  assign padv_wrbk_o  = exec_valid_l & padv_all & ((~stepping) | pstep[2]);
   // Complete the step
-  wire   pass_step_to_stall = padv_wb_o; // for DU
+  wire   pass_step_to_stall = padv_wrbk_o; // for DU
 
 
   //-----------------------------------//
@@ -707,8 +707,8 @@ module mor1kx_ctrl_marocchino
   assign ctrl_fpu_round_mode_o = spr_fpcsr[`OR1K_FPCSR_RM];
 
   // collect FPx flags
-  wire [`OR1K_FPCSR_ALLF_SIZE-1:0] fpx_flags = {1'b0, wb_fpxx_cmp_inf_i, wb_fpxx_cmp_inv_i, 6'd0} |
-                                               wb_fpxx_arith_fpcsr_i;
+  wire [`OR1K_FPCSR_ALLF_SIZE-1:0] fpx_flags = {1'b0, wrbk_fpxx_cmp_inf_i, wrbk_fpxx_cmp_inv_i, 6'd0} |
+                                               wrbk_fpxx_arith_fpcsr_i;
 
   // FPU Control & Status Register
   always @(posedge cpu_clk) begin
@@ -716,7 +716,7 @@ module mor1kx_ctrl_marocchino
       spr_fpcsr <= `OR1K_FPCSR_RESET_VALUE;
     else if (spr_fpcsr_we)
       spr_fpcsr <= spr_sys_group_wdat_r[`OR1K_FPCSR_WIDTH-1:0]; // update all fields
-    else if (wb_fpxx_cmp_wb_fpcsr_i | wb_fpxx_arith_wb_fpcsr_i)
+    else if (wrbk_fpxx_cmp_wb_fpcsr_i | wrbk_fpxx_arith_wb_fpcsr_i)
       spr_fpcsr <= {fpx_flags, spr_fpcsr[`OR1K_FPCSR_RM], spr_fpcsr[`OR1K_FPCSR_FPEE]};
   end
 
@@ -741,11 +741,11 @@ module mor1kx_ctrl_marocchino
     if (cpu_rst) begin
       spr_sr                    <= SPR_SR_RESET_VALUE;
     end
-    else if (wb_op_rfe_i) begin
+    else if (wrbk_op_rfe_i) begin
       // Skip FO. TODO: make this even more selective.
       spr_sr[14:0]              <= spr_esr[14:0];
     end
-    else if (wb_an_except_i) begin
+    else if (wrbk_an_except_i) begin
       // Go into supervisor mode, disable interrupts, MMUs
       // it doesn't matter if the next features are enabled or not
       spr_sr[`OR1K_SPR_SR_SM ]  <= 1'b1; // supervisor mode
@@ -754,8 +754,8 @@ module mor1kx_ctrl_marocchino
       spr_sr[`OR1K_SPR_SR_DME]  <= 1'b0; // D-MMU is off
       spr_sr[`OR1K_SPR_SR_IME]  <= 1'b0; // I-MMU is off
       spr_sr[`OR1K_SPR_SR_OVE]  <= 1'b0; // block overflow excep.
-      spr_sr[`OR1K_SPR_SR_OV ]  <= wb_except_overflow_div_i | wb_except_overflow_1clk_i;
-      spr_sr[`OR1K_SPR_SR_DSX]  <= wb_delay_slot_i;
+      spr_sr[`OR1K_SPR_SR_OV ]  <= wrbk_except_overflow_div_i | wrbk_except_overflow_1clk_i;
+      spr_sr[`OR1K_SPR_SR_DSX]  <= wrbk_delay_slot_i;
     end
     else if ((`SPR_OFFSET(spr_sys_group_wadr_r) == `SPR_OFFSET(`OR1K_SPR_SR_ADDR)) &
              spr_sys_group_we &
@@ -788,7 +788,7 @@ module mor1kx_ctrl_marocchino
   always @(posedge cpu_clk) begin
     if (cpu_rst)
       spr_esr <= SPR_SR_RESET_VALUE;
-    else if (wb_an_except_i)
+    else if (wrbk_an_except_i)
       spr_esr <= spr_sr; // by exceptions
     else if ((`SPR_OFFSET(spr_sys_group_wadr_r) == `SPR_OFFSET(`OR1K_SPR_ESR0_ADDR)) &
              spr_sys_group_we)
@@ -801,12 +801,12 @@ module mor1kx_ctrl_marocchino
     if (cpu_rst)
       spr_ppc <= OPTION_RESET_PC;
     else if (ctrl_spr_wb_r) // Track PC
-      spr_ppc <= pc_wb_i;
+      spr_ppc <= pc_wrbk_i;
   end // @ clock
 
 
   // Last conditional branch taken
-  wire wb_bc_taken = wb_op_bf_i ? sr_flag : (~sr_flag);
+  wire wb_bc_taken = wrbk_op_bf_i ? sr_flag : (~sr_flag);
   // Target of last taken branch.
   // To set correct NPC at delay slot in WB
   reg [OPTION_OPERAND_WIDTH-1:0] pc_next_to_delay_slot;
@@ -814,8 +814,8 @@ module mor1kx_ctrl_marocchino
   always @(posedge cpu_clk) begin
     if (cpu_rst)
       pc_next_to_delay_slot <= {OPTION_OPERAND_WIDTH{1'b0}};
-    else if (ctrl_spr_wb_r & wb_jump_or_branch_i) // PC next to delay slot
-      pc_next_to_delay_slot <= (wb_jump_i | wb_bc_taken) ? wb_jb_target_i : pc_nxt2_wb_i;
+    else if (ctrl_spr_wb_r & wrbk_jump_or_branch_i) // PC next to delay slot
+      pc_next_to_delay_slot <= (wrbk_jump_i | wb_bc_taken) ? wrbk_jb_target_i : pc_nxt2_wrbk_i;
   end // @ clock
 
 
@@ -829,17 +829,17 @@ module mor1kx_ctrl_marocchino
     else if (du_npc_we)          // Write restart PC and ...
       spr_npc <= spr_sys_group_wdat_r;
     else if (~du_npc_hold) begin // ... hold it till restart command from Debug System
-      if (ctrl_spr_wb_r) begin                                // Track NPC: regular update
-        spr_npc <= wb_except_trap_i ? pc_wb_i               : // Track NPC: regular update
-                   wb_delay_slot_i  ? pc_next_to_delay_slot : // Track NPC: regular update
-                                      pc_nxt_wb_i;            // Track NPC: regular update
+      if (ctrl_spr_wb_r) begin                                   // Track NPC: regular update
+        spr_npc <= wrbk_except_trap_i ? pc_wrbk_i :              // Track NPC: regular update
+                   (wrbk_delay_slot_i  ? pc_next_to_delay_slot : // Track NPC: regular update
+                                         pc_nxt_wrbk_i);         // Track NPC: regular update
       end
       else begin
         // any "stepped_into_*" is 1-clock delayed "ctrl_spr_wb_r"
-        spr_npc <= stepped_into_exception  ? exception_pc_addr     : // Track NPC: step-by-step
-                   stepped_into_rfe        ? spr_epcr              : // Track NPC: step-by-step
-                   stepped_into_delay_slot ? pc_next_to_delay_slot : // Track NPC: step-by-step
-                                             spr_npc;                // Track NPC: step-by-step
+        spr_npc <= stepped_into_exception  ? exception_pc_addr     :   // Track NPC: step-by-step
+                   (stepped_into_rfe        ? spr_epcr              :  // Track NPC: step-by-step
+                    (stepped_into_delay_slot ? pc_next_to_delay_slot : // Track NPC: step-by-step
+                                               spr_npc));              // Track NPC: step-by-step
       end
     end
   end // @ clock
@@ -1048,7 +1048,7 @@ module mor1kx_ctrl_marocchino
         end
         // push l.mf(t)spr instruction to write-back stage
         SPR_BUS_OP_MXSPR_VALID: begin
-          if (padv_wb_o)
+          if (padv_wrbk_o)
             spr_bus_state <= SPR_BUS_WAIT_REQ;
         end
         //  complete DU request
@@ -1112,8 +1112,8 @@ module mor1kx_ctrl_marocchino
 
   // M(X)SPR data
   always @(posedge cpu_clk) begin
-    if (padv_wb_o)
-      wb_mfspr_result_o <= {OPTION_OPERAND_WIDTH{op_mXspr_valid}} & spr_bus_dat_r;
+    if (padv_wrbk_o)
+      wrbk_mfspr_result_o <= {OPTION_OPERAND_WIDTH{op_mXspr_valid}} & spr_bus_dat_r;
   end // @clock
 
 
@@ -1418,7 +1418,7 @@ module mor1kx_ctrl_marocchino
         spr_drr_te <= 1'b0;
       else if (spr_du_we & spr_du_drr_cs_r)
         spr_drr_te <= spr_du_wdat_dXr_te_r;
-      else if (wb_except_trap_i) // DU
+      else if (wrbk_except_trap_i) // DU
         spr_drr_te <= 1'b1;
     end // @ clock
 
@@ -1433,7 +1433,7 @@ module mor1kx_ctrl_marocchino
     //
     wire du_cpu_stall_by_cmd      = doing_wb & du_stall_i;
     wire du_cpu_stall_by_stepping = doing_wb & stepping;
-    wire du_cpu_stall_by_trap     = wb_except_trap_i;
+    wire du_cpu_stall_by_trap     = wrbk_except_trap_i;
 
     //
     // Generate 1-clok length pipe flusing signal from DU
@@ -1511,7 +1511,7 @@ module mor1kx_ctrl_marocchino
           pstep_r <= {pstep_r[2:0],1'b0};
       end
       else begin
-        if (padv_wb_o)
+        if (padv_wrbk_o)
           pstep_r <= 4'b1000; // 1-clock delayed padv-wb on regular pipe advancing
         else
           pstep_r <= 4'b0000; // 1-clock delayed padv-wb on regular pipe advancing
@@ -1532,7 +1532,7 @@ module mor1kx_ctrl_marocchino
       if (cpu_rst)
         stepped_into_exception_r <= 1'b0;
       else
-        stepped_into_exception_r <= stepping & wb_an_except_i;
+        stepped_into_exception_r <= stepping & wrbk_an_except_i;
     end // @ clock
     // ---
     assign stepped_into_exception = stepped_into_exception_r; // DU enabled
@@ -1546,7 +1546,7 @@ module mor1kx_ctrl_marocchino
       if (cpu_rst)
         stepped_into_rfe_r <= 1'b0;
       else
-        stepped_into_rfe_r <= stepping & wb_op_rfe_i;
+        stepped_into_rfe_r <= stepping & wrbk_op_rfe_i;
     end // @ clock
     // ---
     assign stepped_into_rfe = stepped_into_rfe_r; // DU enabled
@@ -1562,7 +1562,7 @@ module mor1kx_ctrl_marocchino
       else if (stepping) begin
         if (stepped_into_delay_slot)
           du_jump_or_branch_p <= 1'b0;
-        else if (wb_jump_or_branch_i)
+        else if (wrbk_jump_or_branch_i)
           du_jump_or_branch_p <= 1'b1;
       end
       else

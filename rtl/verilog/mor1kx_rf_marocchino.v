@@ -65,16 +65,16 @@ module mor1kx_rf_marocchino
   input                             dcod_immediate_sel_i,
 
   // Special WB-controls for RF
-  input  [OPTION_RF_ADDR_WIDTH-1:0] wb_rf_even_addr_i,
-  input                             wb_rf_even_wb_i,
-  input  [OPTION_RF_ADDR_WIDTH-1:0] wb_rf_odd_addr_i,
-  input                             wb_rf_odd_wb_i,
+  input  [OPTION_RF_ADDR_WIDTH-1:0] wrbk_rf_even_addr_i,
+  input                             wrbk_rf_even_wb_i,
+  input  [OPTION_RF_ADDR_WIDTH-1:0] wrbk_rf_odd_addr_i,
+  input                             wrbk_rf_odd_wb_i,
 
   // from WB
-  input                             wb_rfd1_odd_i,
-  input  [OPTION_OPERAND_WIDTH-1:0] wb_result1_i,
+  input                             wrbk_rfd1_odd_i,
+  input  [OPTION_OPERAND_WIDTH-1:0] wrbk_result1_i,
   // for FPU64
-  input  [OPTION_OPERAND_WIDTH-1:0] wb_result2_i,
+  input  [OPTION_OPERAND_WIDTH-1:0] wrbk_result2_i,
 
   // 1-clock "WB to DECODE operand forwarding" flags
   //  # relative operand A1
@@ -159,22 +159,22 @@ module mor1kx_rf_marocchino
   //    will be restarted by l.rfe
 
   //  write in even
-  wire write_even_req = wb_rf_even_wb_i | spr_gpr0_we_even;
+  wire write_even_req = wrbk_rf_even_wb_i | spr_gpr0_we_even;
   // write in odd
-  wire write_odd_req  = wb_rf_odd_wb_i  | spr_gpr0_we_odd;
+  wire write_odd_req  = wrbk_rf_odd_wb_i  | spr_gpr0_we_odd;
 
   // if A(B)'s address is odd than A2(B2)=A(B)+1 is even and vise verse
 
   //    Write Back even data
-  wire [(RF_DW-1):0] wb_even_data = wb_rfd1_odd_i ? wb_result2_i : wb_result1_i;
+  wire [(RF_DW-1):0] wb_even_data = wrbk_rfd1_odd_i ? wrbk_result2_i : wrbk_result1_i;
   //    Write Back odd data
-  wire [(RF_DW-1):0] wb_odd_data  = wb_rfd1_odd_i ? wb_result1_i : wb_result2_i;
+  wire [(RF_DW-1):0] wb_odd_data  = wrbk_rfd1_odd_i ? wrbk_result1_i : wrbk_result2_i;
 
   //  write even address & data
-  wire [(RF_AW-1):0] even_wadr = spr_gpr0_we_even ? spr_gpr0_addr  : wb_rf_even_addr_i;
+  wire [(RF_AW-1):0] even_wadr = spr_gpr0_we_even ? spr_gpr0_addr  : wrbk_rf_even_addr_i;
   wire [(RF_DW-1):0] even_wdat = spr_gpr0_we_even ? spr_gpr0_wdata : wb_even_data;
   //  write odd address & data
-  wire [(RF_AW-1):0] odd_wadr = spr_gpr0_we_odd ? spr_gpr0_addr  : wb_rf_odd_addr_i;
+  wire [(RF_AW-1):0] odd_wadr = spr_gpr0_we_odd ? spr_gpr0_addr  : wrbk_rf_odd_addr_i;
   wire [(RF_DW-1):0] odd_wdat = spr_gpr0_we_odd ? spr_gpr0_wdata : wb_odd_data;
 
 
@@ -711,17 +711,17 @@ module mor1kx_rf_marocchino
   end // at clock
 
   // Muxing and forwarding RFA1-output
-  always @(dcod_op_jal_i          or pc_decode_i  or
-           dcod_wb2dec_d1a1_fwd_i or wb_result1_i or
-           dcod_wb2dec_d2a1_fwd_i or wb_result2_i or
-           dcod_rfa1_adr_odd      or rfa_odd_dout or rfa_even_dout) begin
+  always @(dcod_op_jal_i          or pc_decode_i    or
+           dcod_wb2dec_d1a1_fwd_i or wrbk_result1_i or
+           dcod_wb2dec_d2a1_fwd_i or wrbk_result2_i or
+           dcod_rfa1_adr_odd      or rfa_odd_dout   or rfa_even_dout) begin
     // synthesis parallel_case
     casez ({dcod_op_jal_i,
             dcod_wb2dec_d1a1_fwd_i, dcod_wb2dec_d2a1_fwd_i,
             dcod_rfa1_adr_odd})
       4'b1???: dcod_rfa1_o = pc_decode_i;
-      4'b01??: dcod_rfa1_o = wb_result1_i;
-      4'b001?: dcod_rfa1_o = wb_result2_i;
+      4'b01??: dcod_rfa1_o = wrbk_result1_i;
+      4'b001?: dcod_rfa1_o = wrbk_result2_i;
       4'b0001: dcod_rfa1_o = rfa_odd_dout;
       default: dcod_rfa1_o = rfa_even_dout;
     endcase
@@ -729,46 +729,46 @@ module mor1kx_rf_marocchino
 
   // Muxing and forwarding RFB1-output
   always @(dcod_op_jal_i          or
-           dcod_immediate_sel_i   or dcod_immediate_i or
-           dcod_wb2dec_d1b1_fwd_i or wb_result1_i     or
-           dcod_wb2dec_d2b1_fwd_i or wb_result2_i     or
-           dcod_rfb1_adr_odd      or rfb_odd_dout     or rfb_even_dout) begin
+           dcod_immediate_sel_i   or dcod_immediate_i   or
+           dcod_wb2dec_d1b1_fwd_i or wrbk_result1_i     or
+           dcod_wb2dec_d2b1_fwd_i or wrbk_result2_i     or
+           dcod_rfb1_adr_odd      or rfb_odd_dout       or rfb_even_dout) begin
     // synthesis parallel_case
     casez ({dcod_op_jal_i,          dcod_immediate_sel_i,
             dcod_wb2dec_d1b1_fwd_i, dcod_wb2dec_d2b1_fwd_i,
             dcod_rfb1_adr_odd})
       5'b1????: dcod_rfb1_o = 4'd8; // (FEATURE_DELAY_SLOT == "ENABLED")
       5'b01???: dcod_rfb1_o = dcod_immediate_i;
-      5'b001??: dcod_rfb1_o = wb_result1_i;
-      5'b0001?: dcod_rfb1_o = wb_result2_i;
+      5'b001??: dcod_rfb1_o = wrbk_result1_i;
+      5'b0001?: dcod_rfb1_o = wrbk_result2_i;
       5'b00001: dcod_rfb1_o = rfb_odd_dout;
       default:  dcod_rfb1_o = rfb_even_dout;
     endcase
   end
 
   // Muxing and forwarding RFA2-output
-  always @(dcod_wb2dec_d1a2_fwd_i or wb_result1_i or
-           dcod_wb2dec_d2a2_fwd_i or wb_result2_i or
-           dcod_rfa2_adr_odd      or rfa_odd_dout or rfa_even_dout) begin
+  always @(dcod_wb2dec_d1a2_fwd_i or wrbk_result1_i or
+           dcod_wb2dec_d2a2_fwd_i or wrbk_result2_i or
+           dcod_rfa2_adr_odd      or rfa_odd_dout   or rfa_even_dout) begin
     // synthesis parallel_case
     casez ({dcod_wb2dec_d1a2_fwd_i, dcod_wb2dec_d2a2_fwd_i,
             dcod_rfa2_adr_odd})
-      3'b1??:  dcod_rfa2_o = wb_result1_i;
-      3'b01?:  dcod_rfa2_o = wb_result2_i;
+      3'b1??:  dcod_rfa2_o = wrbk_result1_i;
+      3'b01?:  dcod_rfa2_o = wrbk_result2_i;
       3'b001:  dcod_rfa2_o = rfa_odd_dout;
       default: dcod_rfa2_o = rfa_even_dout;
     endcase
   end
 
   // Muxing and forwarding RFB2-output
-  always @(dcod_wb2dec_d1b2_fwd_i or wb_result1_i or
-           dcod_wb2dec_d2b2_fwd_i or wb_result2_i or
-           dcod_rfb2_adr_odd      or rfb_odd_dout or rfb_even_dout) begin
+  always @(dcod_wb2dec_d1b2_fwd_i or wrbk_result1_i or
+           dcod_wb2dec_d2b2_fwd_i or wrbk_result2_i or
+           dcod_rfb2_adr_odd      or rfb_odd_dout   or rfb_even_dout) begin
     // synthesis parallel_case
     casez ({dcod_wb2dec_d1b2_fwd_i, dcod_wb2dec_d2b2_fwd_i,
             dcod_rfb2_adr_odd})
-      3'b1??:  dcod_rfb2_o = wb_result1_i;
-      3'b01?:  dcod_rfb2_o = wb_result2_i;
+      3'b1??:  dcod_rfb2_o = wrbk_result1_i;
+      3'b01?:  dcod_rfb2_o = wrbk_result2_i;
       3'b001:  dcod_rfb2_o = rfb_odd_dout;
       default: dcod_rfb2_o = rfb_even_dout;
     endcase

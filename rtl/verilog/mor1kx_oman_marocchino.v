@@ -54,7 +54,7 @@ module rat_cell
   input         [DEST_EXTADR_WIDTH-1:0] dcod_extadr_i,
 
   // input to clear allocation bits
-  input         [DEST_EXTADR_WIDTH-1:0] wb_extadr_i,
+  input         [DEST_EXTADR_WIDTH-1:0] wrbk_extadr_i,
 
   // output allocation information
   output reg                            rat_rd1_alloc_o, // allocated by D1
@@ -70,7 +70,7 @@ module rat_cell
   wire set_rdx_alloc = (set_rd1_alloc | set_rd2_alloc);
 
   // condition to keep allocation flags at write-back
-  wire keep_alloc_at_wb    = (wb_extadr_i != rat_extadr_o);
+  wire keep_alloc_at_wb    = (wrbk_extadr_i != rat_extadr_o);
   // next values of allocation flags at write-back
   wire rat_rd1_alloc_at_wb = rat_rd1_alloc_o & keep_alloc_at_wb;
   wire rat_rd2_alloc_at_wb = rat_rd2_alloc_o & keep_alloc_at_wb;
@@ -121,7 +121,7 @@ module mor1kx_oman_marocchino
   // pipeline control
   input                                 padv_dcod_i,
   input                                 padv_exec_i,
-  input                                 padv_wb_i,
+  input                                 padv_wrbk_i,
   input                                 pipeline_flush_i,
 
   // fetched instruction is valid
@@ -235,13 +235,13 @@ module mor1kx_oman_marocchino
   output                                exec_valid_o,
 
   // control WB latches of execution modules
-  output                                grant_wb_to_1clk_o,
-  output                                grant_wb_to_div_o,
-  output                                grant_wb_to_mul_o,
-  output                                grant_wb_to_fpxx_arith_o,
-  output                                grant_wb_to_lsu_o,
+  output                                grant_wrbk_to_1clk_o,
+  output                                grant_wrbk_to_div_o,
+  output                                grant_wrbk_to_mul_o,
+  output                                grant_wrbk_to_fpxx_arith_o,
+  output                                grant_wrbk_to_lsu_o,
   // for FPU64
-  output                                grant_wb_to_fpxx_cmp_o,
+  output                                grant_wrbk_to_fpxx_cmp_o,
 
   // Logic to support Jump / Branch taking
   //  # from IFETCH
@@ -254,7 +254,7 @@ module mor1kx_oman_marocchino
   input      [OPTION_OPERAND_WIDTH-1:0] fetch_to_imm_target_i,
   //  # target for l.jr / l.jalr
   input      [OPTION_OPERAND_WIDTH-1:0] dcod_rfb1_jr_i,
-  input      [OPTION_OPERAND_WIDTH-1:0] wb_result1_i,
+  input      [OPTION_OPERAND_WIDTH-1:0] wrbk_result1_i,
   // comparision flag for l.bf/l.bnf
   input                                 ctrl_flag_sr_i,
   // jump/branch signals to IFETCH
@@ -271,10 +271,10 @@ module mor1kx_oman_marocchino
   output reg      [GSHARE_BITS_NUM-1:0] bc_cnt_wadr_o,   // saturation counter id
   output reg                            bc_hist_taken_o, // conditional branch really taken
   // Support IBUS error handling in CTRL
-  output reg                            wb_jump_or_branch_o,
-  output reg                            wb_jump_o,
-  output reg                            wb_op_bf_o,
-  output reg [OPTION_OPERAND_WIDTH-1:0] wb_jb_target_o,
+  output reg                            wrbk_jump_or_branch_o,
+  output reg                            wrbk_jump_o,
+  output reg                            wrbk_op_bf_o,
+  output reg [OPTION_OPERAND_WIDTH-1:0] wrbk_jb_target_o,
 
 
   //   Flag to enabel/disable exterlal interrupts processing
@@ -297,18 +297,18 @@ module mor1kx_oman_marocchino
 
   // WB outputs
   //  ## special WB-controls for RF
-  output reg [OPTION_RF_ADDR_WIDTH-1:0] wb_rf_even_addr_o,
-  output reg                            wb_rf_even_wb_o,
-  output reg [OPTION_RF_ADDR_WIDTH-1:0] wb_rf_odd_addr_o,
-  output reg                            wb_rf_odd_wb_o,
+  output reg [OPTION_RF_ADDR_WIDTH-1:0] wrbk_rf_even_addr_o,
+  output reg                            wrbk_rf_even_wb_o,
+  output reg [OPTION_RF_ADDR_WIDTH-1:0] wrbk_rf_odd_addr_o,
+  output reg                            wrbk_rf_odd_wb_o,
   //  ## instruction related information
-  output reg [OPTION_OPERAND_WIDTH-1:0] pc_wb_o,
-  output reg [OPTION_OPERAND_WIDTH-1:0] pc_nxt_wb_o, // pc-wb + 4
-  output reg [OPTION_OPERAND_WIDTH-1:0] pc_nxt2_wb_o, // pc-wb + 8
-  output reg                            wb_delay_slot_o,
-  output reg                            wb_rfd1_odd_o,
+  output reg [OPTION_OPERAND_WIDTH-1:0] pc_wrbk_o,
+  output reg [OPTION_OPERAND_WIDTH-1:0] pc_nxt_wrbk_o, // pc-wrbk + 4
+  output reg [OPTION_OPERAND_WIDTH-1:0] pc_nxt2_wrbk_o, // pc-wrbk + 8
+  output reg                            wrbk_delay_slot_o,
+  output reg                            wrbk_rfd1_odd_o,
   // for hazards resolution in RSRVS
-  output reg    [DEST_EXTADR_WIDTH-1:0] wb_extadr_o
+  output reg    [DEST_EXTADR_WIDTH-1:0] wrbk_extadr_o
 );
 
   // [O]rder [C]ontrol [B]uffer [T]ap layout
@@ -488,7 +488,7 @@ module mor1kx_oman_marocchino
     .ext_rst          (1'b0), // JB-ATTR-OCB
     // RW-controls
     .write_i          (padv_exec_i), // INSN_OCB
-    .read_i           (padv_wb_i), // INSN_OCB
+    .read_i           (padv_wrbk_i), // INSN_OCB
     // data input
     .data_i           (ocbi), // INSN_OCB
     // "OCB is empty" flag
@@ -501,12 +501,12 @@ module mor1kx_oman_marocchino
 
 
   // Grant WB-access to units
-  assign grant_wb_to_1clk_o        = ocbo[OCBTC_OP_1CLK_POS];
-  assign grant_wb_to_div_o         = ocbo[OCBTC_OP_DIV_POS];
-  assign grant_wb_to_mul_o         = ocbo[OCBTC_OP_MUL_POS];
-  assign grant_wb_to_fpxx_arith_o  = ocbo[OCBTC_OP_FPXX_ARITH_POS];
-  assign grant_wb_to_lsu_o         = ocbo[OCBTC_OP_LS_POS];
-  assign grant_wb_to_fpxx_cmp_o    = ocbo[OCBTC_OP_FPXX_CMP_POS];
+  assign grant_wrbk_to_1clk_o        = ocbo[OCBTC_OP_1CLK_POS];
+  assign grant_wrbk_to_div_o         = ocbo[OCBTC_OP_DIV_POS];
+  assign grant_wrbk_to_mul_o         = ocbo[OCBTC_OP_MUL_POS];
+  assign grant_wrbk_to_fpxx_arith_o  = ocbo[OCBTC_OP_FPXX_ARITH_POS];
+  assign grant_wrbk_to_lsu_o         = ocbo[OCBTC_OP_LS_POS];
+  assign grant_wrbk_to_fpxx_cmp_o    = ocbo[OCBTC_OP_FPXX_CMP_POS];
 
 
   //--------------------------//
@@ -596,7 +596,7 @@ module mor1kx_oman_marocchino
       //  # allocation id
       .dcod_extadr_i          (dcod_extadr_r), // RAT-CELL
       // input to clear allocation bits
-      .wb_extadr_i            (wb_extadr_o), // RAT-CELL
+      .wrbk_extadr_i          (wrbk_extadr_o), // RAT-CELL
       // output allocation information
       .rat_rd1_alloc_o        (rat_rd1_alloc[ic]), // RAT-CELL
       .rat_rd2_alloc_o        (rat_rd2_alloc[ic]), // RAT-CELL
@@ -698,7 +698,7 @@ module mor1kx_oman_marocchino
   // ---
   always @(posedge cpu_clk) begin
     // synthesis parallel_case
-    case ({padv_wb_i,padv_dcod_i})
+    case ({padv_wrbk_i,padv_dcod_i})
       // when write-back only
       2'b10: begin
         //  # relative operand A1
@@ -814,7 +814,7 @@ module mor1kx_oman_marocchino
               jr_gathering_target_p <= 1'b1;
               if (jr_dcd2fth_hazard_d1b1_raw |
                   (rat_rd1_alloc[fetch_rfb1_adr_i] &
-                   (wb_extadr_o != rat_extadr[fetch_rfb1_adr_i])))
+                   (wrbk_extadr_o != rat_extadr[fetch_rfb1_adr_i])))
                 jr_fsm_state_r <= JR_FSM_WAITING_B1;
               else
                 jr_fsm_state_r <= JR_FSM_GET_B1;
@@ -829,7 +829,7 @@ module mor1kx_oman_marocchino
         end
         // waiting target for l.jr/l.jalr
         JR_FSM_WAITING_B1: begin
-          if (jb_hazard_ext_p == wb_extadr_o) begin
+          if (jb_hazard_ext_p == wrbk_extadr_o) begin
             jr_fsm_state_r        <= JR_FSM_DOING_JR;
             jr_gathering_target_p <= 1'b0;
           end
@@ -873,7 +873,7 @@ module mor1kx_oman_marocchino
   reg  [DEST_EXTADR_WIDTH-1:0] flag_alloc_ext_r; // SR[F] allocation index
   // ---
   assign flag_alloc_w    = dcod_flag_wb_i | flag_alloc_r;
-  wire   keep_flag_alloc = dcod_flag_wb_i | (flag_alloc_ext_r != wb_extadr_o);
+  wire   keep_flag_alloc = dcod_flag_wb_i | (flag_alloc_ext_r != wrbk_extadr_o);
   // ---
   always @(posedge cpu_clk) begin
     if (pipeline_flush_i) begin
@@ -905,7 +905,7 @@ module mor1kx_oman_marocchino
   reg  predict_flag_value_r;
   reg  predict_flag_alloc_r;
   // --- wait completion writting to SR[F] ---
-  wire keep_predict_flag_alloc = predict_flag_alloc_r & (jb_hazard_ext_p != wb_extadr_o);
+  wire keep_predict_flag_alloc = predict_flag_alloc_r & (jb_hazard_ext_p != wrbk_extadr_o);
   // --- compute raw hit/miss for prediction ---
   // --- they are used only inside J/B FSM ---
   wire predict_hit_raw  = (~predict_flag_alloc_r) &  (~(predict_flag_value_r ^ ctrl_flag_sr_i));
@@ -1006,7 +1006,7 @@ module mor1kx_oman_marocchino
   // store target for l.jr/l.jalr
   always @(posedge cpu_clk) begin
     jr_target_p <=  jr_fsm_get_b1_state     ? dcod_rfb1_jr_i :
-                   (jr_fsm_waiting_b1_state ? wb_result1_i   :
+                   (jr_fsm_waiting_b1_state ? wrbk_result1_i   :
                                               jr_target_p);
   end // @cpu-clock
 
@@ -1108,7 +1108,7 @@ module mor1kx_oman_marocchino
   // Write/Read to Jump/Branch attributes buffers
   // !!! each case is 1-clock length
   wire jb_attr_ocb_write = jr_fsm_doing_jr_state | dcod_op_jimm_r | dcod_op_bc_r;
-  wire jb_attr_ocb_read  = padv_wb_i & ocbo[OCBTC_JUMP_OR_BRANCH_POS];
+  wire jb_attr_ocb_read  = padv_wrbk_i & ocbo[OCBTC_JUMP_OR_BRANCH_POS];
 
   // --- JB-ATTR-OCB output / input ---
   wire [JB_ATTR_MSB:0] jb_attr_ocbo;
@@ -1224,21 +1224,21 @@ module mor1kx_oman_marocchino
   // WB JUMP or BRANCH attributes
   //  # flags (all 1-clock length)
   always @(posedge cpu_clk) begin
-    if (padv_wb_i) begin
-      wb_jump_or_branch_o <= ocbo[OCBTC_JUMP_OR_BRANCH_POS];
-      wb_jump_o           <= jb_attr_ocbo[JB_ATTR_C_JUMP_POS];
-      wb_op_bf_o          <= jb_attr_ocbo[JB_ATTR_C_BF_POS];
+    if (padv_wrbk_i) begin
+      wrbk_jump_or_branch_o <= ocbo[OCBTC_JUMP_OR_BRANCH_POS];
+      wrbk_jump_o           <= jb_attr_ocbo[JB_ATTR_C_JUMP_POS];
+      wrbk_op_bf_o          <= jb_attr_ocbo[JB_ATTR_C_BF_POS];
     end
     else begin
-      wb_jump_or_branch_o <= 1'b0;
-      wb_jump_o           <= 1'b0;
-      wb_op_bf_o          <= 1'b0;
+      wrbk_jump_or_branch_o <= 1'b0;
+      wrbk_jump_o           <= 1'b0;
+      wrbk_op_bf_o          <= 1'b0;
     end
   end // @clock
   //  # target
   always @(posedge cpu_clk) begin
-    if (padv_wb_i)
-      wb_jb_target_o <= jb_attr_ocbo[JB_ATTR_D_TARGET_MSB:JB_ATTR_D_TARGET_LSB];
+    if (padv_wrbk_i)
+      wrbk_jb_target_o <= jb_attr_ocbo[JB_ATTR_D_TARGET_MSB:JB_ATTR_D_TARGET_LSB];
   end // @clock
 
 
@@ -1277,56 +1277,56 @@ module mor1kx_oman_marocchino
   //  if A(B)'s address is odd than A2(B2)=A(B)+1 is even and vise verse
   //  1-clock WB-pulses
   always @(posedge cpu_clk) begin
-    if (padv_wb_i) begin
-      wb_rf_even_wb_o <= (exec_rfd1_wb & ~exec_rfd1_adr[0]) | (exec_rfd2_wb & ~exec_rfd2_adr[0]);
-      wb_rf_odd_wb_o  <= (exec_rfd1_wb &  exec_rfd1_adr[0]) | (exec_rfd2_wb &  exec_rfd2_adr[0]);
+    if (padv_wrbk_i) begin
+      wrbk_rf_even_wb_o <= (exec_rfd1_wb & ~exec_rfd1_adr[0]) | (exec_rfd2_wb & ~exec_rfd2_adr[0]);
+      wrbk_rf_odd_wb_o  <= (exec_rfd1_wb &  exec_rfd1_adr[0]) | (exec_rfd2_wb &  exec_rfd2_adr[0]);
     end
     else begin
-      wb_rf_even_wb_o <= 1'b0;
-      wb_rf_odd_wb_o  <= 1'b0;
+      wrbk_rf_even_wb_o <= 1'b0;
+      wrbk_rf_odd_wb_o  <= 1'b0;
     end
   end // @clock
   //   Even/Odd WB-addresses
   always @(posedge cpu_clk) begin
-    if (padv_wb_i) begin
-      wb_rf_even_addr_o <= exec_rfd1_adr[0] ? exec_rfd2_adr : exec_rfd1_adr;
-      wb_rf_odd_addr_o  <= exec_rfd1_adr[0] ? exec_rfd1_adr : exec_rfd2_adr;
+    if (padv_wrbk_i) begin
+      wrbk_rf_even_addr_o <= exec_rfd1_adr[0] ? exec_rfd2_adr : exec_rfd1_adr;
+      wrbk_rf_odd_addr_o  <= exec_rfd1_adr[0] ? exec_rfd1_adr : exec_rfd2_adr;
     end
   end // @clock
 
 
   // WB delay slot
   always @(posedge cpu_clk) begin
-    if (padv_wb_i)
-      wb_delay_slot_o <= ocbo[OCBTA_DELAY_SLOT_POS];
+    if (padv_wrbk_i)
+      wrbk_delay_slot_o <= ocbo[OCBTA_DELAY_SLOT_POS];
     else
-      wb_delay_slot_o <= 1'b0;
+      wrbk_delay_slot_o <= 1'b0;
   end // @clock
 
 
   // address of D1
   always @(posedge cpu_clk) begin
-    if (padv_wb_i)
-      wb_rfd1_odd_o <= exec_rfd1_adr[0];
+    if (padv_wrbk_i)
+      wrbk_rfd1_odd_o <= exec_rfd1_adr[0];
   end // @clock
 
 
   // extention bits: valid for 1-clock
   // to reolve hazards in rezervation stations
   always @(posedge cpu_clk) begin
-    if (padv_wb_i)
-      wb_extadr_o <= exec_extadr;
+    if (padv_wrbk_i)
+      wrbk_extadr_o <= exec_extadr;
     else
-      wb_extadr_o <= {DEST_EXTADR_WIDTH{1'b0}};
+      wrbk_extadr_o <= {DEST_EXTADR_WIDTH{1'b0}};
   end // @clock
 
 
   // PC
   always @(posedge cpu_clk) begin
-    if (padv_wb_i) begin
-      pc_wb_o      <= pc_exec;
-      pc_nxt_wb_o  <= pc_exec + 3'd4;
-      pc_nxt2_wb_o <= pc_exec + 4'd8;
+    if (padv_wrbk_i) begin
+      pc_wrbk_o      <= pc_exec;
+      pc_nxt_wrbk_o  <= pc_exec + 3'd4;
+      pc_nxt2_wrbk_o <= pc_exec + 4'd8;
     end
   end // @clock
 

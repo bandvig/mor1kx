@@ -666,7 +666,7 @@ module mor1kx_decode_marocchino
                 attr_rfb1_req       = 1'b0;
                 attr_rfd1_wb        = 1'b0;
               end
-          endcase // alu_opc
+          endcase // alu-opc
           // for FPU64
           attr_rfa2_req       = 1'b0;
           attr_rfb2_req       = 1'b0;

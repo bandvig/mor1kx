@@ -1329,10 +1329,10 @@ module mor1kx_rsrvs_marocchino
 
   // Hazard could be resolving
   //  ## write-back attributes
-  input           [(DEST_EXTADR_WIDTH-1):0] wb_extadr_i,
+  input           [(DEST_EXTADR_WIDTH-1):0] wrbk_extadr_i,
   //  ## forwarding results
-  input        [(OPTION_OPERAND_WIDTH-1):0] wb_result1_i,
-  input        [(OPTION_OPERAND_WIDTH-1):0] wb_result2_i,
+  input        [(OPTION_OPERAND_WIDTH-1):0] wrbk_result1_i,
+  input        [(OPTION_OPERAND_WIDTH-1):0] wrbk_result2_i,
 
   // command and its additional attributes
   input                    [(OP_WIDTH-1):0] dcod_op_i,    // request the unit command
@@ -1566,8 +1566,8 @@ module mor1kx_rsrvs_marocchino
   end // @cpu-clock
 
   // muxing write-back
-  assign busy_dxa1_muxing_wb = busy_hazard_dxa1_r & (busy_extadr_dxa1_r == wb_extadr_i);
-  assign busy_dxb1_muxing_wb = busy_hazard_dxb1_r & (busy_extadr_dxb1_r == wb_extadr_i);
+  assign busy_dxa1_muxing_wb = busy_hazard_dxa1_r & (busy_extadr_dxa1_r == wrbk_extadr_i);
+  assign busy_dxb1_muxing_wb = busy_hazard_dxb1_r & (busy_extadr_dxb1_r == wrbk_extadr_i);
 
   // forwarding operands A1 & B1
   always @(posedge cpu_clk) begin
@@ -1582,11 +1582,11 @@ module mor1kx_rsrvs_marocchino
   end // @clock
   //---
   //  operand A1
-  assign busy_rfa1 =  busy_hazard_d1a1_r ? wb_result1_i :
-                     (busy_hazard_d2a1_r ? wb_result2_i : busy_rfa1_r);
+  assign busy_rfa1 =  busy_hazard_d1a1_r ? wrbk_result1_i :
+                     (busy_hazard_d2a1_r ? wrbk_result2_i : busy_rfa1_r);
   //  operand B1
-  assign busy_rfb1 =  busy_hazard_d1b1_r ? wb_result1_i :
-                     (busy_hazard_d2b1_r ? wb_result2_i : busy_rfb1_r);
+  assign busy_rfb1 =  busy_hazard_d1b1_r ? wrbk_result1_i :
+                     (busy_hazard_d2b1_r ? wrbk_result2_i : busy_rfb1_r);
 
 
   // exclusive latches for FPU3264 reservation station
@@ -1657,13 +1657,13 @@ module mor1kx_rsrvs_marocchino
     assign busy_hazard_d2a2_w   = busy_hazard_d2a2_r; // FPU3264
     assign busy_hazard_dxa2_w   = busy_hazard_dxa2_r; // FPU3264
     assign busy_extadr_dxa2_w   = busy_extadr_dxa2_r; // FPU3264
-    assign busy_dxa2_muxing_wb  = busy_hazard_dxa2_r & (busy_extadr_dxa2_r == wb_extadr_i);
+    assign busy_dxa2_muxing_wb  = busy_hazard_dxa2_r & (busy_extadr_dxa2_r == wrbk_extadr_i);
     //  # relative operand B2
     assign busy_hazard_d1b2_w   = busy_hazard_d1b2_r; // FPU3264
     assign busy_hazard_d2b2_w   = busy_hazard_d2b2_r; // FPU3264
     assign busy_hazard_dxb2_w   = busy_hazard_dxb2_r; // FPU3264
     assign busy_extadr_dxb2_w   = busy_extadr_dxb2_r; // FPU3264
-    assign busy_dxb2_muxing_wb  = busy_hazard_dxb2_r & (busy_extadr_dxb2_r == wb_extadr_i);
+    assign busy_dxb2_muxing_wb  = busy_hazard_dxb2_r & (busy_extadr_dxb2_r == wrbk_extadr_i);
 
     // A2 & B2 operands
     reg [OPTION_OPERAND_WIDTH-1:0] busy_rfa2_r;
@@ -1681,11 +1681,11 @@ module mor1kx_rsrvs_marocchino
     end // @clock
     // ---
     //  operand A2
-    assign busy_rfa2_w =  busy_hazard_d1a2_r ? wb_result1_i :
-                         (busy_hazard_d2a2_r ? wb_result2_i : busy_rfa2_r);
+    assign busy_rfa2_w =  busy_hazard_d1a2_r ? wrbk_result1_i :
+                         (busy_hazard_d2a2_r ? wrbk_result2_i : busy_rfa2_r);
     //  operand B2
-    assign busy_rfb2_w =  busy_hazard_d1b2_r ? wb_result1_i :
-                         (busy_hazard_d2b2_r ? wb_result2_i : busy_rfb2_r);
+    assign busy_rfb2_w =  busy_hazard_d1b2_r ? wrbk_result1_i :
+                         (busy_hazard_d2b2_r ? wrbk_result2_i : busy_rfb2_r);
   end
   else begin : busy_fpxx_disabled
     //  # relative operand A2
@@ -1881,10 +1881,10 @@ module mor1kx_rsrvs_1clk_marocchino
 
   // Hazard could be resolving
   //  ## write-back attributes
-  input           [(DEST_EXTADR_WIDTH-1):0] wb_extadr_i,
+  input           [(DEST_EXTADR_WIDTH-1):0] wrbk_extadr_i,
   //  ## forwarding results
-  input        [(OPTION_OPERAND_WIDTH-1):0] wb_result1_i,
-  input        [(OPTION_OPERAND_WIDTH-1):0] wb_result2_i,
+  input        [(OPTION_OPERAND_WIDTH-1):0] wrbk_result1_i,
+  input        [(OPTION_OPERAND_WIDTH-1):0] wrbk_result2_i,
 
   // command and its additional attributes
   input                    [(OP_WIDTH-1):0] dcod_op_i,    // request the unit command
@@ -2164,16 +2164,16 @@ module mor1kx_rsrvs_1clk_marocchino
   end // @cpu-clock
 
   // muxing write-back
-  assign busy_dxa1_muxing_wb = busy_hazard_dxa1_r & (busy_extadr_dxa1_r == wb_extadr_i);
-  assign busy_dxb1_muxing_wb = busy_hazard_dxb1_r & (busy_extadr_dxb1_r == wb_extadr_i);
+  assign busy_dxa1_muxing_wb = busy_hazard_dxa1_r & (busy_extadr_dxa1_r == wrbk_extadr_i);
+  assign busy_dxb1_muxing_wb = busy_hazard_dxb1_r & (busy_extadr_dxb1_r == wrbk_extadr_i);
 
   // waiting write-back
-  assign busy_dxa1_waiting_wb = busy_hazard_dxa1_r & (busy_extadr_dxa1_r != wb_extadr_i);
-  assign busy_dxb1_waiting_wb = busy_hazard_dxb1_r & (busy_extadr_dxb1_r != wb_extadr_i);
+  assign busy_dxa1_waiting_wb = busy_hazard_dxa1_r & (busy_extadr_dxa1_r != wrbk_extadr_i);
+  assign busy_dxb1_waiting_wb = busy_hazard_dxb1_r & (busy_extadr_dxb1_r != wrbk_extadr_i);
 
   // no hazards in BUSY
-  assign busy_free_of_hazards = ((~busy_hazard_dxa1_r) | (busy_extadr_dxa1_r == wb_extadr_i)) &  // BUSY is free of hazadrs
-                                ((~busy_hazard_dxb1_r) | (busy_extadr_dxb1_r == wb_extadr_i));   // BUSY is free of hazadrs
+  assign busy_free_of_hazards = ((~busy_hazard_dxa1_r) | (busy_extadr_dxa1_r == wrbk_extadr_i)) &  // BUSY is free of hazadrs
+                                ((~busy_hazard_dxb1_r) | (busy_extadr_dxb1_r == wrbk_extadr_i));   // BUSY is free of hazadrs
 
   // BUSY stage operands A1 & B1
   always @(posedge cpu_clk) begin
@@ -2188,11 +2188,11 @@ module mor1kx_rsrvs_1clk_marocchino
   end // @clock
   // Forwarding
   //  operand A1
-  assign busy_rfa1 =  busy_hazard_d1a1_r ? wb_result1_i :
-                     (busy_hazard_d2a1_r ? wb_result2_i : busy_rfa1_r);
+  assign busy_rfa1 =  busy_hazard_d1a1_r ? wrbk_result1_i :
+                     (busy_hazard_d2a1_r ? wrbk_result2_i : busy_rfa1_r);
   //  operand B1
-  assign busy_rfb1 =  busy_hazard_d1b1_r ? wb_result1_i :
-                     (busy_hazard_d2b1_r ? wb_result2_i : busy_rfb1_r);
+  assign busy_rfb1 =  busy_hazard_d1b1_r ? wrbk_result1_i :
+                     (busy_hazard_d2b1_r ? wrbk_result2_i : busy_rfb1_r);
 
 
   /**** EXECUTE stage latches ****/

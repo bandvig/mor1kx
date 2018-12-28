@@ -53,8 +53,8 @@ module mor1kx_lsu_marocchino
   input                                 cpu_rst,
   // Pipeline controls
   input                                 pipeline_flush_i,
-  input                                 padv_wb_i,
-  input                                 grant_wb_to_lsu_i,
+  input                                 padv_wrbk_i,
+  input                                 grant_wrbk_to_lsu_i,
   // configuration
   input                                 dc_enable_i,
   input                                 dmmu_enable_i,
@@ -109,16 +109,16 @@ module mor1kx_lsu_marocchino
   //  Pre-WriteBack "an exception" flag
   output                                exec_an_except_lsu_o,
   // WriteBack load  result
-  output reg [OPTION_OPERAND_WIDTH-1:0] wb_lsu_result_o,
+  output reg [OPTION_OPERAND_WIDTH-1:0] wrbk_lsu_result_o,
   // Atomic operation flag set/clear logic
-  output reg                            wb_atomic_flag_set_o,
-  output reg                            wb_atomic_flag_clear_o,
+  output reg                            wrbk_atomic_flag_set_o,
+  output reg                            wrbk_atomic_flag_clear_o,
   // Exceptions & errors
-  output reg                            wb_except_dbus_err_o,
-  output reg                            wb_except_dpagefault_o,
-  output reg                            wb_except_dtlb_miss_o,
-  output reg                            wb_except_dbus_align_o,
-  output reg [OPTION_OPERAND_WIDTH-1:0] wb_lsu_except_addr_o
+  output reg                            wrbk_except_dbus_err_o,
+  output reg                            wrbk_except_dpagefault_o,
+  output reg                            wrbk_except_dtlb_miss_o,
+  output reg                            wrbk_except_dbus_align_o,
+  output reg [OPTION_OPERAND_WIDTH-1:0] wrbk_lsu_except_addr_o
 );
 
 
@@ -749,9 +749,9 @@ module mor1kx_lsu_marocchino
   //-----------------------//
 
   // store buffer write controls
-  assign sbuf_write = s2o_stna_req & (~sbuf_full) &       // STORE-BUFFER WRITE
-                      (~s2o_snoop_proc) &                 // STORE-BUFFER WRITE
-                      (~lsu_wb_miss) & grant_wb_to_lsu_i; // STORE-BUFFER WRITE
+  assign sbuf_write = s2o_stna_req & (~sbuf_full) &         // STORE-BUFFER WRITE
+                      (~s2o_snoop_proc) &                   // STORE-BUFFER WRITE
+                      (~lsu_wb_miss) & grant_wrbk_to_lsu_i; // STORE-BUFFER WRITE
   // include exceptions and pipe flushing
   assign sbuf_we    = sbuf_write & (~s2o_excepts_addr) & (~pipeline_flush_i);
 
@@ -989,7 +989,7 @@ module mor1kx_lsu_marocchino
   always @(posedge cpu_clk) begin
     if (flush_by_ctrl)
       lsu_wb_miss <= 1'b0;
-    else if (padv_wb_i & grant_wb_to_lsu_i)
+    else if (padv_wrbk_i & grant_wrbk_to_lsu_i)
       lsu_wb_miss <= 1'b0;
     else if (lsu_s3_adv)    // rise lsu-wb-miss
       lsu_wb_miss <= 1'b1;
@@ -1067,42 +1067,42 @@ module mor1kx_lsu_marocchino
   end // @clock
 
   // pre-WB exceprions & errors
-  assign exec_an_except_lsu_o = (lsu_wb_miss ? s3o_excepts_any : s2o_excepts_any) & grant_wb_to_lsu_i;
+  assign exec_an_except_lsu_o = (lsu_wb_miss ? s3o_excepts_any : s2o_excepts_any) & grant_wrbk_to_lsu_i;
 
   // WB-registered load result and exception address
   always @(posedge cpu_clk) begin
-    if (padv_wb_i) begin
-      if (grant_wb_to_lsu_i) begin
-        wb_lsu_result_o      <= lsu_wb_miss ? s3o_lsu_result : s3t_ldat_extended;
-        wb_lsu_except_addr_o <= lsu_wb_miss ? s3o_lsu_except_addr : s2o_virt_addr;
+    if (padv_wrbk_i) begin
+      if (grant_wrbk_to_lsu_i) begin
+        wrbk_lsu_result_o      <= lsu_wb_miss ? s3o_lsu_result : s3t_ldat_extended;
+        wrbk_lsu_except_addr_o <= lsu_wb_miss ? s3o_lsu_except_addr : s2o_virt_addr;
       end
       else begin
-        wb_lsu_result_o      <= {LSUOOW{1'b0}};
+        wrbk_lsu_result_o      <= {LSUOOW{1'b0}};
       end
     end
   end // @clock
 
   // WB-registered atomic flag and exception flags
   always @(posedge cpu_clk) begin
-    if (padv_wb_i & grant_wb_to_lsu_i) begin
+    if (padv_wrbk_i & grant_wrbk_to_lsu_i) begin
       // Atomic operation flag set/clear logic
-      wb_atomic_flag_set_o   <= lsu_wb_miss ? s3o_atomic_flag_set   : s2o_atomic_flag_set;
-      wb_atomic_flag_clear_o <= lsu_wb_miss ? s3o_atomic_flag_clear : s2o_atomic_flag_clear;
+      wrbk_atomic_flag_set_o   <= lsu_wb_miss ? s3o_atomic_flag_set   : s2o_atomic_flag_set;
+      wrbk_atomic_flag_clear_o <= lsu_wb_miss ? s3o_atomic_flag_clear : s2o_atomic_flag_clear;
       // Particular LSU exception flags
-      wb_except_dbus_err_o   <= lsu_wb_miss ? s3o_dbus_err_nsbuf : s2o_dbus_err_nsbuf;
-      wb_except_dpagefault_o <= lsu_wb_miss ? s3o_pagefault      : s2o_pagefault;
-      wb_except_dtlb_miss_o  <= lsu_wb_miss ? s3o_tlb_miss       : s2o_tlb_miss;
-      wb_except_dbus_align_o <= lsu_wb_miss ? s3o_align          : s2o_align;
+      wrbk_except_dbus_err_o   <= lsu_wb_miss ? s3o_dbus_err_nsbuf : s2o_dbus_err_nsbuf;
+      wrbk_except_dpagefault_o <= lsu_wb_miss ? s3o_pagefault      : s2o_pagefault;
+      wrbk_except_dtlb_miss_o  <= lsu_wb_miss ? s3o_tlb_miss       : s2o_tlb_miss;
+      wrbk_except_dbus_align_o <= lsu_wb_miss ? s3o_align          : s2o_align;
     end
     else begin
       // Atomic operation flag set/clear logic
-      wb_atomic_flag_set_o   <= 1'b0; // 1-clk-length
-      wb_atomic_flag_clear_o <= 1'b0; // 1-clk-length
+      wrbk_atomic_flag_set_o   <= 1'b0; // 1-clk-length
+      wrbk_atomic_flag_clear_o <= 1'b0; // 1-clk-length
       // Particular LSU exception flags
-      wb_except_dbus_err_o   <= 1'b0; // 1-clk-length
-      wb_except_dpagefault_o <= 1'b0; // 1-clk-length
-      wb_except_dtlb_miss_o  <= 1'b0; // 1-clk-length
-      wb_except_dbus_align_o <= 1'b0; // 1-clk-length
+      wrbk_except_dbus_err_o   <= 1'b0; // 1-clk-length
+      wrbk_except_dpagefault_o <= 1'b0; // 1-clk-length
+      wrbk_except_dtlb_miss_o  <= 1'b0; // 1-clk-length
+      wrbk_except_dbus_align_o <= 1'b0; // 1-clk-length
     end
   end // @clock
   

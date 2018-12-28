@@ -55,9 +55,9 @@ module pfpu_top_marocchino
 
   // pipeline control
   input                               pipeline_flush_i,
-  input                               padv_wb_i,
-  input                               grant_wb_to_fpxx_arith_i,
-  input                               grant_wb_to_fpxx_cmp_i,
+  input                               padv_wrbk_i,
+  input                               grant_wrbk_to_fpxx_arith_i,
+  input                               grant_wrbk_to_fpxx_cmp_i,
 
   // pipeline control outputs
   output                              fpxx_taking_op_o,
@@ -93,19 +93,19 @@ module pfpu_top_marocchino
   output                              exec_except_fpxx_cmp_o,   // exception by FP64-comparison
 
   // FPU-64 arithmetic part
-  output                       [31:0] wb_fpxx_arith_res_hi_o,   // arithmetic result
-  output                       [31:0] wb_fpxx_arith_res_lo_o,   // arithmetic result 2
-  output  [`OR1K_FPCSR_ALLF_SIZE-1:0] wb_fpxx_arith_fpcsr_o,    // arithmetic exceptions
-  output                              wb_fpxx_arith_wb_fpcsr_o, // update FPCSR
-  output                              wb_except_fpxx_arith_o,   // generate exception
+  output                       [31:0] wrbk_fpxx_arith_res_hi_o,   // arithmetic result
+  output                       [31:0] wrbk_fpxx_arith_res_lo_o,   // arithmetic result 2
+  output  [`OR1K_FPCSR_ALLF_SIZE-1:0] wrbk_fpxx_arith_fpcsr_o,    // arithmetic exceptions
+  output                              wrbk_fpxx_arith_wb_fpcsr_o, // update FPCSR
+  output                              wrbk_except_fpxx_arith_o,   // generate exception
 
   // FPU-64 comparison part
-  output                              wb_fpxx_flag_set_o,      // comparison result
-  output                              wb_fpxx_flag_clear_o,    // comparison result
-  output                              wb_fpxx_cmp_inv_o,       // comparison flag 'invalid'
-  output                              wb_fpxx_cmp_inf_o,       // comparison flag 'infinity'
-  output                              wb_fpxx_cmp_wb_fpcsr_o,  // update FPCSR
-  output                              wb_except_fpxx_cmp_o     // exception by FP64-comparison
+  output                              wrbk_fpxx_flag_set_o,      // comparison result
+  output                              wrbk_fpxx_flag_clear_o,    // comparison result
+  output                              wrbk_fpxx_cmp_inv_o,       // comparison flag 'invalid'
+  output                              wrbk_fpxx_cmp_inf_o,       // comparison flag 'infinity'
+  output                              wrbk_fpxx_cmp_wb_fpcsr_o,  // update FPCSR
+  output                              wrbk_except_fpxx_cmp_o     // exception by FP64-comparison
 );
 
 // fp64 pipes controls
@@ -517,81 +517,81 @@ end
 pfpu_rnd_marocchino u_pfpu_rnd
 (
   // clocks, resets
-  .cpu_clk                  (cpu_clk), // PFPU_RND
+  .cpu_clk                    (cpu_clk), // PFPU_RND
   // pipe controls
-  .pipeline_flush_i         (pipeline_flush_i), // PFPU_RND
-  .rnd_taking_add_o         (rnd_taking_add), // PFPU_RND
-  .rnd_taking_mul_o         (rnd_taking_mul), // PFPU_RND
-  .rnd_taking_div_o         (rnd_taking_div), // PFPU_RND
-  .rnd_taking_i2f_o         (rnd_taking_i2f), // PFPU_RND
-  .rnd_taking_f2i_o         (rnd_taking_f2i), // PFPU_RND
-  .fpxx_arith_valid_o       (fpxx_arith_valid_o), // PFPU_RND
-  .padv_wb_i                (padv_wb_i), // PFPU_RND
-  .grant_wb_to_fpxx_arith_i (grant_wb_to_fpxx_arith_i), // PFPU_RND
+  .pipeline_flush_i           (pipeline_flush_i), // PFPU_RND
+  .rnd_taking_add_o           (rnd_taking_add), // PFPU_RND
+  .rnd_taking_mul_o           (rnd_taking_mul), // PFPU_RND
+  .rnd_taking_div_o           (rnd_taking_div), // PFPU_RND
+  .rnd_taking_i2f_o           (rnd_taking_i2f), // PFPU_RND
+  .rnd_taking_f2i_o           (rnd_taking_f2i), // PFPU_RND
+  .fpxx_arith_valid_o         (fpxx_arith_valid_o), // PFPU_RND
+  .padv_wrbk_i                (padv_wrbk_i), // PFPU_RND
+  .grant_wrbk_to_fpxx_arith_i (grant_wrbk_to_fpxx_arith_i), // PFPU_RND
   // configuration
-  .rm_nearest_i             (rm_nearest_r), // PFPU_RND
-  .rm_to_infp_i             (rm_to_infp_r), // PFPU_RND
-  .rm_to_infm_i             (rm_to_infm_r), // PFPU_RND
-  .except_fpu_enable_i      (except_fpu_enable_r), // PFPU_RND
-  .fpu_mask_flags_i         (fpu_mask_flags_r), // PFPU_RND
+  .rm_nearest_i               (rm_nearest_r), // PFPU_RND
+  .rm_to_infp_i               (rm_to_infp_r), // PFPU_RND
+  .rm_to_infm_i               (rm_to_infm_r), // PFPU_RND
+  .except_fpu_enable_i        (except_fpu_enable_r), // PFPU_RND
+  .fpu_mask_flags_i           (fpu_mask_flags_r), // PFPU_RND
   // from add/sub
-  .add_rdy_i                (rnd_muxing_add), // PFPU_RND
-  .add_sign_i               (add_sign), // PFPU_RND
-  .add_sub_0_i              (add_sub_0), // PFPU_RND
-  .add_shr_i                (add_shr), // PFPU_RND
-  .add_exp13shr_i           (add_exp13shr), // PFPU_RND
-  .add_shl_i                (add_shl), // PFPU_RND
-  .add_exp13shl_i           (add_exp13shl), // PFPU_RND
-  .add_exp13sh0_i           (add_exp13sh0), // PFPU_RND
-  .add_fract57_i            (add_fract57), // PFPU_RND
+  .add_rdy_i                  (rnd_muxing_add), // PFPU_RND
+  .add_sign_i                 (add_sign), // PFPU_RND
+  .add_sub_0_i                (add_sub_0), // PFPU_RND
+  .add_shr_i                  (add_shr), // PFPU_RND
+  .add_exp13shr_i             (add_exp13shr), // PFPU_RND
+  .add_shl_i                  (add_shl), // PFPU_RND
+  .add_exp13shl_i             (add_exp13shl), // PFPU_RND
+  .add_exp13sh0_i             (add_exp13sh0), // PFPU_RND
+  .add_fract57_i              (add_fract57), // PFPU_RND
   // from mul
-  .mul_rdy_i                (rnd_muxing_mul), // PFPU_RND
-  .mul_sign_i               (mul_sign), // PFPU_RND
-  .mul_shr_i                (mul_shr), // PFPU_RND
-  .mul_exp13shr_i           (mul_exp13shr), // PFPU_RND
-  .mul_exp13sh0_i           (mul_exp13sh0), // PFPU_RND
-  .mul_fract57_i            (mul_fract57), // PFPU_RND
+  .mul_rdy_i                  (rnd_muxing_mul), // PFPU_RND
+  .mul_sign_i                 (mul_sign), // PFPU_RND
+  .mul_shr_i                  (mul_shr), // PFPU_RND
+  .mul_exp13shr_i             (mul_exp13shr), // PFPU_RND
+  .mul_exp13sh0_i             (mul_exp13sh0), // PFPU_RND
+  .mul_fract57_i              (mul_fract57), // PFPU_RND
   // from div
-  .div_rdy_i                (rnd_muxing_div), // PFPU_RND
-  .div_sign_i               (div_sign), // PFPU_RND
-  .div_shr_i                (div_shr), // PFPU_RND
-  .div_exp13shr_i           (div_exp13shr), // PFPU_RND
-  .div_shl_i                (div_shl), // PFPU_RND
-  .div_exp13shl_i           (div_exp13shl), // PFPU_RND
-  .div_exp13sh0_i           (div_exp13sh0), // PFPU_RND
-  .div_fract57_i            (div_fract57), // PFPU_RND
-  .div_dbz_i                (div_dbz), // PFPU_RND
+  .div_rdy_i                  (rnd_muxing_div), // PFPU_RND
+  .div_sign_i                 (div_sign), // PFPU_RND
+  .div_shr_i                  (div_shr), // PFPU_RND
+  .div_exp13shr_i             (div_exp13shr), // PFPU_RND
+  .div_shl_i                  (div_shl), // PFPU_RND
+  .div_exp13shl_i             (div_exp13shl), // PFPU_RND
+  .div_exp13sh0_i             (div_exp13sh0), // PFPU_RND
+  .div_fract57_i              (div_fract57), // PFPU_RND
+  .div_dbz_i                  (div_dbz), // PFPU_RND
   // from i2f
-  .i2f_rdy_i                (rnd_muxing_i2f), // PFPU_RND
-  .i2f_sign_i               (i2f_sign), // PFPU_RND
-  .i2f_shr_i                (i2f_shr), // PFPU_RND
-  .i2f_exp11shr_i           (i2f_exp11shr), // PFPU_RND
-  .i2f_shl_i                (i2f_shl), // PFPU_RND
-  .i2f_exp11shl_i           (i2f_exp11shl), // PFPU_RND
-  .i2f_exp11sh0_i           (i2f_exp11sh0), // PFPU_RND
-  .i2f_fract64_i            (i2f_fract64), // PFPU_RND
+  .i2f_rdy_i                  (rnd_muxing_i2f), // PFPU_RND
+  .i2f_sign_i                 (i2f_sign), // PFPU_RND
+  .i2f_shr_i                  (i2f_shr), // PFPU_RND
+  .i2f_exp11shr_i             (i2f_exp11shr), // PFPU_RND
+  .i2f_shl_i                  (i2f_shl), // PFPU_RND
+  .i2f_exp11shl_i             (i2f_exp11shl), // PFPU_RND
+  .i2f_exp11sh0_i             (i2f_exp11sh0), // PFPU_RND
+  .i2f_fract64_i              (i2f_fract64), // PFPU_RND
   // from f2i
-  .f2i_rdy_i                (rnd_muxing_f2i), // PFPU_RND
-  .f2i_sign_i               (f2i_sign), // PFPU_RND
-  .f2i_int53_i              (f2i_int53), // PFPU_RND
-  .f2i_shr_i                (f2i_shr), // PFPU_RND
-  .f2i_shl_i                (f2i_shl), // PFPU_RND
-  .f2i_ovf_i                (f2i_ovf), // PFPU_RND
+  .f2i_rdy_i                  (rnd_muxing_f2i), // PFPU_RND
+  .f2i_sign_i                 (f2i_sign), // PFPU_RND
+  .f2i_int53_i                (f2i_int53), // PFPU_RND
+  .f2i_shr_i                  (f2i_shr), // PFPU_RND
+  .f2i_shl_i                  (f2i_shl), // PFPU_RND
+  .f2i_ovf_i                  (f2i_ovf), // PFPU_RND
   // from order control buffer
-  .rnd_op_fp64_arith_i      (rnd_op_fp64_arith), // PFPU_RND
-  .ocb_inv_i                (ocb_inv), // PFPU_RND
-  .ocb_inf_i                (ocb_inf), // PFPU_RND
-  .ocb_snan_i               (ocb_snan), // PFPU_RND
-  .ocb_qnan_i               (ocb_qnan), // PFPU_RND
-  .ocb_anan_sign_i          (ocb_anan_sign), // PFPU_RND
+  .rnd_op_fp64_arith_i        (rnd_op_fp64_arith), // PFPU_RND
+  .ocb_inv_i                  (ocb_inv), // PFPU_RND
+  .ocb_inf_i                  (ocb_inf), // PFPU_RND
+  .ocb_snan_i                 (ocb_snan), // PFPU_RND
+  .ocb_qnan_i                 (ocb_qnan), // PFPU_RND
+  .ocb_anan_sign_i            (ocb_anan_sign), // PFPU_RND
   // pre-WB outputs
-  .exec_except_fpxx_arith_o (exec_except_fpxx_arith_o), // PFPU_RND
+  .exec_except_fpxx_arith_o   (exec_except_fpxx_arith_o), // PFPU_RND
   // output WB latches
-  .wb_fpxx_arith_res_hi_o       (wb_fpxx_arith_res_hi_o), // PFPU_RND
-  .wb_fpxx_arith_res_lo_o       (wb_fpxx_arith_res_lo_o), // PFPU_RND
-  .wb_fpxx_arith_fpcsr_o        (wb_fpxx_arith_fpcsr_o), // PFPU_RND
-  .wb_fpxx_arith_wb_fpcsr_o     (wb_fpxx_arith_wb_fpcsr_o), // PFPU_RND
-  .wb_except_fpxx_arith_o       (wb_except_fpxx_arith_o) // PFPU_RND
+  .wrbk_fpxx_arith_res_hi_o   (wrbk_fpxx_arith_res_hi_o), // PFPU_RND
+  .wrbk_fpxx_arith_res_lo_o   (wrbk_fpxx_arith_res_lo_o), // PFPU_RND
+  .wrbk_fpxx_arith_fpcsr_o    (wrbk_fpxx_arith_fpcsr_o), // PFPU_RND
+  .wrbk_fpxx_arith_wb_fpcsr_o (wrbk_fpxx_arith_wb_fpcsr_o), // PFPU_RND
+  .wrbk_except_fpxx_arith_o   (wrbk_except_fpxx_arith_o) // PFPU_RND
 );
 
 
@@ -603,8 +603,8 @@ pfpu_cmp_marocchino u_fpxx_cmp
   // pipeline controls
   .pipeline_flush_i           (pipeline_flush_i), // PFPU_CMP
   .taking_op_fpxx_cmp_o       (taking_op_fpxx_cmp), // PFPU_CMP
-  .padv_wb_i                  (padv_wb_i), // PFPU_CMP
-  .grant_wb_to_fpxx_cmp_i     (grant_wb_to_fpxx_cmp_i), // PFPU_CMP
+  .padv_wrbk_i                (padv_wrbk_i), // PFPU_CMP
+  .grant_wrbk_to_fpxx_cmp_i   (grant_wrbk_to_fpxx_cmp_i), // PFPU_CMP
   // command
   .op_fpxx_cmp_i              (exec_op_fpxx_cmp_i), // PFPU_CMP
   .opc_fpxx_cmp_i             (exec_opc_fpxx_cmp_i), // PFPU_CMP
@@ -632,12 +632,12 @@ pfpu_cmp_marocchino u_fpxx_cmp
   .fpxx_cmp_valid_o           (fpxx_cmp_valid_o), // PFPU_CMP
   .exec_except_fpxx_cmp_o     (exec_except_fpxx_cmp_o), // PFPU_CMP
   //  # WB-latched
-  .wb_fpxx_flag_set_o         (wb_fpxx_flag_set_o), // PFPU_CMP
-  .wb_fpxx_flag_clear_o       (wb_fpxx_flag_clear_o), // PFPU_CMP
-  .wb_fpxx_cmp_inv_o          (wb_fpxx_cmp_inv_o), // PFPU_CMP
-  .wb_fpxx_cmp_inf_o          (wb_fpxx_cmp_inf_o), // PFPU_CMP
-  .wb_fpxx_cmp_wb_fpcsr_o     (wb_fpxx_cmp_wb_fpcsr_o), // PFPU_CMP
-  .wb_except_fpxx_cmp_o       (wb_except_fpxx_cmp_o) // PFPU_CMP
+  .wrbk_fpxx_flag_set_o       (wrbk_fpxx_flag_set_o), // PFPU_CMP
+  .wrbk_fpxx_flag_clear_o     (wrbk_fpxx_flag_clear_o), // PFPU_CMP
+  .wrbk_fpxx_cmp_inv_o        (wrbk_fpxx_cmp_inv_o), // PFPU_CMP
+  .wrbk_fpxx_cmp_inf_o        (wrbk_fpxx_cmp_inf_o), // PFPU_CMP
+  .wrbk_fpxx_cmp_wb_fpcsr_o   (wrbk_fpxx_cmp_wb_fpcsr_o), // PFPU_CMP
+  .wrbk_except_fpxx_cmp_o     (wrbk_except_fpxx_cmp_o) // PFPU_CMP
 );
 
 endmodule // pfpu_top_marocchino

@@ -151,10 +151,10 @@ module mor1kx_cpu_marocchino
   // Instruction PC
   wire [OPTION_OPERAND_WIDTH-1:0] pc_fetch;
   wire [OPTION_OPERAND_WIDTH-1:0] pc_decode;
-  wire [OPTION_OPERAND_WIDTH-1:0] pc_wb;
+  wire [OPTION_OPERAND_WIDTH-1:0] pc_wrbk;
   // Extra PC for various needs in CTRL
-  wire [OPTION_OPERAND_WIDTH-1:0] pc_nxt_wb;
-  wire [OPTION_OPERAND_WIDTH-1:0] pc_nxt2_wb;
+  wire [OPTION_OPERAND_WIDTH-1:0] pc_nxt_wrbk;
+  wire [OPTION_OPERAND_WIDTH-1:0] pc_nxt2_wrbk;
 
 
   // IFETCH outputs for RF reading and DECODE
@@ -184,11 +184,11 @@ module mor1kx_cpu_marocchino
   wire                            dcod_empty;
 
 
-  wire                            wb_atomic_flag_set;
-  wire                            wb_atomic_flag_clear;
+  wire                            wrbk_atomic_flag_set;
+  wire                            wrbk_atomic_flag_clear;
 
-  wire                            wb_int_flag_set;
-  wire                            wb_int_flag_clear;
+  wire                            wrbk_int_flag_set;
+  wire                            wrbk_int_flag_clear;
 
   wire                            ctrl_flag;
   wire                            ctrl_flag_sr;
@@ -205,24 +205,24 @@ module mor1kx_cpu_marocchino
   // !!! Don't acivate "Remove duplicate registers" option in
   // !!! MAROCCHINO_TODO: <determine optimal settings>
   //  # from 1-clock execution units
-  wire [OPTION_OPERAND_WIDTH-1:0] wb_alu_1clk_result;
+  wire [OPTION_OPERAND_WIDTH-1:0] wrbk_alu_result;
   //  # from integer division execution unit
-  wire [OPTION_OPERAND_WIDTH-1:0] wb_div_result;
+  wire [OPTION_OPERAND_WIDTH-1:0] wrbk_div_result;
   //  # from integer multiplier execution unit
-  wire [OPTION_OPERAND_WIDTH-1:0] wb_mul_result;
+  wire [OPTION_OPERAND_WIDTH-1:0] wrbk_mul_result;
   //  # from FP32 execution unit
-  wire [OPTION_OPERAND_WIDTH-1:0] wb_fpxx_arith_res_hi;
+  wire [OPTION_OPERAND_WIDTH-1:0] wrbk_fpxx_arith_res_hi;
   //  # from FP64 execution unit
-  wire [OPTION_OPERAND_WIDTH-1:0] wb_fpxx_arith_res_lo;
+  wire [OPTION_OPERAND_WIDTH-1:0] wrbk_fpxx_arith_res_lo;
   //  # from LSU execution unit
-  wire [OPTION_OPERAND_WIDTH-1:0] wb_lsu_result;
+  wire [OPTION_OPERAND_WIDTH-1:0] wrbk_lsu_result;
   //  # from CTRL execution unit
-  wire [OPTION_OPERAND_WIDTH-1:0] wb_mfspr_result;
+  wire [OPTION_OPERAND_WIDTH-1:0] wrbk_mfspr_result;
   // Combined write-back outputs
   //  # regular result
-  reg  [OPTION_OPERAND_WIDTH-1:0] wb_result1;     // WB result combiner
+  reg  [OPTION_OPERAND_WIDTH-1:0] wrbk_result1;     // WB result combiner
   //  # extention for FPU3264
-  wire [OPTION_OPERAND_WIDTH-1:0] wb_result2;     // WB result combiner for FPU64
+  wire [OPTION_OPERAND_WIDTH-1:0] wrbk_result2;     // WB result combiner for FPU64
 
 
   wire                            dcod_free;
@@ -282,9 +282,9 @@ module mor1kx_cpu_marocchino
   wire    [DEST_EXTADR_WIDTH-1:0] omn2dec_extadr_dxb2;
   // Hazard could be resolving
   //  ## A or B operand
-  wire                            wb_rfd1_odd;
+  wire                            wrbk_rfd1_odd;
   //  ## for hazards resolution in RSRVS
-  wire    [DEST_EXTADR_WIDTH-1:0] wb_extadr;
+  wire    [DEST_EXTADR_WIDTH-1:0] wrbk_extadr;
 
 
   // support in-1clk-unit forwarding
@@ -292,10 +292,10 @@ module mor1kx_cpu_marocchino
 
 
   // Special WB-controls for RF
-  wire [OPTION_RF_ADDR_WIDTH-1:0] wb_rf_even_addr;
-  wire                            wb_rf_even_wb;
-  wire [OPTION_RF_ADDR_WIDTH-1:0] wb_rf_odd_addr;
-  wire                            wb_rf_odd_wb;
+  wire [OPTION_RF_ADDR_WIDTH-1:0] wrbk_rf_even_addr;
+  wire                            wrbk_rf_even_wb;
+  wire [OPTION_RF_ADDR_WIDTH-1:0] wrbk_rf_odd_addr;
+  wire                            wrbk_rf_odd_wb;
 
 
   // Logic to support Jump / Branch taking
@@ -312,7 +312,7 @@ module mor1kx_cpu_marocchino
   //  ## l.jr / l.jalr  gathering target
   wire                            jr_gathering_target;
   //  ## support IBUS error handling in CTRL
-  wire                            wb_jump_or_branch;
+  wire                            wrbk_jump_or_branch;
   //  ## do branch (pedicted or unconditional)
   wire                            do_branch;
   wire [OPTION_OPERAND_WIDTH-1:0] do_branch_target;
@@ -326,14 +326,14 @@ module mor1kx_cpu_marocchino
   wire      [GSHARE_BITS_NUM-1:0] bc_cnt_wadr;   // saturation counter id
   wire                            bc_hist_taken; // conditional branch really taken
   //  ## support NPC handling in CTRL
-  wire                            wb_jump;
-  wire                            wb_op_bf;
-  wire [OPTION_OPERAND_WIDTH-1:0] wb_jb_target;
+  wire                            wrbk_jump;
+  wire                            wrbk_op_bf;
+  wire [OPTION_OPERAND_WIDTH-1:0] wrbk_jb_target;
 
 
   // Delay slot
   wire                            dcod_delay_slot;
-  wire                            wb_delay_slot;
+  wire                            wrbk_delay_slot;
 
 
   wire      [`OR1K_IMM_WIDTH-1:0] dcod_imm16;
@@ -345,7 +345,7 @@ module mor1kx_cpu_marocchino
   wire                            dcod_op_msync;
   wire                            dcod_op_lsu_any;
   wire                            lsu_free;
-  wire                            grant_wb_to_lsu;
+  wire                            grant_wrbk_to_lsu;
 
 
   // Instructions which push EXECUTION without extra conditions
@@ -382,7 +382,7 @@ module mor1kx_cpu_marocchino
   wire                            dcod_op_setflag;
   wire [`OR1K_COMP_OPC_WIDTH-1:0] dcod_opc_setflag;
 
-  wire                            grant_wb_to_1clk;
+  wire                            grant_wrbk_to_1clk;
   wire                            taking_1clk_op;
   wire                            op_1clk_valid;
 
@@ -392,11 +392,11 @@ module mor1kx_cpu_marocchino
   wire                            dcod_op_div_signed;
   wire                            dcod_op_div_unsigned;
   wire                            div_valid;
-  wire                            grant_wb_to_div;
+  wire                            grant_wrbk_to_div;
   // Pipelined multiplier
   wire                            dcod_op_mul;
   wire                            mul_valid;
-  wire                            grant_wb_to_mul;
+  wire                            grant_wrbk_to_mul;
   // Reservation station for integer MUL/DIV
   wire                            dcod_op_muldiv;
   wire                            muldiv_free;
@@ -412,25 +412,25 @@ module mor1kx_cpu_marocchino
   wire                              dcod_op_fpxx_i2f; // to FPU3264_ARITH
   wire                              dcod_op_fpxx_f2i; // to FPU3264_ARITH
   wire                              fpxx_arith_valid;
-  wire                              grant_wb_to_fpxx_arith;
+  wire                              grant_wrbk_to_fpxx_arith;
   wire                              exec_except_fpxx_arith;
-  wire  [`OR1K_FPCSR_ALLF_SIZE-1:0] wb_fpxx_arith_fpcsr;    // only flags
-  wire                              wb_fpxx_arith_wb_fpcsr; // update FPCSR
-  wire                              wb_except_fpxx_arith;   // generate FPx exception by FPx flags
+  wire  [`OR1K_FPCSR_ALLF_SIZE-1:0] wrbk_fpxx_arith_fpcsr;    // only flags
+  wire                              wrbk_fpxx_arith_wb_fpcsr; // update FPCSR
+  wire                              wrbk_except_fpxx_arith;   // generate FPx exception by FPx flags
   // FPU3264 comparison part
   wire                              dcod_op_fpxx_cmp;
   wire                        [2:0] dcod_opc_fpxx_cmp;
   wire                              exec_op_fpxx_cmp;
   wire                        [2:0] exec_opc_fpxx_cmp;
   wire                              fpxx_cmp_valid;
-  wire                              grant_wb_to_fpxx_cmp;
+  wire                              grant_wrbk_to_fpxx_cmp;
   wire                              exec_except_fpxx_cmp;
-  wire                              wb_fpxx_flag_set;
-  wire                              wb_fpxx_flag_clear;
-  wire                              wb_fpxx_cmp_inv;
-  wire                              wb_fpxx_cmp_inf;
-  wire                              wb_fpxx_cmp_wb_fpcsr;
-  wire                              wb_except_fpxx_cmp;
+  wire                              wrbk_fpxx_flag_set;
+  wire                              wrbk_fpxx_flag_clear;
+  wire                              wrbk_fpxx_cmp_inv;
+  wire                              wrbk_fpxx_cmp_inf;
+  wire                              wrbk_fpxx_cmp_wb_fpcsr;
+  wire                              wrbk_except_fpxx_cmp;
   // FPU3264 reservationstation controls
   wire                              dcod_op_fpxx_any;
   wire                              fpxx_free;
@@ -477,7 +477,7 @@ module mor1kx_cpu_marocchino
   wire padv_lsu_rsrvs;
   wire padv_dcod;
   wire padv_exec;
-  wire padv_wb;
+  wire padv_wrbk;
   wire pipeline_flush;
 
   // For lwa/swa
@@ -508,10 +508,10 @@ module mor1kx_cpu_marocchino
   wire exec_except_itlb_miss;
   wire exec_except_ibus_align;
   //  # WB-latches for IFETCH exceptions (OMAN->CTRL)
-  reg  wb_except_ibus_err_r;
-  reg  wb_except_ipagefault_r;
-  reg  wb_except_itlb_miss_r;
-  reg  wb_except_ibus_align_r;
+  reg  wrbk_except_ibus_err_r;
+  reg  wrbk_except_ipagefault_r;
+  reg  wrbk_except_itlb_miss_r;
+  reg  wrbk_except_ibus_align_r;
 
   // Exceptions: reported from DECODE to OMAN
   wire dcod_except_illegal;
@@ -524,9 +524,9 @@ module mor1kx_cpu_marocchino
   wire exec_except_syscall;
   wire exec_except_trap;
   // Exceptions: latched by WB latches for processing in CONTROL-unit
-  reg  wb_except_illegal_r;
-  reg  wb_except_syscall_r;
-  reg  wb_except_trap_r;
+  reg  wrbk_except_illegal_r;
+  reg  wrbk_except_syscall_r;
+  reg  wrbk_except_trap_r;
 
   // combined IFETCH/DECODE an exception flag
   wire dcod_an_except_fd;
@@ -536,18 +536,18 @@ module mor1kx_cpu_marocchino
   wire except_overflow_enable;
   //    ## from division
   wire exec_except_overflow_div;
-  wire wb_except_overflow_div;
+  wire wrbk_except_overflow_div;
   //    ## from 1-CLOCK
   wire exec_except_overflow_1clk;
-  wire wb_except_overflow_1clk;
+  wire wrbk_except_overflow_1clk;
 
   // Exceptions: reported by LSU
   //  # particular LSU exception flags
-  wire                            wb_except_dbus_err;
-  wire                            wb_except_dpagefault;
-  wire                            wb_except_dtlb_miss;
-  wire                            wb_except_dbus_align;
-  wire [OPTION_OPERAND_WIDTH-1:0] wb_lsu_except_addr;
+  wire                            wrbk_except_dbus_err;
+  wire                            wrbk_except_dpagefault;
+  wire                            wrbk_except_dtlb_miss;
+  wire                            wrbk_except_dbus_align;
+  wire [OPTION_OPERAND_WIDTH-1:0] wrbk_lsu_except_addr;
   //  # combined LSU exceptions flag
   wire                            exec_an_except_lsu;
 
@@ -563,21 +563,21 @@ module mor1kx_cpu_marocchino
   //    depending on the fact is instructions restartable or not
   wire        exec_interrupts_en;
   //  # WB latches
-  reg         wb_tt_interrupt_r;
-  reg         wb_pic_interrupt_r;
+  reg         wrbk_tt_interrupt_r;
+  reg         wrbk_pic_interrupt_r;
 
 
   // Exeptions process:
   wire dcod_op_rfe;
   wire exec_op_rfe;
-  reg  wb_op_rfe_r;
+  reg  wrbk_op_rfe_r;
   wire ctrl_branch_exception;
   wire [OPTION_OPERAND_WIDTH-1:0] ctrl_branch_except_pc;
 
 
   // Combined exception/interrupt flag
   wire exec_an_except;
-  reg  wb_an_except_r;
+  reg  wrbk_an_except_r;
 
 
   //----------------------------//
@@ -734,15 +734,15 @@ module mor1kx_cpu_marocchino
     .dcod_immediate_i                 (dcod_immediate), // RF
     .dcod_immediate_sel_i             (dcod_immediate_sel), // RF
     // Special WB-controls for RF
-    .wb_rf_even_addr_i                (wb_rf_even_addr), // RF
-    .wb_rf_even_wb_i                  (wb_rf_even_wb), // RF
-    .wb_rf_odd_addr_i                 (wb_rf_odd_addr), // RF
-    .wb_rf_odd_wb_i                   (wb_rf_odd_wb), // RF
+    .wrbk_rf_even_addr_i              (wrbk_rf_even_addr), // RF
+    .wrbk_rf_even_wb_i                (wrbk_rf_even_wb), // RF
+    .wrbk_rf_odd_addr_i               (wrbk_rf_odd_addr), // RF
+    .wrbk_rf_odd_wb_i                 (wrbk_rf_odd_wb), // RF
     // from WB
-    .wb_rfd1_odd_i                    (wb_rfd1_odd), // RF
-    .wb_result1_i                     (wb_result1), // RF
+    .wrbk_rfd1_odd_i                  (wrbk_rfd1_odd), // RF
+    .wrbk_result1_i                   (wrbk_result1), // RF
     // for FPU64
-    .wb_result2_i                     (wb_result2), // RF
+    .wrbk_result2_i                   (wrbk_result2), // RF
     // 1-clock "WB to DECODE operand forwarding" flags
     //  # relative operand A1
     .dcod_wb2dec_d1a1_fwd_i           (dcod_wb2dec_d1a1_fwd), // RF
@@ -920,7 +920,7 @@ module mor1kx_cpu_marocchino
     // pipeline control
     .padv_dcod_i                (padv_dcod), // OMAN
     .padv_exec_i                (padv_exec), // OMAN
-    .padv_wb_i                  (padv_wb), // OMAN
+    .padv_wrbk_i                (padv_wrbk), // OMAN
     .pipeline_flush_i           (pipeline_flush), // OMAN
 
     // fetched instruction is valid
@@ -1034,13 +1034,13 @@ module mor1kx_cpu_marocchino
     .exec_valid_o               (exec_valid), // OMAN
 
     // control WB latches of execution modules
-    .grant_wb_to_1clk_o         (grant_wb_to_1clk), // OMAN
-    .grant_wb_to_div_o          (grant_wb_to_div), // OMAN
-    .grant_wb_to_mul_o          (grant_wb_to_mul), // OMAN
-    .grant_wb_to_fpxx_arith_o   (grant_wb_to_fpxx_arith), // OMAN
-    .grant_wb_to_lsu_o          (grant_wb_to_lsu), // OMAN
+    .grant_wrbk_to_1clk_o       (grant_wrbk_to_1clk), // OMAN
+    .grant_wrbk_to_div_o        (grant_wrbk_to_div), // OMAN
+    .grant_wrbk_to_mul_o        (grant_wrbk_to_mul), // OMAN
+    .grant_wrbk_to_fpxx_arith_o (grant_wrbk_to_fpxx_arith), // OMAN
+    .grant_wrbk_to_lsu_o        (grant_wrbk_to_lsu), // OMAN
     // for FPU64
-    .grant_wb_to_fpxx_cmp_o     (grant_wb_to_fpxx_cmp), // OMAN
+    .grant_wrbk_to_fpxx_cmp_o   (grant_wrbk_to_fpxx_cmp), // OMAN
 
     // Logic to support Jump / Branch taking
     //    ## jump/branch variants
@@ -1052,7 +1052,7 @@ module mor1kx_cpu_marocchino
     .fetch_to_imm_target_i      (fetch_to_imm_target), // OMAN
     // register target
     .dcod_rfb1_jr_i             (dcod_rfb1_jr), // OMAN
-    .wb_result1_i               (wb_result1), // OMAN
+    .wrbk_result1_i             (wrbk_result1), // OMAN
     // comparision flag for l.bf / l.bnf
     .ctrl_flag_sr_i             (ctrl_flag_sr), // OMAN
     // jump/branch signals to IFETCH
@@ -1069,10 +1069,10 @@ module mor1kx_cpu_marocchino
     .bc_cnt_wadr_o              (bc_cnt_wadr), // OMAN
     .bc_hist_taken_o            (bc_hist_taken), // OMAN
     // Support IBUS error handling in CTRL
-    .wb_jump_or_branch_o        (wb_jump_or_branch), // OMAN
-    .wb_jump_o                  (wb_jump), // OMAN
-    .wb_op_bf_o                 (wb_op_bf), // OMAN
-    .wb_jb_target_o             (wb_jb_target), // OMAN
+    .wrbk_jump_or_branch_o      (wrbk_jump_or_branch), // OMAN
+    .wrbk_jump_o                (wrbk_jump), // OMAN
+    .wrbk_op_bf_o               (wrbk_op_bf), // OMAN
+    .wrbk_jb_target_o           (wrbk_jb_target), // OMAN
 
     //   Flag to enabel/disable exterlal interrupts processing
     // depending on the fact is instructions restartable or not
@@ -1094,18 +1094,18 @@ module mor1kx_cpu_marocchino
 
     // WB outputs
     //  ## special WB-controls for RF
-    .wb_rf_even_addr_o          (wb_rf_even_addr), // OMAN
-    .wb_rf_even_wb_o            (wb_rf_even_wb), // OMAN
-    .wb_rf_odd_addr_o           (wb_rf_odd_addr), // OMAN
-    .wb_rf_odd_wb_o             (wb_rf_odd_wb), // OMAN
+    .wrbk_rf_even_addr_o        (wrbk_rf_even_addr), // OMAN
+    .wrbk_rf_even_wb_o          (wrbk_rf_even_wb), // OMAN
+    .wrbk_rf_odd_addr_o         (wrbk_rf_odd_addr), // OMAN
+    .wrbk_rf_odd_wb_o           (wrbk_rf_odd_wb), // OMAN
     //  ## instruction related information
-    .pc_wb_o                    (pc_wb), // OMAN
-    .pc_nxt_wb_o                (pc_nxt_wb), // OMAN
-    .pc_nxt2_wb_o               (pc_nxt2_wb), // OMAN
-    .wb_delay_slot_o            (wb_delay_slot), // OMAN
-    .wb_rfd1_odd_o              (wb_rfd1_odd), // OMAN
+    .pc_wrbk_o                  (pc_wrbk), // OMAN
+    .pc_nxt_wrbk_o              (pc_nxt_wrbk), // OMAN
+    .pc_nxt2_wrbk_o             (pc_nxt2_wrbk), // OMAN
+    .wrbk_delay_slot_o          (wrbk_delay_slot), // OMAN
+    .wrbk_rfd1_odd_o            (wrbk_rfd1_odd), // OMAN
     // for hazards resolution in RSRVS
-    .wb_extadr_o                (wb_extadr) // OMAN
+    .wrbk_extadr_o              (wrbk_extadr) // OMAN
   );
 
 
@@ -1144,12 +1144,12 @@ module mor1kx_cpu_marocchino
   wire [OPTION_OPERAND_WIDTH-1:0] exec_1clk_b1;
 
   //  # update carry flag by 1clk-operation
-  wire wb_1clk_carry_set;
-  wire wb_1clk_carry_clear;
+  wire wrbk_1clk_carry_set;
+  wire wrbk_1clk_carry_clear;
 
   //  # update overflow flag by 1clk-operation
-  wire wb_1clk_overflow_set;
-  wire wb_1clk_overflow_clear;
+  wire wrbk_1clk_overflow_set;
+  wire wrbk_1clk_overflow_clear;
 
   // **** reservation station for 1-clk ****
   mor1kx_rsrvs_1clk_marocchino // 1CLK_RSVRS
@@ -1180,10 +1180,10 @@ module mor1kx_cpu_marocchino
     .dcod_extadr_i              (dcod_extadr), // 1CLK_RSVRS
     // Hazard could be resolving
     //  ## write-back attributes
-    .wb_extadr_i                (wb_extadr), // 1CLK_RSVRS
+    .wrbk_extadr_i              (wrbk_extadr), // 1CLK_RSVRS
     //  ## forwarding results
-    .wb_result1_i               (wb_result1), // 1CLK_RSVRS
-    .wb_result2_i               (wb_result2), // 1CLK_RSVRS
+    .wrbk_result1_i             (wrbk_result1), // 1CLK_RSVRS
+    .wrbk_result2_i             (wrbk_result2), // 1CLK_RSVRS
     // command and its additional attributes
     .dcod_op_i                  ({dcod_op_ffl1, dcod_op_add, dcod_op_shift, dcod_op_movhi, // 1CLK_RSVRS
                                   dcod_op_cmov, dcod_op_logic, dcod_op_setflag}), // 1CLK_RSVRS
@@ -1223,8 +1223,8 @@ module mor1kx_cpu_marocchino
 
     // pipeline controls
     .pipeline_flush_i                 (pipeline_flush), // 1CLK_EXEC
-    .padv_wb_i                        (padv_wb), // 1CLK_EXEC
-    .grant_wb_to_1clk_i               (grant_wb_to_1clk), // 1CLK_EXEC
+    .padv_wrbk_i                      (padv_wrbk), // 1CLK_EXEC
+    .grant_wrbk_to_1clk_i             (grant_wrbk_to_1clk), // 1CLK_EXEC
     .taking_1clk_op_o                 (taking_1clk_op), // 1CLK_EXEC
     .op_1clk_valid_o                  (op_1clk_valid), // 1CLK_EXEC
 
@@ -1261,24 +1261,24 @@ module mor1kx_cpu_marocchino
     .exec_op_logic_i                  (exec_op_logic), // 1CLK_EXEC
     .exec_lut_logic_i                 (exec_lut_logic), // 1CLK_EXEC
     // WB-latched 1-clock arithmetic result
-    .wb_alu_1clk_result_o             (wb_alu_1clk_result), // 1CLK_EXEC
+    .wrbk_alu_result_o                (wrbk_alu_result), // 1CLK_EXEC
     //  # update carry flag by 1clk-operation
-    .wb_1clk_carry_set_o              (wb_1clk_carry_set), // 1CLK_EXEC
-    .wb_1clk_carry_clear_o            (wb_1clk_carry_clear), // 1CLK_EXEC
+    .wrbk_1clk_carry_set_o            (wrbk_1clk_carry_set), // 1CLK_EXEC
+    .wrbk_1clk_carry_clear_o          (wrbk_1clk_carry_clear), // 1CLK_EXEC
     //  # update overflow flag by 1clk-operation
-    .wb_1clk_overflow_set_o           (wb_1clk_overflow_set), // 1CLK_EXEC
-    .wb_1clk_overflow_clear_o         (wb_1clk_overflow_clear), // 1CLK_EXEC
+    .wrbk_1clk_overflow_set_o         (wrbk_1clk_overflow_set), // 1CLK_EXEC
+    .wrbk_1clk_overflow_clear_o       (wrbk_1clk_overflow_clear), // 1CLK_EXEC
     //  # generate overflow exception by 1clk-operation
     .except_overflow_enable_i         (except_overflow_enable), // 1CLK_EXEC
     .exec_except_overflow_1clk_o      (exec_except_overflow_1clk), // 1CLK_EXEC
-    .wb_except_overflow_1clk_o        (wb_except_overflow_1clk), // 1CLK_EXEC
+    .wrbk_except_overflow_1clk_o      (wrbk_except_overflow_1clk), // 1CLK_EXEC
 
     // integer comparison flag
     .exec_op_setflag_i                (exec_op_setflag), // 1CLK_EXEC
     .exec_opc_setflag_i               (exec_opc_setflag), // 1CLK_EXEC
     // WB: integer comparison result
-    .wb_int_flag_set_o                (wb_int_flag_set), // 1CLK_EXEC
-    .wb_int_flag_clear_o              (wb_int_flag_clear) // 1CLK_EXEC
+    .wrbk_int_flag_set_o              (wrbk_int_flag_set), // 1CLK_EXEC
+    .wrbk_int_flag_clear_o            (wrbk_int_flag_clear) // 1CLK_EXEC
   );
 
 
@@ -1359,10 +1359,10 @@ module mor1kx_cpu_marocchino
     .omn2dec_hazards_addrs_i    ({omn2dec_extadr_dxb1, omn2dec_extadr_dxa1}), // MULDIV_RSRVS
     // Hazard could be resolving
     //  ## write-back attributes
-    .wb_extadr_i                (wb_extadr), // MULDIV_RSRVS
+    .wrbk_extadr_i              (wrbk_extadr), // MULDIV_RSRVS
     //  ## forwarding results
-    .wb_result1_i               (wb_result1), // MULDIV_RSRVS
-    .wb_result2_i               (wb_result2), // MULDIV_RSRVS
+    .wrbk_result1_i             (wrbk_result1), // MULDIV_RSRVS
+    .wrbk_result2_i             (wrbk_result2), // MULDIV_RSRVS
     // command and its additional attributes
     .dcod_op_i                  ({dcod_op_mul, dcod_op_div}), // MULDIV_RSRVS
     .dcod_opc_i                 ({dcod_op_div_signed, dcod_op_div_unsigned}),  // MULDIV_RSRVS
@@ -1395,8 +1395,8 @@ module mor1kx_cpu_marocchino
     .cpu_clk                          (cpu_clk), // MUL
     // pipeline controls
     .pipeline_flush_i                 (pipeline_flush), // MUL
-    .padv_wb_i                        (padv_wb), // MUL
-    .grant_wb_to_mul_i                (grant_wb_to_mul), // MUL
+    .padv_wrbk_i                      (padv_wrbk), // MUL
+    .grant_wrbk_to_mul_i              (grant_wrbk_to_mul), // MUL
     // input operands from reservation station
     .exec_mul_a1_i                    (exec_muldiv_a1), // MUL
     .exec_mul_b1_i                    (exec_muldiv_b1), // MUL
@@ -1404,7 +1404,7 @@ module mor1kx_cpu_marocchino
     .exec_op_mul_i                    (exec_op_mul), // MUL
     .imul_taking_op_o                 (imul_taking_op), // MUL
     .mul_valid_o                      (mul_valid), // MUL
-    .wb_mul_result_o                  (wb_mul_result) // MUL
+    .wrbk_mul_result_o                (wrbk_mul_result) // MUL
   );
 
 
@@ -1413,12 +1413,12 @@ module mor1kx_cpu_marocchino
   //----------------//
 
   //  # update carry flag by division
-  wire wb_div_carry_set;
-  wire wb_div_carry_clear;
+  wire wrbk_div_carry_set;
+  wire wrbk_div_carry_clear;
 
   //  # update overflow flag by division
-  wire wb_div_overflow_set;
-  wire wb_div_overflow_clear;
+  wire wrbk_div_overflow_set;
+  wire wrbk_div_overflow_clear;
 
   // **** integer divider ****
   mor1kx_divider_marocchino
@@ -1431,8 +1431,8 @@ module mor1kx_cpu_marocchino
     .cpu_clk                          (cpu_clk), // DIV
     // pipeline controls
     .pipeline_flush_i                 (pipeline_flush), // DIV
-    .padv_wb_i                        (padv_wb), // DIV
-    .grant_wb_to_div_i                (grant_wb_to_div), // DIV
+    .padv_wrbk_i                      (padv_wrbk), // DIV
+    .grant_wrbk_to_div_i              (grant_wrbk_to_div), // DIV
     // input data from reservation station
     .exec_div_a1_i                    (exec_muldiv_a1), // DIV
     .exec_div_b1_i                    (exec_muldiv_b1), // DIV
@@ -1445,17 +1445,17 @@ module mor1kx_cpu_marocchino
     .div_valid_o                      (div_valid), // DIV
     // write back
     //  # update carry flag by division
-    .wb_div_carry_set_o               (wb_div_carry_set), // DIV
-    .wb_div_carry_clear_o             (wb_div_carry_clear), // DIV
+    .wrbk_div_carry_set_o             (wrbk_div_carry_set), // DIV
+    .wrbk_div_carry_clear_o           (wrbk_div_carry_clear), // DIV
     //  # update overflow flag by division
-    .wb_div_overflow_set_o            (wb_div_overflow_set), // DIV
-    .wb_div_overflow_clear_o          (wb_div_overflow_clear), // DIV
+    .wrbk_div_overflow_set_o          (wrbk_div_overflow_set), // DIV
+    .wrbk_div_overflow_clear_o        (wrbk_div_overflow_clear), // DIV
     //  # generate overflow exception by division
     .except_overflow_enable_i         (except_overflow_enable), // DIV
     .exec_except_overflow_div_o       (exec_except_overflow_div), // DIV
-    .wb_except_overflow_div_o         (wb_except_overflow_div), // DIV
+    .wrbk_except_overflow_div_o       (wrbk_except_overflow_div), // DIV
     //  # division result
-    .wb_div_result_o                  (wb_div_result) // DIV
+    .wrbk_div_result_o                (wrbk_div_result) // DIV
   );
 
 
@@ -1540,10 +1540,10 @@ module mor1kx_cpu_marocchino
                                   omn2dec_extadr_dxb1, omn2dec_extadr_dxa1}), // FPU_RSRVS
     // Hazard could be resolving
     //  ## write-back attributes
-    .wb_extadr_i                (wb_extadr), // FPU_RSRVS
+    .wrbk_extadr_i              (wrbk_extadr), // FPU_RSRVS
     //  ## forwarding results
-    .wb_result1_i               (wb_result1), // FPU_RSRVS
-    .wb_result2_i               (wb_result2), // FPU_RSRVS
+    .wrbk_result1_i             (wrbk_result1), // FPU_RSRVS
+    .wrbk_result2_i             (wrbk_result2), // FPU_RSRVS
     // command and its additional attributes
     .dcod_op_i                  ({dcod_op_fpxx_add, dcod_op_fpxx_sub, dcod_op_fpxx_mul, // FPU_RSRVS
                                   dcod_op_fpxx_div, dcod_op_fpxx_i2f, dcod_op_fpxx_f2i, // FPU_RSRVS
@@ -1576,9 +1576,9 @@ module mor1kx_cpu_marocchino
 
     // pipeline control
     .pipeline_flush_i           (pipeline_flush), // FPU3264
-    .padv_wb_i                  (padv_wb), // FPU3264
-    .grant_wb_to_fpxx_arith_i   (grant_wb_to_fpxx_arith), // FPU3264
-    .grant_wb_to_fpxx_cmp_i     (grant_wb_to_fpxx_cmp), // FPU3264
+    .padv_wrbk_i                (padv_wrbk), // FPU3264
+    .grant_wrbk_to_fpxx_arith_i (grant_wrbk_to_fpxx_arith), // FPU3264
+    .grant_wrbk_to_fpxx_cmp_i   (grant_wrbk_to_fpxx_cmp), // FPU3264
 
     // pipeline control outputs
     .fpxx_taking_op_o           (fpxx_taking_op), // FPU3264
@@ -1614,19 +1614,19 @@ module mor1kx_cpu_marocchino
     .exec_except_fpxx_cmp_o     (exec_except_fpxx_cmp), // FPU3264
 
     // FPU2364 arithmetic part
-    .wb_fpxx_arith_res_hi_o     (wb_fpxx_arith_res_hi), // FPU3264
-    .wb_fpxx_arith_res_lo_o     (wb_fpxx_arith_res_lo), // FPU3264
-    .wb_fpxx_arith_fpcsr_o      (wb_fpxx_arith_fpcsr), // FPU3264
-    .wb_fpxx_arith_wb_fpcsr_o   (wb_fpxx_arith_wb_fpcsr), // FPU3264
-    .wb_except_fpxx_arith_o     (wb_except_fpxx_arith), // FPU3264
+    .wrbk_fpxx_arith_res_hi_o   (wrbk_fpxx_arith_res_hi), // FPU3264
+    .wrbk_fpxx_arith_res_lo_o   (wrbk_fpxx_arith_res_lo), // FPU3264
+    .wrbk_fpxx_arith_fpcsr_o    (wrbk_fpxx_arith_fpcsr), // FPU3264
+    .wrbk_fpxx_arith_wb_fpcsr_o (wrbk_fpxx_arith_wb_fpcsr), // FPU3264
+    .wrbk_except_fpxx_arith_o   (wrbk_except_fpxx_arith), // FPU3264
 
     // FPU-64 comparison part
-    .wb_fpxx_flag_set_o         (wb_fpxx_flag_set), // FPU3264
-    .wb_fpxx_flag_clear_o       (wb_fpxx_flag_clear), // FPU3264
-    .wb_fpxx_cmp_inv_o          (wb_fpxx_cmp_inv), // FPU3264
-    .wb_fpxx_cmp_inf_o          (wb_fpxx_cmp_inf), // FPU3264
-    .wb_fpxx_cmp_wb_fpcsr_o     (wb_fpxx_cmp_wb_fpcsr), // FPU3264
-    .wb_except_fpxx_cmp_o       (wb_except_fpxx_cmp) // FPU3264
+    .wrbk_fpxx_flag_set_o       (wrbk_fpxx_flag_set), // FPU3264
+    .wrbk_fpxx_flag_clear_o     (wrbk_fpxx_flag_clear), // FPU3264
+    .wrbk_fpxx_cmp_inv_o        (wrbk_fpxx_cmp_inv), // FPU3264
+    .wrbk_fpxx_cmp_inf_o        (wrbk_fpxx_cmp_inf), // FPU3264
+    .wrbk_fpxx_cmp_wb_fpcsr_o   (wrbk_fpxx_cmp_wb_fpcsr), // FPU3264
+    .wrbk_except_fpxx_cmp_o     (wrbk_except_fpxx_cmp) // FPU3264
   );
 
 
@@ -1722,10 +1722,10 @@ module mor1kx_cpu_marocchino
     .omn2dec_hazards_addrs_i    ({omn2dec_extadr_dxb1, omn2dec_extadr_dxa1}), // LSU_RSVRS
     // Hazard could be resolving
     //  ## write-back attributes
-    .wb_extadr_i                (wb_extadr), // LSU_RSVRS
+    .wrbk_extadr_i              (wrbk_extadr), // LSU_RSVRS
     //  ## forwarding results
-    .wb_result1_i               (wb_result1), // LSU_RSVRS
-    .wb_result2_i               (wb_result2), // LSU_RSVRS
+    .wrbk_result1_i             (wrbk_result1), // LSU_RSVRS
+    .wrbk_result2_i             (wrbk_result2), // LSU_RSVRS
     // command and its additional attributes
     .dcod_op_i                  ({dcod_op_lsu_load, dcod_op_lsu_store}), // LSU_RSVRS
     .dcod_opc_i                 ({dcod_op_msync,    dcod_op_lsu_atomic, // LSU_RSVRS
@@ -1775,8 +1775,8 @@ module mor1kx_cpu_marocchino
     .cpu_rst                          (cpu_rst), // LSU
     // Pipeline controls
     .pipeline_flush_i                 (pipeline_flush), // LSU
-    .padv_wb_i                        (padv_wb), // LSU
-    .grant_wb_to_lsu_i                (grant_wb_to_lsu), // LSU
+    .padv_wrbk_i                      (padv_wrbk), // LSU
+    .grant_wrbk_to_lsu_i              (grant_wrbk_to_lsu), // LSU
     // configuration
     .dc_enable_i                      (dc_enable), // LSU
     .dmmu_enable_i                    (dmmu_enable), // LSU
@@ -1831,16 +1831,16 @@ module mor1kx_cpu_marocchino
     //  Pre-WriteBack "an exception" flag
     .exec_an_except_lsu_o             (exec_an_except_lsu), // LSU
     // WriteBack load  result
-    .wb_lsu_result_o                  (wb_lsu_result), // LSU
+    .wrbk_lsu_result_o                (wrbk_lsu_result), // LSU
     // Atomic operation flag set/clear logic
-    .wb_atomic_flag_set_o             (wb_atomic_flag_set), // LSU
-    .wb_atomic_flag_clear_o           (wb_atomic_flag_clear), // LSU
+    .wrbk_atomic_flag_set_o           (wrbk_atomic_flag_set), // LSU
+    .wrbk_atomic_flag_clear_o         (wrbk_atomic_flag_clear), // LSU
     // Exceptions & errors
-    .wb_except_dbus_err_o             (wb_except_dbus_err), // LSU
-    .wb_except_dpagefault_o           (wb_except_dpagefault), // LSU
-    .wb_except_dtlb_miss_o            (wb_except_dtlb_miss), // LSU
-    .wb_except_dbus_align_o           (wb_except_dbus_align), // LSU
-    .wb_lsu_except_addr_o             (wb_lsu_except_addr) // LSU:
+    .wrbk_except_dbus_err_o           (wrbk_except_dbus_err), // LSU
+    .wrbk_except_dpagefault_o         (wrbk_except_dpagefault), // LSU
+    .wrbk_except_dtlb_miss_o          (wrbk_except_dtlb_miss), // LSU
+    .wrbk_except_dbus_align_o         (wrbk_except_dbus_align), // LSU
+    .wrbk_lsu_except_addr_o           (wrbk_lsu_except_addr) // LSU:
   );
 
 
@@ -1849,15 +1849,15 @@ module mor1kx_cpu_marocchino
   //-----------//
 
   // --- regular ---
-  always @(wb_alu_1clk_result   or wb_div_result or wb_mul_result or
-           wb_fpxx_arith_res_hi or wb_lsu_result or wb_mfspr_result)
+  always @(wrbk_alu_result        or wrbk_div_result or wrbk_mul_result or
+           wrbk_fpxx_arith_res_hi or wrbk_lsu_result or wrbk_mfspr_result)
   begin
-    wb_result1 = wb_alu_1clk_result   | wb_div_result | wb_mul_result |
-                 wb_fpxx_arith_res_hi | wb_lsu_result | wb_mfspr_result;
+    wrbk_result1 = wrbk_alu_result        | wrbk_div_result | wrbk_mul_result |
+                   wrbk_fpxx_arith_res_hi | wrbk_lsu_result | wrbk_mfspr_result;
   end
 
   // --- FPU64 extention ---
-  assign wb_result2 = wb_fpxx_arith_res_lo;
+  assign wrbk_result2 = wrbk_fpxx_arith_res_lo;
 
 
   //------------------------------------//
@@ -1877,41 +1877,41 @@ module mor1kx_cpu_marocchino
 
   // --- wb-latches ---
   always @(posedge cpu_clk) begin
-    if (padv_wb) begin  // WB: Exceptions and External Interrupts
+    if (padv_wrbk) begin  // WB: Exceptions and External Interrupts
       // IFETCH exceptions
-      wb_except_ibus_err_r   <= exec_except_ibus_err; // wb-update
-      wb_except_ipagefault_r <= exec_except_ipagefault; // wb-update
-      wb_except_itlb_miss_r  <= exec_except_itlb_miss; // wb-update
-      wb_except_ibus_align_r <= exec_except_ibus_align; // wb-update
+      wrbk_except_ibus_err_r   <= exec_except_ibus_err; // wb-update
+      wrbk_except_ipagefault_r <= exec_except_ipagefault; // wb-update
+      wrbk_except_itlb_miss_r  <= exec_except_itlb_miss; // wb-update
+      wrbk_except_ibus_align_r <= exec_except_ibus_align; // wb-update
       // DECODE exceptions
-      wb_except_illegal_r    <= exec_except_illegal; // wb-update
-      wb_except_syscall_r    <= exec_except_syscall; // wb-update
-      wb_except_trap_r       <= exec_except_trap; // wb-update
+      wrbk_except_illegal_r    <= exec_except_illegal; // wb-update
+      wrbk_except_syscall_r    <= exec_except_syscall; // wb-update
+      wrbk_except_trap_r       <= exec_except_trap; // wb-update
       // External Interrupts
-      wb_tt_interrupt_r      <= exec_tt_interrupt; // wb-update
-      wb_pic_interrupt_r     <= exec_pic_interrupt; // wb-update
+      wrbk_tt_interrupt_r      <= exec_tt_interrupt; // wb-update
+      wrbk_pic_interrupt_r     <= exec_pic_interrupt; // wb-update
       // Combined exceptions/interrupts flag
-      wb_an_except_r         <= exec_an_except; // wb-update
+      wrbk_an_except_r         <= exec_an_except; // wb-update
       // RFE
-      wb_op_rfe_r            <= exec_op_rfe; // wb-update
+      wrbk_op_rfe_r            <= exec_op_rfe; // wb-update
     end
     else begin
       // IFETCH exceptions
-      wb_except_ibus_err_r   <= 1'b0; // 1-clk-length
-      wb_except_ipagefault_r <= 1'b0; // 1-clk-length
-      wb_except_itlb_miss_r  <= 1'b0; // 1-clk-length
-      wb_except_ibus_align_r <= 1'b0; // 1-clk-length
+      wrbk_except_ibus_err_r   <= 1'b0; // 1-clk-length
+      wrbk_except_ipagefault_r <= 1'b0; // 1-clk-length
+      wrbk_except_itlb_miss_r  <= 1'b0; // 1-clk-length
+      wrbk_except_ibus_align_r <= 1'b0; // 1-clk-length
       // DECODE exceptions
-      wb_except_illegal_r    <= 1'b0; // 1-clk-length
-      wb_except_syscall_r    <= 1'b0; // 1-clk-length
-      wb_except_trap_r       <= 1'b0; // 1-clk-length
+      wrbk_except_illegal_r    <= 1'b0; // 1-clk-length
+      wrbk_except_syscall_r    <= 1'b0; // 1-clk-length
+      wrbk_except_trap_r       <= 1'b0; // 1-clk-length
       // External Interrupts
-      wb_tt_interrupt_r      <= 1'b0; // 1-clk-length
-      wb_pic_interrupt_r     <= 1'b0; // 1-clk-length
+      wrbk_tt_interrupt_r      <= 1'b0; // 1-clk-length
+      wrbk_pic_interrupt_r     <= 1'b0; // 1-clk-length
       // Combined exceptions/interrupts flag
-      wb_an_except_r         <= 1'b0; // 1-clk-length
+      wrbk_an_except_r         <= 1'b0; // 1-clk-length
       // RFE
-      wb_op_rfe_r            <= 1'b0; // 1-clk-length
+      wrbk_op_rfe_r            <= 1'b0; // 1-clk-length
     end
   end // @clock
 
@@ -2034,7 +2034,7 @@ module mor1kx_cpu_marocchino
     .padv_dcod_o                      (padv_dcod), // CTRL
     .padv_exec_o                      (padv_exec), // CTRL
     .exec_valid_i                     (exec_valid), // CTRL
-    .padv_wb_o                        (padv_wb), // CTRL
+    .padv_wrbk_o                      (padv_wrbk), // CTRL
     .pipeline_flush_o                 (pipeline_flush), // CTRL
 
     // MF(T)SPR coomand processing
@@ -2045,13 +2045,13 @@ module mor1kx_cpu_marocchino
     .dcod_op_mtspr_i                  (dcod_op_mtspr), // CTRL
     .dcod_op_mXspr_i                  (dcod_op_mXspr), // CTRL
     //  ## result to WB_MUX
-    .wb_mfspr_result_o                (wb_mfspr_result), // CTRL: for WB_MUX
+    .wrbk_mfspr_result_o              (wrbk_mfspr_result), // CTRL: for WB_MUX
 
     // Support IBUS error handling in CTRL
-    .wb_jump_or_branch_i              (wb_jump_or_branch), // CTRL
-    .wb_jump_i                        (wb_jump), // CTRL
-    .wb_op_bf_i                       (wb_op_bf), // CTRL
-    .wb_jb_target_i                   (wb_jb_target), // CTRL
+    .wrbk_jump_or_branch_i            (wrbk_jump_or_branch), // CTRL
+    .wrbk_jump_i                      (wrbk_jump), // CTRL
+    .wrbk_op_bf_i                     (wrbk_op_bf), // CTRL
+    .wrbk_jb_target_i                 (wrbk_jb_target), // CTRL
 
     // Debug System accesses CPU SPRs through DU
     .du_addr_i                        (du_addr_i), // CTRL
@@ -2100,83 +2100,83 @@ module mor1kx_cpu_marocchino
     // WB: External Interrupt Collection
     .tt_interrupt_enable_o            (tt_interrupt_enable), // CTRL
     .pic_interrupt_enable_o           (pic_interrupt_enable), // CTRL
-    .wb_tt_interrupt_i                (wb_tt_interrupt_r), // CTRL
-    .wb_pic_interrupt_i               (wb_pic_interrupt_r), // CTRL
+    .wrbk_tt_interrupt_i              (wrbk_tt_interrupt_r), // CTRL
+    .wrbk_pic_interrupt_i             (wrbk_pic_interrupt_r), // CTRL
 
     // WB: programm counter
-    .pc_wb_i                          (pc_wb), // CTRL
-    .pc_nxt_wb_i                      (pc_nxt_wb), // CTRL
-    .pc_nxt2_wb_i                     (pc_nxt2_wb), // CTRL
+    .pc_wrbk_i                        (pc_wrbk), // CTRL
+    .pc_nxt_wrbk_i                    (pc_nxt_wrbk), // CTRL
+    .pc_nxt2_wrbk_i                   (pc_nxt2_wrbk), // CTRL
 
     // WB: flag
-    .wb_int_flag_set_i                (wb_int_flag_set), // CTRL
-    .wb_int_flag_clear_i              (wb_int_flag_clear), // CTRL
-    .wb_fpxx_flag_set_i               (wb_fpxx_flag_set), // CTRL
-    .wb_fpxx_flag_clear_i             (wb_fpxx_flag_clear), // CTRL
-    .wb_atomic_flag_set_i             (wb_atomic_flag_set), // CTRL
-    .wb_atomic_flag_clear_i           (wb_atomic_flag_clear), // CTRL
+    .wrbk_int_flag_set_i              (wrbk_int_flag_set), // CTRL
+    .wrbk_int_flag_clear_i            (wrbk_int_flag_clear), // CTRL
+    .wrbk_fpxx_flag_set_i             (wrbk_fpxx_flag_set), // CTRL
+    .wrbk_fpxx_flag_clear_i           (wrbk_fpxx_flag_clear), // CTRL
+    .wrbk_atomic_flag_set_i           (wrbk_atomic_flag_set), // CTRL
+    .wrbk_atomic_flag_clear_i         (wrbk_atomic_flag_clear), // CTRL
 
     // WB: carry
-    .wb_div_carry_set_i               (wb_div_carry_set), // CTRL
-    .wb_div_carry_clear_i             (wb_div_carry_clear), // CTRL
-    .wb_1clk_carry_set_i              (wb_1clk_carry_set), // CTRL
-    .wb_1clk_carry_clear_i            (wb_1clk_carry_clear), // CTRL
+    .wrbk_div_carry_set_i             (wrbk_div_carry_set), // CTRL
+    .wrbk_div_carry_clear_i           (wrbk_div_carry_clear), // CTRL
+    .wrbk_1clk_carry_set_i            (wrbk_1clk_carry_set), // CTRL
+    .wrbk_1clk_carry_clear_i          (wrbk_1clk_carry_clear), // CTRL
 
     // WB: overflow
-    .wb_div_overflow_set_i            (wb_div_overflow_set), // CTRL
-    .wb_div_overflow_clear_i          (wb_div_overflow_clear), // CTRL
-    .wb_1clk_overflow_set_i           (wb_1clk_overflow_set), // CTRL
-    .wb_1clk_overflow_clear_i         (wb_1clk_overflow_clear), // CTRL
+    .wrbk_div_overflow_set_i          (wrbk_div_overflow_set), // CTRL
+    .wrbk_div_overflow_clear_i        (wrbk_div_overflow_clear), // CTRL
+    .wrbk_1clk_overflow_set_i         (wrbk_1clk_overflow_set), // CTRL
+    .wrbk_1clk_overflow_clear_i       (wrbk_1clk_overflow_clear), // CTRL
 
     //  # FPX3264 arithmetic part
-    .wb_fpxx_arith_fpcsr_i            (wb_fpxx_arith_fpcsr), // CTRL
-    .wb_fpxx_arith_wb_fpcsr_i         (wb_fpxx_arith_wb_fpcsr), // CTRL
-    .wb_except_fpxx_arith_i           (wb_except_fpxx_arith), // CTRL
+    .wrbk_fpxx_arith_fpcsr_i          (wrbk_fpxx_arith_fpcsr), // CTRL
+    .wrbk_fpxx_arith_wb_fpcsr_i       (wrbk_fpxx_arith_wb_fpcsr), // CTRL
+    .wrbk_except_fpxx_arith_i         (wrbk_except_fpxx_arith), // CTRL
     //  # FPX64 comparison part
-    .wb_fpxx_cmp_inv_i                (wb_fpxx_cmp_inv), // CTRL
-    .wb_fpxx_cmp_inf_i                (wb_fpxx_cmp_inf), // CTRL
-    .wb_fpxx_cmp_wb_fpcsr_i           (wb_fpxx_cmp_wb_fpcsr), // CTRL
-    .wb_except_fpxx_cmp_i             (wb_except_fpxx_cmp), // CTRL
+    .wrbk_fpxx_cmp_inv_i              (wrbk_fpxx_cmp_inv), // CTRL
+    .wrbk_fpxx_cmp_inf_i              (wrbk_fpxx_cmp_inf), // CTRL
+    .wrbk_fpxx_cmp_wb_fpcsr_i         (wrbk_fpxx_cmp_wb_fpcsr), // CTRL
+    .wrbk_except_fpxx_cmp_i           (wrbk_except_fpxx_cmp), // CTRL
 
     //  # Excepion processing auxiliaries
     .sbuf_eear_i                      (sbuf_eear), // CTRL
     .sbuf_epcr_i                      (sbuf_epcr), // CTRL
     .sbuf_err_i                       (sbuf_err), // CTRL
-    .wb_delay_slot_i                  (wb_delay_slot), // CTRL
+    .wrbk_delay_slot_i                (wrbk_delay_slot), // CTRL
 
     //  # combined exceptions/interrupt flag
     .exec_an_except_i                 (exec_an_except), // CTRL
-    .wb_an_except_i                   (wb_an_except_r), // CTRL
+    .wrbk_an_except_i                 (wrbk_an_except_r), // CTRL
 
     //  # particular IFETCH exception flags
-    .wb_except_ibus_err_i             (wb_except_ibus_err_r), // CTRL
-    .wb_except_itlb_miss_i            (wb_except_itlb_miss_r), // CTRL
-    .wb_except_ipagefault_i           (wb_except_ipagefault_r), // CTRL
-    .wb_except_ibus_align_i           (wb_except_ibus_align_r), // CTRL
+    .wrbk_except_ibus_err_i           (wrbk_except_ibus_err_r), // CTRL
+    .wrbk_except_itlb_miss_i          (wrbk_except_itlb_miss_r), // CTRL
+    .wrbk_except_ipagefault_i         (wrbk_except_ipagefault_r), // CTRL
+    .wrbk_except_ibus_align_i         (wrbk_except_ibus_align_r), // CTRL
 
     //  # particular DECODE exception flags
-    .wb_except_illegal_i              (wb_except_illegal_r), // CTRL
-    .wb_except_syscall_i              (wb_except_syscall_r), // CTRL
-    .wb_except_trap_i                 (wb_except_trap_r), // CTRL
+    .wrbk_except_illegal_i            (wrbk_except_illegal_r), // CTRL
+    .wrbk_except_syscall_i            (wrbk_except_syscall_r), // CTRL
+    .wrbk_except_trap_i               (wrbk_except_trap_r), // CTRL
 
     //  # particular LSU exception flags
-    .wb_except_dbus_err_i             (wb_except_dbus_err), // CTRL
-    .wb_except_dtlb_miss_i            (wb_except_dtlb_miss), // CTRL
-    .wb_except_dpagefault_i           (wb_except_dpagefault), // CTRL
-    .wb_except_dbus_align_i           (wb_except_dbus_align), // CTRL
-    .wb_lsu_except_addr_i             (wb_lsu_except_addr), // CTRL
+    .wrbk_except_dbus_err_i           (wrbk_except_dbus_err), // CTRL
+    .wrbk_except_dtlb_miss_i          (wrbk_except_dtlb_miss), // CTRL
+    .wrbk_except_dpagefault_i         (wrbk_except_dpagefault), // CTRL
+    .wrbk_except_dbus_align_i         (wrbk_except_dbus_align), // CTRL
+    .wrbk_lsu_except_addr_i           (wrbk_lsu_except_addr), // CTRL
 
     //  # overflow exception processing
     .except_overflow_enable_o         (except_overflow_enable), // CTRL
-    .wb_except_overflow_div_i         (wb_except_overflow_div), // CTRL
-    .wb_except_overflow_1clk_i        (wb_except_overflow_1clk), // CTRL
+    .wrbk_except_overflow_div_i       (wrbk_except_overflow_div), // CTRL
+    .wrbk_except_overflow_1clk_i      (wrbk_except_overflow_1clk), // CTRL
 
     //  # Branch to exception/rfe processing address
     .ctrl_branch_exception_o          (ctrl_branch_exception), // CTRL
     .ctrl_branch_except_pc_o          (ctrl_branch_except_pc), // CTRL
     //  # l.rfe
     .exec_op_rfe_i                    (exec_op_rfe), // CTRL
-    .wb_op_rfe_i                      (wb_op_rfe_r), // CTRL
+    .wrbk_op_rfe_i                    (wrbk_op_rfe_r), // CTRL
 
     // Multicore related
     .multicore_coreid_i               (multicore_coreid_i), // CTRL
@@ -2200,69 +2200,4 @@ module mor1kx_cpu_marocchino
     .ctrl_fpu_round_mode_o            (ctrl_fpu_round_mode) // CTRL
   );
 
-/*
-   reg [`OR1K_INSN_WIDTH-1:0] traceport_stage_dcod_insn;
-   reg [`OR1K_INSN_WIDTH-1:0] traceport_stage_exec_insn;
-
-   reg            traceport_waitexec;
-
-   always @(posedge cpu_clk) begin
-      if (FEATURE_TRACEPORT_EXEC != "NONE") begin
-   if (cpu_rst) begin
-      traceport_waitexec <= 0;
-   end else begin
-      if (padv_exec) begin
-         traceport_stage_dcod_insn <= dcod_insn;
-      end
-
-      if (padv_exec) begin
-         traceport_stage_exec_insn <= traceport_stage_dcod_insn;
-      end
-
-      if (ctrl_new_input) begin
-         traceport_exec_insn_o <= traceport_stage_exec_insn;
-      end
-
-      traceport_exec_pc_o <= pc_ctrl;
-      if (!traceport_waitexec) begin
-         if (ctrl_new_input & !ctrl_bubble) begin
-      if (exec_valid) begin
-         traceport_exec_valid_o <= 1'b1;
-      end else begin
-         traceport_exec_valid_o <= 1'b0;
-         traceport_waitexec <= 1'b1;
-      end
-         end else begin
-      traceport_exec_valid_o <= 1'b0;
-         end
-      end else begin
-         if (exec_valid) begin
-      traceport_exec_valid_o <= 1'b1;
-      traceport_waitexec <= 1'b0;
-         end else begin
-      traceport_exec_valid_o <= 1'b0;
-         end
-      end // else: !if(!traceport_waitexec)
-   end // else: !if(cpu_rst)
-      end else begin // if (FEATURE_TRACEPORT_EXEC != "NONE")
-   traceport_stage_dcod_insn <= {`OR1K_INSN_WIDTH{1'b0}};
-   traceport_stage_exec_insn <= {`OR1K_INSN_WIDTH{1'b0}};
-   traceport_exec_insn_o <= {`OR1K_INSN_WIDTH{1'b0}};
-   traceport_exec_pc_o <= 32'h0;
-   traceport_exec_valid_o <= 1'b0;
-      end
-   end
-
-   generate
-      if (FEATURE_TRACEPORT_EXEC != "NONE") begin
-   assign traceport_exec_wbreg_o = ?;
-   assign traceport_exec_wben_o = ?;
-   assign traceport_exec_wbdata_o = wb_result1;
-      end else begin
-   assign traceport_exec_wbreg_o = {OPTION_RF_ADDR_WIDTH{1'b0}};
-   assign traceport_exec_wben_o = 1'b0;
-   assign traceport_exec_wbdata_o = {OPTION_OPERAND_WIDTH{1'b0}};
-      end
-   endgenerate
-*/
 endmodule // mor1kx_cpu_marocchino
