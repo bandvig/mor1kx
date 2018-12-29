@@ -211,9 +211,9 @@ module mor1kx_cpu_marocchino
   wire [OPTION_OPERAND_WIDTH-1:0] wrbk_mfspr_result;
   // Combined write-back outputs
   //  # regular result
-  reg  [OPTION_OPERAND_WIDTH-1:0] wrbk_result1;     // WB result combiner
+  reg  [OPTION_OPERAND_WIDTH-1:0] wrbk_result1;     // Write-Back result combiner
   //  # extention for FPU3264
-  wire [OPTION_OPERAND_WIDTH-1:0] wrbk_result2;     // WB result combiner for FPU64
+  wire [OPTION_OPERAND_WIDTH-1:0] wrbk_result2;     // Write-Back result combiner for FPU64
 
 
   wire                            dcod_free;
@@ -221,7 +221,7 @@ module mor1kx_cpu_marocchino
   wire                            lsu_valid;   // result ready or exceptions
 
 
-  // 1-clock "WB to DECODE operand forwarding" flags
+  // 1-clock "Write-Back to DECODE operand forwarding" flags
   //  # relative operand A1
   wire                            dcod_wrb2dec_d1a1_fwd;
   wire                            dcod_wrb2dec_d2a1_fwd;
@@ -282,7 +282,7 @@ module mor1kx_cpu_marocchino
   wire    [DEST_EXTADR_WIDTH-1:0] dcod_extadr;
 
 
-  // Special WB-controls for RF
+  // Special Write-Back-controls for RF
   wire [OPTION_RF_ADDR_WIDTH-1:0] wrbk_rf_even_addr;
   wire                            wrbk_rf_even_we;
   wire [OPTION_RF_ADDR_WIDTH-1:0] wrbk_rf_odd_addr;
@@ -493,12 +493,12 @@ module mor1kx_cpu_marocchino
   wire fetch_except_ipagefault;
   wire fetch_except_itlb_miss;
   wire fetch_an_except;
-  //  # pre-WB IFETCH exceptions (OMAN output)
+  //  # pre-Write-Back IFETCH exceptions (OMAN output)
   wire exec_except_ibus_err;
   wire exec_except_ipagefault;
   wire exec_except_itlb_miss;
   wire exec_except_ibus_align;
-  //  # WB-latches for IFETCH exceptions (OMAN->CTRL)
+  //  # Write-Back-latches for IFETCH exceptions (OMAN->CTRL)
   reg  wrbk_except_ibus_err_r;
   reg  wrbk_except_ipagefault_r;
   reg  wrbk_except_itlb_miss_r;
@@ -510,11 +510,11 @@ module mor1kx_cpu_marocchino
   wire dcod_except_trap;
   // Enable l.trap exception
   wire du_trap_enable;
-  // Exceptions: pre-WB DECODE exceptions (OMAN output)
+  // Exceptions: pre-Write-Back DECODE exceptions (OMAN output)
   wire exec_except_illegal;
   wire exec_except_syscall;
   wire exec_except_trap;
-  // Exceptions: latched by WB latches for processing in CONTROL-unit
+  // Exceptions: latched by Write-Back latches for processing in CONTROL-unit
   reg  wrbk_except_illegal_r;
   reg  wrbk_except_syscall_r;
   reg  wrbk_except_trap_r;
@@ -553,7 +553,7 @@ module mor1kx_cpu_marocchino
   //  # flag to enabel/disable exterlal interrupts processing
   //    depending on the fact is instructions restartable or not
   wire        exec_interrupts_en;
-  //  # WB latches
+  //  # Write-Back latches
   reg         wrbk_tt_interrupt_r;
   reg         wrbk_pic_interrupt_r;
 
@@ -724,17 +724,17 @@ module mor1kx_cpu_marocchino
     // from DECODE
     .dcod_immediate_i                 (dcod_immediate), // RF
     .dcod_immediate_sel_i             (dcod_immediate_sel), // RF
-    // Special WB-controls for RF
+    // Special Write-Back-controls for RF
     .wrbk_rf_even_addr_i              (wrbk_rf_even_addr), // RF
     .wrbk_rf_even_we_i                (wrbk_rf_even_we), // RF
     .wrbk_rf_odd_addr_i               (wrbk_rf_odd_addr), // RF
     .wrbk_rf_odd_we_i                 (wrbk_rf_odd_we), // RF
-    // from WB
+    // from Write-Back
     .wrbk_rfd1_odd_i                  (wrbk_rfd1_odd), // RF
     .wrbk_result1_i                   (wrbk_result1), // RF
     // for FPU64
     .wrbk_result2_i                   (wrbk_result2), // RF
-    // 1-clock "WB to DECODE operand forwarding" flags
+    // 1-clock "Write-Back to DECODE operand forwarding" flags
     //  # relative operand A1
     .dcod_wrb2dec_d1a1_fwd_i          (dcod_wrb2dec_d1a1_fwd), // RF
     .dcod_wrb2dec_d2a1_fwd_i          (dcod_wrb2dec_d2a1_fwd), // RF
@@ -979,7 +979,7 @@ module mor1kx_cpu_marocchino
     .dcod_except_trap_i         (dcod_except_trap), // OMAN
     .dcod_an_except_fd_i        (dcod_an_except_fd), // OMAN
 
-    // 1-clock "WB to DECODE operand forwarding" flags
+    // 1-clock "Write-Back to DECODE operand forwarding" flags
     //  # relative operand A1
     .dcod_wrb2dec_d1a1_fwd_o    (dcod_wrb2dec_d1a1_fwd), // OMAN
     .dcod_wrb2dec_d2a1_fwd_o    (dcod_wrb2dec_d2a1_fwd), // OMAN
@@ -1024,7 +1024,7 @@ module mor1kx_cpu_marocchino
     // EXECUTE completed (desired unit is ready)
     .exec_valid_o               (exec_valid), // OMAN
 
-    // control WB latches of execution modules
+    // control Write-Back latches of execution modules
     .grant_wrbk_to_1clk_o       (grant_wrbk_to_1clk), // OMAN
     .grant_wrbk_to_div_o        (grant_wrbk_to_div), // OMAN
     .grant_wrbk_to_mul_o        (grant_wrbk_to_mul), // OMAN
@@ -1069,22 +1069,22 @@ module mor1kx_cpu_marocchino
     // depending on the fact is instructions restartable or not
     .exec_interrupts_en_o       (exec_interrupts_en), // OMAN
 
-    // pre-WB l.rfe
+    // pre-Write-Back l.rfe
     .exec_op_rfe_o              (exec_op_rfe), // OMAN
-    // pre-WB output exceptions: IFETCH
+    // pre-Write-Back output exceptions: IFETCH
     .exec_except_ibus_err_o     (exec_except_ibus_err), // OMAN
     .exec_except_ipagefault_o   (exec_except_ipagefault), // OMAN
     .exec_except_itlb_miss_o    (exec_except_itlb_miss), // OMAN
     .exec_except_ibus_align_o   (exec_except_ibus_align), // OMAN
-    // pre-WB output exceptions: DECODE
+    // pre-Write-Back output exceptions: DECODE
     .exec_except_illegal_o      (exec_except_illegal), // OMAN
     .exec_except_syscall_o      (exec_except_syscall), // OMAN
     .exec_except_trap_o         (exec_except_trap), // OMAN
-    // pre-WB output exceptions: IFETCH/DECODE
+    // pre-Write-Back output exceptions: IFETCH/DECODE
     .exec_an_except_fd_o        (exec_an_except_fd), // OMAN
 
-    // WB outputs
-    //  ## special WB-controls for RF
+    // Write-Back outputs
+    //  ## special Write-Back-controls for RF
     .wrbk_rf_even_addr_o        (wrbk_rf_even_addr), // OMAN
     .wrbk_rf_even_we_o          (wrbk_rf_even_we), // OMAN
     .wrbk_rf_odd_addr_o         (wrbk_rf_odd_addr), // OMAN
@@ -1130,7 +1130,7 @@ module mor1kx_cpu_marocchino
   wire                            exec_1clk_ff_d1a1;
   wire                            exec_1clk_ff_d1b1;
 
-  // input operands A and B with forwarding from WB
+  // input operands A and B with forwarding from Write-Back
   wire [OPTION_OPERAND_WIDTH-1:0] exec_1clk_a1;
   wire [OPTION_OPERAND_WIDTH-1:0] exec_1clk_b1;
 
@@ -1223,7 +1223,7 @@ module mor1kx_cpu_marocchino
     .exec_1clk_ff_d1a1_i              (exec_1clk_ff_d1a1), // 1CLK_EXEC
     .exec_1clk_ff_d1b1_i              (exec_1clk_ff_d1b1), // 1CLK_EXEC
 
-    // input operands A and B with forwarding from WB
+    // input operands A and B with forwarding from Write-Back
     .exec_1clk_a1_i                   (exec_1clk_a1), // 1CLK_EXEC
     .exec_1clk_b1_i                   (exec_1clk_b1), // 1CLK_EXEC
 
@@ -1251,7 +1251,7 @@ module mor1kx_cpu_marocchino
     // logic
     .exec_op_logic_i                  (exec_op_logic), // 1CLK_EXEC
     .exec_lut_logic_i                 (exec_lut_logic), // 1CLK_EXEC
-    // WB-latched 1-clock arithmetic result
+    // Write-Back-latched 1-clock arithmetic result
     .wrbk_alu_result_o                (wrbk_alu_result), // 1CLK_EXEC
     //  # update carry flag by 1clk-operation
     .wrbk_1clk_carry_set_o            (wrbk_1clk_carry_set), // 1CLK_EXEC
@@ -1267,7 +1267,7 @@ module mor1kx_cpu_marocchino
     // integer comparison flag
     .exec_op_setflag_i                (exec_op_setflag), // 1CLK_EXEC
     .exec_opc_setflag_i               (exec_opc_setflag), // 1CLK_EXEC
-    // WB: integer comparison result
+    // Write-Back: integer comparison result
     .wrbk_int_flag_set_o              (wrbk_int_flag_set), // 1CLK_EXEC
     .wrbk_int_flag_clear_o            (wrbk_int_flag_clear) // 1CLK_EXEC
   );
@@ -1600,7 +1600,7 @@ module mor1kx_cpu_marocchino
     .exec_fpxx_a2_i             (exec_fpxx_a2), // FPU3264
     .exec_fpxx_b2_i             (exec_fpxx_b2), // FPU3264
 
-    // Pre-WB outputs
+    // Pre-Write-Back outputs
     .exec_except_fpxx_arith_o   (exec_except_fpxx_arith), // FPU3264
     .exec_except_fpxx_cmp_o     (exec_except_fpxx_cmp), // FPU3264
 
@@ -1643,7 +1643,7 @@ module mor1kx_cpu_marocchino
   //  # Delay slot flag and PC to compute store buffer EPCR
   wire                            exec_lsu_delay_slot;
   wire [OPTION_OPERAND_WIDTH-1:0] exec_lsu_pc;
-  //  # operands after frorwarding from WB
+  //  # operands after frorwarding from Write-Back
   wire [OPTION_OPERAND_WIDTH-1:0] exec_lsu_a1;
   wire [OPTION_OPERAND_WIDTH-1:0] exec_lsu_b1;
 
@@ -1835,9 +1835,9 @@ module mor1kx_cpu_marocchino
   );
 
 
-  //-----------//
-  // WB:result //
-  //-----------//
+  //-------------------//
+  // Write-Back:result //
+  //-------------------//
 
   // --- regular ---
   always @(wrbk_alu_result        or wrbk_div_result or wrbk_mul_result or
@@ -1866,25 +1866,25 @@ module mor1kx_cpu_marocchino
   wire exec_tt_interrupt  = tt_rdy  & tt_interrupt_enable  & exec_interrupts_en; // from "Tick Timer"
   wire exec_pic_interrupt = pic_rdy & pic_interrupt_enable & exec_interrupts_en; // from "Programmble Interrupt Controller"
 
-  // --- wb-latches ---
+  // --- Write-Back latches ---
   always @(posedge cpu_clk) begin
-    if (padv_wrbk) begin  // WB: Exceptions and External Interrupts
+    if (padv_wrbk) begin  // Write-Back: Exceptions and External Interrupts
       // IFETCH exceptions
-      wrbk_except_ibus_err_r   <= exec_except_ibus_err; // wb-update
-      wrbk_except_ipagefault_r <= exec_except_ipagefault; // wb-update
-      wrbk_except_itlb_miss_r  <= exec_except_itlb_miss; // wb-update
-      wrbk_except_ibus_align_r <= exec_except_ibus_align; // wb-update
+      wrbk_except_ibus_err_r   <= exec_except_ibus_err; // Write-Back update
+      wrbk_except_ipagefault_r <= exec_except_ipagefault; // Write-Back update
+      wrbk_except_itlb_miss_r  <= exec_except_itlb_miss; // Write-Back update
+      wrbk_except_ibus_align_r <= exec_except_ibus_align; // Write-Back update
       // DECODE exceptions
-      wrbk_except_illegal_r    <= exec_except_illegal; // wb-update
-      wrbk_except_syscall_r    <= exec_except_syscall; // wb-update
-      wrbk_except_trap_r       <= exec_except_trap; // wb-update
+      wrbk_except_illegal_r    <= exec_except_illegal; // Write-Back update
+      wrbk_except_syscall_r    <= exec_except_syscall; // Write-Back update
+      wrbk_except_trap_r       <= exec_except_trap; // Write-Back update
       // External Interrupts
-      wrbk_tt_interrupt_r      <= exec_tt_interrupt; // wb-update
-      wrbk_pic_interrupt_r     <= exec_pic_interrupt; // wb-update
+      wrbk_tt_interrupt_r      <= exec_tt_interrupt; // Write-Back update
+      wrbk_pic_interrupt_r     <= exec_pic_interrupt; // Write-Back update
       // Combined exceptions/interrupts flag
-      wrbk_an_except_r         <= exec_an_except; // wb-update
+      wrbk_an_except_r         <= exec_an_except; // Write-Back update
       // RFE
-      wrbk_op_rfe_r            <= exec_op_rfe; // wb-update
+      wrbk_op_rfe_r            <= exec_op_rfe; // Write-Back update
     end
     else begin
       // IFETCH exceptions
@@ -2088,18 +2088,18 @@ module mor1kx_cpu_marocchino
     .spr_bus_dat_gprS_i               (spr_bus_dat_gprS), // CTRL
     .spr_bus_ack_gprS_i               (spr_bus_ack_gprS), // CTRL
 
-    // WB: External Interrupt Collection
+    // Write-Back: External Interrupt Collection
     .tt_interrupt_enable_o            (tt_interrupt_enable), // CTRL
     .pic_interrupt_enable_o           (pic_interrupt_enable), // CTRL
     .wrbk_tt_interrupt_i              (wrbk_tt_interrupt_r), // CTRL
     .wrbk_pic_interrupt_i             (wrbk_pic_interrupt_r), // CTRL
 
-    // WB: programm counter
+    // Write-Back: programm counter
     .pc_wrbk_i                        (pc_wrbk), // CTRL
     .pc_nxt_wrbk_i                    (pc_nxt_wrbk), // CTRL
     .pc_nxt2_wrbk_i                   (pc_nxt2_wrbk), // CTRL
 
-    // WB: flag
+    // Write-Back: flag
     .wrbk_int_flag_set_i              (wrbk_int_flag_set), // CTRL
     .wrbk_int_flag_clear_i            (wrbk_int_flag_clear), // CTRL
     .wrbk_fpxx_flag_set_i             (wrbk_fpxx_flag_set), // CTRL
@@ -2107,13 +2107,13 @@ module mor1kx_cpu_marocchino
     .wrbk_atomic_flag_set_i           (wrbk_atomic_flag_set), // CTRL
     .wrbk_atomic_flag_clear_i         (wrbk_atomic_flag_clear), // CTRL
 
-    // WB: carry
+    // Write-Back: carry
     .wrbk_div_carry_set_i             (wrbk_div_carry_set), // CTRL
     .wrbk_div_carry_clear_i           (wrbk_div_carry_clear), // CTRL
     .wrbk_1clk_carry_set_i            (wrbk_1clk_carry_set), // CTRL
     .wrbk_1clk_carry_clear_i          (wrbk_1clk_carry_clear), // CTRL
 
-    // WB: overflow
+    // Write-Back: overflow
     .wrbk_div_overflow_set_i          (wrbk_div_overflow_set), // CTRL
     .wrbk_div_overflow_clear_i        (wrbk_div_overflow_clear), // CTRL
     .wrbk_1clk_overflow_set_i         (wrbk_1clk_overflow_set), // CTRL

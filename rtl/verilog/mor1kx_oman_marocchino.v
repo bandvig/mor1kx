@@ -7,11 +7,11 @@
 //    a) collect various state signals from DECODE                 //
 //       and EXECUTE modules                                       //
 //    b) analisys of conflicts                                     //
-//    c) generate valid flags for advance DECODE and WB            //
+//    c) generate valid flags for advance DECODE and Write-Back    //
 //                                                                 //
 /////////////////////////////////////////////////////////////////////
 //                                                                 //
-//   Copyright (C) 2015 Andrey Bacherov                            //
+//   Copyright (C) 2015-2018 Andrey Bacherov                       //
 //                      avbacherov@opencores.org                   //
 //                                                                 //
 //      This Source Code Form is subject to the terms of the       //
@@ -70,10 +70,10 @@ module rat_cell
   wire set_rdx_alloc = (set_rd1_alloc | set_rd2_alloc);
 
   // condition to keep allocation flags at write-back
-  wire keep_alloc_at_wb    = (wrbk_extadr_i != rat_extadr_o);
+  wire keep_alloc_at_wrbk    = (wrbk_extadr_i != rat_extadr_o);
   // next values of allocation flags at write-back
-  wire rat_rd1_alloc_at_wb = rat_rd1_alloc_o & keep_alloc_at_wb;
-  wire rat_rd2_alloc_at_wb = rat_rd2_alloc_o & keep_alloc_at_wb;
+  wire rat_rd1_alloc_at_wrbk = rat_rd1_alloc_o & keep_alloc_at_wrbk;
+  wire rat_rd2_alloc_at_wrbk = rat_rd2_alloc_o & keep_alloc_at_wrbk;
 
   // allocation flags
   always @(posedge cpu_clk) begin
@@ -82,12 +82,12 @@ module rat_cell
       rat_rd2_alloc_o <= 1'b0;
     end
     else if (padv_exec_i) begin
-      rat_rd1_alloc_o <= set_rdx_alloc ? set_rd1_alloc : rat_rd1_alloc_at_wb;
-      rat_rd2_alloc_o <= set_rdx_alloc ? set_rd2_alloc : rat_rd2_alloc_at_wb;
+      rat_rd1_alloc_o <= set_rdx_alloc ? set_rd1_alloc : rat_rd1_alloc_at_wrbk;
+      rat_rd2_alloc_o <= set_rdx_alloc ? set_rd2_alloc : rat_rd2_alloc_at_wrbk;
     end
     else begin
-      rat_rd1_alloc_o <= rat_rd1_alloc_at_wb;
-      rat_rd2_alloc_o <= rat_rd2_alloc_at_wb;
+      rat_rd1_alloc_o <= rat_rd1_alloc_at_wrbk;
+      rat_rd2_alloc_o <= rat_rd2_alloc_at_wrbk;
     end
   end // at clock
 
@@ -157,12 +157,12 @@ module mor1kx_oman_marocchino
   // DECODE additional information related instruction
   //  part #1: information stored in order control buffer
   input      [OPTION_OPERAND_WIDTH-1:0] pc_decode_i,            // instruction virtual address
-  input      [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfd1_adr_i,        // WB address
-  input                                 dcod_rfd1_we_i,         // instruction generates WB to D1
+  input      [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfd1_adr_i,        // Write-Back address
+  input                                 dcod_rfd1_we_i,         // instruction generates Write-Back to D1
   input                                 dcod_flag_we_i,         // any instruction which affects comparison flag
   input                                 dcod_delay_slot_i,      // instruction is in delay slot
   input      [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfd2_adr_i,        // WB2 address for FPU64
-  input                                 dcod_rfd2_we_i,         // instruction generates WB to D2
+  input                                 dcod_rfd2_we_i,         // instruction generates Write-Back to D2
   //  part #2: information required for create enable for
   //           for external (timer/ethernet/uart/etc) interrupts
   input                                 dcod_op_lsu_store_i,
@@ -189,7 +189,7 @@ module mor1kx_oman_marocchino
   input                                 dcod_except_trap_i,
   input                                 dcod_an_except_fd_i,
 
-  // 1-clock "WB to DECODE operand forwarding" flags
+  // 1-clock "Write-Back to DECODE operand forwarding" flags
   //  # relative operand A1
   output reg                            dcod_wrb2dec_d1a1_fwd_o,
   output reg                            dcod_wrb2dec_d2a1_fwd_o,
@@ -234,7 +234,7 @@ module mor1kx_oman_marocchino
   // EXECUTE completed (desired unit is ready)
   output                                exec_valid_o,
 
-  // control WB latches of execution modules
+  // control Write-Back latches of execution modules
   output                                grant_wrbk_to_1clk_o,
   output                                grant_wrbk_to_div_o,
   output                                grant_wrbk_to_mul_o,
@@ -281,22 +281,22 @@ module mor1kx_oman_marocchino
   // depending on the fact is instructions restartable or not
   output                                exec_interrupts_en_o,
 
-  // pre-WB l.rfe
+  // pre-Write-Back l.rfe
   output                                exec_op_rfe_o,
-  // pre-WB output exceptions: IFETCH
+  // pre-Write-Back output exceptions: IFETCH
   output                                exec_except_ibus_err_o,
   output                                exec_except_ipagefault_o,
   output                                exec_except_itlb_miss_o,
   output                                exec_except_ibus_align_o,
-  // pre-WB output exceptions: DECODE
+  // pre-Write-Back output exceptions: DECODE
   output                                exec_except_illegal_o,
   output                                exec_except_syscall_o,
   output                                exec_except_trap_o,
-  // pre-WB output exceptions: IFETCH/DECODE
+  // pre-Write-Back output exceptions: IFETCH/DECODE
   output                                exec_an_except_fd_o,
 
-  // WB outputs
-  //  ## special WB-controls for RF
+  // Write-Back outputs
+  //  ## special Write-Back-controls for RF
   output reg [OPTION_RF_ADDR_WIDTH-1:0] wrbk_rf_even_addr_o,
   output reg                            wrbk_rf_even_we_o,
   output reg [OPTION_RF_ADDR_WIDTH-1:0] wrbk_rf_odd_addr_o,
@@ -316,7 +316,7 @@ module mor1kx_oman_marocchino
   //  [0...5] Exceptions generated by FETCH & DECODE.
   //    (a) Doesn't include IBUS align violation.
   //        It goes through "jump/branch attributes order control buffer".
-  //    (b) LSU exceptions go to WB around any OCB
+  //    (b) LSU exceptions go to Write-Back around any OCB
   //  [6] Combined IFETCH/DECODE an exception flag
   localparam  OCBTA_AN_EXCEPT_FD_POS   =                           6;
   //  Flag that external interrupt is enabled (instruction is re-startable)
@@ -325,11 +325,11 @@ module mor1kx_oman_marocchino
   localparam  OCBTA_OP_RFE_POS         = OCBTA_INTERRUPTS_EN_POS + 1;
   //  Instruction is in delay slot
   localparam  OCBTA_DELAY_SLOT_POS     = OCBTA_OP_RFE_POS        + 1;
-  //  Instruction generates WB to D1
+  //  Instruction generates Write-Back to D1
   localparam  OCBTA_RFD1_WB_POS        = OCBTA_DELAY_SLOT_POS    + 1;
   localparam  OCBTA_RFD1_ADR_LSB       = OCBTA_RFD1_WB_POS       + 1;
   localparam  OCBTA_RFD1_ADR_MSB       = OCBTA_RFD1_WB_POS       + OPTION_RF_ADDR_WIDTH;
-  //  Instruction generates WB to D2
+  //  Instruction generates Write-Back to D2
   localparam  OCBTA_RFD2_WB_POS        = OCBTA_RFD1_ADR_MSB      + 1;
   localparam  OCBTA_RFD2_ADR_LSB       = OCBTA_RFD2_WB_POS       + 1;
   localparam  OCBTA_RFD2_ADR_MSB       = OCBTA_RFD2_WB_POS       + OPTION_RF_ADDR_WIDTH;
@@ -416,9 +416,9 @@ module mor1kx_oman_marocchino
   //     l.rfe   - cause return from exception process with serious
   //               changing CPU state.
   //   Note #1 we just not run execution for "invalid" command (CTRL), so
-  // such "commands" don't achieve WB where exceptions are processed.
+  // such "commands" don't achieve Write-Back where exceptions are processed.
   //   Note #2 l.rfe is a special case. We push pipe full of rfes.
-  // The reason for this is that we need the rfe to reach WB stage
+  // The reason for this is that we need the rfe to reach Write-Back stage
   // so it will cause the branch. It will clear itself by the
   // pipeline_flush_i that the rfe will generate.
   wire interrupts_en = ~(dcod_op_lsu_store_i | dcod_op_msync_i | dcod_op_mXspr_i | dcod_op_rfe_i);
@@ -500,7 +500,7 @@ module mor1kx_oman_marocchino
   );
 
 
-  // Grant WB-access to units
+  // Grant Write-Back-access to units
   assign grant_wrbk_to_1clk_o        = ocbo[OCBTC_OP_1CLK_POS];
   assign grant_wrbk_to_div_o         = ocbo[OCBTC_OP_DIV_POS];
   assign grant_wrbk_to_mul_o         = ocbo[OCBTC_OP_MUL_POS];
@@ -553,10 +553,10 @@ module mor1kx_oman_marocchino
   // Shorten aliases
   wire [DEST_EXTADR_WIDTH-1:0] exec_extadr = ocbo[OCBTC_EXTADR_MSB:OCBTC_EXTADR_LSB];
 
-  // We needn't WB-to-DECODE hazards for FLAG and CARRY:
+  // We needn't Write-Back-to-DECODE hazards for FLAG and CARRY:
   //  (a) we process FLAG for l.bf/.bnf in separate way
   //  (b) only 1-clock instructions request FLAG/CARRY,
-  //      however any case they granted with WB accees after completion FLAG/CARRY update
+  //      however any case they granted with Write-Back accees after completion FLAG/CARRY update
 
   // RAT parameters
   localparam  NUM_GPRS = (1 << OPTION_RF_ADDR_WIDTH);
@@ -641,9 +641,9 @@ module mor1kx_oman_marocchino
   assign omn2dec_extadr_dxb2_o = rat_extadr[dcod_rfb2_adr];
 
 
-  //-------------------------------------------------//
-  // 1-clock "WB to DECODE operand forwarding" flags //
-  //-------------------------------------------------//
+  //---------------------------------------------------------//
+  // 1-clock "Write-Back to DECODE operand forwarding" flags //
+  //---------------------------------------------------------//
 
   // EXECUTE-to-DECODE forwarding is possible (write-back only case)
   //  # relative operand A1
@@ -748,14 +748,14 @@ module mor1kx_oman_marocchino
   end // @clock
 
 
-  //   An execute module is ready and granted access to WB
-  //   Instructions l.mf(t)spr have got guaranted WB access because
+  //   An execute module is ready and granted access to Write-Back
+  //   Instructions l.mf(t)spr have got guaranted Write-Back access because
   // no any new instruction is issued into execution till
   // l.mf(t)spr has been completed. Pay attention that we start
   // l.mf(t)spr ecxecution after completion of all peviously
   // issued instructions only.
   //   l.rfe and FETCH/DECODE exceptions are also should
-  // push WB latches
+  // push Write-Back latches
   // ---
   wire   op_1clk_valid_l = op_1clk_valid_i & ocbo[OCBTC_OP_1CLK_POS];
   // ---
@@ -1089,7 +1089,7 @@ module mor1kx_oman_marocchino
 
 
 
-  // --- Feedforward to WB --- //
+  // --- Feedforward to Write-Back --- //
 
 
   // JUMP/BRANCH attribute layout
@@ -1221,7 +1221,7 @@ module mor1kx_oman_marocchino
   // Write Back latches //
   //--------------------//
 
-  // WB JUMP or BRANCH attributes
+  // Write-Back JUMP or BRANCH attributes
   //  # flags (all 1-clock length)
   always @(posedge cpu_clk) begin
     if (padv_wrbk_i) begin
@@ -1247,7 +1247,7 @@ module mor1kx_oman_marocchino
   // depending on the fact is instructions restartable or not
   assign exec_interrupts_en_o     = ocbo[OCBTA_INTERRUPTS_EN_POS];
 
-  // pre-WB l.rfe
+  // pre-Write-Back l.rfe
   assign exec_op_rfe_o            = ocbo[OCBTA_OP_RFE_POS];
   // IFETCH/DECODE an exception
   assign exec_an_except_fd_o      = ocbo[OCBTA_AN_EXCEPT_FD_POS];
@@ -1273,9 +1273,9 @@ module mor1kx_oman_marocchino
   wire [OPTION_RF_ADDR_WIDTH-1:0] exec_rfd2_adr = ocbo[OCBTA_RFD2_ADR_MSB:OCBTA_RFD2_ADR_LSB];
 
 
-  // special WB-controls for RF
+  // special Write-Back-controls for RF
   //  if A(B)'s address is odd than A2(B2)=A(B)+1 is even and vise verse
-  //  1-clock WB-pulses
+  //  1-clock Write-Back-pulses
   always @(posedge cpu_clk) begin
     if (padv_wrbk_i) begin
       wrbk_rf_even_we_o <= (exec_rfd1_we & ~exec_rfd1_adr[0]) | (exec_rfd2_we & ~exec_rfd2_adr[0]);
@@ -1286,7 +1286,7 @@ module mor1kx_oman_marocchino
       wrbk_rf_odd_we_o  <= 1'b0;
     end
   end // @clock
-  //   Even/Odd WB-addresses
+  //   Even/Odd Write-Back-addresses
   always @(posedge cpu_clk) begin
     if (padv_wrbk_i) begin
       wrbk_rf_even_addr_o <= exec_rfd1_adr[0] ? exec_rfd2_adr : exec_rfd1_adr;
@@ -1295,7 +1295,7 @@ module mor1kx_oman_marocchino
   end // @clock
 
 
-  // WB delay slot
+  // Write-Back delay slot
   always @(posedge cpu_clk) begin
     if (padv_wrbk_i)
       wrbk_delay_slot_o <= ocbo[OCBTA_DELAY_SLOT_POS];

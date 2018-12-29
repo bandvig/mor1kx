@@ -13,8 +13,8 @@
 //                                                                 //
 /////////////////////////////////////////////////////////////////////
 //                                                                 //
-//   Copyright (C) 2016 Andrey Bacherov                            //
-//                      avbacherov@opencores.org                   //
+//   Copyright (C) 2016-2018 Andrey Bacherov                       //
+//                           avbacherov@opencores.org              //
 //                                                                 //
 //   This source file may be used and distributed without          //
 //   restriction provided that this copyright statement is not     //
@@ -109,9 +109,9 @@ module pfpu_rnd_marocchino
   input        ocb_snan_i,
   input        ocb_qnan_i,
   input        ocb_anan_sign_i,
-  // pre-WB output
+  // pre-Write-Back output
   output                                 exec_except_fpxx_arith_o, // generate exception
-  // output WB latches
+  // output Write-Back latches
   output reg                      [31:0] wrbk_fpxx_arith_res_hi_o,   // result
   output reg                      [31:0] wrbk_fpxx_arith_res_lo_o,   // result
   output reg [`OR1K_FPCSR_ALLF_SIZE-1:0] wrbk_fpxx_arith_fpcsr_o,    // fp64 arithmetic flags
@@ -156,9 +156,9 @@ module pfpu_rnd_marocchino
   reg s1o_ready;
   reg s2o_ready;
   reg s3o_ready;
-  reg fpxx_arith_wb_miss_r;
+  reg wrbk_fpxx_arith_miss_r;
   //  ## per stage busy flags
-  wire s3_busy = s3o_ready & fpxx_arith_wb_miss_r;
+  wire s3_busy = s3o_ready & wrbk_fpxx_arith_miss_r;
   wire s2_busy = s2o_ready & s3_busy;
   wire s1_busy = s1o_ready & s2_busy;
   wire s0_busy = s0o_ready & s1_busy;
@@ -612,7 +612,7 @@ module pfpu_rnd_marocchino
       s3o_ready <= 1'b0;
     else if (s3_adv)
       s3o_ready <= 1'b1;
-    else if (~fpxx_arith_wb_miss_r)
+    else if (~wrbk_fpxx_arith_miss_r)
       s3o_ready <= 1'b0;
   end // @clock
 
@@ -623,7 +623,7 @@ module pfpu_rnd_marocchino
     else if (s3_adv)
       fpxx_arith_valid_o <= 1'b1;
     else if (padv_wrbk_i & grant_wrbk_to_fpxx_arith_i)
-      fpxx_arith_valid_o <= fpxx_arith_wb_miss_r ? s3o_ready : 1'b0;
+      fpxx_arith_valid_o <= wrbk_fpxx_arith_miss_r ? s3o_ready : 1'b0;
   end // @clock
 
 
@@ -681,47 +681,47 @@ module pfpu_rnd_marocchino
 
 
   // EXECUTE level FP32 arithmetic flags
-  wire [`OR1K_FPCSR_ALLF_SIZE-1:0] exec_fpxx_arith_fpcsr =
+  wire [`OR1K_FPCSR_ALLF_SIZE-1:0] s4t_fpxx_arith_fpcsr =
     {s3o_dbz, s4t_inf, (s3o_inv | (s3o_f2i_inv & s3o_f2i) | s3o_snan),
      s4t_ine, s4t_zer, s3o_qnan,
      (s3o_inv | (s3o_snan & s3o_f2i)), s4t_unf, s4t_ovf} & fpu_mask_flags_i;
 
   // EXEC-result #1
-  wire [31:0] exec_fpxx_arith_res_hi = s3o_op_fp64_arith ? s4t_opc64[63:32] : s4t_opc32;
+  wire [31:0] s4t_fpxx_arith_res_hi = s3o_op_fp64_arith ? s4t_opc64[63:32] : s4t_opc32;
   // EXEC-result #2
-  wire [31:0] exec_fpxx_arith_res_lo = s4t_opc64[31:0];
+  wire [31:0] s4t_fpxx_arith_res_lo = s4t_opc64[31:0];
 
 
-  // WB-miss flag
+  // Write-Back-miss flag
   always @(posedge cpu_clk) begin
     if (pipeline_flush_i)
-      fpxx_arith_wb_miss_r <= 1'b0;
+      wrbk_fpxx_arith_miss_r <= 1'b0;
     else if (padv_wrbk_i & grant_wrbk_to_fpxx_arith_i)
-      fpxx_arith_wb_miss_r <= 1'b0;
-    else if (~fpxx_arith_wb_miss_r)
-      fpxx_arith_wb_miss_r <= s3o_ready;
+      wrbk_fpxx_arith_miss_r <= 1'b0;
+    else if (~wrbk_fpxx_arith_miss_r)
+      wrbk_fpxx_arith_miss_r <= s3o_ready;
   end // @clock
 
-  // WB-miss pending rezults
-  reg [31:0] fpxx_arith_wb_res_hi_p;
-  reg [31:0] fpxx_arith_wb_res_lo_p;
+  // Write-Back-miss pending rezults
+  reg [31:0] fpxx_arith_res_hi_p;
+  reg [31:0] fpxx_arith_res_lo_p;
   reg [`OR1K_FPCSR_ALLF_SIZE-1:0] fpxx_arith_fpcsr_we_p;
   // ---
   always @(posedge cpu_clk) begin
-    if (~fpxx_arith_wb_miss_r) begin
-      fpxx_arith_wb_res_hi_p <= exec_fpxx_arith_res_hi;
-      fpxx_arith_wb_res_lo_p <= exec_fpxx_arith_res_lo;
-      fpxx_arith_fpcsr_we_p  <= exec_fpxx_arith_fpcsr;
+    if (~wrbk_fpxx_arith_miss_r) begin
+      fpxx_arith_res_hi_p   <= s4t_fpxx_arith_res_hi;
+      fpxx_arith_res_lo_p   <= s4t_fpxx_arith_res_lo;
+      fpxx_arith_fpcsr_we_p <= s4t_fpxx_arith_fpcsr;
     end
   end // @clock
 
   // EXECUTE level FP32 arithmetic exception
-  wire   mux_except_fpxx_arith    = (fpxx_arith_wb_miss_r ? (|fpxx_arith_fpcsr_we_p) : (|exec_fpxx_arith_fpcsr)) & except_fpu_enable_i;
+  wire   mux_except_fpxx_arith    = (wrbk_fpxx_arith_miss_r ? (|fpxx_arith_fpcsr_we_p) : (|s4t_fpxx_arith_fpcsr)) & except_fpu_enable_i;
   assign exec_except_fpxx_arith_o = grant_wrbk_to_fpxx_arith_i & mux_except_fpxx_arith;
 
-  // WB: result
-  wire [31:0] wrbk_fpxx_arith_res_hi_m = fpxx_arith_wb_miss_r ? fpxx_arith_wb_res_hi_p : exec_fpxx_arith_res_hi;
-  wire [31:0] wrbk_fpxx_arith_res_lo_m = fpxx_arith_wb_miss_r ? fpxx_arith_wb_res_lo_p : exec_fpxx_arith_res_lo;
+  // Write-Back: result
+  wire [31:0] wrbk_fpxx_arith_res_hi_m = wrbk_fpxx_arith_miss_r ? fpxx_arith_res_hi_p : s4t_fpxx_arith_res_hi;
+  wire [31:0] wrbk_fpxx_arith_res_lo_m = wrbk_fpxx_arith_miss_r ? fpxx_arith_res_lo_p : s4t_fpxx_arith_res_lo;
   // ---
   always @(posedge cpu_clk) begin
     if(padv_wrbk_i) begin
@@ -733,13 +733,13 @@ module pfpu_rnd_marocchino
         wrbk_fpxx_arith_res_hi_o <= 32'd0;
         wrbk_fpxx_arith_res_lo_o <= 32'd0;
       end
-    end // WB-advance
+    end // Write-Back-advance
   end // @clock
 
-  // WB: flags
+  // Write-Back: flags
   always @(posedge cpu_clk) begin
     if (padv_wrbk_i & grant_wrbk_to_fpxx_arith_i) begin
-      wrbk_fpxx_arith_fpcsr_o    <= fpxx_arith_wb_miss_r ? fpxx_arith_fpcsr_we_p : exec_fpxx_arith_fpcsr;
+      wrbk_fpxx_arith_fpcsr_o    <= wrbk_fpxx_arith_miss_r ? fpxx_arith_fpcsr_we_p : s4t_fpxx_arith_fpcsr;
       wrbk_except_fpxx_arith_o   <= mux_except_fpxx_arith;
       wrbk_fpxx_arith_fpcsr_we_o <= 1'b1;
     end

@@ -16,8 +16,8 @@
 //                      Stefan Kristiansson                           //
 //                      stefan.kristiansson@saunalahti.fi             //
 //                                                                    //
-//   Copyright (C) 2015 Andrey Bacherov                               //
-//                      avbacherov@opencores.org                      //
+//   Copyright (C) 2015-2018 Andrey Bacherov                          //
+//                           avbacherov@opencores.org                 //
 //                                                                    //
 //      This Source Code Form is subject to the terms of the          //
 //      Open Hardware Description License, v. 1.0. If a copy          //
@@ -195,7 +195,7 @@ module mor1kx_marocchino_alone
   )
   ibus_bridge
   (
-    // WB-domain: clock and reset
+    // WishBone-domain: clock and reset
     .wb_clk           (wb_clk), // IBUS_BRIDGE
     .wb_rst           (wb_rst), // IBUS_BRIDGE
     // CPU-domain: clock and reset
@@ -250,7 +250,7 @@ module mor1kx_marocchino_alone
   )
   dbus_bridge
   (
-    // WB-domain: clock and reset
+    // WishBone-domain: clock and reset
     .wb_clk           (wb_clk), // DBUS_BRIDGE
     .wb_rst           (wb_rst), // DBUS_BRIDGE
     // CPU-domain: clock and reset

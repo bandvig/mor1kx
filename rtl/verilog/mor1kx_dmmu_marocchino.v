@@ -12,7 +12,7 @@
 //   Copyright (C) 2013 Stefan Kristiansson                        //
 //                      stefan.kristiansson@saunalahti.fi          //
 //                                                                 //
-//   Copyright (C) 2015-2017 Andrey Bacherov                       //
+//   Copyright (C) 2015-2018 Andrey Bacherov                       //
 //                           avbacherov@opencores.org              //
 //                                                                 //
 //      This Source Code Form is subject to the terms of the       //
@@ -144,8 +144,8 @@ module mor1kx_dmmu_marocchino
   // SPR interface //
   //---------------//
 
-  //  we don't expect R/W-collisions for SPRbus vs WB cycles since
-  //    SPRbus access start 1-clock later than WB
+  //  we don't expect R/W-collisions for SPRbus vs Write-Back cycles since
+  //    SPRbus access start 1-clock later than Write-Back
   //    thanks to MT(F)SPR processing logic (see OMAN)
 
   // Registering SPR BUS incoming signals.

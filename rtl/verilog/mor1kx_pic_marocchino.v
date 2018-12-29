@@ -19,8 +19,8 @@
 //   Copyright (C) 2012 Julius Baxter                                 //
 //                      juliusbaxter@gmail.com                        //
 //                                                                    //
-//   Copyright (C) 2017 Andrey Bacherov                               //
-//                      avbacherov@opencores.org                      //
+//   Copyright (C) 2017-2018 Andrey Bacherov                          //
+//                           avbacherov@opencores.org                 //
 //                                                                    //
 //      This Source Code Form is subject to the terms of the          //
 //      Open Hardware Description License, v. 1.0. If a copy          //
@@ -68,8 +68,8 @@ module mor1kx_pic_marocchino
   // SPR interface //
   //---------------//
 
-  //  we don't expect R/W-collisions for SPRbus vs WB cycles since
-  //    SPRbus access start 1-clock later than WB
+  //  we don't expect R/W-collisions for SPRbus vs Write-Back cycles since
+  //    SPRbus access start 1-clock later than Write-Back
   //    thanks to MT(F)SPR processing logic (see OMAN)
 
   // CPU -> Wishbone clock domain

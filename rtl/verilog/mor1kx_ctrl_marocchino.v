@@ -20,8 +20,8 @@
 //   Copyright (C) 2012-2013 Stefan Kristiansson                      //
 //                           stefan.kristiansson@saunalahti.fi        //
 //                                                                    //
-//   Copyright (C) 2015 Andrey Bacherov                               //
-//                      avbacherov@opencores.org                      //
+//   Copyright (C) 2015-2018 Andrey Bacherov                          //
+//                           avbacherov@opencores.org                 //
 //                                                                    //
 //      This Source Code Form is subject to the terms of the          //
 //      Open Hardware Description License, v. 1.0. If a copy          //
@@ -154,18 +154,18 @@ module mor1kx_ctrl_marocchino
   input      [OPTION_OPERAND_WIDTH-1:0] spr_bus_dat_gprS_i,
   input                                 spr_bus_ack_gprS_i,
 
-  // WB: External Interrupt Collection
+  // Write-Back: External Interrupt Collection
   output                                tt_interrupt_enable_o,
   output                                pic_interrupt_enable_o,
   input                                 wrbk_tt_interrupt_i,
   input                                 wrbk_pic_interrupt_i,
 
-  // WB: programm counter
+  // Write-Back: programm counter
   input      [OPTION_OPERAND_WIDTH-1:0] pc_wrbk_i,
   input      [OPTION_OPERAND_WIDTH-1:0] pc_nxt_wrbk_i,
   input      [OPTION_OPERAND_WIDTH-1:0] pc_nxt2_wrbk_i,
 
-  // WB: flag
+  // Write-Back: flag
   input                                 wrbk_int_flag_set_i,
   input                                 wrbk_int_flag_clear_i,
   input                                 wrbk_fpxx_flag_set_i,
@@ -173,13 +173,13 @@ module mor1kx_ctrl_marocchino
   input                                 wrbk_atomic_flag_set_i,
   input                                 wrbk_atomic_flag_clear_i,
 
-  // WB: carry
+  // Write-Back: carry
   input                                 wrbk_div_carry_set_i,
   input                                 wrbk_div_carry_clear_i,
   input                                 wrbk_1clk_carry_set_i,
   input                                 wrbk_1clk_carry_clear_i,
 
-  // WB: overflow
+  // Write-Back: overflow
   input                                 wrbk_div_overflow_set_i,
   input                                 wrbk_div_overflow_clear_i,
   input                                 wrbk_1clk_overflow_set_i,
@@ -562,7 +562,7 @@ module mor1kx_ctrl_marocchino
   // Pipeline control logic //
   //------------------------//
 
-  // Pipeline flush by DU/exceptions/rfe (l.rfe is in wb-an-except)
+  // Pipeline flush by DU/exceptions/rfe (l.rfe is in wrbk-an-except)
   localparam [2:0] FLUSH_FSM_WAITING   = 3'b001,
                    FLUSH_FSM_BY_DU     = 3'b010,
                    FLUSH_FSM_BY_EXCEPT = 3'b100;
@@ -612,20 +612,20 @@ module mor1kx_ctrl_marocchino
   end // @ clock
 
 
-  //--------------------------------//
-  // special flag that WB is active //
-  //--------------------------------//
+  //----------------------------------------//
+  // special flag that Write-Back is active //
+  //----------------------------------------//
 
-  // 1-clock length 1-clock delayed padv-wb-o for updating SPRs
-  reg  ctrl_spr_wb_r;
+  // 1-clock length 1-clock delayed padv-wrbk-o for updating SPRs
+  reg  wrbk_spr_we_r;
   // ---
   always @(posedge cpu_clk) begin
     if (cpu_rst)
-      ctrl_spr_wb_r <= 1'b0;    // cpu reset
+      wrbk_spr_we_r <= 1'b0;    // cpu reset
     else if (padv_wrbk_o)
-      ctrl_spr_wb_r <= 1'b1;    // proc write-back
+      wrbk_spr_we_r <= 1'b1;    // proc write-back
     else
-      ctrl_spr_wb_r <= 1'b0;    // 1-clk-length
+      wrbk_spr_we_r <= 1'b0;    // 1-clk-length
   end // @ clock
 
 
@@ -669,15 +669,15 @@ module mor1kx_ctrl_marocchino
   assign padv_fpxx_rsrvs_o   = ena_fpxx_rsrvs   & padv_an_exec_unit;
   assign padv_lsu_rsrvs_o    = ena_lsu_rsrvs    & padv_an_exec_unit;
   wire   padv_op_mXspr       = ena_op_mXspr     & padv_an_exec_unit;
-  // Pass step from DECODE to WB
-  wire   pass_step_to_wb     = pstep[1]; // for DU
+  // Pass step from DECODE to Write-Back
+  wire   pass_step_to_wrbk   = pstep[1]; // for DU
 
 
   // Advance Write Back latches
   wire   exec_valid_l = exec_valid_i | op_mXspr_valid;
   assign padv_wrbk_o  = exec_valid_l & padv_all & ((~stepping) | pstep[2]);
   // Complete the step
-  wire   pass_step_to_stall = padv_wrbk_o; // for DU
+  wire   pass_step_to_stall = padv_wrbk_o; // for DU: must be equal to padv-wrbk
 
 
   //-----------------------------------//
@@ -727,7 +727,7 @@ module mor1kx_ctrl_marocchino
 
   // alias for SR[F]
   assign  sr_flag = spr_sr[`OR1K_SPR_SR_F];
-  // WB: External Interrupt Collection
+  // Write-Back: External Interrupt Collection
   assign  tt_interrupt_enable_o  = spr_sr[`OR1K_SPR_SR_TEE];
   assign  pic_interrupt_enable_o = spr_sr[`OR1K_SPR_SR_IEE];
   // enable modules
@@ -776,7 +776,7 @@ module mor1kx_ctrl_marocchino
       spr_sr[`OR1K_SPR_SR_DSX]  <= spr_sys_group_wdat_r[`OR1K_SPR_SR_DSX];
       spr_sr[`OR1K_SPR_SR_EPH]  <= spr_sys_group_wdat_r[`OR1K_SPR_SR_EPH];
     end
-    else if (ctrl_spr_wb_r) begin
+    else if (wrbk_spr_we_r) begin
       // OVERFLOW / FLAG / CARRY fields update
       spr_sr[`OR1K_SPR_SR_OV] <= ctrl_overflow;
       spr_sr[`OR1K_SPR_SR_F]  <= ctrl_flag_o;
@@ -800,7 +800,7 @@ module mor1kx_ctrl_marocchino
   always @(posedge cpu_clk) begin
     if (cpu_rst)
       spr_ppc <= OPTION_RESET_PC;
-    else if (ctrl_spr_wb_r) // Track PC
+    else if (wrbk_spr_we_r) // Track PC
       spr_ppc <= pc_wrbk_i;
   end // @ clock
 
@@ -808,13 +808,13 @@ module mor1kx_ctrl_marocchino
   // Last conditional branch taken
   wire wb_bc_taken = wrbk_op_bf_i ? sr_flag : (~sr_flag);
   // Target of last taken branch.
-  // To set correct NPC at delay slot in WB
+  // To set correct NPC at delay slot in Write-Back
   reg [OPTION_OPERAND_WIDTH-1:0] pc_next_to_delay_slot;
   // !!! don't flush it because it is used for stepped_into_delay_slot !!!
   always @(posedge cpu_clk) begin
     if (cpu_rst)
       pc_next_to_delay_slot <= {OPTION_OPERAND_WIDTH{1'b0}};
-    else if (ctrl_spr_wb_r & wrbk_jump_or_branch_i) // PC next to delay slot
+    else if (wrbk_spr_we_r & wrbk_jump_or_branch_i) // PC next to delay slot
       pc_next_to_delay_slot <= (wrbk_jump_i | wb_bc_taken) ? wrbk_jb_target_i : pc_nxt2_wrbk_i;
   end // @ clock
 
@@ -829,13 +829,13 @@ module mor1kx_ctrl_marocchino
     else if (du_npc_we)          // Write restart PC and ...
       spr_npc <= spr_sys_group_wdat_r;
     else if (~du_npc_hold) begin // ... hold it till restart command from Debug System
-      if (ctrl_spr_wb_r) begin                                   // Track NPC: regular update
+      if (wrbk_spr_we_r) begin                                   // Track NPC: regular update
         spr_npc <= wrbk_except_trap_i ? pc_wrbk_i :              // Track NPC: regular update
                    (wrbk_delay_slot_i  ? pc_next_to_delay_slot : // Track NPC: regular update
                                          pc_nxt_wrbk_i);         // Track NPC: regular update
       end
       else begin
-        // any "stepped_into_*" is 1-clock delayed "ctrl_spr_wb_r"
+        // any "stepped_into_*" is 1-clock delayed "wrbk_spr_we_r"
         spr_npc <= stepped_into_exception  ? exception_pc_addr     :   // Track NPC: step-by-step
                    (stepped_into_rfe        ? spr_epcr              :  // Track NPC: step-by-step
                     (stepped_into_delay_slot ? pc_next_to_delay_slot : // Track NPC: step-by-step
@@ -918,7 +918,7 @@ module mor1kx_ctrl_marocchino
   // MT(F)SPR_RULE:
   //   Before issuing MT(F)SPR, OMAN waits till order control buffer has become
   // empty. Also we don't issue new instruction till l.mf(t)spr completion.
-  //   So, we don't need neither operand forwarding nor 'grant WB-access' signal here.
+  //   So, we don't need neither operand forwarding nor 'grant Write-Back-access' signal here.
   //
 
   // SPR BUS controller states
@@ -1429,10 +1429,8 @@ module mor1kx_ctrl_marocchino
     //       command or current step completion we generate pipe flushing
     //       AFTER the last instuction completes write back.
     //
-    wire doing_wb = pstep[3];
-    //
-    wire du_cpu_stall_by_cmd      = doing_wb & du_stall_i;
-    wire du_cpu_stall_by_stepping = doing_wb & stepping;
+    wire du_cpu_stall_by_cmd      = wrbk_spr_we_r & du_stall_i;
+    wire du_cpu_stall_by_stepping = wrbk_spr_we_r & stepping;
     wire du_cpu_stall_by_trap     = wrbk_except_trap_i;
 
     //
@@ -1507,20 +1505,14 @@ module mor1kx_ctrl_marocchino
         if (du_cpu_stall & (~du_stall_i)) // the condition is equal to stall->unstall one
           pstep_r <= 4'b0001;
         else if (pass_step_to_exec |
-                 pass_step_to_wb   | pass_step_to_stall | doing_wb)
+                 pass_step_to_wrbk | pass_step_to_stall | wrbk_spr_we_r)
           pstep_r <= {pstep_r[2:0],1'b0};
-      end
-      else begin
-        if (padv_wrbk_o)
-          pstep_r <= 4'b1000; // 1-clock delayed padv-wb on regular pipe advancing
-        else
-          pstep_r <= 4'b0000; // 1-clock delayed padv-wb on regular pipe advancing
       end
     end // @ clock
 
 
     // Any "stepped_into_*" is
-    //  (a) 1-clock delayed "ctrl_spr_wb_r"
+    //  (a) 1-clock delayed "wrbk_spr_we_r"
     //  (b) 1-clock length
     //  (c) used for correct tracking "Next PC"
 
@@ -1575,7 +1567,7 @@ module mor1kx_ctrl_marocchino
       if (cpu_rst)
         stepped_into_delay_slot_r <= 1'b0;
       else
-        stepped_into_delay_slot_r <= stepping & ctrl_spr_wb_r & du_jump_or_branch_p;
+        stepped_into_delay_slot_r <= stepping & wrbk_spr_we_r & du_jump_or_branch_p;
     end // @ clock
     // ---
     assign stepped_into_delay_slot = stepped_into_delay_slot_r; // DU enabled

@@ -15,7 +15,7 @@
 //   Copyright (C) 2012-2014 Stefan Kristiansson                    //
 //                           stefan.kristiansson@saunalahti.fi      //
 //                                                                  //
-//   Copyright (C) 2015-2016 Andrey Bacherov                        //
+//   Copyright (C) 2015-2018 Andrey Bacherov                        //
 //                           avbacherov@opencores.org               //
 //                                                                  //
 //      This Source Code Form is subject to the terms of the        //
@@ -64,19 +64,19 @@ module mor1kx_rf_marocchino
   input  [OPTION_OPERAND_WIDTH-1:0] dcod_immediate_i,
   input                             dcod_immediate_sel_i,
 
-  // Special WB-controls for RF
+  // Special Write-Back-controls for RF
   input  [OPTION_RF_ADDR_WIDTH-1:0] wrbk_rf_even_addr_i,
   input                             wrbk_rf_even_we_i,
   input  [OPTION_RF_ADDR_WIDTH-1:0] wrbk_rf_odd_addr_i,
   input                             wrbk_rf_odd_we_i,
 
-  // from WB
+  // from Write-Back
   input                             wrbk_rfd1_odd_i,
   input  [OPTION_OPERAND_WIDTH-1:0] wrbk_result1_i,
   // for FPU64
   input  [OPTION_OPERAND_WIDTH-1:0] wrbk_result2_i,
 
-  // 1-clock "WB to DECODE operand forwarding" flags
+  // 1-clock "Write-Back to DECODE operand forwarding" flags
   //  # relative operand A1
   input                            dcod_wrb2dec_d1a1_fwd_i,
   input                            dcod_wrb2dec_d2a1_fwd_i,
@@ -348,8 +348,8 @@ module mor1kx_rf_marocchino
   // SPR interface //
   //---------------//
 
-  //  we don't expect R/W-collisions for SPRbus vs WB cycles since
-  //    SPRbus access start 1-clock later than WB
+  //  we don't expect R/W-collisions for SPRbus vs Write-Back cycles since
+  //    SPRbus access start 1-clock later than Write-Back
   //    thanks to MT(F)SPR processing logic (see OMAN)
 
   // Registering SPR BUS incoming signals.

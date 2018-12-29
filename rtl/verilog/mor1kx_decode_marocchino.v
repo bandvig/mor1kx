@@ -20,8 +20,8 @@
 //   Copyright (C) 2013 Stefan Kristiansson                           //
 //                      stefan.kristiansson@saunalahti.fi             //
 //                                                                    //
-//   Copyright (C) 2015 Andrey Bacherov                               //
-//                      avbacherov@opencores.org                      //
+//   Copyright (C) 2015-2018 Andrey Bacherov                          //
+//                           avbacherov@opencores.org                 //
 //                                                                    //
 //      This Source Code Form is subject to the terms of the          //
 //      Open Hardware Description License, v. 1.0. If a copy          //
@@ -73,11 +73,11 @@ module mor1kx_decode_marocchino
   output reg                            dcod_delay_slot_o,
 
   // destiny D1
-  output reg [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfd1_adr_o, // address of WB
-  output reg                            dcod_rfd1_we_o,  // instruction performes WB to D1
+  output reg [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfd1_adr_o, // address of Write-Back
+  output reg                            dcod_rfd1_we_o,  // instruction performes Write-Back to D1
   // destiny D2 (for FPU64)
   output reg [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfd2_adr_o, // D2 address
-  output reg                            dcod_rfd2_we_o, // instruction performes WB to D2
+  output reg                            dcod_rfd2_we_o, // instruction performes Write-Back to D2
 
   // instruction PC
   input      [OPTION_OPERAND_WIDTH-1:0] pc_fetch_i,
@@ -744,7 +744,7 @@ module mor1kx_decode_marocchino
   //--------------------------//
 
   // Notes about instructions which push EXECUTION / WRITE-BACK without extra conditions
-  //  # l.msync - locks LSU, but takes slot in OMAN to pushing WB
+  //  # l.msync - locks LSU, but takes slot in OMAN to pushing Write-Back
   //  # l.jal / l.jalr - go through 1-CLK
   wire op_jb_push_exec = (opc_insn == `OR1K_OPCODE_J)  | (opc_insn == `OR1K_OPCODE_JR) | // J/B PUSH EXECUTE
                          (opc_insn == `OR1K_OPCODE_BF) | (opc_insn == `OR1K_OPCODE_BNF); // J/B PUSH EXECUTE

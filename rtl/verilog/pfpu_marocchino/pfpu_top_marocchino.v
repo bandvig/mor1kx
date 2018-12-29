@@ -8,8 +8,8 @@
 //                                                                 //
 /////////////////////////////////////////////////////////////////////
 //                                                                 //
-//   Copyright (C) 2015 Andrey Bacherov                            //
-//                      avbacherov@opencores.org                   //
+//   Copyright (C) 2015-2018 Andrey Bacherov                       //
+//                           avbacherov@opencores.org              //
 //                                                                 //
 //   This source file may be used and distributed without          //
 //   restriction provided that this copyright statement is not     //
@@ -61,8 +61,8 @@ module pfpu_top_marocchino
 
   // pipeline control outputs
   output                              fpxx_taking_op_o,
-  output                              fpxx_arith_valid_o,  // WB-latching ahead arithmetic ready flag
-  output                              fpxx_cmp_valid_o,    // WB-latching ahead comparison ready flag
+  output                              fpxx_arith_valid_o,  // ahead to Write-Back arithmetic ready flag
+  output                              fpxx_cmp_valid_o,    // ahead to Write-Back comparison ready flag
 
   // Configuration
   input     [`OR1K_FPCSR_RM_SIZE-1:0] fpu_round_mode_i,
@@ -88,7 +88,7 @@ module pfpu_top_marocchino
   input                        [31:0] exec_fpxx_a2_i,
   input                        [31:0] exec_fpxx_b2_i,
 
-  // pre WB outputs
+  // pre Write-Back outputs
   output                              exec_except_fpxx_arith_o, // exception by FP3264-arithmetic
   output                              exec_except_fpxx_cmp_o,   // exception by FP64-comparison
 
@@ -584,9 +584,9 @@ pfpu_rnd_marocchino u_pfpu_rnd
   .ocb_snan_i                 (ocb_snan), // PFPU_RND
   .ocb_qnan_i                 (ocb_qnan), // PFPU_RND
   .ocb_anan_sign_i            (ocb_anan_sign), // PFPU_RND
-  // pre-WB outputs
+  // pre-Write-Back outputs
   .exec_except_fpxx_arith_o   (exec_except_fpxx_arith_o), // PFPU_RND
-  // output WB latches
+  // output Write-Back latches
   .wrbk_fpxx_arith_res_hi_o   (wrbk_fpxx_arith_res_hi_o), // PFPU_RND
   .wrbk_fpxx_arith_res_lo_o   (wrbk_fpxx_arith_res_lo_o), // PFPU_RND
   .wrbk_fpxx_arith_fpcsr_o    (wrbk_fpxx_arith_fpcsr_o), // PFPU_RND
@@ -628,10 +628,10 @@ pfpu_cmp_marocchino u_fpxx_cmp
   .fpu_mask_flags_inv_i       (fpu_mask_flags_r[`OR1K_FPCSR_IVF - `OR1K_FPCSR_OVF]), // PFPU_CMP
   .fpu_mask_flags_inf_i       (fpu_mask_flags_r[`OR1K_FPCSR_INF - `OR1K_FPCSR_OVF]), // PFPU_CMP
   // Outputs
-  //  # pre WB
+  //  # pre Write-Back
   .fpxx_cmp_valid_o           (fpxx_cmp_valid_o), // PFPU_CMP
   .exec_except_fpxx_cmp_o     (exec_except_fpxx_cmp_o), // PFPU_CMP
-  //  # WB-latched
+  //  # Write-Back-latched
   .wrbk_fpxx_flag_set_o       (wrbk_fpxx_flag_set_o), // PFPU_CMP
   .wrbk_fpxx_flag_clear_o     (wrbk_fpxx_flag_clear_o), // PFPU_CMP
   .wrbk_fpxx_cmp_inv_o        (wrbk_fpxx_cmp_inv_o), // PFPU_CMP
