@@ -45,10 +45,10 @@ module rat_cell
 
   // input allocation information
   //  # allocated as D1
-  input                                 dcod_rfd1_wb_i,
+  input                                 dcod_rfd1_we_i,
   input      [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfd1_adr_i,
   //  # allocated as D2
-  input                                 dcod_rfd2_wb_i,
+  input                                 dcod_rfd2_we_i,
   input      [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfd2_adr_i,
   //  # allocation id
   input         [DEST_EXTADR_WIDTH-1:0] dcod_extadr_i,
@@ -65,8 +65,8 @@ module rat_cell
   localparam [OPTION_RF_ADDR_WIDTH-1:0] GPR_ADR = GPR_ADDR;
 
   // set allocation flags
-  wire set_rd1_alloc = dcod_rfd1_wb_i & (dcod_rfd1_adr_i == GPR_ADR);
-  wire set_rd2_alloc = dcod_rfd2_wb_i & (dcod_rfd2_adr_i == GPR_ADR);
+  wire set_rd1_alloc = dcod_rfd1_we_i & (dcod_rfd1_adr_i == GPR_ADR);
+  wire set_rd2_alloc = dcod_rfd2_we_i & (dcod_rfd2_adr_i == GPR_ADR);
   wire set_rdx_alloc = (set_rd1_alloc | set_rd2_alloc);
 
   // condition to keep allocation flags at write-back
@@ -144,7 +144,7 @@ module mor1kx_oman_marocchino
 
   // DECODE flags to indicate next required unit
   // (The information is stored in order control buffer)
-  input                                 dcod_op_push_wb_i,
+  input                                 dcod_op_push_wrbk_i,
   input                                 fetch_op_jb_i,
   input                                 dcod_op_div_i,
   input                                 dcod_op_mul_i,
@@ -158,11 +158,11 @@ module mor1kx_oman_marocchino
   //  part #1: information stored in order control buffer
   input      [OPTION_OPERAND_WIDTH-1:0] pc_decode_i,            // instruction virtual address
   input      [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfd1_adr_i,        // WB address
-  input                                 dcod_rfd1_wb_i,         // instruction generates WB to D1
-  input                                 dcod_flag_wb_i,         // any instruction which affects comparison flag
+  input                                 dcod_rfd1_we_i,         // instruction generates WB to D1
+  input                                 dcod_flag_we_i,         // any instruction which affects comparison flag
   input                                 dcod_delay_slot_i,      // instruction is in delay slot
   input      [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfd2_adr_i,        // WB2 address for FPU64
-  input                                 dcod_rfd2_wb_i,         // instruction generates WB to D2
+  input                                 dcod_rfd2_we_i,         // instruction generates WB to D2
   //  part #2: information required for create enable for
   //           for external (timer/ethernet/uart/etc) interrupts
   input                                 dcod_op_lsu_store_i,
@@ -191,17 +191,17 @@ module mor1kx_oman_marocchino
 
   // 1-clock "WB to DECODE operand forwarding" flags
   //  # relative operand A1
-  output reg                            dcod_wb2dec_d1a1_fwd_o,
-  output reg                            dcod_wb2dec_d2a1_fwd_o,
+  output reg                            dcod_wrb2dec_d1a1_fwd_o,
+  output reg                            dcod_wrb2dec_d2a1_fwd_o,
   //  # relative operand B1
-  output reg                            dcod_wb2dec_d1b1_fwd_o,
-  output reg                            dcod_wb2dec_d2b1_fwd_o,
+  output reg                            dcod_wrb2dec_d1b1_fwd_o,
+  output reg                            dcod_wrb2dec_d2b1_fwd_o,
   //  # relative operand A2
-  output reg                            dcod_wb2dec_d1a2_fwd_o,
-  output reg                            dcod_wb2dec_d2a2_fwd_o,
+  output reg                            dcod_wrb2dec_d1a2_fwd_o,
+  output reg                            dcod_wrb2dec_d2a2_fwd_o,
   //  # relative operand B2
-  output reg                            dcod_wb2dec_d1b2_fwd_o,
-  output reg                            dcod_wb2dec_d2b2_fwd_o,
+  output reg                            dcod_wrb2dec_d1b2_fwd_o,
+  output reg                            dcod_wrb2dec_d2b2_fwd_o,
 
   // OMAN-to-DECODE hazards
   //  # relative operand A1
@@ -298,9 +298,9 @@ module mor1kx_oman_marocchino
   // WB outputs
   //  ## special WB-controls for RF
   output reg [OPTION_RF_ADDR_WIDTH-1:0] wrbk_rf_even_addr_o,
-  output reg                            wrbk_rf_even_wb_o,
+  output reg                            wrbk_rf_even_we_o,
   output reg [OPTION_RF_ADDR_WIDTH-1:0] wrbk_rf_odd_addr_o,
-  output reg                            wrbk_rf_odd_wb_o,
+  output reg                            wrbk_rf_odd_we_o,
   //  ## instruction related information
   output reg [OPTION_OPERAND_WIDTH-1:0] pc_wrbk_o,
   output reg [OPTION_OPERAND_WIDTH-1:0] pc_nxt_wrbk_o, // pc-wrbk + 4
@@ -446,13 +446,13 @@ module mor1kx_oman_marocchino
       dcod_op_div_i, // OCB-Controls entrance
       dcod_op_1clk_i, // OCB-Controls entrance
       dcod_op_jb_r, // OCB-Controls entrance
-      dcod_op_push_wb_i, // OCB-Controls entrance
+      dcod_op_push_wrbk_i, // OCB-Controls entrance
       // --- instruction [A]ttributes ---
       pc_decode_i, // OCB-Attributes entrance
       dcod_rfd2_adr_i, // OCB-Attributes entrance
-      dcod_rfd2_wb_i, // OCB-Attributes entrance
+      dcod_rfd2_we_i, // OCB-Attributes entrance
       dcod_rfd1_adr_i, // OCB-Attributes entrance
-      dcod_rfd1_wb_i, // OCB-Attributes entrance
+      dcod_rfd1_we_i, // OCB-Attributes entrance
       dcod_delay_slot_i, // OCB-Attributes entrance
       dcod_op_rfe_i, // OCB-Attributes entrance
       // Flag that istruction is restartable
@@ -588,10 +588,10 @@ module mor1kx_oman_marocchino
       .pipeline_flush_i       (pipeline_flush_i), // RAT-CELL
       // input allocation information
       //  # allocated as D1
-      .dcod_rfd1_wb_i         (dcod_rfd1_wb_i), // RAT-CELL
+      .dcod_rfd1_we_i         (dcod_rfd1_we_i), // RAT-CELL
       .dcod_rfd1_adr_i        (dcod_rfd1_adr_i), // RAT-CELL
       //  # allocated as D2
-      .dcod_rfd2_wb_i         (dcod_rfd2_wb_i), // RAT-CELL
+      .dcod_rfd2_we_i         (dcod_rfd2_we_i), // RAT-CELL
       .dcod_rfd2_adr_i        (dcod_rfd2_adr_i), // RAT-CELL
       //  # allocation id
       .dcod_extadr_i          (dcod_extadr_r), // RAT-CELL
@@ -624,20 +624,20 @@ module mor1kx_oman_marocchino
   wire omn2dec_hazard_d2b2_w = rat_rd2_alloc[dcod_rfb2_adr] & dcod_rfb2_req;
 
   //  # relative operand A1
-  assign omn2dec_hazard_d1a1_o = omn2dec_hazard_d1a1_w & (~dcod_wb2dec_d1a1_fwd_o);
-  assign omn2dec_hazard_d2a1_o = omn2dec_hazard_d2a1_w & (~dcod_wb2dec_d2a1_fwd_o);
+  assign omn2dec_hazard_d1a1_o = omn2dec_hazard_d1a1_w & (~dcod_wrb2dec_d1a1_fwd_o);
+  assign omn2dec_hazard_d2a1_o = omn2dec_hazard_d2a1_w & (~dcod_wrb2dec_d2a1_fwd_o);
   assign omn2dec_extadr_dxa1_o = rat_extadr[dcod_rfa1_adr];
   //  # relative operand B1
-  assign omn2dec_hazard_d1b1_o = omn2dec_hazard_d1b1_w & (~dcod_wb2dec_d1b1_fwd_o);
-  assign omn2dec_hazard_d2b1_o = omn2dec_hazard_d2b1_w & (~dcod_wb2dec_d2b1_fwd_o);
+  assign omn2dec_hazard_d1b1_o = omn2dec_hazard_d1b1_w & (~dcod_wrb2dec_d1b1_fwd_o);
+  assign omn2dec_hazard_d2b1_o = omn2dec_hazard_d2b1_w & (~dcod_wrb2dec_d2b1_fwd_o);
   assign omn2dec_extadr_dxb1_o = rat_extadr[dcod_rfb1_adr];
   //  # relative operand A2
-  assign omn2dec_hazard_d1a2_o = omn2dec_hazard_d1a2_w & (~dcod_wb2dec_d1a2_fwd_o);
-  assign omn2dec_hazard_d2a2_o = omn2dec_hazard_d2a2_w & (~dcod_wb2dec_d2a2_fwd_o);
+  assign omn2dec_hazard_d1a2_o = omn2dec_hazard_d1a2_w & (~dcod_wrb2dec_d1a2_fwd_o);
+  assign omn2dec_hazard_d2a2_o = omn2dec_hazard_d2a2_w & (~dcod_wrb2dec_d2a2_fwd_o);
   assign omn2dec_extadr_dxa2_o = rat_extadr[dcod_rfa2_adr];
   //  # relative operand B2
-  assign omn2dec_hazard_d1b2_o = omn2dec_hazard_d1b2_w & (~dcod_wb2dec_d1b2_fwd_o);
-  assign omn2dec_hazard_d2b2_o = omn2dec_hazard_d2b2_w & (~dcod_wb2dec_d2b2_fwd_o);
+  assign omn2dec_hazard_d1b2_o = omn2dec_hazard_d1b2_w & (~dcod_wrb2dec_d1b2_fwd_o);
+  assign omn2dec_hazard_d2b2_o = omn2dec_hazard_d2b2_w & (~dcod_wrb2dec_d2b2_fwd_o);
   assign omn2dec_extadr_dxb2_o = rat_extadr[dcod_rfb2_adr];
 
 
@@ -665,17 +665,17 @@ module mor1kx_oman_marocchino
 
   // No DECODE-to-FETCH reservation (write-back is overlapping advance decode)
   //  # relative operand A1
-  wire dcd2fth_d1a1_free = (dcod_rfd1_adr_i != fetch_rfa1_adr_i) | (~dcod_rfd1_wb_i) | (~ratin_rfa1_req_i);
-  wire dcd2fth_d2a1_free = (dcod_rfd2_adr_i != fetch_rfa1_adr_i) | (~dcod_rfd2_wb_i) | (~ratin_rfa1_req_i);
+  wire dcd2fth_d1a1_free = (dcod_rfd1_adr_i != fetch_rfa1_adr_i) | (~dcod_rfd1_we_i) | (~ratin_rfa1_req_i);
+  wire dcd2fth_d2a1_free = (dcod_rfd2_adr_i != fetch_rfa1_adr_i) | (~dcod_rfd2_we_i) | (~ratin_rfa1_req_i);
   //  # relative operand B1
-  wire dcd2fth_d1b1_free = (dcod_rfd1_adr_i != fetch_rfb1_adr_i) | (~dcod_rfd1_wb_i) | (~ratin_rfb1_req_i);
-  wire dcd2fth_d2b1_free = (dcod_rfd2_adr_i != fetch_rfb1_adr_i) | (~dcod_rfd2_wb_i) | (~ratin_rfb1_req_i);
+  wire dcd2fth_d1b1_free = (dcod_rfd1_adr_i != fetch_rfb1_adr_i) | (~dcod_rfd1_we_i) | (~ratin_rfb1_req_i);
+  wire dcd2fth_d2b1_free = (dcod_rfd2_adr_i != fetch_rfb1_adr_i) | (~dcod_rfd2_we_i) | (~ratin_rfb1_req_i);
   //  # relative operand A2
-  wire dcd2fth_d1a2_free = (dcod_rfd1_adr_i != fetch_rfa2_adr_i) | (~dcod_rfd1_wb_i) | (~ratin_rfa2_req_i);
-  wire dcd2fth_d2a2_free = (dcod_rfd2_adr_i != fetch_rfa2_adr_i) | (~dcod_rfd2_wb_i) | (~ratin_rfa2_req_i);
+  wire dcd2fth_d1a2_free = (dcod_rfd1_adr_i != fetch_rfa2_adr_i) | (~dcod_rfd1_we_i) | (~ratin_rfa2_req_i);
+  wire dcd2fth_d2a2_free = (dcod_rfd2_adr_i != fetch_rfa2_adr_i) | (~dcod_rfd2_we_i) | (~ratin_rfa2_req_i);
   //  # relative operand B2
-  wire dcd2fth_d1b2_free = (dcod_rfd1_adr_i != fetch_rfb2_adr_i) | (~dcod_rfd1_wb_i) | (~ratin_rfb2_req_i);
-  wire dcd2fth_d2b2_free = (dcod_rfd2_adr_i != fetch_rfb2_adr_i) | (~dcod_rfd2_wb_i) | (~ratin_rfb2_req_i);
+  wire dcd2fth_d1b2_free = (dcod_rfd1_adr_i != fetch_rfb2_adr_i) | (~dcod_rfd1_we_i) | (~ratin_rfb2_req_i);
+  wire dcd2fth_d2b2_free = (dcod_rfd2_adr_i != fetch_rfb2_adr_i) | (~dcod_rfd2_we_i) | (~ratin_rfb2_req_i);
 
   // EXECUTE-to-FETCH forwarding is possible (write-back is overlapping advance decode)
   //  # relative operand A1
@@ -702,47 +702,47 @@ module mor1kx_oman_marocchino
       // when write-back only
       2'b10: begin
         //  # relative operand A1
-        dcod_wb2dec_d1a1_fwd_o <= exe2dec_d1a1_fwd;
-        dcod_wb2dec_d2a1_fwd_o <= exe2dec_d2a1_fwd;
+        dcod_wrb2dec_d1a1_fwd_o <= exe2dec_d1a1_fwd;
+        dcod_wrb2dec_d2a1_fwd_o <= exe2dec_d2a1_fwd;
         //  # relative operand B1
-        dcod_wb2dec_d1b1_fwd_o <= exe2dec_d1b1_fwd;
-        dcod_wb2dec_d2b1_fwd_o <= exe2dec_d2b1_fwd;
+        dcod_wrb2dec_d1b1_fwd_o <= exe2dec_d1b1_fwd;
+        dcod_wrb2dec_d2b1_fwd_o <= exe2dec_d2b1_fwd;
         //  # relative operand A2
-        dcod_wb2dec_d1a2_fwd_o <= exe2dec_d1a2_fwd;
-        dcod_wb2dec_d2a2_fwd_o <= exe2dec_d2a2_fwd;
+        dcod_wrb2dec_d1a2_fwd_o <= exe2dec_d1a2_fwd;
+        dcod_wrb2dec_d2a2_fwd_o <= exe2dec_d2a2_fwd;
         //  # relative operand B2
-        dcod_wb2dec_d1b2_fwd_o <= exe2dec_d1b2_fwd;
-        dcod_wb2dec_d2b2_fwd_o <= exe2dec_d2b2_fwd;
+        dcod_wrb2dec_d1b2_fwd_o <= exe2dec_d1b2_fwd;
+        dcod_wrb2dec_d2b2_fwd_o <= exe2dec_d2b2_fwd;
       end
       // when write-back is overlapping advance decode
       2'b11: begin
         //  # relative operand A1
-        dcod_wb2dec_d1a1_fwd_o <= dcd2fth_d1a1_free & exe2fth_d1a1_fwd;
-        dcod_wb2dec_d2a1_fwd_o <= dcd2fth_d2a1_free & exe2fth_d2a1_fwd;
+        dcod_wrb2dec_d1a1_fwd_o <= dcd2fth_d1a1_free & exe2fth_d1a1_fwd;
+        dcod_wrb2dec_d2a1_fwd_o <= dcd2fth_d2a1_free & exe2fth_d2a1_fwd;
         //  # relative operand B1
-        dcod_wb2dec_d1b1_fwd_o <= dcd2fth_d1b1_free & exe2fth_d1b1_fwd;
-        dcod_wb2dec_d2b1_fwd_o <= dcd2fth_d2b1_free & exe2fth_d2b1_fwd;
+        dcod_wrb2dec_d1b1_fwd_o <= dcd2fth_d1b1_free & exe2fth_d1b1_fwd;
+        dcod_wrb2dec_d2b1_fwd_o <= dcd2fth_d2b1_free & exe2fth_d2b1_fwd;
         //  # relative operand A2
-        dcod_wb2dec_d1a2_fwd_o <= dcd2fth_d1a2_free & exe2fth_d1a2_fwd;
-        dcod_wb2dec_d2a2_fwd_o <= dcd2fth_d2a2_free & exe2fth_d2a2_fwd;
+        dcod_wrb2dec_d1a2_fwd_o <= dcd2fth_d1a2_free & exe2fth_d1a2_fwd;
+        dcod_wrb2dec_d2a2_fwd_o <= dcd2fth_d2a2_free & exe2fth_d2a2_fwd;
         //  # relative operand B2
-        dcod_wb2dec_d1b2_fwd_o <= dcd2fth_d1b2_free & exe2fth_d1b2_fwd;
-        dcod_wb2dec_d2b2_fwd_o <= dcd2fth_d2b2_free & exe2fth_d2b2_fwd;
+        dcod_wrb2dec_d1b2_fwd_o <= dcd2fth_d1b2_free & exe2fth_d1b2_fwd;
+        dcod_wrb2dec_d2b2_fwd_o <= dcd2fth_d2b2_free & exe2fth_d2b2_fwd;
       end
       // 1-clock length
       default: begin
         //  # relative operand A1
-        dcod_wb2dec_d1a1_fwd_o <= 1'b0;
-        dcod_wb2dec_d2a1_fwd_o <= 1'b0;
+        dcod_wrb2dec_d1a1_fwd_o <= 1'b0;
+        dcod_wrb2dec_d2a1_fwd_o <= 1'b0;
         //  # relative operand B1
-        dcod_wb2dec_d1b1_fwd_o <= 1'b0;
-        dcod_wb2dec_d2b1_fwd_o <= 1'b0;
+        dcod_wrb2dec_d1b1_fwd_o <= 1'b0;
+        dcod_wrb2dec_d2b1_fwd_o <= 1'b0;
         //  # relative operand A2
-        dcod_wb2dec_d1a2_fwd_o <= 1'b0;
-        dcod_wb2dec_d2a2_fwd_o <= 1'b0;
+        dcod_wrb2dec_d1a2_fwd_o <= 1'b0;
+        dcod_wrb2dec_d2a2_fwd_o <= 1'b0;
         //  # relative operand B2
-        dcod_wb2dec_d1b2_fwd_o <= 1'b0;
-        dcod_wb2dec_d2b2_fwd_o <= 1'b0;
+        dcod_wrb2dec_d1b2_fwd_o <= 1'b0;
+        dcod_wrb2dec_d2b2_fwd_o <= 1'b0;
       end
     endcase
   end // @clock
@@ -785,7 +785,7 @@ module mor1kx_oman_marocchino
   reg  [OPTION_OPERAND_WIDTH-1:0] jr_target_p;
   reg                             jr_gathering_target_p;
   // ---
-  assign jr_dcd2fth_hazard_d1b1_raw = (dcod_rfd1_adr_i == fetch_rfb1_adr_i) & dcod_rfd1_wb_i;
+  assign jr_dcd2fth_hazard_d1b1_raw = (dcod_rfd1_adr_i == fetch_rfb1_adr_i) & dcod_rfd1_we_i;
 
   localparam [3:0] JR_FSM_CATCHING_JR = 4'b0001, // on IFETCH output
                    JR_FSM_GET_B1      = 4'b0010, // get rB for l.jr/ljalr if no hazard
@@ -872,8 +872,8 @@ module mor1kx_oman_marocchino
   wire [DEST_EXTADR_WIDTH-1:0] flag_alloc_ext_m; // SR[F] allocation index
   reg  [DEST_EXTADR_WIDTH-1:0] flag_alloc_ext_r; // SR[F] allocation index
   // ---
-  assign flag_alloc_w    = dcod_flag_wb_i | flag_alloc_r;
-  wire   keep_flag_alloc = dcod_flag_wb_i | (flag_alloc_ext_r != wrbk_extadr_o);
+  assign flag_alloc_w    = dcod_flag_we_i | flag_alloc_r;
+  wire   keep_flag_alloc = dcod_flag_we_i | (flag_alloc_ext_r != wrbk_extadr_o);
   // ---
   always @(posedge cpu_clk) begin
     if (pipeline_flush_i) begin
@@ -883,11 +883,11 @@ module mor1kx_oman_marocchino
       if (flag_alloc_r)
         flag_alloc_r <= keep_flag_alloc;
       else if (padv_exec_i)
-        flag_alloc_r <= dcod_flag_wb_i;
+        flag_alloc_r <= dcod_flag_we_i;
     end
   end // at cpu-clock
   // ---
-  assign flag_alloc_ext_m = dcod_flag_wb_i ? dcod_extadr_r : flag_alloc_ext_r;
+  assign flag_alloc_ext_m = dcod_flag_we_i ? dcod_extadr_r : flag_alloc_ext_r;
   // ---
   always @(posedge cpu_clk) begin
     if (padv_exec_i)
@@ -1265,8 +1265,8 @@ module mor1kx_oman_marocchino
   wire [OPTION_OPERAND_WIDTH-1:0] pc_exec = ocbo[OCBTA_PC_MSB:OCBTA_PC_LSB];
 
   // instuction requests write-back
-  wire exec_rfd1_wb = ocbo[OCBTA_RFD1_WB_POS];
-  wire exec_rfd2_wb = ocbo[OCBTA_RFD2_WB_POS];
+  wire exec_rfd1_we = ocbo[OCBTA_RFD1_WB_POS];
+  wire exec_rfd2_we = ocbo[OCBTA_RFD2_WB_POS];
 
   // destiny addresses
   wire [OPTION_RF_ADDR_WIDTH-1:0] exec_rfd1_adr = ocbo[OCBTA_RFD1_ADR_MSB:OCBTA_RFD1_ADR_LSB];
@@ -1278,12 +1278,12 @@ module mor1kx_oman_marocchino
   //  1-clock WB-pulses
   always @(posedge cpu_clk) begin
     if (padv_wrbk_i) begin
-      wrbk_rf_even_wb_o <= (exec_rfd1_wb & ~exec_rfd1_adr[0]) | (exec_rfd2_wb & ~exec_rfd2_adr[0]);
-      wrbk_rf_odd_wb_o  <= (exec_rfd1_wb &  exec_rfd1_adr[0]) | (exec_rfd2_wb &  exec_rfd2_adr[0]);
+      wrbk_rf_even_we_o <= (exec_rfd1_we & ~exec_rfd1_adr[0]) | (exec_rfd2_we & ~exec_rfd2_adr[0]);
+      wrbk_rf_odd_we_o  <= (exec_rfd1_we &  exec_rfd1_adr[0]) | (exec_rfd2_we &  exec_rfd2_adr[0]);
     end
     else begin
-      wrbk_rf_even_wb_o <= 1'b0;
-      wrbk_rf_odd_wb_o  <= 1'b0;
+      wrbk_rf_even_we_o <= 1'b0;
+      wrbk_rf_odd_we_o  <= 1'b0;
     end
   end // @clock
   //   Even/Odd WB-addresses

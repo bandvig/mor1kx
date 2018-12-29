@@ -84,9 +84,6 @@ module mor1kx_marocchino_alone
   parameter FEATURE_MULTICORE          = "NONE",
   parameter OPTION_RF_NUM_SHADOW_GPR   = 0,       // for multicore mostly
 
-  parameter FEATURE_TRACEPORT_EXEC     = "NONE",
-
-
   parameter IBUS_WB_TYPE               = "B3_REGISTERED_FEEDBACK",
   parameter DBUS_WB_TYPE               = "B3_REGISTERED_FEEDBACK"
 )
@@ -140,13 +137,6 @@ module mor1kx_marocchino_alone
   // Stall control from debug interface
   input                             du_stall_i,
   output                            du_stall_o,
-
-  output                            traceport_exec_valid_o,
-  output [31:0]                     traceport_exec_pc_o,
-  output [`OR1K_INSN_WIDTH-1:0]     traceport_exec_insn_o,
-  output [OPTION_OPERAND_WIDTH-1:0] traceport_exec_wbdata_o,
-  output [OPTION_RF_ADDR_WIDTH-1:0] traceport_exec_wbreg_o,
-  output                            traceport_exec_wben_o,
 
   // The multicore core identifier
   input [OPTION_OPERAND_WIDTH-1:0]  multicore_coreid_i,
@@ -340,7 +330,6 @@ module mor1kx_marocchino_alone
     // timer, debug unit, performance counters, trace
     .FEATURE_DEBUGUNIT                (FEATURE_DEBUGUNIT), // CPU
     .FEATURE_PERFCOUNTERS             (FEATURE_PERFCOUNTERS), // CPU
-    .FEATURE_TRACEPORT_EXEC           (FEATURE_TRACEPORT_EXEC), // CPU
     // m-core
     .FEATURE_MULTICORE                (FEATURE_MULTICORE), // CPU
     .OPTION_RF_NUM_SHADOW_GPR         (OPTION_RF_NUM_SHADOW_GPR), // CPU
@@ -404,13 +393,6 @@ module mor1kx_marocchino_alone
     .spr_bus_we_o             (spr_bus_we_o), // CPU
     .spr_bus_stb_o            (spr_bus_stb_o), // CPU
     .spr_bus_dat_o            (spr_bus_dat_o), // CPU
-    // trace report
-    .traceport_exec_valid_o   (traceport_exec_valid_o), // CPU
-    .traceport_exec_pc_o      (traceport_exec_pc_o), // CPU
-    .traceport_exec_insn_o    (traceport_exec_insn_o[`OR1K_INSN_WIDTH-1:0]), // CPU
-    .traceport_exec_wbdata_o  (traceport_exec_wbdata_o), // CPU
-    .traceport_exec_wbreg_o   (traceport_exec_wbreg_o), // CPU
-    .traceport_exec_wben_o    (traceport_exec_wben_o), // CPU
     // multi-core
     .multicore_coreid_i       (multicore_coreid_i), // CPU
     .multicore_numcores_i     (multicore_numcores_i), // CPU

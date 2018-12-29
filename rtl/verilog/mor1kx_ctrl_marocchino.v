@@ -187,12 +187,12 @@ module mor1kx_ctrl_marocchino
 
   //  # FPX3264 arithmetic part
   input     [`OR1K_FPCSR_ALLF_SIZE-1:0] wrbk_fpxx_arith_fpcsr_i,
-  input                                 wrbk_fpxx_arith_wb_fpcsr_i,
+  input                                 wrbk_fpxx_arith_fpcsr_we_i,
   input                                 wrbk_except_fpxx_arith_i,
   //  # FPX64 comparison part
   input                                 wrbk_fpxx_cmp_inv_i,
   input                                 wrbk_fpxx_cmp_inf_i,
-  input                                 wrbk_fpxx_cmp_wb_fpcsr_i,
+  input                                 wrbk_fpxx_cmp_fpcsr_we_i,
   input                                 wrbk_except_fpxx_cmp_i,
 
   //  # Excepion processing auxiliaries
@@ -716,7 +716,7 @@ module mor1kx_ctrl_marocchino
       spr_fpcsr <= `OR1K_FPCSR_RESET_VALUE;
     else if (spr_fpcsr_we)
       spr_fpcsr <= spr_sys_group_wdat_r[`OR1K_FPCSR_WIDTH-1:0]; // update all fields
-    else if (wrbk_fpxx_cmp_wb_fpcsr_i | wrbk_fpxx_arith_wb_fpcsr_i)
+    else if (wrbk_fpxx_cmp_fpcsr_we_i | wrbk_fpxx_arith_fpcsr_we_i)
       spr_fpcsr <= {fpx_flags, spr_fpcsr[`OR1K_FPCSR_RM], spr_fpcsr[`OR1K_FPCSR_FPEE]};
   end
 

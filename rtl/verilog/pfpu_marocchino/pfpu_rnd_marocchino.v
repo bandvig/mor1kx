@@ -115,7 +115,7 @@ module pfpu_rnd_marocchino
   output reg                      [31:0] wrbk_fpxx_arith_res_hi_o,   // result
   output reg                      [31:0] wrbk_fpxx_arith_res_lo_o,   // result
   output reg [`OR1K_FPCSR_ALLF_SIZE-1:0] wrbk_fpxx_arith_fpcsr_o,    // fp64 arithmetic flags
-  output reg                             wrbk_fpxx_arith_wb_fpcsr_o, // update FPCSR
+  output reg                             wrbk_fpxx_arith_fpcsr_we_o, // update FPCSR
   output reg                             wrbk_except_fpxx_arith_o    // generate exception
 );
 
@@ -705,18 +705,18 @@ module pfpu_rnd_marocchino
   // WB-miss pending rezults
   reg [31:0] fpxx_arith_wb_res_hi_p;
   reg [31:0] fpxx_arith_wb_res_lo_p;
-  reg [`OR1K_FPCSR_ALLF_SIZE-1:0] fpxx_arith_wb_fpcsr_p;
+  reg [`OR1K_FPCSR_ALLF_SIZE-1:0] fpxx_arith_fpcsr_we_p;
   // ---
   always @(posedge cpu_clk) begin
     if (~fpxx_arith_wb_miss_r) begin
       fpxx_arith_wb_res_hi_p <= exec_fpxx_arith_res_hi;
       fpxx_arith_wb_res_lo_p <= exec_fpxx_arith_res_lo;
-      fpxx_arith_wb_fpcsr_p  <= exec_fpxx_arith_fpcsr;
+      fpxx_arith_fpcsr_we_p  <= exec_fpxx_arith_fpcsr;
     end
   end // @clock
 
   // EXECUTE level FP32 arithmetic exception
-  wire   mux_except_fpxx_arith    = (fpxx_arith_wb_miss_r ? (|fpxx_arith_wb_fpcsr_p) : (|exec_fpxx_arith_fpcsr)) & except_fpu_enable_i;
+  wire   mux_except_fpxx_arith    = (fpxx_arith_wb_miss_r ? (|fpxx_arith_fpcsr_we_p) : (|exec_fpxx_arith_fpcsr)) & except_fpu_enable_i;
   assign exec_except_fpxx_arith_o = grant_wrbk_to_fpxx_arith_i & mux_except_fpxx_arith;
 
   // WB: result
@@ -739,14 +739,14 @@ module pfpu_rnd_marocchino
   // WB: flags
   always @(posedge cpu_clk) begin
     if (padv_wrbk_i & grant_wrbk_to_fpxx_arith_i) begin
-      wrbk_fpxx_arith_fpcsr_o    <= fpxx_arith_wb_miss_r ? fpxx_arith_wb_fpcsr_p : exec_fpxx_arith_fpcsr;
+      wrbk_fpxx_arith_fpcsr_o    <= fpxx_arith_wb_miss_r ? fpxx_arith_fpcsr_we_p : exec_fpxx_arith_fpcsr;
       wrbk_except_fpxx_arith_o   <= mux_except_fpxx_arith;
-      wrbk_fpxx_arith_wb_fpcsr_o <= 1'b1;
+      wrbk_fpxx_arith_fpcsr_we_o <= 1'b1;
     end
     else begin
       wrbk_fpxx_arith_fpcsr_o    <= {`OR1K_FPCSR_ALLF_SIZE{1'b0}};
       wrbk_except_fpxx_arith_o   <= 1'b0;
-      wrbk_fpxx_arith_wb_fpcsr_o <= 1'b0;
+      wrbk_fpxx_arith_fpcsr_we_o <= 1'b0;
     end
   end // @clock
 

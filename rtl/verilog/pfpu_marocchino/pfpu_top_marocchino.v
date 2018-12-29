@@ -96,7 +96,7 @@ module pfpu_top_marocchino
   output                       [31:0] wrbk_fpxx_arith_res_hi_o,   // arithmetic result
   output                       [31:0] wrbk_fpxx_arith_res_lo_o,   // arithmetic result 2
   output  [`OR1K_FPCSR_ALLF_SIZE-1:0] wrbk_fpxx_arith_fpcsr_o,    // arithmetic exceptions
-  output                              wrbk_fpxx_arith_wb_fpcsr_o, // update FPCSR
+  output                              wrbk_fpxx_arith_fpcsr_we_o, // update FPCSR
   output                              wrbk_except_fpxx_arith_o,   // generate exception
 
   // FPU-64 comparison part
@@ -104,7 +104,7 @@ module pfpu_top_marocchino
   output                              wrbk_fpxx_flag_clear_o,    // comparison result
   output                              wrbk_fpxx_cmp_inv_o,       // comparison flag 'invalid'
   output                              wrbk_fpxx_cmp_inf_o,       // comparison flag 'infinity'
-  output                              wrbk_fpxx_cmp_wb_fpcsr_o,  // update FPCSR
+  output                              wrbk_fpxx_cmp_fpcsr_we_o,  // update FPCSR
   output                              wrbk_except_fpxx_cmp_o     // exception by FP64-comparison
 );
 
@@ -590,7 +590,7 @@ pfpu_rnd_marocchino u_pfpu_rnd
   .wrbk_fpxx_arith_res_hi_o   (wrbk_fpxx_arith_res_hi_o), // PFPU_RND
   .wrbk_fpxx_arith_res_lo_o   (wrbk_fpxx_arith_res_lo_o), // PFPU_RND
   .wrbk_fpxx_arith_fpcsr_o    (wrbk_fpxx_arith_fpcsr_o), // PFPU_RND
-  .wrbk_fpxx_arith_wb_fpcsr_o (wrbk_fpxx_arith_wb_fpcsr_o), // PFPU_RND
+  .wrbk_fpxx_arith_fpcsr_we_o (wrbk_fpxx_arith_fpcsr_we_o), // PFPU_RND
   .wrbk_except_fpxx_arith_o   (wrbk_except_fpxx_arith_o) // PFPU_RND
 );
 
@@ -636,7 +636,7 @@ pfpu_cmp_marocchino u_fpxx_cmp
   .wrbk_fpxx_flag_clear_o     (wrbk_fpxx_flag_clear_o), // PFPU_CMP
   .wrbk_fpxx_cmp_inv_o        (wrbk_fpxx_cmp_inv_o), // PFPU_CMP
   .wrbk_fpxx_cmp_inf_o        (wrbk_fpxx_cmp_inf_o), // PFPU_CMP
-  .wrbk_fpxx_cmp_wb_fpcsr_o   (wrbk_fpxx_cmp_wb_fpcsr_o), // PFPU_CMP
+  .wrbk_fpxx_cmp_fpcsr_we_o   (wrbk_fpxx_cmp_fpcsr_we_o), // PFPU_CMP
   .wrbk_except_fpxx_cmp_o     (wrbk_except_fpxx_cmp_o) // PFPU_CMP
 );
 

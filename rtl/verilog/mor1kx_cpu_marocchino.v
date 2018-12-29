@@ -57,7 +57,6 @@ module mor1kx_cpu_marocchino
   // debug unit, performance counters, trace
   parameter FEATURE_DEBUGUNIT           = "NONE",
   parameter FEATURE_PERFCOUNTERS        = "NONE",
-  parameter FEATURE_TRACEPORT_EXEC      = "NONE",
   // m-core
   parameter FEATURE_MULTICORE           = "NONE",
   parameter OPTION_RF_NUM_SHADOW_GPR    = 0,      // for multicore mostly
@@ -127,14 +126,6 @@ module mor1kx_cpu_marocchino
   output                            spr_bus_stb_o,
   output [OPTION_OPERAND_WIDTH-1:0] spr_bus_dat_o,
 
-  // trace report
-  output reg                        traceport_exec_valid_o,
-  output reg                 [31:0] traceport_exec_pc_o,
-  output reg [`OR1K_INSN_WIDTH-1:0] traceport_exec_insn_o,
-  output [OPTION_OPERAND_WIDTH-1:0] traceport_exec_wbdata_o,
-  output [OPTION_RF_ADDR_WIDTH-1:0] traceport_exec_wbreg_o,
-  output                            traceport_exec_wben_o,
-
   // multi-core
   input  [OPTION_OPERAND_WIDTH-1:0] multicore_coreid_i,
   input  [OPTION_OPERAND_WIDTH-1:0] multicore_numcores_i,
@@ -194,7 +185,7 @@ module mor1kx_cpu_marocchino
   wire                            ctrl_flag_sr;
   wire                            ctrl_carry;
 
-  wire                            dcod_flag_wb; // instruction writes comparison flag
+  wire                            dcod_flag_we; // instruction writes comparison flag
 
   wire                            dcod_op_mtspr;
   wire                            dcod_op_mXspr; // (l.mfspr | l.mtspr)
@@ -232,17 +223,17 @@ module mor1kx_cpu_marocchino
 
   // 1-clock "WB to DECODE operand forwarding" flags
   //  # relative operand A1
-  wire                            dcod_wb2dec_d1a1_fwd;
-  wire                            dcod_wb2dec_d2a1_fwd;
+  wire                            dcod_wrb2dec_d1a1_fwd;
+  wire                            dcod_wrb2dec_d2a1_fwd;
   //  # relative operand B1
-  wire                            dcod_wb2dec_d1b1_fwd;
-  wire                            dcod_wb2dec_d2b1_fwd;
+  wire                            dcod_wrb2dec_d1b1_fwd;
+  wire                            dcod_wrb2dec_d2b1_fwd;
   //  # relative operand A2
-  wire                            dcod_wb2dec_d1a2_fwd;
-  wire                            dcod_wb2dec_d2a2_fwd;
+  wire                            dcod_wrb2dec_d1a2_fwd;
+  wire                            dcod_wrb2dec_d2a2_fwd;
   //  # relative operand B2
-  wire                            dcod_wb2dec_d1b2_fwd;
-  wire                            dcod_wb2dec_d2b2_fwd;
+  wire                            dcod_wrb2dec_d1b2_fwd;
+  wire                            dcod_wrb2dec_d2b2_fwd;
 
 
   wire [OPTION_OPERAND_WIDTH-1:0] dcod_rfa1;
@@ -257,10 +248,10 @@ module mor1kx_cpu_marocchino
 
 
   wire [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfd1_adr;
-  wire                            dcod_rfd1_wb;
+  wire                            dcod_rfd1_we;
   // for FPU64:
   wire [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfd2_adr;
-  wire                            dcod_rfd2_wb;
+  wire                            dcod_rfd2_we;
 
 
   // OMAN-to-DECODE hazards
@@ -293,9 +284,9 @@ module mor1kx_cpu_marocchino
 
   // Special WB-controls for RF
   wire [OPTION_RF_ADDR_WIDTH-1:0] wrbk_rf_even_addr;
-  wire                            wrbk_rf_even_wb;
+  wire                            wrbk_rf_even_we;
   wire [OPTION_RF_ADDR_WIDTH-1:0] wrbk_rf_odd_addr;
-  wire                            wrbk_rf_odd_wb;
+  wire                            wrbk_rf_odd_we;
 
 
   // Logic to support Jump / Branch taking
@@ -351,7 +342,7 @@ module mor1kx_cpu_marocchino
   // Instructions which push EXECUTION without extra conditions
   wire                            dcod_op_push_exec;
   // Instructions which push WRITE-BACK without extra conditions
-  wire                            dcod_op_push_wb;
+  wire                            dcod_op_push_wrbk;
 
 
   // Reservation station for 1-clock execution units
@@ -415,7 +406,7 @@ module mor1kx_cpu_marocchino
   wire                              grant_wrbk_to_fpxx_arith;
   wire                              exec_except_fpxx_arith;
   wire  [`OR1K_FPCSR_ALLF_SIZE-1:0] wrbk_fpxx_arith_fpcsr;    // only flags
-  wire                              wrbk_fpxx_arith_wb_fpcsr; // update FPCSR
+  wire                              wrbk_fpxx_arith_fpcsr_we; // update FPCSR
   wire                              wrbk_except_fpxx_arith;   // generate FPx exception by FPx flags
   // FPU3264 comparison part
   wire                              dcod_op_fpxx_cmp;
@@ -429,7 +420,7 @@ module mor1kx_cpu_marocchino
   wire                              wrbk_fpxx_flag_clear;
   wire                              wrbk_fpxx_cmp_inv;
   wire                              wrbk_fpxx_cmp_inf;
-  wire                              wrbk_fpxx_cmp_wb_fpcsr;
+  wire                              wrbk_fpxx_cmp_fpcsr_we;
   wire                              wrbk_except_fpxx_cmp;
   // FPU3264 reservationstation controls
   wire                              dcod_op_fpxx_any;
@@ -735,9 +726,9 @@ module mor1kx_cpu_marocchino
     .dcod_immediate_sel_i             (dcod_immediate_sel), // RF
     // Special WB-controls for RF
     .wrbk_rf_even_addr_i              (wrbk_rf_even_addr), // RF
-    .wrbk_rf_even_wb_i                (wrbk_rf_even_wb), // RF
+    .wrbk_rf_even_we_i                (wrbk_rf_even_we), // RF
     .wrbk_rf_odd_addr_i               (wrbk_rf_odd_addr), // RF
-    .wrbk_rf_odd_wb_i                 (wrbk_rf_odd_wb), // RF
+    .wrbk_rf_odd_we_i                 (wrbk_rf_odd_we), // RF
     // from WB
     .wrbk_rfd1_odd_i                  (wrbk_rfd1_odd), // RF
     .wrbk_result1_i                   (wrbk_result1), // RF
@@ -745,17 +736,17 @@ module mor1kx_cpu_marocchino
     .wrbk_result2_i                   (wrbk_result2), // RF
     // 1-clock "WB to DECODE operand forwarding" flags
     //  # relative operand A1
-    .dcod_wb2dec_d1a1_fwd_i           (dcod_wb2dec_d1a1_fwd), // RF
-    .dcod_wb2dec_d2a1_fwd_i           (dcod_wb2dec_d2a1_fwd), // RF
+    .dcod_wrb2dec_d1a1_fwd_i          (dcod_wrb2dec_d1a1_fwd), // RF
+    .dcod_wrb2dec_d2a1_fwd_i          (dcod_wrb2dec_d2a1_fwd), // RF
     //  # relative operand B1
-    .dcod_wb2dec_d1b1_fwd_i           (dcod_wb2dec_d1b1_fwd), // RF
-    .dcod_wb2dec_d2b1_fwd_i           (dcod_wb2dec_d2b1_fwd), // RF
+    .dcod_wrb2dec_d1b1_fwd_i          (dcod_wrb2dec_d1b1_fwd), // RF
+    .dcod_wrb2dec_d2b1_fwd_i          (dcod_wrb2dec_d2b1_fwd), // RF
     //  # relative operand A2
-    .dcod_wb2dec_d1a2_fwd_i           (dcod_wb2dec_d1a2_fwd), // RF
-    .dcod_wb2dec_d2a2_fwd_i           (dcod_wb2dec_d2a2_fwd), // RF
+    .dcod_wrb2dec_d1a2_fwd_i          (dcod_wrb2dec_d1a2_fwd), // RF
+    .dcod_wrb2dec_d2a2_fwd_i          (dcod_wrb2dec_d2a2_fwd), // RF
     //  # relative operand B2
-    .dcod_wb2dec_d1b2_fwd_i           (dcod_wb2dec_d1b2_fwd), // RF
-    .dcod_wb2dec_d2b2_fwd_i           (dcod_wb2dec_d2b2_fwd), // RF
+    .dcod_wrb2dec_d1b2_fwd_i          (dcod_wrb2dec_d1b2_fwd), // RF
+    .dcod_wrb2dec_d2b2_fwd_i          (dcod_wrb2dec_d2b2_fwd), // RF
     // Operands
     .dcod_rfa1_o                      (dcod_rfa1), // RF
     .dcod_rfb1_o                      (dcod_rfb1), // RF
@@ -810,10 +801,10 @@ module mor1kx_cpu_marocchino
     .dcod_delay_slot_o                (dcod_delay_slot), // DECODE
     // destiny D1
     .dcod_rfd1_adr_o                  (dcod_rfd1_adr), // DECODE
-    .dcod_rfd1_wb_o                   (dcod_rfd1_wb), // DECODE
+    .dcod_rfd1_we_o                   (dcod_rfd1_we), // DECODE
     // destiny D2 (for FPU64)
     .dcod_rfd2_adr_o                  (dcod_rfd2_adr), // DECODE
-    .dcod_rfd2_wb_o                   (dcod_rfd2_wb), // DECODE
+    .dcod_rfd2_we_o                   (dcod_rfd2_we), // DECODE
     // instruction PC
     .pc_fetch_i                       (pc_fetch), // DECODE
     .pc_decode_o                      (pc_decode), // DECODE
@@ -821,7 +812,7 @@ module mor1kx_cpu_marocchino
     .dcod_immediate_o                 (dcod_immediate), // DECODE
     .dcod_immediate_sel_o             (dcod_immediate_sel), // DECODE
     // various instruction attributes
-    .dcod_flag_wb_o                   (dcod_flag_wb), // DECODE
+    .dcod_flag_we_o                   (dcod_flag_we), // DECODE
     // LSU related
     .dcod_imm16_o                     (dcod_imm16), // DECODE
     .dcod_op_lsu_load_o               (dcod_op_lsu_load), // DECODE
@@ -834,7 +825,7 @@ module mor1kx_cpu_marocchino
     // Instructions which push EXECUTION without extra conditions
     .dcod_op_push_exec_o              (dcod_op_push_exec), // DECODE
     // Instructions which push WRITE-BACK without extra conditions
-    .dcod_op_push_wb_o                (dcod_op_push_wb), // DECODE
+    .dcod_op_push_wrbk_o              (dcod_op_push_wrbk), // DECODE
     // 1-clock instruction
     .dcod_op_1clk_o                   (dcod_op_1clk), // DECODE
     // Reqired flag or carry
@@ -943,7 +934,7 @@ module mor1kx_cpu_marocchino
 
     // DECODE non-latched flags to indicate next required unit
     // (The information is stored in order control buffer)
-    .dcod_op_push_wb_i          (dcod_op_push_wb), // OMAN
+    .dcod_op_push_wrbk_i        (dcod_op_push_wrbk), // OMAN
     .fetch_op_jb_i              (fetch_op_jb), // OMAN
     .dcod_op_div_i              (dcod_op_div), // OMAN
     .dcod_op_mul_i              (dcod_op_mul), // OMAN
@@ -957,11 +948,11 @@ module mor1kx_cpu_marocchino
     //  part #1: iformation stored in order control buffer
     .pc_decode_i                (pc_decode), // OMAN
     .dcod_rfd1_adr_i            (dcod_rfd1_adr), // OMAN
-    .dcod_rfd1_wb_i             (dcod_rfd1_wb), // OMAN
-    .dcod_flag_wb_i             (dcod_flag_wb), // OMAN
+    .dcod_rfd1_we_i             (dcod_rfd1_we), // OMAN
+    .dcod_flag_we_i             (dcod_flag_we), // OMAN
     .dcod_delay_slot_i          (dcod_delay_slot), // OMAN
     .dcod_rfd2_adr_i            (dcod_rfd2_adr), // OMAN for FPU64
-    .dcod_rfd2_wb_i             (dcod_rfd2_wb), // OMAN for FPU64
+    .dcod_rfd2_we_i             (dcod_rfd2_we), // OMAN for FPU64
     //  part #2: information required for create enable for
     //           for external (timer/ethernet/uart/etc) interrupts
     .dcod_op_lsu_store_i        (dcod_op_lsu_store), // OMAN
@@ -990,17 +981,17 @@ module mor1kx_cpu_marocchino
 
     // 1-clock "WB to DECODE operand forwarding" flags
     //  # relative operand A1
-    .dcod_wb2dec_d1a1_fwd_o     (dcod_wb2dec_d1a1_fwd), // OMAN
-    .dcod_wb2dec_d2a1_fwd_o     (dcod_wb2dec_d2a1_fwd), // OMAN
+    .dcod_wrb2dec_d1a1_fwd_o    (dcod_wrb2dec_d1a1_fwd), // OMAN
+    .dcod_wrb2dec_d2a1_fwd_o    (dcod_wrb2dec_d2a1_fwd), // OMAN
     //  # relative operand B1
-    .dcod_wb2dec_d1b1_fwd_o     (dcod_wb2dec_d1b1_fwd), // OMAN
-    .dcod_wb2dec_d2b1_fwd_o     (dcod_wb2dec_d2b1_fwd), // OMAN
+    .dcod_wrb2dec_d1b1_fwd_o    (dcod_wrb2dec_d1b1_fwd), // OMAN
+    .dcod_wrb2dec_d2b1_fwd_o    (dcod_wrb2dec_d2b1_fwd), // OMAN
     //  # relative operand A2
-    .dcod_wb2dec_d1a2_fwd_o     (dcod_wb2dec_d1a2_fwd), // OMAN
-    .dcod_wb2dec_d2a2_fwd_o     (dcod_wb2dec_d2a2_fwd), // OMAN
+    .dcod_wrb2dec_d1a2_fwd_o    (dcod_wrb2dec_d1a2_fwd), // OMAN
+    .dcod_wrb2dec_d2a2_fwd_o    (dcod_wrb2dec_d2a2_fwd), // OMAN
     //  # relative operand B2
-    .dcod_wb2dec_d1b2_fwd_o     (dcod_wb2dec_d1b2_fwd), // OMAN
-    .dcod_wb2dec_d2b2_fwd_o     (dcod_wb2dec_d2b2_fwd), // OMAN
+    .dcod_wrb2dec_d1b2_fwd_o    (dcod_wrb2dec_d1b2_fwd), // OMAN
+    .dcod_wrb2dec_d2b2_fwd_o    (dcod_wrb2dec_d2b2_fwd), // OMAN
 
     // OMAN-to-DECODE hazards
     //  # relative operand A1
@@ -1095,9 +1086,9 @@ module mor1kx_cpu_marocchino
     // WB outputs
     //  ## special WB-controls for RF
     .wrbk_rf_even_addr_o        (wrbk_rf_even_addr), // OMAN
-    .wrbk_rf_even_wb_o          (wrbk_rf_even_wb), // OMAN
+    .wrbk_rf_even_we_o          (wrbk_rf_even_we), // OMAN
     .wrbk_rf_odd_addr_o         (wrbk_rf_odd_addr), // OMAN
-    .wrbk_rf_odd_wb_o           (wrbk_rf_odd_wb), // OMAN
+    .wrbk_rf_odd_we_o           (wrbk_rf_odd_we), // OMAN
     //  ## instruction related information
     .pc_wrbk_o                  (pc_wrbk), // OMAN
     .pc_nxt_wrbk_o              (pc_nxt_wrbk), // OMAN
@@ -1176,7 +1167,7 @@ module mor1kx_cpu_marocchino
     //  # hasards addresses
     .omn2dec_hazards_addrs_i    ({omn2dec_extadr_dxb1, omn2dec_extadr_dxa1}), // 1CLK_RSVRS
     // support in-1clk-unit forwarding
-    .dcod_rfd1_wb_i             (dcod_rfd1_wb), // 1CLK_RSVRS
+    .dcod_rfd1_we_i             (dcod_rfd1_we), // 1CLK_RSVRS
     .dcod_extadr_i              (dcod_extadr), // 1CLK_RSVRS
     // Hazard could be resolving
     //  ## write-back attributes
@@ -1617,7 +1608,7 @@ module mor1kx_cpu_marocchino
     .wrbk_fpxx_arith_res_hi_o   (wrbk_fpxx_arith_res_hi), // FPU3264
     .wrbk_fpxx_arith_res_lo_o   (wrbk_fpxx_arith_res_lo), // FPU3264
     .wrbk_fpxx_arith_fpcsr_o    (wrbk_fpxx_arith_fpcsr), // FPU3264
-    .wrbk_fpxx_arith_wb_fpcsr_o (wrbk_fpxx_arith_wb_fpcsr), // FPU3264
+    .wrbk_fpxx_arith_fpcsr_we_o (wrbk_fpxx_arith_fpcsr_we), // FPU3264
     .wrbk_except_fpxx_arith_o   (wrbk_except_fpxx_arith), // FPU3264
 
     // FPU-64 comparison part
@@ -1625,7 +1616,7 @@ module mor1kx_cpu_marocchino
     .wrbk_fpxx_flag_clear_o     (wrbk_fpxx_flag_clear), // FPU3264
     .wrbk_fpxx_cmp_inv_o        (wrbk_fpxx_cmp_inv), // FPU3264
     .wrbk_fpxx_cmp_inf_o        (wrbk_fpxx_cmp_inf), // FPU3264
-    .wrbk_fpxx_cmp_wb_fpcsr_o   (wrbk_fpxx_cmp_wb_fpcsr), // FPU3264
+    .wrbk_fpxx_cmp_fpcsr_we_o   (wrbk_fpxx_cmp_fpcsr_we), // FPU3264
     .wrbk_except_fpxx_cmp_o     (wrbk_except_fpxx_cmp) // FPU3264
   );
 
@@ -2130,12 +2121,12 @@ module mor1kx_cpu_marocchino
 
     //  # FPX3264 arithmetic part
     .wrbk_fpxx_arith_fpcsr_i          (wrbk_fpxx_arith_fpcsr), // CTRL
-    .wrbk_fpxx_arith_wb_fpcsr_i       (wrbk_fpxx_arith_wb_fpcsr), // CTRL
+    .wrbk_fpxx_arith_fpcsr_we_i       (wrbk_fpxx_arith_fpcsr_we), // CTRL
     .wrbk_except_fpxx_arith_i         (wrbk_except_fpxx_arith), // CTRL
     //  # FPX64 comparison part
     .wrbk_fpxx_cmp_inv_i              (wrbk_fpxx_cmp_inv), // CTRL
     .wrbk_fpxx_cmp_inf_i              (wrbk_fpxx_cmp_inf), // CTRL
-    .wrbk_fpxx_cmp_wb_fpcsr_i         (wrbk_fpxx_cmp_wb_fpcsr), // CTRL
+    .wrbk_fpxx_cmp_fpcsr_we_i         (wrbk_fpxx_cmp_fpcsr_we), // CTRL
     .wrbk_except_fpxx_cmp_i           (wrbk_except_fpxx_cmp), // CTRL
 
     //  # Excepion processing auxiliaries

@@ -86,7 +86,7 @@ module pfpu_cmp_marocchino
   output reg         wrbk_fpxx_flag_clear_o,    // comparison result
   output reg         wrbk_fpxx_cmp_inv_o,       // comparison flag 'invalid'
   output reg         wrbk_fpxx_cmp_inf_o,       // comparison flag 'infinity'
-  output reg         wrbk_fpxx_cmp_wb_fpcsr_o,  // update FPCSR
+  output reg         wrbk_fpxx_cmp_fpcsr_we_o,  // update FPCSR
   output reg         wrbk_except_fpxx_cmp_o     // exception by FP32-comparison
 );
 
@@ -317,7 +317,7 @@ module pfpu_cmp_marocchino
       wrbk_fpxx_cmp_inf_o      <= fpxx_cmp_wb_miss_r ? fpxx_wb_cmp_inf_p : exec_fpxx_cmp_inf;
       wrbk_except_fpxx_cmp_o   <= mux_except_fpxx_cmp;
       // update FPCSR
-      wrbk_fpxx_cmp_wb_fpcsr_o <= 1'b1;
+      wrbk_fpxx_cmp_fpcsr_we_o <= 1'b1;
     end
     else begin
       // flag set/clear
@@ -328,7 +328,7 @@ module pfpu_cmp_marocchino
       wrbk_fpxx_cmp_inf_o      <= 1'b0; // 1-clk-length
       wrbk_except_fpxx_cmp_o   <= 1'b0; // 1-clk-length
       // update FPCSR
-      wrbk_fpxx_cmp_wb_fpcsr_o <= 1'b0; // 1-clk-length
+      wrbk_fpxx_cmp_fpcsr_we_o <= 1'b0; // 1-clk-length
     end // advance WB latches
   end // @clock
 

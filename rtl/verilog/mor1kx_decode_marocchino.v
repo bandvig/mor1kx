@@ -74,10 +74,10 @@ module mor1kx_decode_marocchino
 
   // destiny D1
   output reg [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfd1_adr_o, // address of WB
-  output reg                            dcod_rfd1_wb_o,  // instruction performes WB to D1
+  output reg                            dcod_rfd1_we_o,  // instruction performes WB to D1
   // destiny D2 (for FPU64)
   output reg [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfd2_adr_o, // D2 address
-  output reg                            dcod_rfd2_wb_o, // instruction performes WB to D2
+  output reg                            dcod_rfd2_we_o, // instruction performes WB to D2
 
   // instruction PC
   input      [OPTION_OPERAND_WIDTH-1:0] pc_fetch_i,
@@ -88,7 +88,7 @@ module mor1kx_decode_marocchino
   output reg                            dcod_immediate_sel_o,
 
   // various instruction attributes
-  output reg                            dcod_flag_wb_o,   // instruction writes comparison flag
+  output reg                            dcod_flag_we_o,   // instruction writes comparison flag
 
   // LSU related
   output reg      [`OR1K_IMM_WIDTH-1:0] dcod_imm16_o,
@@ -103,7 +103,7 @@ module mor1kx_decode_marocchino
   // Instructions which push EXECUTION without extra conditions
   output reg                            dcod_op_push_exec_o,
   // Instructions which push WRITE-BACK without extra conditions
-  output reg                            dcod_op_push_wb_o,
+  output reg                            dcod_op_push_wrbk_o,
 
   // 1-clock instruction
   output reg                            dcod_op_1clk_o,
@@ -417,7 +417,7 @@ module mor1kx_decode_marocchino
   reg attr_op_1clk;
   reg attr_rfa1_req;
   reg attr_rfb1_req;
-  reg attr_rfd1_wb;
+  reg attr_rfd1_we;
   reg attr_rfa2_req;
   reg attr_rfb2_req;
   // ---
@@ -435,7 +435,7 @@ module mor1kx_decode_marocchino
           attr_op_1clk        = op_jal;  // compute GPR[9] by adder in 1CLK_EXEC
           attr_rfa1_req       = 1'b0;
           attr_rfb1_req       = 1'b0;    // l.jr/l.jalr are processed in OMAN in special way
-          attr_rfd1_wb        = op_jal;  // save GPR[9] by l.jal/l.jalr
+          attr_rfd1_we        = op_jal;  // save GPR[9] by l.jal/l.jalr
           // for FPU64
           attr_rfa2_req       = 1'b0;
           attr_rfb2_req       = 1'b0;
@@ -450,7 +450,7 @@ module mor1kx_decode_marocchino
           attr_op_1clk        = op_movhi;
           attr_rfa1_req       = 1'b0;
           attr_rfb1_req       = 1'b0;
-          attr_rfd1_wb        = op_movhi;
+          attr_rfd1_we        = op_movhi;
           // for FPU64
           attr_rfa2_req       = 1'b0;
           attr_rfb2_req       = 1'b0;
@@ -469,7 +469,7 @@ module mor1kx_decode_marocchino
           attr_op_1clk        = (opc_insn != `OR1K_OPCODE_MULI);
           attr_rfa1_req       = 1'b1;
           attr_rfb1_req       = (opc_insn == `OR1K_OPCODE_SF);
-          attr_rfd1_wb        = (opc_insn != `OR1K_OPCODE_SF) & (opc_insn != `OR1K_OPCODE_SFIMM);
+          attr_rfd1_we        = (opc_insn != `OR1K_OPCODE_SF) & (opc_insn != `OR1K_OPCODE_SFIMM);
           // for FPU64
           attr_rfa2_req       = 1'b0;
           attr_rfb2_req       = 1'b0;
@@ -488,7 +488,7 @@ module mor1kx_decode_marocchino
           attr_op_1clk        = 1'b0;
           attr_rfa1_req       = 1'b1;
           attr_rfb1_req       = 1'b0;
-          attr_rfd1_wb        = 1'b1;
+          attr_rfd1_we        = 1'b1;
           // for FPU64
           attr_rfa2_req       = 1'b0;
           attr_rfb2_req       = 1'b0;
@@ -500,7 +500,7 @@ module mor1kx_decode_marocchino
           attr_op_1clk        = 1'b0;
           attr_rfa1_req       = (OPTION_OPERAND_WIDTH == 64);
           attr_rfb1_req       = 1'b0;
-          attr_rfd1_wb        = (OPTION_OPERAND_WIDTH == 64);
+          attr_rfd1_we        = (OPTION_OPERAND_WIDTH == 64);
           // for FPU64
           attr_rfa2_req       = 1'b0;
           attr_rfb2_req       = 1'b0;
@@ -516,7 +516,7 @@ module mor1kx_decode_marocchino
           attr_op_1clk        = 1'b0;
           attr_rfa1_req       = 1'b1;
           attr_rfb1_req       = 1'b1;
-          attr_rfd1_wb        = 1'b0;
+          attr_rfd1_we        = 1'b0;
           // for FPU64
           attr_rfa2_req       = 1'b0;
           attr_rfb2_req       = 1'b0;
@@ -528,7 +528,7 @@ module mor1kx_decode_marocchino
           attr_op_1clk        = 1'b0;
           attr_rfa1_req       = (OPTION_OPERAND_WIDTH == 64);
           attr_rfb1_req       = (OPTION_OPERAND_WIDTH == 64);
-          attr_rfd1_wb        = 1'b0;
+          attr_rfd1_we        = 1'b0;
           // for FPU64
           attr_rfa2_req       = 1'b0;
           attr_rfb2_req       = 1'b0;
@@ -549,13 +549,13 @@ module mor1kx_decode_marocchino
               attr_rfb1_req  = 1'b1;
               attr_rfb2_req = op_fpxx_arith_l & fetch_insn_i[`OR1K_FPUOP_DOUBLE_BIT];
             end
-            attr_rfd1_wb = 1'b1;
+            attr_rfd1_we = 1'b1;
           end
           else if (op_fpxx_cmp_l) begin
             // SR[F] <- rA op rB
             attr_rfa1_req = 1'b1;
             attr_rfb1_req = 1'b1;
-            attr_rfd1_wb  = 1'b0;
+            attr_rfd1_we  = 1'b0;
             // for FPU64
             attr_rfa2_req = fetch_insn_i[`OR1K_FPUOP_DOUBLE_BIT]; // SR[F] <- (rA compare rB)
             attr_rfb2_req = fetch_insn_i[`OR1K_FPUOP_DOUBLE_BIT]; // SR[F] <- (rA compare rB)
@@ -564,7 +564,7 @@ module mor1kx_decode_marocchino
             // no legal FPU instruction
             attr_rfa1_req = 1'b0;
             attr_rfb1_req = 1'b0;
-            attr_rfd1_wb  = 1'b0;
+            attr_rfd1_we  = 1'b0;
             // for FPU64
             attr_rfa2_req = 1'b0;
             attr_rfb2_req = 1'b0;
@@ -584,7 +584,7 @@ module mor1kx_decode_marocchino
                 attr_op_1clk        = 1'b1;
                 attr_rfa1_req       = 1'b1;
                 attr_rfb1_req       = 1'b0;
-                attr_rfd1_wb        = 1'b1;
+                attr_rfd1_we        = 1'b1;
               end
             default:
               begin
@@ -592,7 +592,7 @@ module mor1kx_decode_marocchino
                 attr_op_1clk        = 1'b0;
                 attr_rfa1_req       = 1'b0;
                 attr_rfb1_req       = 1'b0;
-                attr_rfd1_wb        = 1'b0;
+                attr_rfd1_we        = 1'b0;
               end
           endcase
           // for FPU64
@@ -617,7 +617,7 @@ module mor1kx_decode_marocchino
                 attr_op_1clk        = 1'b1;
                 attr_rfa1_req       = 1'b1;
                 attr_rfb1_req       = ~op_ffl1;
-                attr_rfd1_wb        = 1'b1;
+                attr_rfd1_we        = 1'b1;
               end
 
             `OR1K_ALU_OPC_DIV,  // rD <- rA / rB
@@ -629,7 +629,7 @@ module mor1kx_decode_marocchino
                 attr_op_1clk        = 1'b0;
                 attr_rfa1_req       = 1'b1;
                 attr_rfb1_req       = 1'b1;
-                attr_rfd1_wb        = 1'b1;
+                attr_rfd1_we        = 1'b1;
               end
 
             `OR1K_ALU_OPC_SHRT:
@@ -645,7 +645,7 @@ module mor1kx_decode_marocchino
                       attr_op_1clk        = 1'b1;
                       attr_rfa1_req       = 1'b1;
                       attr_rfb1_req       = 1'b1;
-                      attr_rfd1_wb        = 1'b1;
+                      attr_rfd1_we        = 1'b1;
                     end
                   default:
                     begin
@@ -653,7 +653,7 @@ module mor1kx_decode_marocchino
                       attr_op_1clk        = 1'b0;
                       attr_rfa1_req       = 1'b0;
                       attr_rfb1_req       = 1'b0;
-                      attr_rfd1_wb        = 1'b0;
+                      attr_rfd1_we        = 1'b0;
                     end
                 endcase
               end
@@ -664,7 +664,7 @@ module mor1kx_decode_marocchino
                 attr_op_1clk        = 1'b0;
                 attr_rfa1_req       = 1'b0;
                 attr_rfb1_req       = 1'b0;
-                attr_rfd1_wb        = 1'b0;
+                attr_rfd1_we        = 1'b0;
               end
           endcase // alu-opc
           // for FPU64
@@ -700,7 +700,7 @@ module mor1kx_decode_marocchino
         attr_op_1clk      = 1'b0;
         attr_rfa1_req     = 1'b0;
         attr_rfb1_req     = 1'b0;
-        attr_rfd1_wb      = 1'b0;
+        attr_rfd1_we      = 1'b0;
         // for FPU64
         attr_rfa2_req     = 1'b0;
         attr_rfb2_req     = 1'b0;
@@ -712,7 +712,7 @@ module mor1kx_decode_marocchino
           attr_op_1clk        = 1'b0;
           attr_rfa1_req       = 1'b0;
           attr_rfb1_req       = 1'b0;
-          attr_rfd1_wb        = 1'b0;
+          attr_rfd1_we        = 1'b0;
           // for FPU64
           attr_rfa2_req       = 1'b0;
           attr_rfb2_req       = 1'b0;
@@ -763,11 +763,11 @@ module mor1kx_decode_marocchino
       dcod_op_lsu_any_o   <= 1'b0;
       dcod_op_mXspr_o     <= 1'b0;
       dcod_op_push_exec_o <= 1'b0;
-      dcod_op_push_wb_o   <= 1'b0;
+      dcod_op_push_wrbk_o <= 1'b0;
       // for correct tracking data dependacy
-      dcod_rfd1_wb_o      <= 1'b0;
-      dcod_rfd2_wb_o      <= 1'b0;
-      dcod_flag_wb_o      <= 1'b0;
+      dcod_rfd1_we_o      <= 1'b0;
+      dcod_rfd2_we_o      <= 1'b0;
+      dcod_flag_we_o      <= 1'b0;
     end
     else if (padv_dcod_i) begin
       dcod_empty_o        <= (~fetch_valid_i);
@@ -777,11 +777,11 @@ module mor1kx_decode_marocchino
       dcod_op_lsu_any_o   <= op_lsu_load | op_lsu_store | op_msync;
       dcod_op_mXspr_o     <= op_mfspr | op_mtspr;
       dcod_op_push_exec_o <= an_except_fd | op_nop | op_rfe | op_jb_push_exec;
-      dcod_op_push_wb_o   <= an_except_fd | op_nop | op_rfe | op_msync;
+      dcod_op_push_wrbk_o <= an_except_fd | op_nop | op_rfe | op_msync;
       // for correct tracking data dependacy
-      dcod_rfd1_wb_o      <= attr_rfd1_wb;
-      dcod_rfd2_wb_o      <= op_fpxx_arith & op_fp64_arith;
-      dcod_flag_wb_o      <= op_setflag | op_fpxx_cmp | (opc_insn == `OR1K_OPCODE_SWA);
+      dcod_rfd1_we_o      <= attr_rfd1_we;
+      dcod_rfd2_we_o      <= op_fpxx_arith & op_fp64_arith;
+      dcod_flag_we_o      <= op_setflag | op_fpxx_cmp | (opc_insn == `OR1K_OPCODE_SWA);
     end
     else if (padv_exec_i) begin
       dcod_empty_o        <= 1'b1;
@@ -791,11 +791,11 @@ module mor1kx_decode_marocchino
       dcod_op_lsu_any_o   <= 1'b0;
       dcod_op_mXspr_o     <= 1'b0;
       dcod_op_push_exec_o <= 1'b0;
-      dcod_op_push_wb_o   <= 1'b0;
+      dcod_op_push_wrbk_o <= 1'b0;
       // for correct tracking data dependacy
-      dcod_rfd1_wb_o      <= 1'b0;
-      dcod_rfd2_wb_o      <= 1'b0;
-      dcod_flag_wb_o      <= 1'b0;
+      dcod_rfd1_we_o      <= 1'b0;
+      dcod_rfd2_we_o      <= 1'b0;
+      dcod_flag_we_o      <= 1'b0;
     end
   end // at clock
 

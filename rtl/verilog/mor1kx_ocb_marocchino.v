@@ -1876,7 +1876,7 @@ module mor1kx_rsrvs_1clk_marocchino
   input       [((2*DEST_EXTADR_WIDTH)-1):0] omn2dec_hazards_addrs_i,
 
   // support in-1clk-unit forwarding
-  input                                     dcod_rfd1_wb_i,
+  input                                     dcod_rfd1_we_i,
   input             [DEST_EXTADR_WIDTH-1:0] dcod_extadr_i,
 
   // Hazard could be resolving
@@ -1953,7 +1953,7 @@ module mor1kx_rsrvs_1clk_marocchino
 
   // propagate extention bits through RSRVS stages
   wire   [(DEST_EXTADR_WIDTH-1):0] dcod_extadr;
-  assign dcod_extadr = dcod_rfd1_wb_i ? dcod_extadr_i : EXTADR_ZERO;
+  assign dcod_extadr = dcod_rfd1_we_i ? dcod_extadr_i : EXTADR_ZERO;
 
   // EXECUTE-to-DECODE forwarding
   wire exe2dec_ff_d1a1 = omn2dec_hazards_flags_i[0] & (omn2dec_extadr_dxa1 == exec_extadr_r);
