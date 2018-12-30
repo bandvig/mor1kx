@@ -166,8 +166,8 @@ module mor1kx_ctrl_marocchino
   input      [OPTION_OPERAND_WIDTH-1:0] pc_nxt2_wrbk_i,
 
   // Write-Back: flag
-  input                                 wrbk_int_flag_set_i,
-  input                                 wrbk_int_flag_clear_i,
+  input                                 wrbk_1clk_flag_set_i,
+  input                                 wrbk_1clk_flag_clear_i,
   input                                 wrbk_fpxx_flag_set_i,
   input                                 wrbk_fpxx_flag_clear_i,
   input                                 wrbk_atomic_flag_set_i,
@@ -346,8 +346,8 @@ module mor1kx_ctrl_marocchino
 
 
   // Flag output
-  wire   ctrl_flag_clear = wrbk_int_flag_clear_i | wrbk_fpxx_flag_clear_i | wrbk_atomic_flag_clear_i;
-  wire   ctrl_flag_set   = wrbk_int_flag_set_i   | wrbk_fpxx_flag_set_i   | wrbk_atomic_flag_set_i;
+  wire   ctrl_flag_clear = wrbk_1clk_flag_clear_i | wrbk_fpxx_flag_clear_i | wrbk_atomic_flag_clear_i;
+  wire   ctrl_flag_set   = wrbk_1clk_flag_set_i   | wrbk_fpxx_flag_set_i   | wrbk_atomic_flag_set_i;
   // ---
   assign ctrl_flag_o     = (~ctrl_flag_clear) & (ctrl_flag_set | sr_flag);
   // ---

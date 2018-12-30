@@ -447,7 +447,7 @@ module mor1kx_exec_1clk_marocchino
   input                                 exec_op_logic_i,
   input                           [3:0] exec_lut_logic_i,
   // Write-Back-latched 1-clock arithmetic result
-  output reg [OPTION_OPERAND_WIDTH-1:0] wrbk_alu_result_o,
+  output reg [OPTION_OPERAND_WIDTH-1:0] wrbk_1clk_result_o,
   //  # update carry flag by 1clk-operation
   output reg                            wrbk_1clk_carry_set_o,
   output reg                            wrbk_1clk_carry_clear_o,
@@ -463,8 +463,8 @@ module mor1kx_exec_1clk_marocchino
   input                                 exec_op_setflag_i,
   input      [`OR1K_COMP_OPC_WIDTH-1:0] exec_opc_setflag_i,
   // Write-Back: integer comparison result
-  output reg                            wrbk_int_flag_set_o,
-  output reg                            wrbk_int_flag_clear_o
+  output reg                            wrbk_1clk_flag_set_o,
+  output reg                            wrbk_1clk_flag_clear_o
 );
 
   localparam  EXEDW = OPTION_OPERAND_WIDTH; // short name
@@ -655,24 +655,24 @@ module mor1kx_exec_1clk_marocchino
   //------------------------------------------------------------------//
   // Muxing and registering 1-clk results and integer comparison flag //
   //------------------------------------------------------------------//
-  wire [EXEDW-1:0] alu_result_mux = ({EXEDW{exec_op_shift_i}} & shift_result   ) |
-                                         ({EXEDW{exec_op_ffl1_i}}  & ffl1_result    ) |
-                                         ({EXEDW{exec_op_add_i}}   & adder_result   ) |
-                                         ({EXEDW{exec_op_logic_i}} & logic_result   ) |
-                                         ({EXEDW{exec_op_cmov_i}}  & cmov_result    ) |
-                                         ({EXEDW{exec_op_movhi_i}} & exec_1clk_b1_m );
+  wire [EXEDW-1:0] u_1clk_result_mux = ({EXEDW{exec_op_shift_i}} & shift_result   ) |
+                                       ({EXEDW{exec_op_ffl1_i}}  & ffl1_result    ) |
+                                       ({EXEDW{exec_op_add_i}}   & adder_result   ) |
+                                       ({EXEDW{exec_op_logic_i}} & logic_result   ) |
+                                       ({EXEDW{exec_op_cmov_i}}  & cmov_result    ) |
+                                       ({EXEDW{exec_op_movhi_i}} & exec_1clk_b1_m );
 
   //-------------------------------------//
   // update carry flag by 1clk-operation //
   //-------------------------------------//
-  wire alu_carry_set      = exec_op_add_i &   adder_u_ovf;
-  wire alu_carry_clear    = exec_op_add_i & (~adder_u_ovf);
+  wire u_1clk_carry_set      = exec_op_add_i &   adder_u_ovf;
+  wire u_1clk_carry_clear    = exec_op_add_i & (~adder_u_ovf);
 
   //----------------------------------------//
   // update overflow flag by 1clk-operation //
   //----------------------------------------//
-  wire alu_overflow_set   = exec_op_add_i &   adder_s_ovf;
-  wire alu_overflow_clear = exec_op_add_i & (~adder_s_ovf);
+  wire u_1clk_overflow_set   = exec_op_add_i &   adder_s_ovf;
+  wire u_1clk_overflow_clear = exec_op_add_i & (~adder_s_ovf);
 
 
   //--------------------------//
@@ -700,46 +700,46 @@ module mor1kx_exec_1clk_marocchino
     endcase
   end
   // ---
-  wire alu_flag_set   = exec_op_setflag_i &   flag_set;
-  wire alu_flag_clear = exec_op_setflag_i & (~flag_set);
+  wire u_1clk_flag_set   = exec_op_setflag_i &   flag_set;
+  wire u_1clk_flag_clear = exec_op_setflag_i & (~flag_set);
 
 
   //-----------------------------------//
   // 1-clock execution write-back miss //
   //-----------------------------------//
-  reg             wrbk_alu_miss_r;
+  reg             wrbk_1clk_miss_r;
   // ---
-  assign taking_1clk_op_o = exec_op_1clk_i & (~wrbk_alu_miss_r) & // 1CLK TAKING OP
+  assign taking_1clk_op_o = exec_op_1clk_i & (~wrbk_1clk_miss_r) & // 1CLK TAKING OP
                             ((~exec_flag_carry_req_i) | grant_wrbk_to_1clk_i); // 1CLK TAKING OP
   // ---
-  assign op_1clk_valid_o  = exec_op_1clk_i | wrbk_alu_miss_r;
+  assign op_1clk_valid_o  = exec_op_1clk_i | wrbk_1clk_miss_r;
   // ---
   always @(posedge cpu_clk) begin
     if (pipeline_flush_i)
-      wrbk_alu_miss_r <= 1'b0;
+      wrbk_1clk_miss_r <= 1'b0;
     else if (padv_wrbk_i & grant_wrbk_to_1clk_i)
-      wrbk_alu_miss_r <= 1'b0;
+      wrbk_1clk_miss_r <= 1'b0;
     else if (taking_1clk_op_o)
-      wrbk_alu_miss_r <= 1'b1;
+      wrbk_1clk_miss_r <= 1'b1;
   end //  @clock
   // ---
-  reg [EXEDW-1:0] alu_result_p;
-  reg             alu_carry_set_p;
-  reg             alu_carry_clear_p;
-  reg             alu_overflow_set_p;
-  reg             alu_overflow_clear_p;
-  reg             alu_flag_set_p;
-  reg             alu_flag_clear_p;
+  reg [EXEDW-1:0] u_1clk_result_p;
+  reg             u_1clk_carry_set_p;
+  reg             u_1clk_carry_clear_p;
+  reg             u_1clk_overflow_set_p;
+  reg             u_1clk_overflow_clear_p;
+  reg             u_1clk_flag_set_p;
+  reg             u_1clk_flag_clear_p;
   // ---
   always @(posedge cpu_clk) begin
     if (taking_1clk_op_o) begin
-      alu_result_p         <= alu_result_mux;
-      alu_carry_set_p      <= alu_carry_set;
-      alu_carry_clear_p    <= alu_carry_clear;
-      alu_overflow_set_p   <= alu_overflow_set;
-      alu_overflow_clear_p <= alu_overflow_clear;
-      alu_flag_set_p       <= alu_flag_set;
-      alu_flag_clear_p     <= alu_flag_clear;
+      u_1clk_result_p         <= u_1clk_result_mux;
+      u_1clk_carry_set_p      <= u_1clk_carry_set;
+      u_1clk_carry_clear_p    <= u_1clk_carry_clear;
+      u_1clk_overflow_set_p   <= u_1clk_overflow_set;
+      u_1clk_overflow_clear_p <= u_1clk_overflow_clear;
+      u_1clk_flag_set_p       <= u_1clk_flag_set;
+      u_1clk_flag_clear_p     <= u_1clk_flag_clear;
     end
   end //  @clock
 
@@ -747,7 +747,7 @@ module mor1kx_exec_1clk_marocchino
   // result for in-1clk-unit forwarding
   always @(posedge cpu_clk) begin
     if (taking_1clk_op_o)
-      ff_1clk_result_r <= alu_result_mux;
+      ff_1clk_result_r <= u_1clk_result_mux;
   end //  @clock
 
 
@@ -755,31 +755,31 @@ module mor1kx_exec_1clk_marocchino
   always @(posedge cpu_clk) begin
     if (padv_wrbk_i) begin
       if (grant_wrbk_to_1clk_i)
-        wrbk_alu_result_o <= wrbk_alu_miss_r ? alu_result_p : alu_result_mux;
+        wrbk_1clk_result_o <= wrbk_1clk_miss_r ? u_1clk_result_p : u_1clk_result_mux;
       else
-        wrbk_alu_result_o <= {EXEDW{1'b0}};
+        wrbk_1clk_result_o <= {EXEDW{1'b0}};
     end
   end //  @clock
 
   /****  1CLK Write Back flags ****/
   //  # generate overflow exception by 1clk-operation
-  wire   mux_except_overflow_1clk    = except_overflow_enable_i & (wrbk_alu_miss_r ? alu_overflow_set_p : alu_overflow_set);
+  wire   mux_except_overflow_1clk    = except_overflow_enable_i & (wrbk_1clk_miss_r ? u_1clk_overflow_set_p : u_1clk_overflow_set);
   assign exec_except_overflow_1clk_o = grant_wrbk_to_1clk_i & mux_except_overflow_1clk;
 
   // Write-Back-latchers
   always @(posedge cpu_clk) begin
     if (padv_wrbk_i & grant_wrbk_to_1clk_i) begin
       //  # update carry flag by 1clk-operation
-      wrbk_1clk_carry_set_o        <= wrbk_alu_miss_r ? alu_carry_set_p : alu_carry_set;
-      wrbk_1clk_carry_clear_o      <= wrbk_alu_miss_r ? alu_carry_clear_p : alu_carry_clear;
+      wrbk_1clk_carry_set_o        <= wrbk_1clk_miss_r ? u_1clk_carry_set_p : u_1clk_carry_set;
+      wrbk_1clk_carry_clear_o      <= wrbk_1clk_miss_r ? u_1clk_carry_clear_p : u_1clk_carry_clear;
       //  # update overflow flag by 1clk-operation
-      wrbk_1clk_overflow_set_o     <= wrbk_alu_miss_r ? alu_overflow_set_p : alu_overflow_set;
-      wrbk_1clk_overflow_clear_o   <= wrbk_alu_miss_r ? alu_overflow_clear_p : alu_overflow_clear;
+      wrbk_1clk_overflow_set_o     <= wrbk_1clk_miss_r ? u_1clk_overflow_set_p : u_1clk_overflow_set;
+      wrbk_1clk_overflow_clear_o   <= wrbk_1clk_miss_r ? u_1clk_overflow_clear_p : u_1clk_overflow_clear;
       //  # generate overflow exception by 1clk-operation
       wrbk_except_overflow_1clk_o  <= mux_except_overflow_1clk;
       //  # update SR[F] by 1clk-operation
-      wrbk_int_flag_set_o          <= wrbk_alu_miss_r ? alu_flag_set_p : alu_flag_set;
-      wrbk_int_flag_clear_o        <= wrbk_alu_miss_r ? alu_flag_clear_p : alu_flag_clear;
+      wrbk_1clk_flag_set_o         <= wrbk_1clk_miss_r ? u_1clk_flag_set_p : u_1clk_flag_set;
+      wrbk_1clk_flag_clear_o       <= wrbk_1clk_miss_r ? u_1clk_flag_clear_p : u_1clk_flag_clear;
     end
     else begin
       //  # update carry flag by 1clk-operation
@@ -791,8 +791,8 @@ module mor1kx_exec_1clk_marocchino
       //  # generate overflow exception by 1clk-operation
       wrbk_except_overflow_1clk_o  <= 1'b0;
       //  # update SR[F] by 1clk-operation
-      wrbk_int_flag_set_o          <= 1'b0;
-      wrbk_int_flag_clear_o        <= 1'b0;
+      wrbk_1clk_flag_set_o         <= 1'b0;
+      wrbk_1clk_flag_clear_o       <= 1'b0;
     end
   end // @clock
 

@@ -178,8 +178,8 @@ module mor1kx_cpu_marocchino
   wire                            wrbk_atomic_flag_set;
   wire                            wrbk_atomic_flag_clear;
 
-  wire                            wrbk_int_flag_set;
-  wire                            wrbk_int_flag_clear;
+  wire                            wrbk_1clk_flag_set;
+  wire                            wrbk_1clk_flag_clear;
 
   wire                            ctrl_flag;
   wire                            ctrl_flag_sr;
@@ -196,7 +196,7 @@ module mor1kx_cpu_marocchino
   // !!! Don't acivate "Remove duplicate registers" option in
   // !!! MAROCCHINO_TODO: <determine optimal settings>
   //  # from 1-clock execution units
-  wire [OPTION_OPERAND_WIDTH-1:0] wrbk_alu_result;
+  wire [OPTION_OPERAND_WIDTH-1:0] wrbk_1clk_result;
   //  # from integer division execution unit
   wire [OPTION_OPERAND_WIDTH-1:0] wrbk_div_result;
   //  # from integer multiplier execution unit
@@ -1252,7 +1252,7 @@ module mor1kx_cpu_marocchino
     .exec_op_logic_i                  (exec_op_logic), // 1CLK_EXEC
     .exec_lut_logic_i                 (exec_lut_logic), // 1CLK_EXEC
     // Write-Back-latched 1-clock arithmetic result
-    .wrbk_alu_result_o                (wrbk_alu_result), // 1CLK_EXEC
+    .wrbk_1clk_result_o               (wrbk_1clk_result), // 1CLK_EXEC
     //  # update carry flag by 1clk-operation
     .wrbk_1clk_carry_set_o            (wrbk_1clk_carry_set), // 1CLK_EXEC
     .wrbk_1clk_carry_clear_o          (wrbk_1clk_carry_clear), // 1CLK_EXEC
@@ -1268,8 +1268,8 @@ module mor1kx_cpu_marocchino
     .exec_op_setflag_i                (exec_op_setflag), // 1CLK_EXEC
     .exec_opc_setflag_i               (exec_opc_setflag), // 1CLK_EXEC
     // Write-Back: integer comparison result
-    .wrbk_int_flag_set_o              (wrbk_int_flag_set), // 1CLK_EXEC
-    .wrbk_int_flag_clear_o            (wrbk_int_flag_clear) // 1CLK_EXEC
+    .wrbk_1clk_flag_set_o             (wrbk_1clk_flag_set), // 1CLK_EXEC
+    .wrbk_1clk_flag_clear_o           (wrbk_1clk_flag_clear) // 1CLK_EXEC
   );
 
 
@@ -1840,10 +1840,10 @@ module mor1kx_cpu_marocchino
   //-------------------//
 
   // --- regular ---
-  always @(wrbk_alu_result        or wrbk_div_result or wrbk_mul_result or
+  always @(wrbk_1clk_result       or wrbk_div_result or wrbk_mul_result or
            wrbk_fpxx_arith_res_hi or wrbk_lsu_result or wrbk_mfspr_result)
   begin
-    wrbk_result1 = wrbk_alu_result        | wrbk_div_result | wrbk_mul_result |
+    wrbk_result1 = wrbk_1clk_result       | wrbk_div_result | wrbk_mul_result |
                    wrbk_fpxx_arith_res_hi | wrbk_lsu_result | wrbk_mfspr_result;
   end
 
@@ -2100,8 +2100,8 @@ module mor1kx_cpu_marocchino
     .pc_nxt2_wrbk_i                   (pc_nxt2_wrbk), // CTRL
 
     // Write-Back: flag
-    .wrbk_int_flag_set_i              (wrbk_int_flag_set), // CTRL
-    .wrbk_int_flag_clear_i            (wrbk_int_flag_clear), // CTRL
+    .wrbk_1clk_flag_set_i             (wrbk_1clk_flag_set), // CTRL
+    .wrbk_1clk_flag_clear_i           (wrbk_1clk_flag_clear), // CTRL
     .wrbk_fpxx_flag_set_i             (wrbk_fpxx_flag_set), // CTRL
     .wrbk_fpxx_flag_clear_i           (wrbk_fpxx_flag_clear), // CTRL
     .wrbk_atomic_flag_set_i           (wrbk_atomic_flag_set), // CTRL
