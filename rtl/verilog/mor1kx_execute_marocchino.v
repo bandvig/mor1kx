@@ -443,6 +443,9 @@ module mor1kx_exec_1clk_marocchino
   // movhi, cmov
   input                                 exec_op_movhi_i,
   input                                 exec_op_cmov_i,
+  // extsz
+  input                                 exec_op_extsz_i,
+  input                           [3:0] exec_opc_extsz_i,
   // logic
   input                                 exec_op_logic_i,
   input                           [3:0] exec_lut_logic_i,
@@ -638,6 +641,28 @@ module mor1kx_exec_1clk_marocchino
   assign cmov_result = flag_i ? exec_1clk_a1_m : exec_1clk_b1_m;
 
 
+  //----------------------------------------//
+  // Sign/Zero exentions for 8- and 16-bits //
+  //----------------------------------------//
+  reg [EXEDW-1:0] extsz_result;
+  // ---
+  always @(exec_opc_extsz_i or exec_1clk_a1_m) begin
+    // synthesis parallel_case
+    case (exec_opc_extsz_i)
+      {1'b0,`OR1K_ALU_OPC_SECONDARY_EXTBH_EXTBS}:
+        extsz_result = {{(EXEDW-8){exec_1clk_a1_m[7]}}, exec_1clk_a1_m[7:0]};
+      {1'b0,`OR1K_ALU_OPC_SECONDARY_EXTBH_EXTBZ}:
+        extsz_result = {{(EXEDW-8){1'b0}}, exec_1clk_a1_m[7:0]};
+      {1'b0,`OR1K_ALU_OPC_SECONDARY_EXTBH_EXTHS}:
+        extsz_result = {{(EXEDW-16){exec_1clk_a1_m[15]}}, exec_1clk_a1_m[15:0]};
+      {1'b0,`OR1K_ALU_OPC_SECONDARY_EXTBH_EXTHZ}:
+        extsz_result = {{(EXEDW-16){1'b0}}, exec_1clk_a1_m[15:0]};
+      default:
+        extsz_result = exec_1clk_a1_m;
+    endcase
+  end
+
+
   //--------------------//
   // Logical operations //
   //--------------------//
@@ -660,6 +685,7 @@ module mor1kx_exec_1clk_marocchino
                                        ({EXEDW{exec_op_add_i}}   & adder_result   ) |
                                        ({EXEDW{exec_op_logic_i}} & logic_result   ) |
                                        ({EXEDW{exec_op_cmov_i}}  & cmov_result    ) |
+                                       ({EXEDW{exec_op_extsz_i}} & extsz_result   ) |
                                        ({EXEDW{exec_op_movhi_i}} & exec_1clk_b1_m );
 
   //-------------------------------------//

@@ -122,6 +122,9 @@ module mor1kx_decode_marocchino
   // movhi, cmov
   output reg                            dcod_op_movhi_o,
   output reg                            dcod_op_cmov_o,
+  // extsz
+  output reg                            dcod_op_extsz_o,
+  output reg                      [3:0] dcod_opc_extsz_o,
   // Logic
   output reg                            dcod_op_logic_o,
   output reg                      [3:0] dcod_lut_logic_o,
@@ -292,7 +295,7 @@ module mor1kx_decode_marocchino
   wire op_div          = op_div_signed | op_div_unsigned;
 
 
-  // --- shifter / ffl1 / movhi / cmov ---
+  // --- shifter ---
   wire op_shift = (op_alu & (opc_alu  == `OR1K_ALU_OPC_SHRT)) |
                   (opc_insn == `OR1K_OPCODE_SHRTI);
   wire [`OR1K_ALU_OPC_SECONDARY_WIDTH-1:0] opc_shift;
@@ -307,6 +310,14 @@ module mor1kx_decode_marocchino
   // --- movhi / cmov ---
   wire op_movhi = (opc_insn == `OR1K_OPCODE_MOVHI);
   wire op_cmov  = (op_alu & (opc_alu == `OR1K_ALU_OPC_CMOV));
+
+
+  // --- extsz ---
+  // OPC is recoded to avoid aliasing of "word" and others
+  wire is_extw  = (opc_alu == `OR1K_ALU_OPC_EXTW);
+  wire op_extsz = op_alu & ((opc_alu == `OR1K_ALU_OPC_EXTBH) |
+                            is_extw);
+  wire [3:0] opc_extsz = {is_extw, fetch_insn_i[`OR1K_ALU_OPC_SECONDARY_SELECT]};
 
 
   // --- logic ---
@@ -604,19 +615,29 @@ module mor1kx_decode_marocchino
         begin
           // synthesis parallel_case
           case (opc_alu)
+            `OR1K_ALU_OPC_EXTBH, // rD <- zero/sign extention (rA) for 8- and 16- bits
+            `OR1K_ALU_OPC_EXTW,  // rD <- rA for 32-bits
+            `OR1K_ALU_OPC_FFL1:  // rD <- FFL1(rA)
+              begin
+                attr_except_illegal = (OPTION_OPERAND_WIDTH == 64); // extsz/ffl are not implemented for ORBIS64
+                attr_op_1clk        = 1'b1;
+                attr_rfa1_req       = 1'b1;
+                attr_rfb1_req       = 1'b0;
+                attr_rfd1_we        = 1'b1;
+              end
+
             `OR1K_ALU_OPC_ADD,  // rD <- rA + rB
             `OR1K_ALU_OPC_ADDC, // rD <- rA + rB + carry
             `OR1K_ALU_OPC_SUB,  // rD <- rA - rB
             `OR1K_ALU_OPC_OR,   // rD <- rA | rB
             `OR1K_ALU_OPC_XOR,  // rD <- rA ^ rB
             `OR1K_ALU_OPC_AND,  // rD <- rA & rB
-            `OR1K_ALU_OPC_CMOV, // rD <- flag ? rA : rB
-            `OR1K_ALU_OPC_FFL1: // rD <- FFL1(rA)
+            `OR1K_ALU_OPC_CMOV: // rD <- flag ? rA : rB
               begin
                 attr_except_illegal = 1'b0;
                 attr_op_1clk        = 1'b1;
                 attr_rfa1_req       = 1'b1;
-                attr_rfb1_req       = ~op_ffl1;
+                attr_rfb1_req       = 1'b1;
                 attr_rfd1_we        = 1'b1;
               end
 
@@ -836,6 +857,9 @@ module mor1kx_decode_marocchino
       // movhi, cmov
       dcod_op_movhi_o           <= op_movhi;
       dcod_op_cmov_o            <= op_cmov;
+      // extsz
+      dcod_op_extsz_o           <= op_extsz;
+      dcod_opc_extsz_o          <= opc_extsz;
       // Logic
       dcod_op_logic_o           <= |lut_logic;
       dcod_lut_logic_o          <= lut_logic;
