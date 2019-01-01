@@ -704,12 +704,12 @@ module mor1kx_exec_1clk_marocchino
   //--------------------------//
   // Integer comparison logic //
   //--------------------------//
-  wire a_eq_b  = (exec_1clk_a1_m == exec_1clk_b1_m); // Equal compare
+  wire a_eq_b  = (adder_result == {EXEDW{1'b0}}); // Equal compare
   wire a_lts_b = (adder_result_sign ^ adder_s_ovf); // Signed compare (sign != ovf)
   wire a_ltu_b = ~adder_carryout; // Unsigned compare
   // comb.
   reg flag_set;
-  always @* begin
+  always @(exec_opc_setflag_i or a_eq_b or a_lts_b or a_ltu_b) begin
     // synthesis parallel_case
     case(exec_opc_setflag_i)
       `OR1K_COMP_OPC_EQ:  flag_set = a_eq_b;
