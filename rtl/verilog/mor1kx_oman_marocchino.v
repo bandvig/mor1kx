@@ -109,6 +109,7 @@ module mor1kx_oman_marocchino
 #(
   parameter OPTION_OPERAND_WIDTH = 32,
   parameter OPTION_RF_ADDR_WIDTH =  5,
+  parameter NUM_GPRS             = 32,  // (1 << OPTION_RF_ADDR_WIDTH)
   parameter DEST_EXTADR_WIDTH    =  3,  // log2(Order Control Buffer depth)
   // branch predictor parameters
   parameter GSHARE_BITS_NUM      = 10
@@ -297,16 +298,13 @@ module mor1kx_oman_marocchino
 
   // Write-Back outputs
   //  ## special Write-Back-controls for RF
-  output reg [OPTION_RF_ADDR_WIDTH-1:0] wrbk_rf_even_addr_o,
-  output reg                            wrbk_rf_even_we_o,
-  output reg [OPTION_RF_ADDR_WIDTH-1:0] wrbk_rf_odd_addr_o,
-  output reg                            wrbk_rf_odd_we_o,
+  output reg             [NUM_GPRS-1:0] wrbk_rfd1_we_o,
+  output reg             [NUM_GPRS-1:0] wrbk_rfd2_we_o,
   //  ## instruction related information
   output reg [OPTION_OPERAND_WIDTH-1:0] pc_wrbk_o,
   output reg [OPTION_OPERAND_WIDTH-1:0] pc_nxt_wrbk_o, // pc-wrbk + 4
   output reg [OPTION_OPERAND_WIDTH-1:0] pc_nxt2_wrbk_o, // pc-wrbk + 8
   output reg                            wrbk_delay_slot_o,
-  output reg                            wrbk_rfd1_odd_o,
   // for hazards resolution in RSRVS
   output reg    [DEST_EXTADR_WIDTH-1:0] wrbk_extadr_o
 );
@@ -557,9 +555,6 @@ module mor1kx_oman_marocchino
   //  (a) we process FLAG for l.bf/.bnf in separate way
   //  (b) only 1-clock instructions request FLAG/CARRY,
   //      however any case they granted with Write-Back accees after completion FLAG/CARRY update
-
-  // RAT parameters
-  localparam  NUM_GPRS = (1 << OPTION_RF_ADDR_WIDTH);
 
   // RAT outputs
   wire          [(NUM_GPRS-1):0] rat_rd1_alloc; // allocated by D1
@@ -1273,24 +1268,17 @@ module mor1kx_oman_marocchino
   wire [OPTION_RF_ADDR_WIDTH-1:0] exec_rfd2_adr = ocbo[OCBTA_RFD2_ADR_MSB:OCBTA_RFD2_ADR_LSB];
 
 
-  // special Write-Back-controls for RF
+  // 1-hot Write-Back-controls for RF
   //  if A(B)'s address is odd than A2(B2)=A(B)+1 is even and vise verse
   //  1-clock Write-Back-pulses
   always @(posedge cpu_clk) begin
     if (padv_wrbk_i) begin
-      wrbk_rf_even_we_o <= (exec_rfd1_we & ~exec_rfd1_adr[0]) | (exec_rfd2_we & ~exec_rfd2_adr[0]);
-      wrbk_rf_odd_we_o  <= (exec_rfd1_we &  exec_rfd1_adr[0]) | (exec_rfd2_we &  exec_rfd2_adr[0]);
+      wrbk_rfd1_we_o <= {{(NUM_GPRS-1){1'b0}},exec_rfd1_we} << exec_rfd1_adr;
+      wrbk_rfd2_we_o <= {{(NUM_GPRS-1){1'b0}},exec_rfd2_we} << exec_rfd2_adr;
     end
     else begin
-      wrbk_rf_even_we_o <= 1'b0;
-      wrbk_rf_odd_we_o  <= 1'b0;
-    end
-  end // @clock
-  //   Even/Odd Write-Back-addresses
-  always @(posedge cpu_clk) begin
-    if (padv_wrbk_i) begin
-      wrbk_rf_even_addr_o <= exec_rfd1_adr[0] ? exec_rfd2_adr : exec_rfd1_adr;
-      wrbk_rf_odd_addr_o  <= exec_rfd1_adr[0] ? exec_rfd1_adr : exec_rfd2_adr;
+      wrbk_rfd1_we_o <= {NUM_GPRS{1'b0}};
+      wrbk_rfd2_we_o <= {NUM_GPRS{1'b0}};
     end
   end // @clock
 
@@ -1301,13 +1289,6 @@ module mor1kx_oman_marocchino
       wrbk_delay_slot_o <= ocbo[OCBTA_DELAY_SLOT_POS];
     else
       wrbk_delay_slot_o <= 1'b0;
-  end // @clock
-
-
-  // address of D1
-  always @(posedge cpu_clk) begin
-    if (padv_wrbk_i)
-      wrbk_rfd1_odd_o <= exec_rfd1_adr[0];
   end // @clock
 
 

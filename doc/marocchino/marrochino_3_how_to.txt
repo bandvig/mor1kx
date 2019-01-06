@@ -103,7 +103,7 @@ u_mor1kx_marocchino
  your_path/mor1kx/rtl/verilog/pfpu_marocchino/pfpu_rnd_marocchino.v
  your_path/mor1kx/rtl/verilog/pfpu_marocchino/pfpu_top_marocchino.v
  your_path/mor1kx/rtl/verilog/mor1kx_bus_if_wb32.v
- your_path/mor1kx/rtl/verilog/mor1kx_cache_lru.v
+ your_path/mor1kx/rtl/verilog/mor1kx_cache_lru_marocchino.v
  your_path/mor1kx/rtl/verilog/mor1kx_immu_marocchino.v
  your_path/mor1kx/rtl/verilog/mor1kx_icache_marocchino.v
  your_path/mor1kx/rtl/verilog/mor1kx_fetch_marocchino.v

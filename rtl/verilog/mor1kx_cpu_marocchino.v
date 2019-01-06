@@ -138,6 +138,8 @@ module mor1kx_cpu_marocchino
   // branch predictor parameters
   localparam GSHARE_BITS_NUM      = 12;
 
+  localparam NUM_GPRS = (1 << OPTION_RF_ADDR_WIDTH);
+
 
   // Instruction PC
   wire [OPTION_OPERAND_WIDTH-1:0] pc_fetch;
@@ -271,22 +273,17 @@ module mor1kx_cpu_marocchino
   wire                            omn2dec_hazard_d1b2;
   wire                            omn2dec_hazard_d2b2;
   wire    [DEST_EXTADR_WIDTH-1:0] omn2dec_extadr_dxb2;
-  // Hazard could be resolving
-  //  ## A or B operand
-  wire                            wrbk_rfd1_odd;
-  //  ## for hazards resolution in RSRVS
-  wire    [DEST_EXTADR_WIDTH-1:0] wrbk_extadr;
 
 
   // support in-1clk-unit forwarding
   wire    [DEST_EXTADR_WIDTH-1:0] dcod_extadr;
+  // for hazards resolution in RSRVS
+  wire    [DEST_EXTADR_WIDTH-1:0] wrbk_extadr;
 
 
   // Special Write-Back-controls for RF
-  wire [OPTION_RF_ADDR_WIDTH-1:0] wrbk_rf_even_addr;
-  wire                            wrbk_rf_even_we;
-  wire [OPTION_RF_ADDR_WIDTH-1:0] wrbk_rf_odd_addr;
-  wire                            wrbk_rf_odd_we;
+  wire             [NUM_GPRS-1:0] wrbk_rfd1_we;
+  wire             [NUM_GPRS-1:0] wrbk_rfd2_we;
 
 
   // Logic to support Jump / Branch taking
@@ -698,6 +695,7 @@ module mor1kx_cpu_marocchino
     .OPTION_OPERAND_WIDTH           (OPTION_OPERAND_WIDTH), // RF
     .OPTION_RF_CLEAR_ON_INIT        (OPTION_RF_CLEAR_ON_INIT), // RF
     .OPTION_RF_ADDR_WIDTH           (OPTION_RF_ADDR_WIDTH), // RF
+    .NUM_GPRS                       (NUM_GPRS), // RF
     .FEATURE_DEBUGUNIT              (FEATURE_DEBUGUNIT), // RF
     .OPTION_RF_NUM_SHADOW_GPR       (OPTION_RF_NUM_SHADOW_GPR) // RF
   )
@@ -727,15 +725,11 @@ module mor1kx_cpu_marocchino
     // from DECODE
     .dcod_immediate_i                 (dcod_immediate), // RF
     .dcod_immediate_sel_i             (dcod_immediate_sel), // RF
-    // Special Write-Back-controls for RF
-    .wrbk_rf_even_addr_i              (wrbk_rf_even_addr), // RF
-    .wrbk_rf_even_we_i                (wrbk_rf_even_we), // RF
-    .wrbk_rf_odd_addr_i               (wrbk_rf_odd_addr), // RF
-    .wrbk_rf_odd_we_i                 (wrbk_rf_odd_we), // RF
     // from Write-Back
-    .wrbk_rfd1_odd_i                  (wrbk_rfd1_odd), // RF
+    .wrbk_rfd1_we_i                   (wrbk_rfd1_we), // RF
     .wrbk_result1_i                   (wrbk_result1), // RF
     // for FPU64
+    .wrbk_rfd2_we_i                   (wrbk_rfd2_we), // RF
     .wrbk_result2_i                   (wrbk_result2), // RF
     // 1-clock "Write-Back to DECODE operand forwarding" flags
     //  # relative operand A1
@@ -904,6 +898,7 @@ module mor1kx_cpu_marocchino
   #(
     .OPTION_OPERAND_WIDTH       (OPTION_OPERAND_WIDTH), // OMAN
     .OPTION_RF_ADDR_WIDTH       (OPTION_RF_ADDR_WIDTH), // OMAN
+    .NUM_GPRS                   (NUM_GPRS), // OMAN
     .DEST_EXTADR_WIDTH          (DEST_EXTADR_WIDTH), // OMAN
     // branch predictor parameters
     .GSHARE_BITS_NUM            (GSHARE_BITS_NUM) // OMAN
@@ -1091,16 +1086,13 @@ module mor1kx_cpu_marocchino
 
     // Write-Back outputs
     //  ## special Write-Back-controls for RF
-    .wrbk_rf_even_addr_o        (wrbk_rf_even_addr), // OMAN
-    .wrbk_rf_even_we_o          (wrbk_rf_even_we), // OMAN
-    .wrbk_rf_odd_addr_o         (wrbk_rf_odd_addr), // OMAN
-    .wrbk_rf_odd_we_o           (wrbk_rf_odd_we), // OMAN
+    .wrbk_rfd1_we_o             (wrbk_rfd1_we), // OMAN
+    .wrbk_rfd2_we_o             (wrbk_rfd2_we), // OMAN
     //  ## instruction related information
     .pc_wrbk_o                  (pc_wrbk), // OMAN
     .pc_nxt_wrbk_o              (pc_nxt_wrbk), // OMAN
     .pc_nxt2_wrbk_o             (pc_nxt2_wrbk), // OMAN
     .wrbk_delay_slot_o          (wrbk_delay_slot), // OMAN
-    .wrbk_rfd1_odd_o            (wrbk_rfd1_odd), // OMAN
     // for hazards resolution in RSRVS
     .wrbk_extadr_o              (wrbk_extadr) // OMAN
   );

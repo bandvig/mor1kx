@@ -13,8 +13,8 @@ CAPPUCCINO by the following steps:
   d) CTRL-stage related registers were removed
   e) The logic for bubble generation, forwarding results, pipeline
      control signals generation were significantly simplified
-  f) Exceptions are taken on WB-stage now
-  g) WB registers were extended to handle flags and exceptions
+  f) Exceptions are taken on Write-Back-stage now
+  g) Write-Back registers were extended to handle flags and exceptions
      additionally to result
   h) Debug unit support was damaged
 
@@ -30,7 +30,7 @@ flag to control pipeline.
 
 
 6 September 2015
-  Pipelined multiplier. Some adaptation for FPU pipelines. Move WB
+  Pipelined multiplier. Some adaptation for FPU pipelines. Move Write-Back
 latches into mor1kx_execute_marocchino to prepare implementation of
 control for paralleled execution units. So, mor1kx_wbmux_marocchino
 has been removed from design.
@@ -69,7 +69,7 @@ flag is usually computed by EXECUTE while FETCH is fetching delay slot)
      moved out of mor1kx_excecute_maroccchino module. The rest part of
      mor1kx_excecute_maroccchino were re-named to
      mor1kx_exec_1clk_marocchino
- (f) WB- registers in all execution modules were re-designed to make
+ (f) Write-Back- registers in all execution modules were re-designed to make
      exception processing more straight
 
 
@@ -124,7 +124,7 @@ JTAG-TAP and Advance Debug System. Step-by-step execution not tested yet.
   (3) Move link address computation for l.jal and l.jalr fro DECODE to ALU
   (4) Remove FLAG and CARRY related hazards detection in DECODE and resolving
 them in 1-CLK reservation station. They were used in 1-CLK execution unit only.
-However, when 1-CLK execution unit receives access to WB it means all hazards
+However, when 1-CLK execution unit receives access to Write-Back it means all hazards
 are resolved. So, FLAG and CARRY related hazards  were redundant.
   (5) Parameterization of Order Control Buffer.
   (6) More accurate EPCR update in according with exception hierarchy
