@@ -16,8 +16,8 @@
 //                                                                    //
 ////////////////////////////////////////////////////////////////////////
 //                                                                    //
-//   Copyright (C) 2017 Andrey Bacherov                               //
-//                      avbacherov@opencores.org                      //
+//   Copyright (C) 2017-2018 Andrey Bacherov                          //
+//                           avbacherov@opencores.org                 //
 //                                                                    //
 //      This Source Code Form is subject to the terms of the          //
 //      Open Hardware Description License, v. 1.0. If a copy          //
@@ -177,11 +177,11 @@ module mor1kx_bus_if_wb32_marocchino
   // CTI, BTE and reading burst support for IBUS/DBUS bridges //
   //----------------------------------------------------------//
 
-  // WB-clock domain registered control signals (to interconnect)
+  // Wishbone-clock domain registered control signals (to interconnect)
   reg  [2:0] to_wbm_cti_r;
   reg  [1:0] to_wbm_bte_r;
 
-  // WB-clock domain register address (to interconnect)
+  // Wishbone-clock domain register address (to interconnect)
   reg [31:0] to_wbm_adr_r;
 
   // for burst control
@@ -223,7 +223,7 @@ module mor1kx_bus_if_wb32_marocchino
   end // @wb-clock
 
 
-  // WB-clock domain register address (to interconnect)
+  // Wishbone-clock domain register address (to interconnect)
   // burst length is 8: 32 byte = (8 words x 32 bits/word) -> cache block length is 5
   // burst length is 4: 16 byte = (4 words x 32 bits/word) -> cache block length is 4
   assign burst_next_adr = (BURST_LENGTH == 8) ?
@@ -231,7 +231,7 @@ module mor1kx_bus_if_wb32_marocchino
     {to_wbm_adr_r[31:4], to_wbm_adr_r[3:0] + 4'd4};  // 16 byte = (4 words x 32 bits/word)
   // ---
   always @(posedge wb_clk) begin
-    if (wbm_ack_i & burst_keep) begin // next burst address to WB
+    if (wbm_ack_i & burst_keep) begin // next burst address to Wishbone
       // pay attention:
       // as DCACHE is write through, "data" and "we" are irrelevant for read burst
       to_wbm_adr_r <= burst_next_adr;
@@ -605,7 +605,7 @@ module mor1kx_bus_if_wb32_marocchino
     //        DBUS Brige ACK ->
     //          Provide DBUS Brige ACK to DCACHE
     // completes even later than DCACHE Snoop invalidation even for
-    // fastest "DBUS Brige ACK" and ("CPU clock" == "WB clock")
+    // fastest "DBUS Brige ACK" and ("CPU clock" == "Wishbone clock")
     //
     // Pseudo CDC disclaimer:
     // As positive edges of wb-clock and cpu-clock assumed be aligned,
@@ -667,13 +667,22 @@ module mor1kx_bus_if_wb32_marocchino
     // As positive edges of wb-clock and cpu-clock assumed be aligned,
     // we use simplest clock domain pseudo-synchronizers.
     //
-    reg  pipeline_flush_toggle_r; // MAROCCHINO_TODO: implement in CTRL ?
+    reg  pipeline_flush_toggle_r;
+    reg  pipeline_flush_state_r;  // to prevent multiple toggling for case of multi-clock pipeline-flush
     // ---
     always @(posedge cpu_clk) begin
-      if (cpu_rst)
+      if (cpu_rst) begin
         pipeline_flush_toggle_r <= 1'b0;
-      else if (pipeline_flush_i)
+        pipeline_flush_state_r  <= 1'b0;
+      end
+      else if (pipeline_flush_state_r) begin
+        pipeline_flush_toggle_r <= pipeline_flush_toggle_r;
+        pipeline_flush_state_r  <= pipeline_flush_i;
+      end
+      else if (pipeline_flush_i) begin
         pipeline_flush_toggle_r <= ~pipeline_flush_toggle_r;
+        pipeline_flush_state_r  <= 1'b1;
+      end
     end // @cpu-clock
     // ---
     reg  pipeline_flush_r1;

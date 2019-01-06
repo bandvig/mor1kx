@@ -15,7 +15,7 @@
 //                           Stefan Wallentowitz                      //
 //                           stefan.wallentowitz@tum.de               //
 //                                                                    //
-//   Copyright (C) 2015-2017 Andrey Bacherov                          //
+//   Copyright (C) 2015-2018 Andrey Bacherov                          //
 //                           avbacherov@opencores.org                 //
 //                                                                    //
 //      This Source Code Form is subject to the terms of the          //
@@ -121,14 +121,10 @@ module mor1kx_dcache_marocchino
   localparam TAGMEM_WAY_WIDTH = TAG_WIDTH + 1;
   localparam TAGMEM_WAY_VALID = TAGMEM_WAY_WIDTH - 1;
 
-  // Additionally, the tag memory entry contains an LRU value. The
-  // width of this is 0 for OPTION_DCACHE_LIMIT_WIDTH==1
-  localparam TAG_LRU_WIDTH = OPTION_DCACHE_WAYS*(OPTION_DCACHE_WAYS-1) >> 1;
-
-  // We have signals for the LRU which are not used for one way
-  // caches. To avoid signal width [-1:0] this generates [0:0]
-  // vectors for them, which are removed automatically then.
-  localparam TAG_LRU_WIDTH_BITS = (OPTION_DCACHE_WAYS >= 2) ? TAG_LRU_WIDTH : 1;
+  // Additionally, the tag memory entry contains an LRU value.
+  // To avoid signal width [-1:0] for 1-way cache this generates
+  // at least 1-bit LRU field.
+  localparam TAG_LRU_WIDTH = (OPTION_DCACHE_WAYS > 1) ? (OPTION_DCACHE_WAYS*(OPTION_DCACHE_WAYS-1)>>1) : 1;
 
   // Compute the total sum of the entry elements
   localparam TAGMEM_WIDTH = TAGMEM_WAY_WIDTH * OPTION_DCACHE_WAYS + TAG_LRU_WIDTH;
@@ -172,7 +168,7 @@ module mor1kx_dcache_marocchino
   // The data to the tag memory
   wire      [TAGMEM_WIDTH-1:0] tag_din;
   reg   [TAGMEM_WAY_WIDTH-1:0] tag_din_way [OPTION_DCACHE_WAYS-1:0];
-  reg [TAG_LRU_WIDTH_BITS-1:0] tag_din_lru;
+  reg      [TAG_LRU_WIDTH-1:0] tag_din_lru;
 
 
   // Whether to write to the tag memory in this cycle
@@ -192,7 +188,6 @@ module mor1kx_dcache_marocchino
   wire                          dc_hit;
   wire [OPTION_DCACHE_WAYS-1:0] dc_hit_way;
   reg  [OPTION_DCACHE_WAYS-1:0] s2o_hit_way; // latched in stage #2 register
-  reg  [OPTION_DCACHE_WAYS-1:0] lru_hit_way; // for update LRU history
 
   // This is the least recently used value before access the memory.
   // Those are one hot encoded.
@@ -200,9 +195,10 @@ module mor1kx_dcache_marocchino
   reg  [OPTION_DCACHE_WAYS-1:0] lru_way_refill_r; // for re-fill
 
   // The current LRU history as read from tag memory.
-  reg  [TAG_LRU_WIDTH_BITS-1:0] lru_history_curr_s2o; // registered
+  reg       [TAG_LRU_WIDTH-1:0] lru_history_curr_s2o; // registered
+  reg  [OPTION_DCACHE_WAYS-1:0] access_way_for_lru; // for update LRU history
   // The update value after we accessed it to write back to tag memory.
-  wire [TAG_LRU_WIDTH_BITS-1:0] lru_history_next;
+  wire      [TAG_LRU_WIDTH-1:0] lru_history_next;
 
 
 
@@ -221,35 +217,15 @@ module mor1kx_dcache_marocchino
 
   genvar i;
 
-  //
-  // Local copy of DCACHE-related control bit(s) to simplify routing
-  //
-  // MT(F)SPR_RULE:
-  //   Before issuing MT(F)SPR, OMAN waits till order control buffer has become
-  // empty. Also we don't issue new instruction till l.mf(t)spr completion.
-  //   So, it is safely to detect changing DCACHE-related control bit(s) here
-  // and update local copies.
-  //
-  reg dc_enable_r;
-  // ---
-  always @(posedge cpu_clk) begin
-    dc_enable_r <= dc_enable_i;
-  end
 
+  //------------------//
+  // Check parameters //
+  //------------------//
 
-  //   Hack? Work around IMMU?
-  // Addresses 0x8******* are treated as non-cacheble regardless DMMU's flag.
-  wire dc_check_limit_width;
-  // ---
   generate
-  if (OPTION_DCACHE_LIMIT_WIDTH == OPTION_OPERAND_WIDTH)
-    assign dc_check_limit_width = 1'b1;
-  else if (OPTION_DCACHE_LIMIT_WIDTH < OPTION_OPERAND_WIDTH)
-    assign dc_check_limit_width =
-      (phys_addr_s2t_i[OPTION_OPERAND_WIDTH-1:OPTION_DCACHE_LIMIT_WIDTH] == 0);
-  else begin
+  if (OPTION_DCACHE_LIMIT_WIDTH > OPTION_OPERAND_WIDTH) begin
     initial begin
-      $display("DCACHE ERROR: OPTION_DCACHE_LIMIT_WIDTH > OPTION_OPERAND_WIDTH");
+      $display("DCACHE: OPTION_DCACHE_LIMIT_WIDTH > OPTION_OPERAND_WIDTH");
       $finish();
     end
   end
@@ -258,22 +234,22 @@ module mor1kx_dcache_marocchino
 
   // detect per-way hit
   generate
-  for (i = 0; i < OPTION_DCACHE_WAYS; i=i+1) begin : gen_per_way_hit
-    // Multiplex the way entries in the tag memory
-    assign tag_din[(i+1)*TAGMEM_WAY_WIDTH-1:i*TAGMEM_WAY_WIDTH] = tag_din_way[i];
+  for (i = 0; i < OPTION_DCACHE_WAYS; i = i + 1) begin : gen_per_way_hit
+    // Unpack per-way tags
     assign tag_dout_way[i] = tag_dout[(i+1)*TAGMEM_WAY_WIDTH-1:i*TAGMEM_WAY_WIDTH];
-
     // compare stored tag with incoming tag and check valid bit
     assign dc_hit_way[i] = tag_dout_way[i][TAGMEM_WAY_VALID] &
-      (tag_dout_way[i][TAG_WIDTH-1:0] == phys_addr_s2t_i[OPTION_DCACHE_LIMIT_WIDTH-1:WAY_WIDTH]); // hit detection
-  end // loop by ways
+                           (tag_dout_way[i][TAG_WIDTH-1:0] ==
+                            phys_addr_s2t_i[OPTION_DCACHE_LIMIT_WIDTH-1:WAY_WIDTH]); // hit detection
+  end
   endgenerate
 
+  // overall hit
   assign dc_hit = |dc_hit_way;
 
 
   // Is the area cachable?
-  wire   is_cacheble     = dc_enable_r & dc_check_limit_width & (~dmmu_cache_inhibit_i);
+  wire   is_cacheble     = dc_enable_i & (~dmmu_cache_inhibit_i);
 
   // for write processing
   wire   dc_ack_write    = s1o_op_lsu_store_i & (~s1o_op_lsu_atomic_i) & is_cacheble &   dc_hit;
@@ -310,8 +286,8 @@ module mor1kx_dcache_marocchino
    *    if pipeline is stalled.
    */
 
-  //  we don't expect R/W-collisions for SPRbus vs WB cycles since
-  //    SPRbus access start 1-clock later than WB
+  //  we don't expect R/W-collisions for SPRbus vs Write-Back cycles since
+  //    SPRbus access start 1-clock later than Write-Back
   //    thanks to MT(F)SPR processing logic (see OMAN)
 
   // Registering SPR BUS incoming signals.
@@ -592,7 +568,7 @@ module mor1kx_dcache_marocchino
   always @(*) begin
     // default prepare data for LRU update at hit or for re-fill initiation
     //  -- input for LRU calculator
-    lru_hit_way = s2o_hit_way; // default
+    access_way_for_lru = s2o_hit_way; // default
     //  -- output of LRU calculator
     tag_din_lru = lru_history_next; // default
     //  -- other TAG-RAM fields
@@ -638,13 +614,13 @@ module mor1kx_dcache_marocchino
         // "SLAVE MUST NOT assert more than one of ACK, ERR or RTY"
         //  (b) We don't interrupt re-fill on flushing, so the only reason
         // for invalidation is DBUS error occurence
+        //  (c) Lazy invalidation, invalidate everything that matches tag address
         if (dbus_err_i) begin // during re-fill
           for (w2 = 0; w2 < OPTION_DCACHE_WAYS; w2 = w2 + 1) begin
-            if (lru_way_refill_r[w2])
-              tag_din_way[w2] = {TAGMEM_WAY_WIDTH{1'b0}}; // DBUS error  during re-fill
+            tag_din_way[w2] = {TAGMEM_WAY_WIDTH{1'b0}}; // DBUS error  during re-fill
           end
-          // MAROCCHINO_TODO: how to handle LRU in the case?
-          tag_we = 1'b1; // invalidate by DBUS error during re-fill
+          tag_din_lru = {TAG_LRU_WIDTH{1'b1}}; // invalidate by DBUS error at re-fill
+          tag_we      = 1'b1; // invalidate by DBUS error during re-fill
         end
         else if (dbus_ack_i) begin
           // LRU WAY content update each DBUS ACK
@@ -657,8 +633,8 @@ module mor1kx_dcache_marocchino
               if (lru_way_refill_r[w2])
                 tag_din_way[w2] = {1'b1, phys_addr_s2o_i[OPTION_DCACHE_LIMIT_WIDTH-1:WAY_WIDTH]};
             end
-            lru_hit_way = lru_way_refill_r; // last re-fill
-            tag_we      = 1'b1; // last re-fill
+            access_way_for_lru = lru_way_refill_r;  // last re-fill
+            tag_we             = 1'b1;              // last re-fill
           end
         end
       end // re-fill
@@ -671,34 +647,35 @@ module mor1kx_dcache_marocchino
         //    l.mf(t)spr commands after successfull completion of
         //    all previous instructions.
         //
-        tag_we      = 1'b1;     // on invalidate by l.mtspr
-        tag_din_lru = 0;        // on invalidate by l.mtspr
         for (w2 = 0; w2 < OPTION_DCACHE_WAYS; w2 = w2 + 1) begin
           tag_din_way[w2] = {TAGMEM_WAY_WIDTH{1'b0}};  // on invalidate by l.mtspr
         end
+        tag_din_lru = {TAG_LRU_WIDTH{1'b1}}; // on invalidate by l.mtspr
+        tag_we      = 1'b1;                  // on invalidate by l.mtspr
       end
 
       DC_INV_BY_ATOMIC: begin
         //
         // With the simplest approach we just force linked
         // address to be not cachable.
+        // The address is also declared as freshest by LRU calculator
+        // that delays re-filling of it.
         // MAROCCHINO_TODO: more accurate processing if linked address is cachable.
         //
-        tag_we = 1'b1;                                  // on invalidate by lwa/swa
         for (w2 = 0; w2 < OPTION_DCACHE_WAYS; w2 = w2 + 1) begin
           if (s2o_hit_way[w2])                          // on invalidate by lwa/swa
             tag_din_way[w2] = {TAGMEM_WAY_WIDTH{1'b0}}; // on invalidate by lwa/swa
         end
+        tag_we = 1'b1;                                  // on invalidate by lwa/swa
       end
 
       DC_INV_BY_SNOOP: begin
-        //
-        // Lazy invalidation, invalidate everything that matches tag address
-        //
-        tag_we     = 1'b1;              // on snoop-hit
+        // MAROCCHINO_TODO: it would be better to set the way as LRU.
         for (w2 = 0; w2 < OPTION_DCACHE_WAYS; w2 = w2 + 1) begin
           tag_din_way[w2] = inv_snoop_hit_way[w2] ? {TAGMEM_WAY_WIDTH{1'b0}} : inv_snoop_dout_way[w2]; // on snoop-hit
         end
+        access_way_for_lru = {OPTION_DCACHE_WAYS{1'b0}}; // on snoop-hit (keep history)
+        tag_we             = 1'b1;                       // on snoop-hit
       end
 
       default:;
@@ -762,32 +739,40 @@ module mor1kx_dcache_marocchino
   end
   endgenerate
 
+
   // LRU calculator
   generate
   /* verilator lint_off WIDTH */
   if (OPTION_DCACHE_WAYS >= 2) begin : gen_u_lru
   /* verilator lint_on WIDTH */
-    mor1kx_cache_lru
+    mor1kx_cache_lru_marocchino
     #(
-      .NUMWAYS(OPTION_DCACHE_WAYS)
+      .NUMWAYS(OPTION_DCACHE_WAYS) // DCACHE_LRU
     )
     dc_lru
     (
-      // Outputs
-      .update      (lru_history_next),
-      .lru_pre     (lru_way),
-      .lru_post    (),
       // Inputs
-      .current     (lru_history_curr_s2o),
-      .access      (lru_hit_way)
+      .current     (lru_history_curr_s2o), // DCACHE_LRU
+      .access      (access_way_for_lru), // DCACHE_LRU
+      // Outputs
+      .update      (lru_history_next), // DCACHE_LRU
+      .lru_post    (lru_way) // DCACHE_LRU
     );
-
-    // Multiplex the LRU history from and to tag memory
-    assign tag_din[TAG_LRU_MSB:TAG_LRU_LSB] = tag_din_lru;
   end
-  else begin // single way
-    assign lru_history_next = 1'b0; // single way
-    assign lru_way          = 1'b1; // single way
+  else begin // single way cache
+    assign lru_history_next = 1'b1; // single way cache
+    assign lru_way          = 1'b1; // single way cache
+  end
+  endgenerate
+
+
+  // Pack TAG-RAM data input
+  //  # LRU section
+  assign tag_din[TAG_LRU_MSB:TAG_LRU_LSB] = tag_din_lru;
+  //  # WAY sections collection
+  generate
+  for (i = 0; i < OPTION_DCACHE_WAYS; i=i+1) begin : tw_sections
+    assign tag_din[(i+1)*TAGMEM_WAY_WIDTH-1:i*TAGMEM_WAY_WIDTH] = tag_din_way[i];
   end
   endgenerate
 

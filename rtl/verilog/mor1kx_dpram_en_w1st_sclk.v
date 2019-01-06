@@ -71,6 +71,7 @@ module mor1kx_dpram_en_w1st_sclk
  `endif // !synth
 
   always @(posedge clk) begin
+    // port "a"
     if(en_a) begin
       if (we_a) begin
         mem[addr_a] <= din_a;
@@ -80,9 +81,7 @@ module mor1kx_dpram_en_w1st_sclk
         dout_a <= mem[addr_a];
       end // write / read
     end // enable
-  end // @clock
-
-  always @(posedge clk) begin
+    // port "b"
     if(en_b) begin
       if (we_b) begin
         mem[addr_b] <= din_b;

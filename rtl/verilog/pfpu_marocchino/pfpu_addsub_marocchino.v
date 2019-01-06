@@ -51,7 +51,6 @@ module pfpu_addsub_marocchino
   input             cpu_clk,
   // ADD/SUB pipe controls
   input             pipeline_flush_i,
-  input             exec_op_fpxx_any_i,
   input             add_start_i,
   input             exec_op_fpxx_sub_i,         // 1: substruction, 0: addition
   output            add_taking_op_o,
@@ -161,7 +160,7 @@ module pfpu_addsub_marocchino
     if (pipeline_flush_i)
       s0o_ready <= 1'b0;
     else if (s0_adv)
-      s0o_ready <= exec_op_fpxx_any_i;
+      s0o_ready <= 1'b1;
     else if (s1_adv)
       s0o_ready <= s0_busy;
     else if (~s0o_pending)

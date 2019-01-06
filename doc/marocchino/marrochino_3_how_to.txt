@@ -19,7 +19,7 @@ mor1kx_marocchino_alone
   .OPTION_ICACHE_LIMIT_WIDTH(32),
   // insn mmu
   .OPTION_IMMU_SET_WIDTH(7),
-  .FEATURE_IMMU_HW_TLB_RELOAD("NONE"), // MAROCCHINO_TODO: not implemented
+  .FEATURE_IMMU_HW_TLB_RELOAD("NONE"), // not implemented
   // data cache
   .OPTION_DCACHE_BLOCK_WIDTH(5),
   .OPTION_DCACHE_SET_WIDTH(8),
@@ -27,15 +27,14 @@ mor1kx_marocchino_alone
   .OPTION_DCACHE_LIMIT_WIDTH(31),
   // data mmu
   .OPTION_DMMU_SET_WIDTH(7),
-  .FEATURE_DMMU_HW_TLB_RELOAD("NONE"), // MAROCCHINO_TODO: not implemented
+  .FEATURE_DMMU_HW_TLB_RELOAD("NONE"), // not implemented
 
   .OPTION_PIC_TRIGGER("LATCHED_LEVEL"),
 
   .IBUS_WB_TYPE("B3_REGISTERED_FEEDBACK"),
   .DBUS_WB_TYPE("B3_REGISTERED_FEEDBACK"),
 
-  .OPTION_RESET_PC(32'hf0000100),
-  .FEATURE_DIVIDER("SERIAL") // SERIAL (restoring, radix-2) / SRT4
+  .OPTION_RESET_PC(32'hf0000100)
 )
 u_mor1kx_marocchino
 (

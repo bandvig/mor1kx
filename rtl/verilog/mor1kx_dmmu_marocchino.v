@@ -12,7 +12,7 @@
 //   Copyright (C) 2013 Stefan Kristiansson                        //
 //                      stefan.kristiansson@saunalahti.fi          //
 //                                                                 //
-//   Copyright (C) 2015-2017 Andrey Bacherov                       //
+//   Copyright (C) 2015-2018 Andrey Bacherov                       //
 //                           avbacherov@opencores.org              //
 //                                                                 //
 //      This Source Code Form is subject to the terms of the       //
@@ -30,6 +30,7 @@ module mor1kx_dmmu_marocchino
   parameter OPTION_OPERAND_WIDTH        = 32,
   parameter OPTION_DMMU_SET_WIDTH       =  6,
   parameter OPTION_DMMU_WAYS            =  1,
+  parameter OPTION_DCACHE_LIMIT_WIDTH   = 32,
   parameter OPTION_DMMU_CLEAR_ON_INIT   =  0
 )
 (
@@ -50,7 +51,6 @@ module mor1kx_dmmu_marocchino
   // commnads
   input                                 s1o_op_lsu_store_i,
   input                                 s1o_op_lsu_load_i,
-  input                                 s1o_op_lsu_ls_i,
   input                                 s1o_op_msync_i,
 
   // address translation
@@ -140,22 +140,12 @@ module mor1kx_dmmu_marocchino
   genvar                           i;
 
 
-  // Local copies of SR[DME] and SR[SM]
-  reg dmmu_enable_r;
-  reg supervisor_mode_r;
-  // ---
-  always @(posedge cpu_clk) begin
-    dmmu_enable_r     <= dmmu_enable_i;
-    supervisor_mode_r <= supervisor_mode_i;
-  end // @ clock
-
-
   //---------------//
   // SPR interface //
   //---------------//
 
-  //  we don't expect R/W-collisions for SPRbus vs WB cycles since
-  //    SPRbus access start 1-clock later than WB
+  //  we don't expect R/W-collisions for SPRbus vs Write-Back cycles since
+  //    SPRbus access start 1-clock later than Write-Back
   //    thanks to MT(F)SPR processing logic (see OMAN)
 
   // Registering SPR BUS incoming signals.
@@ -337,7 +327,7 @@ module mor1kx_dmmu_marocchino
     end // loop by ways
   end // always
 
-  wire pagefault = (supervisor_mode_r ? ((~swe & s1o_op_lsu_store_i) | (~sre & s1o_op_lsu_load_i)) :
+  wire pagefault = (supervisor_mode_i ? ((~swe & s1o_op_lsu_store_i) | (~sre & s1o_op_lsu_load_i)) :
                                         ((~uwe & s1o_op_lsu_store_i) | (~ure & s1o_op_lsu_load_i))) &
                    ~tlb_reload_busy_o;
 
@@ -376,7 +366,7 @@ module mor1kx_dmmu_marocchino
       $display("DMMU ERROR: HW TLB reload is not implemented in MAROCCHINO");
       $finish();
     end
-    
+
     /*
     // local declaratirons
     reg                            tlb_reload_req_r; // HW reload
@@ -397,7 +387,7 @@ module mor1kx_dmmu_marocchino
     assign dtlb_match_reload_din = dtlb_match_reload_din_r; // HW reload
     assign dtlb_trans_reload_we  = dtlb_trans_reload_we_r; // HW reload
     assign dtlb_trans_reload_din = dtlb_trans_reload_din_r; // HW reload
-    
+
     // Hardware TLB reload
     // Compliant with the suggestion outlined in this thread:
     // http://lists.openrisc.net/pipermail/openrisc/2013-July/001806.html
@@ -598,6 +588,30 @@ module mor1kx_dmmu_marocchino
   end
   endgenerate
 
+  // Extention to cache_inhibit
+  //   Work around DMMU?
+  //   Addresses 0x8******* are treated as non-cacheble
+  //   regardless of DMMU's flag.
+  wire cache_inhibit_limit_dmmu_off; // state: OFF
+  wire cache_inhibit_limit_dmmu_uon; // state: UPDATE & DMMU is ON
+  wire cache_inhibit_limit_dmmu_uof; // state: UPDATE & DMMU is OFF
+  // ---
+  generate
+  if (OPTION_DCACHE_LIMIT_WIDTH < OPTION_OPERAND_WIDTH) begin
+    assign cache_inhibit_limit_dmmu_off =
+      (virt_addr_idx_i[OPTION_OPERAND_WIDTH-1:OPTION_DCACHE_LIMIT_WIDTH] != 0);
+    assign cache_inhibit_limit_dmmu_uon =
+      (phys_addr[OPTION_OPERAND_WIDTH-1:OPTION_DCACHE_LIMIT_WIDTH] != 0);
+    assign cache_inhibit_limit_dmmu_uof =
+      (virt_addr_s1o_i[OPTION_OPERAND_WIDTH-1:OPTION_DCACHE_LIMIT_WIDTH] != 0);
+  end
+  else begin
+    assign cache_inhibit_limit_dmmu_off = 1'b0;
+    assign cache_inhibit_limit_dmmu_uon = 1'b0;
+    assign cache_inhibit_limit_dmmu_uof = 1'b0;
+  end
+  endgenerate
+
 
   // states of DMMU super-cache FSM
   localparam [4:0] DMMU_CACHE_EMPTY = 5'b00001,
@@ -632,10 +646,10 @@ module mor1kx_dmmu_marocchino
                         (hit_08Kb_r ? (virt_addr_idx_i[23:13] ==
                                        virt_addr_hit_r[VIRT_ADDR_HIT_16MB_LSB-1:0]) :
                                       hit_16Mb_r) &
-                        (supervisor_mode_c == supervisor_mode_r);
+                        (supervisor_mode_c == supervisor_mode_i);
 
   // do update only if LSU operation is valid
-  wire dmmu_s1o_valid = (~s1o_op_msync_i) & s1o_op_lsu_ls_i;
+  wire dmmu_s1o_valid = (~s1o_op_msync_i);
 
   // DMMU's super-cache FSM
   always @(posedge cpu_clk) begin
@@ -672,11 +686,11 @@ module mor1kx_dmmu_marocchino
         end
         // update cache output
         DMMU_CACHE_UPD: begin
-          if (dmmu_enable_r) begin
-            supervisor_mode_c <= supervisor_mode_r;
+          if (dmmu_enable_i) begin
+            supervisor_mode_c <= supervisor_mode_i;
             hit_08Kb_r        <= (|way_hit);
             hit_16Mb_r        <= (|way_huge_hit);
-            cache_inhibit_o   <= cache_inhibit;
+            cache_inhibit_o   <= cache_inhibit | cache_inhibit_limit_dmmu_uon; // UPD, DMMU-ON
             tlb_miss_o        <= tlb_miss;
             pagefault_o       <= pagefault;
             dmmu_cache_state  <= DMMU_CACHE_ON;
@@ -685,7 +699,7 @@ module mor1kx_dmmu_marocchino
             supervisor_mode_c <= 1'b0;
             hit_08Kb_r        <= 1'b0;
             hit_16Mb_r        <= 1'b0;
-            cache_inhibit_o   <= 1'b0;
+            cache_inhibit_o   <= cache_inhibit_limit_dmmu_uof; // UPD, DMMU-OFF
             tlb_miss_o        <= 1'b0;
             pagefault_o       <= 1'b0;
             dmmu_cache_state  <= DMMU_CACHE_OFF;
@@ -696,7 +710,7 @@ module mor1kx_dmmu_marocchino
         // DMMU is ON
         DMMU_CACHE_ON: begin
           if (lsu_s1_adv_i) begin
-            if ((~dmmu_enable_r) | (~dmmu_cache_hit)) begin
+            if (~dmmu_cache_hit) begin
               s1o_dmmu_upd_o   <= 1'b1;
               s1o_dmmu_rdy_o   <= 1'b0;
               dmmu_cache_state <= DMMU_CACHE_RE;
@@ -705,7 +719,7 @@ module mor1kx_dmmu_marocchino
               s1o_dmmu_rdy_o <= 1'b1;
             end
           end // stage #1 advance
-          else if (spr_bus_ack_o) begin
+          else if (spr_bus_ack_o | (~dmmu_enable_i)) begin
             s1o_dmmu_upd_o   <= 1'b0;
             s1o_dmmu_rdy_o   <= 1'b0;
             dmmu_cache_state <= DMMU_CACHE_EMPTY;
@@ -714,15 +728,14 @@ module mor1kx_dmmu_marocchino
         // DMMU is OFF
         DMMU_CACHE_OFF: begin
           if (lsu_s1_adv_i) begin
-            if (dmmu_enable_r) begin
-              s1o_dmmu_upd_o   <= 1'b1;
-              s1o_dmmu_rdy_o   <= 1'b0;
-              dmmu_cache_state <= DMMU_CACHE_UPD;
-            end
-            else begin
-              s1o_dmmu_rdy_o <= 1'b1;
-            end
+            cache_inhibit_o <= cache_inhibit_limit_dmmu_off; // DMMU is OFF
+            s1o_dmmu_rdy_o  <= 1'b1;
           end // stage #1 advance
+          else if (dmmu_enable_i) begin
+            s1o_dmmu_upd_o   <= 1'b0;
+            s1o_dmmu_rdy_o   <= 1'b0;
+            dmmu_cache_state <= DMMU_CACHE_EMPTY; // OFF->ON
+          end
         end // off
         // do nothing by default
         default:;
@@ -741,7 +754,7 @@ module mor1kx_dmmu_marocchino
       end // read
       // update cache output
       DMMU_CACHE_UPD: begin
-        phys_addr_r     <= dmmu_enable_r ? phys_addr : virt_addr_tag_r; // update DMMU's output
+        phys_addr_r     <= dmmu_enable_i ? phys_addr : virt_addr_tag_r; // update DMMU's output
         virt_addr_hit_r <= virt_addr_tag_r[(OPTION_OPERAND_WIDTH-1):13];
       end // update
       // DMMU is ON

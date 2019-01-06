@@ -16,7 +16,7 @@
 //   Copyright (C) 2013 Stefan Kristiansson                           //
 //                      stefan.kristiansson@saunalahti.fi             //
 //                                                                    //
-//   Copyright (C) 2015-2017 Andrey Bacherov                          //
+//   Copyright (C) 2015-2018 Andrey Bacherov                          //
 //                           avbacherov@opencores.org                 //
 //                                                                    //
 //      This Source Code Form is subject to the terms of the          //
@@ -53,8 +53,8 @@ module mor1kx_lsu_marocchino
   input                                 cpu_rst,
   // Pipeline controls
   input                                 pipeline_flush_i,
-  input                                 padv_wb_i,
-  input                                 grant_wb_to_lsu_i,
+  input                                 padv_wrbk_i,
+  input                                 grant_wrbk_to_lsu_i,
   // configuration
   input                                 dc_enable_i,
   input                                 dmmu_enable_i,
@@ -68,7 +68,8 @@ module mor1kx_lsu_marocchino
   input                           [1:0] exec_lsu_length_i,
   input                                 exec_lsu_zext_i,
   input           [`OR1K_IMM_WIDTH-1:0] exec_lsu_imm16_i, // immediate offset for address computation
-  input      [OPTION_OPERAND_WIDTH-1:0] exec_sbuf_epcr_i, // for store buffer EPCR computation
+  input                                 exec_lsu_delay_slot_i, // for store buffer EPCR computation
+  input      [OPTION_OPERAND_WIDTH-1:0] exec_lsu_pc_i, // for store buffer EPCR computation
   input      [OPTION_OPERAND_WIDTH-1:0] exec_lsu_a1_i,   // operand "A" (part of address)
   input      [OPTION_OPERAND_WIDTH-1:0] exec_lsu_b1_i,   // operand "B" (value to store)
   // SPR interface
@@ -108,19 +109,16 @@ module mor1kx_lsu_marocchino
   //  Pre-WriteBack "an exception" flag
   output                                exec_an_except_lsu_o,
   // WriteBack load  result
-  output     [OPTION_OPERAND_WIDTH-1:0] wb_lsu_result_o,
-  output reg [OPTION_OPERAND_WIDTH-1:0] wb_lsu_result_cp1_o,
-  output reg [OPTION_OPERAND_WIDTH-1:0] wb_lsu_result_cp2_o,
-  output reg [OPTION_OPERAND_WIDTH-1:0] wb_lsu_result_cp3_o,
+  output reg [OPTION_OPERAND_WIDTH-1:0] wrbk_lsu_result_o,
   // Atomic operation flag set/clear logic
-  output                                wb_atomic_flag_set_o,
-  output                                wb_atomic_flag_clear_o,
+  output reg                            wrbk_atomic_flag_set_o,
+  output reg                            wrbk_atomic_flag_clear_o,
   // Exceptions & errors
-  output                                wb_except_dbus_err_o,
-  output                                wb_except_dpagefault_o,
-  output                                wb_except_dtlb_miss_o,
-  output                                wb_except_dbus_align_o,
-  output     [OPTION_OPERAND_WIDTH-1:0] wb_lsu_except_addr_o
+  output reg                            wrbk_except_dbus_err_o,
+  output reg                            wrbk_except_dpagefault_o,
+  output reg                            wrbk_except_dtlb_miss_o,
+  output reg                            wrbk_except_dbus_align_o,
+  output reg [OPTION_OPERAND_WIDTH-1:0] wrbk_lsu_except_addr_o
 );
 
 
@@ -205,8 +203,8 @@ module mor1kx_lsu_marocchino
   reg  [LSUOOW-1:0] s2o_virt_addr;
   reg  [LSUOOW-1:0] s2o_phys_addr;
 
-  wire              lsu_s2_rdy;   // operation complete or an exception
-  reg               lsu_wb_miss;  // pending registers are busy
+  wire              lsu_s2_rdy;       // operation complete or an exception
+  reg               wrbk_lsu_miss_r;  // pending registers are busy
 
 
   // DBUS FSM
@@ -276,7 +274,7 @@ module mor1kx_lsu_marocchino
   //  ## per stage busy signals
   wire   lsu_s2_busy = s2o_dc_refill_req | s2o_dbus_read_req | // stage #2 is busy
                        s2o_op_lsu_store                      | // stage #2 is busy
-                       (lsu_s2_rdy & lsu_wb_miss)            | // stage #2 is busy
+                       (lsu_s2_rdy & wrbk_lsu_miss_r)        | // stage #2 is busy
                        s2o_excepts_any   | s2o_snoop_proc;     // stage #2 is busy
   //  ---
   wire   lsu_s1_busy = (s1o_op_lsu_ls & lsu_s2_busy) |  // stage #1 is busy
@@ -284,7 +282,7 @@ module mor1kx_lsu_marocchino
   //  ## per stage advance signals
   wire   lsu_s1_adv  = exec_op_lsu_any_i            & (~lsu_s1_busy);
   wire   lsu_s2_adv  = s1o_op_lsu_ls & s1o_dmmu_rdy & (~lsu_s2_busy);
-  wire   lsu_s3_adv  = lsu_s2_rdy                   & (~lsu_wb_miss);
+  wire   lsu_s3_adv  = lsu_s2_rdy                   & (~wrbk_lsu_miss_r);
   //  ## to LSU_RSRVS
   assign lsu_taking_op_o = lsu_s1_adv;
 
@@ -332,6 +330,9 @@ module mor1kx_lsu_marocchino
   // compute virtual address
   wire [LSUOOW-1:0] s1t_virt_addr = exec_lsu_a1_i + {{(LSUOOW-16){exec_lsu_imm16_i[15]}},exec_lsu_imm16_i};
 
+  // store buffer EPCR computation: delay-slot ? (pc-4) : pc
+  wire [LSUOOW-1:0] s1t_sbuf_epcr = exec_lsu_pc_i + {{(LSUOOW-2){exec_lsu_delay_slot_i}},2'b00};
+
 
   // load / store and "new command is in stage #1" flag
   always @(posedge cpu_clk) begin
@@ -370,7 +371,7 @@ module mor1kx_lsu_marocchino
     if (lsu_s1_adv) begin // latch data from LSU-RSRVS without l.msync
       s1o_virt_addr  <= s1t_virt_addr;
       s1o_lsu_b1     <= exec_lsu_b1_i;
-      s1o_sbuf_epcr  <= exec_sbuf_epcr_i;
+      s1o_sbuf_epcr  <= s1t_sbuf_epcr;
       s1o_lsu_length <= exec_lsu_length_i;
       s1o_lsu_zext   <= exec_lsu_zext_i;
     end
@@ -434,6 +435,7 @@ module mor1kx_lsu_marocchino
     .OPTION_OPERAND_WIDTH             (OPTION_OPERAND_WIDTH), // DMMU
     .OPTION_DMMU_SET_WIDTH            (OPTION_DMMU_SET_WIDTH), // DMMU
     .OPTION_DMMU_WAYS                 (OPTION_DMMU_WAYS), // DMMU
+    .OPTION_DCACHE_LIMIT_WIDTH        (OPTION_DCACHE_LIMIT_WIDTH), // DMMU
     .OPTION_DMMU_CLEAR_ON_INIT        (OPTION_DMMU_CLEAR_ON_INIT) // DMMU
   )
   u_dmmu
@@ -451,7 +453,6 @@ module mor1kx_lsu_marocchino
     .supervisor_mode_i                (supervisor_mode_i), // DMMU
     .s1o_op_lsu_store_i               (s1o_op_lsu_store), // DMMU
     .s1o_op_lsu_load_i                (s1o_op_lsu_load), // DMMU
-    .s1o_op_lsu_ls_i                  (s1o_op_lsu_ls), // DMMU
     .s1o_op_msync_i                   (s1o_op_msync), // DMMU
     // address translation
     .virt_addr_idx_i                  (s1t_virt_addr), // DMMU
@@ -579,7 +580,7 @@ module mor1kx_lsu_marocchino
   // --- bus error during bus access from store buffer ---
   //  ## pay attention that l.swa is executed around of
   //     store buffer, so we don't take it into accaunt here.
-  wire sbuf_err = dbus_stna_cmd_o & dbus_err_i ; // to force empty STORE_BUFFER
+  wire sbuf_err = dbus_stna_cmd_o & dbus_err_i; // to force empty STORE_BUFFER
   // ---
   always @(posedge cpu_clk) begin
     if (flush_by_ctrl) // reset store buffer DBUS error
@@ -748,43 +749,56 @@ module mor1kx_lsu_marocchino
   //-----------------------//
 
   // store buffer write controls
-  assign sbuf_write = s2o_stna_req & (~sbuf_full) &       // STORE-BUFFER WRITE
-                      (~s2o_snoop_proc) &                 // STORE-BUFFER WRITE
-                      (~lsu_wb_miss) & grant_wb_to_lsu_i; // STORE-BUFFER WRITE
+  assign sbuf_write = s2o_stna_req & (~sbuf_full) &         // STORE-BUFFER WRITE
+                      (~s2o_snoop_proc) &                   // STORE-BUFFER WRITE
+                      (~wrbk_lsu_miss_r) & grant_wrbk_to_lsu_i; // STORE-BUFFER WRITE
   // include exceptions and pipe flushing
   assign sbuf_we    = sbuf_write & (~s2o_excepts_addr) & (~pipeline_flush_i);
 
+  // combined empty flag
+  wire   sbuf_ram_empty;
+  wire   sbuf_oreg_rdy;
+  assign sbuf_empty = sbuf_ram_empty & (~sbuf_oreg_rdy);
 
-  // store buffer module
-  mor1kx_store_buffer_marocchino
+  localparam STORE_BUFFER_NUM_TAPS = (1 << OPTION_STORE_BUFFER_DEPTH_WIDTH);
+
+  // To store buffer (pc + virtual_address + physical_address + data + byte-sel)
+  localparam STORE_BUFFER_DATA_WIDTH = (OPTION_OPERAND_WIDTH * 4) + (OPTION_OPERAND_WIDTH / 8);
+
+  wire [STORE_BUFFER_DATA_WIDTH-1:0] sbuf_in;
+  wire [STORE_BUFFER_DATA_WIDTH-1:0] sbuf_out;
+
+  assign sbuf_in = {s2o_bsel, s2o_sdat, s2o_phys_addr, s2o_virt_addr, s2o_epcr};
+
+  assign {sbuf_bsel, sbuf_dat, sbuf_phys_addr, sbuf_virt_addr, sbuf_epcr} = sbuf_out;
+
+  // store buffer instance
+  mor1kx_oreg_buff_marocchino
   #(
-    .DEPTH_WIDTH          (OPTION_STORE_BUFFER_DEPTH_WIDTH), // STORE_BUFFER
-    .OPTION_OPERAND_WIDTH (OPTION_OPERAND_WIDTH), // STORE_BUFFER
-    .CLEAR_ON_INIT        (OPTION_STORE_BUFFER_CLEAR_ON_INIT) // STORE_BUFFER
+    .NUM_TAPS         (STORE_BUFFER_NUM_TAPS), // STORE_BUFFER
+    .DATA_WIDTH       (STORE_BUFFER_DATA_WIDTH), // STORE_BUFFER
+    .RAM_EMPTY_FLAG   ("ENABLED"), // STORE_BUFFER
+    .REG_RDY_FLAG     ("ENABLED") // STORE_BUFFER
   )
   u_store_buffer
   (
-    .cpu_clk              (cpu_clk), // STORE_BUFFER
-    .cpu_rst              (cpu_rst), // STORE_BUFFER
-    // DBUS error during write data from store buffer (force empty)
-    .sbuf_err_i           (sbuf_err), // STORE_BUFFER
-    // entry port
-    .sbuf_epcr_i          (s2o_epcr), // STORE_BUFFER
-    .virt_addr_i          (s2o_virt_addr), // STORE_BUFFER
-    .phys_addr_i          (s2o_phys_addr), // STORE_BUFFER
-    .dat_i                (s2o_sdat), // STORE_BUFFER
-    .bsel_i               (s2o_bsel), // STORE_BUFFER
-    .write_i              (sbuf_we), // STORE_BUFFER
-    // output port
-    .sbuf_epcr_o          (sbuf_epcr), // STORE_BUFFER
-    .virt_addr_o          (sbuf_virt_addr), // STORE_BUFFER
-    .phys_addr_o          (sbuf_phys_addr), // STORE_BUFFER
-    .dat_o                (sbuf_dat), // STORE_BUFFER
-    .bsel_o               (sbuf_bsel), // STORE_BUFFER
-    .read_i               (sbuf_read_state), // STORE_BUFFER
-    // status flags
-    .full_o               (sbuf_full), // STORE_BUFFER
-    .empty_o              (sbuf_empty) // STORE_BUFFER
+    // clocks
+    .cpu_clk      (cpu_clk), // STORE_BUFFER
+    // resets
+    .ini_rst      (cpu_rst), // STORE_BUFFER
+    .ext_rst      (sbuf_err), // STORE_BUFFER
+    // RW-controls
+    .write_i      (sbuf_we), // STORE_BUFFER
+    .read_i       (sbuf_read_state), // STORE_BUFFER
+    // data input
+    .data_i       (sbuf_in), // STORE_BUFFER
+    // "RAM is empty" flag
+    .ram_empty_o  (sbuf_ram_empty), // STORE_BUFFER
+    // "RAM is full" flag
+    .ram_full_o   (sbuf_full), // STORE_BUFFER
+    // output register
+    .rdy_o        (sbuf_oreg_rdy), // STORE_BUFFER
+    .data_o       (sbuf_out) // STORE_BUFFER
   );
 
 
@@ -970,15 +984,15 @@ module mor1kx_lsu_marocchino
   // --- "operation complete" and "LSU valid" ---
   assign lsu_s2_rdy  = s2o_dc_ack_read | s3o_ls_ack | s2o_excepts_any;
   // --- "operation complete" and "LSU valid" ---
-  assign lsu_valid_o = lsu_s2_rdy | lsu_wb_miss;
+  assign lsu_valid_o = lsu_s2_rdy | wrbk_lsu_miss_r;
   //--- "WriteBack miss" flag ---
   always @(posedge cpu_clk) begin
     if (flush_by_ctrl)
-      lsu_wb_miss <= 1'b0;
-    else if (padv_wb_i & grant_wb_to_lsu_i)
-      lsu_wb_miss <= 1'b0;
-    else if (lsu_s3_adv)    // rise lsu-wb-miss
-      lsu_wb_miss <= 1'b1;
+      wrbk_lsu_miss_r <= 1'b0;
+    else if (padv_wrbk_i & grant_wrbk_to_lsu_i)
+      wrbk_lsu_miss_r <= 1'b0;
+    else if (lsu_s3_adv)    // rise wrbk-lsu-miss
+      wrbk_lsu_miss_r <= 1'b1;
   end // @clock
 
 
@@ -1018,85 +1032,78 @@ module mor1kx_lsu_marocchino
   end
 
 
-  localparam  ODAT_LDAT_LSB          = 0;
-  localparam  ODAT_LDAT_MSB          = LSUOOW - 1;
-  localparam  ODAT_EXCEPT_ADDR_LSB   = ODAT_LDAT_MSB          + 1;
-  localparam  ODAT_EXCEPT_ADDR_MSB   = ODAT_EXCEPT_ADDR_LSB   + LSUOOW - 1;
-  localparam  ODAT_ATOMIC_FLAG_SET   = ODAT_EXCEPT_ADDR_MSB   + 1;
-  localparam  ODAT_ATOMIC_FLAG_CLR   = ODAT_ATOMIC_FLAG_SET   + 1;
-  localparam  ODAT_EXCEPT_DBUS_ERR   = ODAT_ATOMIC_FLAG_CLR   + 1;
-  localparam  ODAT_EXCEPT_DPAGEFAULT = ODAT_EXCEPT_DBUS_ERR   + 1;
-  localparam  ODAT_EXCEPT_DTLB_MISS  = ODAT_EXCEPT_DPAGEFAULT + 1;
-  localparam  ODAT_EXCEPT_DBUS_ALIGN = ODAT_EXCEPT_DTLB_MISS  + 1;
-  localparam  ODAT_EXCEPTS_ANY       = ODAT_EXCEPT_DBUS_ALIGN + 1;
-
-  // MSB and data width for 1st and Write-Back taps
-  //  -- without "result or except" bit
-  localparam  ODAT_MISS_MSB = ODAT_EXCEPTS_ANY;
-
-  // LSU's output data set
-  wire [ODAT_MISS_MSB:0] s3t_odat =
-    {
-      // Any exception
-      s2o_excepts_any,        // tap of output data set
-      // Particular LSU exception flags
-      s2o_align,              // tap of output data set
-      s2o_tlb_miss,           // tap of output data set
-      s2o_pagefault,          // tap of output data set
-      s2o_dbus_err_nsbuf,     // tap of output data set
-      // Atomic operation flag set/clear logic
-      s2o_atomic_flag_clear,  // tap of output data set
-      s2o_atomic_flag_set,    // tap of output data set
-      // WB-output assignement
-      s2o_virt_addr,          // tap of output data set
-      s3t_ldat_extended       // tap of output data set
-    };
   // LSU's output data set registered by WriteBack miss
-  reg [ODAT_MISS_MSB:0] s3o_odat_miss;
+  // Write-Back-output assignement
+  reg  [LSUOOW-1:0] s3o_lsu_result;
+  reg  [LSUOOW-1:0] s3o_lsu_except_addr;
+  // Atomic operation flag set/clear logic
+  reg               s3o_atomic_flag_set;
+  reg               s3o_atomic_flag_clear;
+  // Particular LSU exception flags
+  reg               s3o_dbus_err_nsbuf;
+  reg               s3o_pagefault;
+  reg               s3o_tlb_miss;
+  reg               s3o_align;
+  // Any exception
+  reg               s3o_excepts_any;
+  
   // ---
   always @(posedge cpu_clk) begin
-    if (lsu_s3_adv) // save output data set in "miss" register
-      s3o_odat_miss <= s3t_odat;
+    if (lsu_s3_adv) begin // save output data set in "miss" register
+      // Write-Back-output assignement
+      s3o_lsu_result        <= s3t_ldat_extended;
+      s3o_lsu_except_addr   <= s2o_virt_addr;
+      // Atomic operation flag set/clear logic
+      s3o_atomic_flag_set   <= s2o_atomic_flag_set;
+      s3o_atomic_flag_clear <= s2o_atomic_flag_clear;
+      // Particular LSU exception flags
+      s3o_dbus_err_nsbuf    <= s2o_dbus_err_nsbuf;
+      s3o_pagefault         <= s2o_pagefault;
+      s3o_tlb_miss          <= s2o_tlb_miss;
+      s3o_align             <= s2o_align;
+      // Any exception
+      s3o_excepts_any       <= s2o_excepts_any;
+    end
   end // @clock
 
-  // pre-WB exceprions & errors
-  // MAROCCHINO_TODO: need more accurate processing for store buffer bus error
-  assign exec_an_except_lsu_o = (lsu_wb_miss ? s3o_odat_miss[ODAT_EXCEPTS_ANY] : s2o_excepts_any) & grant_wb_to_lsu_i;
+  // pre-Write-Back exceprions & errors
+  assign exec_an_except_lsu_o = (wrbk_lsu_miss_r ? s3o_excepts_any : s2o_excepts_any) & grant_wrbk_to_lsu_i;
 
-  // LSU's WB-registered output data set (without "an except flag)
-  localparam  ODAT_WB_MSB = ODAT_MISS_MSB - 1;
-  localparam  ODAT_WB_DW  = ODAT_WB_MSB   + 1;
-  // ---
-  reg  [ODAT_WB_MSB:0] wb_odat;
-  wire [LSUOOW-1:0] wb_lsu_result_m = lsu_wb_miss ? s3o_odat_miss[ODAT_LDAT_MSB:ODAT_LDAT_LSB] : s3t_odat[ODAT_LDAT_MSB:ODAT_LDAT_LSB];
-  // ---
+  // Write-Back-registered load result and exception address
   always @(posedge cpu_clk) begin
-    if (padv_wb_i) begin
-      if (grant_wb_to_lsu_i) begin
-        wb_odat             <= lsu_wb_miss ? s3o_odat_miss[ODAT_WB_MSB:0] : s3t_odat[ODAT_WB_MSB:0];
-        wb_lsu_result_cp1_o <= wb_lsu_result_m;
-        wb_lsu_result_cp2_o <= wb_lsu_result_m;
-        wb_lsu_result_cp3_o <= wb_lsu_result_m;
+    if (padv_wrbk_i) begin
+      if (grant_wrbk_to_lsu_i) begin
+        wrbk_lsu_result_o      <= wrbk_lsu_miss_r ? s3o_lsu_result : s3t_ldat_extended;
+        wrbk_lsu_except_addr_o <= wrbk_lsu_miss_r ? s3o_lsu_except_addr : s2o_virt_addr;
       end
       else begin
-        wb_odat             <= {ODAT_WB_DW{1'b0}};
-        wb_lsu_result_cp1_o <= {ODAT_WB_DW{1'b0}};
-        wb_lsu_result_cp2_o <= {ODAT_WB_DW{1'b0}};
-        wb_lsu_result_cp3_o <= {ODAT_WB_DW{1'b0}};
+        wrbk_lsu_result_o      <= {LSUOOW{1'b0}};
       end
     end
   end // @clock
 
-  // WB-output assignement
-  assign wb_lsu_result_o        = wb_odat[ODAT_LDAT_MSB:ODAT_LDAT_LSB];
-  assign wb_lsu_except_addr_o   = wb_odat[ODAT_EXCEPT_ADDR_MSB:ODAT_EXCEPT_ADDR_LSB];
-  // Atomic operation flag set/clear logic
-  assign wb_atomic_flag_set_o   = wb_odat[ODAT_ATOMIC_FLAG_SET];
-  assign wb_atomic_flag_clear_o = wb_odat[ODAT_ATOMIC_FLAG_CLR];
-  // Particular LSU exception flags
-  assign wb_except_dbus_err_o   = wb_odat[ODAT_EXCEPT_DBUS_ERR];
-  assign wb_except_dpagefault_o = wb_odat[ODAT_EXCEPT_DPAGEFAULT];
-  assign wb_except_dtlb_miss_o  = wb_odat[ODAT_EXCEPT_DTLB_MISS];
-  assign wb_except_dbus_align_o = wb_odat[ODAT_EXCEPT_DBUS_ALIGN];
-
+  // Write-Back-registered atomic flag and exception flags
+  always @(posedge cpu_clk) begin
+    if (padv_wrbk_i & grant_wrbk_to_lsu_i) begin
+      // Atomic operation flag set/clear logic
+      wrbk_atomic_flag_set_o   <= wrbk_lsu_miss_r ? s3o_atomic_flag_set   : s2o_atomic_flag_set;
+      wrbk_atomic_flag_clear_o <= wrbk_lsu_miss_r ? s3o_atomic_flag_clear : s2o_atomic_flag_clear;
+      // Particular LSU exception flags
+      wrbk_except_dbus_err_o   <= wrbk_lsu_miss_r ? s3o_dbus_err_nsbuf : s2o_dbus_err_nsbuf;
+      wrbk_except_dpagefault_o <= wrbk_lsu_miss_r ? s3o_pagefault      : s2o_pagefault;
+      wrbk_except_dtlb_miss_o  <= wrbk_lsu_miss_r ? s3o_tlb_miss       : s2o_tlb_miss;
+      wrbk_except_dbus_align_o <= wrbk_lsu_miss_r ? s3o_align          : s2o_align;
+    end
+    else begin
+      // Atomic operation flag set/clear logic
+      wrbk_atomic_flag_set_o   <= 1'b0; // 1-clk-length
+      wrbk_atomic_flag_clear_o <= 1'b0; // 1-clk-length
+      // Particular LSU exception flags
+      wrbk_except_dbus_err_o   <= 1'b0; // 1-clk-length
+      wrbk_except_dpagefault_o <= 1'b0; // 1-clk-length
+      wrbk_except_dtlb_miss_o  <= 1'b0; // 1-clk-length
+      wrbk_except_dbus_align_o <= 1'b0; // 1-clk-length
+    end
+  end // @clock
+  
 endmodule // mor1kx_lsu_marocchino
