@@ -190,20 +190,6 @@ module mor1kx_oman_marocchino
   input                                 dcod_except_trap_i,
   input                                 dcod_an_except_fd_i,
 
-  // 1-clock "Write-Back to DECODE operand forwarding" flags
-  //  # relative operand A1
-  output reg                            dcod_wrb2dec_d1a1_fwd_o,
-  output reg                            dcod_wrb2dec_d2a1_fwd_o,
-  //  # relative operand B1
-  output reg                            dcod_wrb2dec_d1b1_fwd_o,
-  output reg                            dcod_wrb2dec_d2b1_fwd_o,
-  //  # relative operand A2
-  output reg                            dcod_wrb2dec_d1a2_fwd_o,
-  output reg                            dcod_wrb2dec_d2a2_fwd_o,
-  //  # relative operand B2
-  output reg                            dcod_wrb2dec_d1b2_fwd_o,
-  output reg                            dcod_wrb2dec_d2b2_fwd_o,
-
   // OMAN-to-DECODE hazards
   //  # relative operand A1
   output                                omn2dec_hazard_d1a1_o,
@@ -298,8 +284,12 @@ module mor1kx_oman_marocchino
 
   // Write-Back outputs
   //  ## special Write-Back-controls for RF
-  output reg             [NUM_GPRS-1:0] wrbk_rfd1_we_o,
-  output reg             [NUM_GPRS-1:0] wrbk_rfd2_we_o,
+  output reg             [NUM_GPRS-1:0] wrbk_rfd1_we1h_o,
+  output reg                            wrbk_rfd1_we_o,
+  output reg [OPTION_RF_ADDR_WIDTH-1:0] wrbk_rfd1_adr_o,
+  output reg             [NUM_GPRS-1:0] wrbk_rfd2_we1h_o,
+  output reg                            wrbk_rfd2_we_o,
+  output reg [OPTION_RF_ADDR_WIDTH-1:0] wrbk_rfd2_adr_o,
   //  ## instruction related information
   output reg [OPTION_OPERAND_WIDTH-1:0] pc_wrbk_o,
   output reg [OPTION_OPERAND_WIDTH-1:0] pc_nxt_wrbk_o, // pc-wrbk + 4
@@ -605,6 +595,20 @@ module mor1kx_oman_marocchino
   // OMAN-to-DECODE hazards for RSRVS //
   //----------------------------------//
 
+  // 1-clock "Write-Back to DECODE operand forwarding" flags
+  //  # relative operand A1
+  reg                            dcod_wrb2dec_d1a1_fwd_r;
+  reg                            dcod_wrb2dec_d2a1_fwd_r;
+  //  # relative operand B1
+  reg                            dcod_wrb2dec_d1b1_fwd_r;
+  reg                            dcod_wrb2dec_d2b1_fwd_r;
+  //  # relative operand A2
+  reg                            dcod_wrb2dec_d1a2_fwd_r;
+  reg                            dcod_wrb2dec_d2a2_fwd_r;
+  //  # relative operand B2
+  reg                            dcod_wrb2dec_d1b2_fwd_r;
+  reg                            dcod_wrb2dec_d2b2_fwd_r;
+
   //  # relative operand A1
   wire omn2dec_hazard_d1a1_w = rat_rd1_alloc[dcod_rfa1_adr] & dcod_rfa1_req;
   wire omn2dec_hazard_d2a1_w = rat_rd2_alloc[dcod_rfa1_adr] & dcod_rfa1_req;
@@ -619,20 +623,20 @@ module mor1kx_oman_marocchino
   wire omn2dec_hazard_d2b2_w = rat_rd2_alloc[dcod_rfb2_adr] & dcod_rfb2_req;
 
   //  # relative operand A1
-  assign omn2dec_hazard_d1a1_o = omn2dec_hazard_d1a1_w & (~dcod_wrb2dec_d1a1_fwd_o);
-  assign omn2dec_hazard_d2a1_o = omn2dec_hazard_d2a1_w & (~dcod_wrb2dec_d2a1_fwd_o);
+  assign omn2dec_hazard_d1a1_o = omn2dec_hazard_d1a1_w & (~dcod_wrb2dec_d1a1_fwd_r);
+  assign omn2dec_hazard_d2a1_o = omn2dec_hazard_d2a1_w & (~dcod_wrb2dec_d2a1_fwd_r);
   assign omn2dec_extadr_dxa1_o = rat_extadr[dcod_rfa1_adr];
   //  # relative operand B1
-  assign omn2dec_hazard_d1b1_o = omn2dec_hazard_d1b1_w & (~dcod_wrb2dec_d1b1_fwd_o);
-  assign omn2dec_hazard_d2b1_o = omn2dec_hazard_d2b1_w & (~dcod_wrb2dec_d2b1_fwd_o);
+  assign omn2dec_hazard_d1b1_o = omn2dec_hazard_d1b1_w & (~dcod_wrb2dec_d1b1_fwd_r);
+  assign omn2dec_hazard_d2b1_o = omn2dec_hazard_d2b1_w & (~dcod_wrb2dec_d2b1_fwd_r);
   assign omn2dec_extadr_dxb1_o = rat_extadr[dcod_rfb1_adr];
   //  # relative operand A2
-  assign omn2dec_hazard_d1a2_o = omn2dec_hazard_d1a2_w & (~dcod_wrb2dec_d1a2_fwd_o);
-  assign omn2dec_hazard_d2a2_o = omn2dec_hazard_d2a2_w & (~dcod_wrb2dec_d2a2_fwd_o);
+  assign omn2dec_hazard_d1a2_o = omn2dec_hazard_d1a2_w & (~dcod_wrb2dec_d1a2_fwd_r);
+  assign omn2dec_hazard_d2a2_o = omn2dec_hazard_d2a2_w & (~dcod_wrb2dec_d2a2_fwd_r);
   assign omn2dec_extadr_dxa2_o = rat_extadr[dcod_rfa2_adr];
   //  # relative operand B2
-  assign omn2dec_hazard_d1b2_o = omn2dec_hazard_d1b2_w & (~dcod_wrb2dec_d1b2_fwd_o);
-  assign omn2dec_hazard_d2b2_o = omn2dec_hazard_d2b2_w & (~dcod_wrb2dec_d2b2_fwd_o);
+  assign omn2dec_hazard_d1b2_o = omn2dec_hazard_d1b2_w & (~dcod_wrb2dec_d1b2_fwd_r);
+  assign omn2dec_hazard_d2b2_o = omn2dec_hazard_d2b2_w & (~dcod_wrb2dec_d2b2_fwd_r);
   assign omn2dec_extadr_dxb2_o = rat_extadr[dcod_rfb2_adr];
 
 
@@ -697,47 +701,47 @@ module mor1kx_oman_marocchino
       // when write-back only
       2'b10: begin
         //  # relative operand A1
-        dcod_wrb2dec_d1a1_fwd_o <= exe2dec_d1a1_fwd;
-        dcod_wrb2dec_d2a1_fwd_o <= exe2dec_d2a1_fwd;
+        dcod_wrb2dec_d1a1_fwd_r <= exe2dec_d1a1_fwd;
+        dcod_wrb2dec_d2a1_fwd_r <= exe2dec_d2a1_fwd;
         //  # relative operand B1
-        dcod_wrb2dec_d1b1_fwd_o <= exe2dec_d1b1_fwd;
-        dcod_wrb2dec_d2b1_fwd_o <= exe2dec_d2b1_fwd;
+        dcod_wrb2dec_d1b1_fwd_r <= exe2dec_d1b1_fwd;
+        dcod_wrb2dec_d2b1_fwd_r <= exe2dec_d2b1_fwd;
         //  # relative operand A2
-        dcod_wrb2dec_d1a2_fwd_o <= exe2dec_d1a2_fwd;
-        dcod_wrb2dec_d2a2_fwd_o <= exe2dec_d2a2_fwd;
+        dcod_wrb2dec_d1a2_fwd_r <= exe2dec_d1a2_fwd;
+        dcod_wrb2dec_d2a2_fwd_r <= exe2dec_d2a2_fwd;
         //  # relative operand B2
-        dcod_wrb2dec_d1b2_fwd_o <= exe2dec_d1b2_fwd;
-        dcod_wrb2dec_d2b2_fwd_o <= exe2dec_d2b2_fwd;
+        dcod_wrb2dec_d1b2_fwd_r <= exe2dec_d1b2_fwd;
+        dcod_wrb2dec_d2b2_fwd_r <= exe2dec_d2b2_fwd;
       end
       // when write-back is overlapping advance decode
       2'b11: begin
         //  # relative operand A1
-        dcod_wrb2dec_d1a1_fwd_o <= dcd2fth_d1a1_free & exe2fth_d1a1_fwd;
-        dcod_wrb2dec_d2a1_fwd_o <= dcd2fth_d2a1_free & exe2fth_d2a1_fwd;
+        dcod_wrb2dec_d1a1_fwd_r <= dcd2fth_d1a1_free & exe2fth_d1a1_fwd;
+        dcod_wrb2dec_d2a1_fwd_r <= dcd2fth_d2a1_free & exe2fth_d2a1_fwd;
         //  # relative operand B1
-        dcod_wrb2dec_d1b1_fwd_o <= dcd2fth_d1b1_free & exe2fth_d1b1_fwd;
-        dcod_wrb2dec_d2b1_fwd_o <= dcd2fth_d2b1_free & exe2fth_d2b1_fwd;
+        dcod_wrb2dec_d1b1_fwd_r <= dcd2fth_d1b1_free & exe2fth_d1b1_fwd;
+        dcod_wrb2dec_d2b1_fwd_r <= dcd2fth_d2b1_free & exe2fth_d2b1_fwd;
         //  # relative operand A2
-        dcod_wrb2dec_d1a2_fwd_o <= dcd2fth_d1a2_free & exe2fth_d1a2_fwd;
-        dcod_wrb2dec_d2a2_fwd_o <= dcd2fth_d2a2_free & exe2fth_d2a2_fwd;
+        dcod_wrb2dec_d1a2_fwd_r <= dcd2fth_d1a2_free & exe2fth_d1a2_fwd;
+        dcod_wrb2dec_d2a2_fwd_r <= dcd2fth_d2a2_free & exe2fth_d2a2_fwd;
         //  # relative operand B2
-        dcod_wrb2dec_d1b2_fwd_o <= dcd2fth_d1b2_free & exe2fth_d1b2_fwd;
-        dcod_wrb2dec_d2b2_fwd_o <= dcd2fth_d2b2_free & exe2fth_d2b2_fwd;
+        dcod_wrb2dec_d1b2_fwd_r <= dcd2fth_d1b2_free & exe2fth_d1b2_fwd;
+        dcod_wrb2dec_d2b2_fwd_r <= dcd2fth_d2b2_free & exe2fth_d2b2_fwd;
       end
       // 1-clock length
       default: begin
         //  # relative operand A1
-        dcod_wrb2dec_d1a1_fwd_o <= 1'b0;
-        dcod_wrb2dec_d2a1_fwd_o <= 1'b0;
+        dcod_wrb2dec_d1a1_fwd_r <= 1'b0;
+        dcod_wrb2dec_d2a1_fwd_r <= 1'b0;
         //  # relative operand B1
-        dcod_wrb2dec_d1b1_fwd_o <= 1'b0;
-        dcod_wrb2dec_d2b1_fwd_o <= 1'b0;
+        dcod_wrb2dec_d1b1_fwd_r <= 1'b0;
+        dcod_wrb2dec_d2b1_fwd_r <= 1'b0;
         //  # relative operand A2
-        dcod_wrb2dec_d1a2_fwd_o <= 1'b0;
-        dcod_wrb2dec_d2a2_fwd_o <= 1'b0;
+        dcod_wrb2dec_d1a2_fwd_r <= 1'b0;
+        dcod_wrb2dec_d2a2_fwd_r <= 1'b0;
         //  # relative operand B2
-        dcod_wrb2dec_d1b2_fwd_o <= 1'b0;
-        dcod_wrb2dec_d2b2_fwd_o <= 1'b0;
+        dcod_wrb2dec_d1b2_fwd_r <= 1'b0;
+        dcod_wrb2dec_d2b2_fwd_r <= 1'b0;
       end
     endcase
   end // @clock
@@ -1273,14 +1277,26 @@ module mor1kx_oman_marocchino
   //  1-clock Write-Back-pulses
   always @(posedge cpu_clk) begin
     if (padv_wrbk_i) begin
-      wrbk_rfd1_we_o <= {{(NUM_GPRS-1){1'b0}},exec_rfd1_we} << exec_rfd1_adr;
-      wrbk_rfd2_we_o <= {{(NUM_GPRS-1){1'b0}},exec_rfd2_we} << exec_rfd2_adr;
+      wrbk_rfd1_we1h_o <= {{(NUM_GPRS-1){1'b0}},exec_rfd1_we} << exec_rfd1_adr;
+      wrbk_rfd1_we_o   <= exec_rfd1_we;
+      wrbk_rfd2_we1h_o <= {{(NUM_GPRS-1){1'b0}},exec_rfd2_we} << exec_rfd2_adr;
+      wrbk_rfd2_we_o   <= exec_rfd2_we;
     end
     else begin
-      wrbk_rfd1_we_o <= {NUM_GPRS{1'b0}};
-      wrbk_rfd2_we_o <= {NUM_GPRS{1'b0}};
+      wrbk_rfd1_we1h_o <= {NUM_GPRS{1'b0}};
+      wrbk_rfd1_we_o   <= 1'b0;
+      wrbk_rfd2_we1h_o <= {NUM_GPRS{1'b0}};
+      wrbk_rfd2_we_o   <= 1'b0;
     end
   end // @clock
+  // latch write-back addresses without reset
+  always @(posedge cpu_clk) begin
+    if (padv_wrbk_i) begin
+      wrbk_rfd1_adr_o <= exec_rfd1_adr;
+      wrbk_rfd2_adr_o <= exec_rfd2_adr;
+    end
+  end // @clock
+  
 
 
   // Write-Back delay slot

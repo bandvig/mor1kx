@@ -223,21 +223,6 @@ module mor1kx_cpu_marocchino
   wire                            lsu_valid;   // result ready or exceptions
 
 
-  // 1-clock "Write-Back to DECODE operand forwarding" flags
-  //  # relative operand A1
-  wire                            dcod_wrb2dec_d1a1_fwd;
-  wire                            dcod_wrb2dec_d2a1_fwd;
-  //  # relative operand B1
-  wire                            dcod_wrb2dec_d1b1_fwd;
-  wire                            dcod_wrb2dec_d2b1_fwd;
-  //  # relative operand A2
-  wire                            dcod_wrb2dec_d1a2_fwd;
-  wire                            dcod_wrb2dec_d2a2_fwd;
-  //  # relative operand B2
-  wire                            dcod_wrb2dec_d1b2_fwd;
-  wire                            dcod_wrb2dec_d2b2_fwd;
-
-
   wire [OPTION_OPERAND_WIDTH-1:0] dcod_rfa1;
   wire [OPTION_OPERAND_WIDTH-1:0] dcod_rfb1;
   wire [OPTION_OPERAND_WIDTH-1:0] dcod_immediate;
@@ -249,11 +234,11 @@ module mor1kx_cpu_marocchino
   wire [OPTION_OPERAND_WIDTH-1:0] dcod_rfb2;
 
 
-  wire [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfd1_adr;
   wire                            dcod_rfd1_we;
+  wire [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfd1_adr;
   // for FPU64:
-  wire [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfd2_adr;
   wire                            dcod_rfd2_we;
+  wire [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfd2_adr;
 
 
   // OMAN-to-DECODE hazards
@@ -281,9 +266,14 @@ module mor1kx_cpu_marocchino
   wire    [DEST_EXTADR_WIDTH-1:0] wrbk_extadr;
 
 
-  // Special Write-Back-controls for RF
-  wire             [NUM_GPRS-1:0] wrbk_rfd1_we;
-  wire             [NUM_GPRS-1:0] wrbk_rfd2_we;
+  // Write-Back-controls for RF
+  wire             [NUM_GPRS-1:0] wrbk_rfd1_we1h;
+  wire                            wrbk_rfd1_we;
+  wire [OPTION_RF_ADDR_WIDTH-1:0] wrbk_rfd1_adr;
+  // for FPU64:
+  wire             [NUM_GPRS-1:0] wrbk_rfd2_we1h;
+  wire                            wrbk_rfd2_we;
+  wire [OPTION_RF_ADDR_WIDTH-1:0] wrbk_rfd2_adr;
 
 
   // Logic to support Jump / Branch taking
@@ -726,24 +716,15 @@ module mor1kx_cpu_marocchino
     .dcod_immediate_i                 (dcod_immediate), // RF
     .dcod_immediate_sel_i             (dcod_immediate_sel), // RF
     // from Write-Back
+    .wrbk_rfd1_we1h_i                 (wrbk_rfd1_we1h), // RF
     .wrbk_rfd1_we_i                   (wrbk_rfd1_we), // RF
+    .wrbk_rfd1_adr_i                  (wrbk_rfd1_adr), // RF
     .wrbk_result1_i                   (wrbk_result1), // RF
     // for FPU64
+    .wrbk_rfd2_we1h_i                 (wrbk_rfd2_we1h), // RF
     .wrbk_rfd2_we_i                   (wrbk_rfd2_we), // RF
+    .wrbk_rfd2_adr_i                  (wrbk_rfd2_adr), // RF
     .wrbk_result2_i                   (wrbk_result2), // RF
-    // 1-clock "Write-Back to DECODE operand forwarding" flags
-    //  # relative operand A1
-    .dcod_wrb2dec_d1a1_fwd_i          (dcod_wrb2dec_d1a1_fwd), // RF
-    .dcod_wrb2dec_d2a1_fwd_i          (dcod_wrb2dec_d2a1_fwd), // RF
-    //  # relative operand B1
-    .dcod_wrb2dec_d1b1_fwd_i          (dcod_wrb2dec_d1b1_fwd), // RF
-    .dcod_wrb2dec_d2b1_fwd_i          (dcod_wrb2dec_d2b1_fwd), // RF
-    //  # relative operand A2
-    .dcod_wrb2dec_d1a2_fwd_i          (dcod_wrb2dec_d1a2_fwd), // RF
-    .dcod_wrb2dec_d2a2_fwd_i          (dcod_wrb2dec_d2a2_fwd), // RF
-    //  # relative operand B2
-    .dcod_wrb2dec_d1b2_fwd_i          (dcod_wrb2dec_d1b2_fwd), // RF
-    .dcod_wrb2dec_d2b2_fwd_i          (dcod_wrb2dec_d2b2_fwd), // RF
     // Operands
     .dcod_rfa1_o                      (dcod_rfa1), // RF
     .dcod_rfb1_o                      (dcod_rfb1), // RF
@@ -980,20 +961,6 @@ module mor1kx_cpu_marocchino
     .dcod_except_trap_i         (dcod_except_trap), // OMAN
     .dcod_an_except_fd_i        (dcod_an_except_fd), // OMAN
 
-    // 1-clock "Write-Back to DECODE operand forwarding" flags
-    //  # relative operand A1
-    .dcod_wrb2dec_d1a1_fwd_o    (dcod_wrb2dec_d1a1_fwd), // OMAN
-    .dcod_wrb2dec_d2a1_fwd_o    (dcod_wrb2dec_d2a1_fwd), // OMAN
-    //  # relative operand B1
-    .dcod_wrb2dec_d1b1_fwd_o    (dcod_wrb2dec_d1b1_fwd), // OMAN
-    .dcod_wrb2dec_d2b1_fwd_o    (dcod_wrb2dec_d2b1_fwd), // OMAN
-    //  # relative operand A2
-    .dcod_wrb2dec_d1a2_fwd_o    (dcod_wrb2dec_d1a2_fwd), // OMAN
-    .dcod_wrb2dec_d2a2_fwd_o    (dcod_wrb2dec_d2a2_fwd), // OMAN
-    //  # relative operand B2
-    .dcod_wrb2dec_d1b2_fwd_o    (dcod_wrb2dec_d1b2_fwd), // OMAN
-    .dcod_wrb2dec_d2b2_fwd_o    (dcod_wrb2dec_d2b2_fwd), // OMAN
-
     // OMAN-to-DECODE hazards
     //  # relative operand A1
     .omn2dec_hazard_d1a1_o      (omn2dec_hazard_d1a1), // OMAN
@@ -1086,8 +1053,12 @@ module mor1kx_cpu_marocchino
 
     // Write-Back outputs
     //  ## special Write-Back-controls for RF
+    .wrbk_rfd1_we1h_o           (wrbk_rfd1_we1h), // OMAN
     .wrbk_rfd1_we_o             (wrbk_rfd1_we), // OMAN
+    .wrbk_rfd1_adr_o            (wrbk_rfd1_adr), // OMAN
+    .wrbk_rfd2_we1h_o           (wrbk_rfd2_we1h), // OMAN
     .wrbk_rfd2_we_o             (wrbk_rfd2_we), // OMAN
+    .wrbk_rfd2_adr_o            (wrbk_rfd2_adr), // OMAN
     //  ## instruction related information
     .pc_wrbk_o                  (pc_wrbk), // OMAN
     .pc_nxt_wrbk_o              (pc_nxt_wrbk), // OMAN
