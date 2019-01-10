@@ -57,9 +57,10 @@ module rat_cell
   input         [DEST_EXTADR_WIDTH-1:0] wrbk_extadr_i,
 
   // output allocation information
-  output reg                            rat_rd1_alloc_o, // allocated by D1
-  output reg                            rat_rd2_alloc_o, // allocated by D2
-  output reg    [DEST_EXTADR_WIDTH-1:0] rat_extadr_o     // allocation ID
+  output reg                            rat_rd1_alloc_o,      // allocated by D1
+  output reg                            rat_rd2_alloc_o,      // allocated by D2
+  output reg                            rat_alloc_at_wrbk_o,  // keep allocation at current Write-Back (comb.)
+  output reg    [DEST_EXTADR_WIDTH-1:0] rat_extadr_o          // allocation ID
 );
 
   localparam [OPTION_RF_ADDR_WIDTH-1:0] GPR_ADR = GPR_ADDR;
@@ -70,10 +71,12 @@ module rat_cell
   wire set_rdx_alloc = (set_rd1_alloc | set_rd2_alloc);
 
   // condition to keep allocation flags at write-back
-  wire keep_alloc_at_wrbk    = (wrbk_extadr_i != rat_extadr_o);
+  always @(wrbk_extadr_i or rat_extadr_o) begin
+    rat_alloc_at_wrbk_o = (wrbk_extadr_i != rat_extadr_o);
+  end
   // next values of allocation flags at write-back
-  wire rat_rd1_alloc_at_wrbk = rat_rd1_alloc_o & keep_alloc_at_wrbk;
-  wire rat_rd2_alloc_at_wrbk = rat_rd2_alloc_o & keep_alloc_at_wrbk;
+  wire rat_rd1_alloc_at_wrbk = rat_rd1_alloc_o & rat_alloc_at_wrbk_o;
+  wire rat_rd2_alloc_at_wrbk = rat_rd2_alloc_o & rat_alloc_at_wrbk_o;
 
   // allocation flags
   always @(posedge cpu_clk) begin
@@ -538,9 +541,6 @@ module mor1kx_oman_marocchino
   end // at cpu clock
 
 
-  // Shorten aliases
-  wire [DEST_EXTADR_WIDTH-1:0] exec_extadr = ocbo[OCBTC_EXTADR_MSB:OCBTC_EXTADR_LSB];
-
   // We needn't Write-Back-to-DECODE hazards for FLAG and CARRY:
   //  (a) we process FLAG for l.bf/.bnf in separate way
   //  (b) only 1-clock instructions request FLAG/CARRY,
@@ -549,14 +549,19 @@ module mor1kx_oman_marocchino
   // RAT outputs
   wire          [(NUM_GPRS-1):0] rat_rd1_alloc; // allocated by D1
   wire          [(NUM_GPRS-1):0] rat_rd2_alloc; // allocated by D2
+  wire          [(NUM_GPRS-1):0] rat_alloc_at_wrbk; // keep allocation at current Write-Back (comb.)
   wire [(DEST_EXTADR_WIDTH-1):0] rat_extadr [(NUM_GPRS-1):0]; // allocation ID
 
-  // setup RAT cells
-  // !!! Even so GPR[0] must be equal to zero we include it into RAT
-  // !!! because it could be allocated by initialization routine.
+  // Special ccase for GPR[0]
+  assign rat_rd1_alloc[0]     = 1'b0;
+  assign rat_rd2_alloc[0]     = 1'b0;
+  assign rat_alloc_at_wrbk[0] = 1'b0;
+  assign rat_extadr[0]        = {DEST_EXTADR_WIDTH{1'b0}};
+  
+  // instances for RAT cells
   generate
   genvar ic;
-  for (ic = 0; ic < NUM_GPRS; ic = ic + 1) begin : rat_cell_k
+  for (ic = 1; ic < NUM_GPRS; ic = ic + 1) begin : rat_cell_k
     // RAT cells instansence
     rat_cell
     #(
@@ -585,9 +590,10 @@ module mor1kx_oman_marocchino
       // output allocation information
       .rat_rd1_alloc_o        (rat_rd1_alloc[ic]), // RAT-CELL
       .rat_rd2_alloc_o        (rat_rd2_alloc[ic]), // RAT-CELL
+      .rat_alloc_at_wrbk_o    (rat_alloc_at_wrbk[ic]), // RAT-CELL
       .rat_extadr_o           (rat_extadr[ic]) // RAT-CELL
     );
-    end
+  end
   endgenerate
 
 
@@ -595,156 +601,26 @@ module mor1kx_oman_marocchino
   // OMAN-to-DECODE hazards for RSRVS //
   //----------------------------------//
 
-  // 1-clock "Write-Back to DECODE operand forwarding" flags
   //  # relative operand A1
-  reg                            dcod_wrb2dec_d1a1_fwd_r;
-  reg                            dcod_wrb2dec_d2a1_fwd_r;
-  //  # relative operand B1
-  reg                            dcod_wrb2dec_d1b1_fwd_r;
-  reg                            dcod_wrb2dec_d2b1_fwd_r;
-  //  # relative operand A2
-  reg                            dcod_wrb2dec_d1a2_fwd_r;
-  reg                            dcod_wrb2dec_d2a2_fwd_r;
-  //  # relative operand B2
-  reg                            dcod_wrb2dec_d1b2_fwd_r;
-  reg                            dcod_wrb2dec_d2b2_fwd_r;
-
-  //  # relative operand A1
-  wire omn2dec_hazard_d1a1_w = rat_rd1_alloc[dcod_rfa1_adr] & dcod_rfa1_req;
-  wire omn2dec_hazard_d2a1_w = rat_rd2_alloc[dcod_rfa1_adr] & dcod_rfa1_req;
-  //  # relative operand B1
-  wire omn2dec_hazard_d1b1_w = rat_rd1_alloc[dcod_rfb1_adr] & dcod_rfb1_req;
-  wire omn2dec_hazard_d2b1_w = rat_rd2_alloc[dcod_rfb1_adr] & dcod_rfb1_req;
-  //  # relative operand A2
-  wire omn2dec_hazard_d1a2_w = rat_rd1_alloc[dcod_rfa2_adr] & dcod_rfa2_req;
-  wire omn2dec_hazard_d2a2_w = rat_rd2_alloc[dcod_rfa2_adr] & dcod_rfa2_req;
-  //  # relative operand B2
-  wire omn2dec_hazard_d1b2_w = rat_rd1_alloc[dcod_rfb2_adr] & dcod_rfb2_req;
-  wire omn2dec_hazard_d2b2_w = rat_rd2_alloc[dcod_rfb2_adr] & dcod_rfb2_req;
-
-  //  # relative operand A1
-  assign omn2dec_hazard_d1a1_o = omn2dec_hazard_d1a1_w & (~dcod_wrb2dec_d1a1_fwd_r);
-  assign omn2dec_hazard_d2a1_o = omn2dec_hazard_d2a1_w & (~dcod_wrb2dec_d2a1_fwd_r);
+  wire   alloc_dxa1_at_wrbk    = rat_alloc_at_wrbk[dcod_rfa1_adr];
+  assign omn2dec_hazard_d1a1_o = rat_rd1_alloc[dcod_rfa1_adr] & alloc_dxa1_at_wrbk & dcod_rfa1_req;
+  assign omn2dec_hazard_d2a1_o = rat_rd2_alloc[dcod_rfa1_adr] & alloc_dxa1_at_wrbk & dcod_rfa1_req;
   assign omn2dec_extadr_dxa1_o = rat_extadr[dcod_rfa1_adr];
   //  # relative operand B1
-  assign omn2dec_hazard_d1b1_o = omn2dec_hazard_d1b1_w & (~dcod_wrb2dec_d1b1_fwd_r);
-  assign omn2dec_hazard_d2b1_o = omn2dec_hazard_d2b1_w & (~dcod_wrb2dec_d2b1_fwd_r);
+  wire   alloc_dxb1_at_wrbk    = rat_alloc_at_wrbk[dcod_rfb1_adr];
+  assign omn2dec_hazard_d1b1_o = rat_rd1_alloc[dcod_rfb1_adr] & alloc_dxb1_at_wrbk & dcod_rfb1_req;
+  assign omn2dec_hazard_d2b1_o = rat_rd2_alloc[dcod_rfb1_adr] & alloc_dxb1_at_wrbk & dcod_rfb1_req;
   assign omn2dec_extadr_dxb1_o = rat_extadr[dcod_rfb1_adr];
   //  # relative operand A2
-  assign omn2dec_hazard_d1a2_o = omn2dec_hazard_d1a2_w & (~dcod_wrb2dec_d1a2_fwd_r);
-  assign omn2dec_hazard_d2a2_o = omn2dec_hazard_d2a2_w & (~dcod_wrb2dec_d2a2_fwd_r);
+  wire   alloc_dxa2_at_wrbk    = rat_alloc_at_wrbk[dcod_rfa2_adr];
+  assign omn2dec_hazard_d1a2_o = rat_rd1_alloc[dcod_rfa2_adr] & alloc_dxa2_at_wrbk & dcod_rfa2_req;
+  assign omn2dec_hazard_d2a2_o = rat_rd2_alloc[dcod_rfa2_adr] & alloc_dxa2_at_wrbk & dcod_rfa2_req;
   assign omn2dec_extadr_dxa2_o = rat_extadr[dcod_rfa2_adr];
   //  # relative operand B2
-  assign omn2dec_hazard_d1b2_o = omn2dec_hazard_d1b2_w & (~dcod_wrb2dec_d1b2_fwd_r);
-  assign omn2dec_hazard_d2b2_o = omn2dec_hazard_d2b2_w & (~dcod_wrb2dec_d2b2_fwd_r);
+  wire   alloc_dxb2_at_wrbk    = rat_alloc_at_wrbk[dcod_rfb2_adr];
+  assign omn2dec_hazard_d1b2_o = rat_rd1_alloc[dcod_rfb2_adr] & alloc_dxb2_at_wrbk & dcod_rfb2_req;
+  assign omn2dec_hazard_d2b2_o = rat_rd2_alloc[dcod_rfb2_adr] & alloc_dxb2_at_wrbk & dcod_rfb2_req;
   assign omn2dec_extadr_dxb2_o = rat_extadr[dcod_rfb2_adr];
-
-
-  //---------------------------------------------------------//
-  // 1-clock "Write-Back to DECODE operand forwarding" flags //
-  //---------------------------------------------------------//
-
-  // EXECUTE-to-DECODE forwarding is possible (write-back only case)
-  //  # relative operand A1
-  wire exe2dec_dxa1_same_extadr = (exec_extadr == omn2dec_extadr_dxa1_o);
-  wire exe2dec_d1a1_fwd         = omn2dec_hazard_d1a1_w & exe2dec_dxa1_same_extadr;
-  wire exe2dec_d2a1_fwd         = omn2dec_hazard_d2a1_w & exe2dec_dxa1_same_extadr;
-  //  # relative operand B1
-  wire exe2dec_dxb1_same_extadr = (exec_extadr == omn2dec_extadr_dxb1_o);
-  wire exe2dec_d1b1_fwd         = omn2dec_hazard_d1b1_w & exe2dec_dxb1_same_extadr;
-  wire exe2dec_d2b1_fwd         = omn2dec_hazard_d2b1_w & exe2dec_dxb1_same_extadr;
-  //  # relative operand A2
-  wire exe2dec_dxa2_same_extadr = (exec_extadr == omn2dec_extadr_dxa2_o);
-  wire exe2dec_d1a2_fwd         = omn2dec_hazard_d1a2_w & exe2dec_dxa2_same_extadr;
-  wire exe2dec_d2a2_fwd         = omn2dec_hazard_d2a2_w & exe2dec_dxa2_same_extadr;
-  //  # relative operand B2
-  wire exe2dec_dxb2_same_extadr = (exec_extadr == omn2dec_extadr_dxb2_o);
-  wire exe2dec_d1b2_fwd         = omn2dec_hazard_d1b2_w & exe2dec_dxb2_same_extadr;
-  wire exe2dec_d2b2_fwd         = omn2dec_hazard_d2b2_w & exe2dec_dxb2_same_extadr;
-
-  // No DECODE-to-FETCH reservation (write-back is overlapping advance decode)
-  //  # relative operand A1
-  wire dcd2fth_d1a1_free = (dcod_rfd1_adr_i != fetch_rfa1_adr_i) | (~dcod_rfd1_we_i) | (~ratin_rfa1_req_i);
-  wire dcd2fth_d2a1_free = (dcod_rfd2_adr_i != fetch_rfa1_adr_i) | (~dcod_rfd2_we_i) | (~ratin_rfa1_req_i);
-  //  # relative operand B1
-  wire dcd2fth_d1b1_free = (dcod_rfd1_adr_i != fetch_rfb1_adr_i) | (~dcod_rfd1_we_i) | (~ratin_rfb1_req_i);
-  wire dcd2fth_d2b1_free = (dcod_rfd2_adr_i != fetch_rfb1_adr_i) | (~dcod_rfd2_we_i) | (~ratin_rfb1_req_i);
-  //  # relative operand A2
-  wire dcd2fth_d1a2_free = (dcod_rfd1_adr_i != fetch_rfa2_adr_i) | (~dcod_rfd1_we_i) | (~ratin_rfa2_req_i);
-  wire dcd2fth_d2a2_free = (dcod_rfd2_adr_i != fetch_rfa2_adr_i) | (~dcod_rfd2_we_i) | (~ratin_rfa2_req_i);
-  //  # relative operand B2
-  wire dcd2fth_d1b2_free = (dcod_rfd1_adr_i != fetch_rfb2_adr_i) | (~dcod_rfd1_we_i) | (~ratin_rfb2_req_i);
-  wire dcd2fth_d2b2_free = (dcod_rfd2_adr_i != fetch_rfb2_adr_i) | (~dcod_rfd2_we_i) | (~ratin_rfb2_req_i);
-
-  // EXECUTE-to-FETCH forwarding is possible (write-back is overlapping advance decode)
-  //  # relative operand A1
-  wire exe2fth_dxa1_same_extadr = (exec_extadr == rat_extadr[fetch_rfa1_adr_i]);
-  wire exe2fth_d1a1_fwd         = rat_rd1_alloc[fetch_rfa1_adr_i] & ratin_rfa1_req_i & exe2fth_dxa1_same_extadr;
-  wire exe2fth_d2a1_fwd         = rat_rd2_alloc[fetch_rfa1_adr_i] & ratin_rfa1_req_i & exe2fth_dxa1_same_extadr;
-  //  # relative operand B1
-  wire exe2fth_dxb1_same_extadr = (exec_extadr == rat_extadr[fetch_rfb1_adr_i]);
-  wire exe2fth_d1b1_fwd         = rat_rd1_alloc[fetch_rfb1_adr_i] & ratin_rfb1_req_i & exe2fth_dxb1_same_extadr;
-  wire exe2fth_d2b1_fwd         = rat_rd2_alloc[fetch_rfb1_adr_i] & ratin_rfb1_req_i & exe2fth_dxb1_same_extadr;
-  //  # relative operand A2
-  wire exe2fth_dxa2_same_extadr = (exec_extadr == rat_extadr[fetch_rfa2_adr_i]);
-  wire exe2fth_d1a2_fwd         = rat_rd1_alloc[fetch_rfa2_adr_i] & ratin_rfa2_req_i & exe2fth_dxa2_same_extadr;
-  wire exe2fth_d2a2_fwd         = rat_rd2_alloc[fetch_rfa2_adr_i] & ratin_rfa2_req_i & exe2fth_dxa2_same_extadr;
-  //  # relative operand B2
-  wire exe2fth_dxb2_same_extadr = (exec_extadr == rat_extadr[fetch_rfb2_adr_i]);
-  wire exe2fth_d1b2_fwd         = rat_rd1_alloc[fetch_rfb2_adr_i] & ratin_rfb2_req_i & exe2fth_dxb2_same_extadr;
-  wire exe2fth_d2b2_fwd         = rat_rd2_alloc[fetch_rfb2_adr_i] & ratin_rfb2_req_i & exe2fth_dxb2_same_extadr;
-
-  // ---
-  always @(posedge cpu_clk) begin
-    // synthesis parallel_case
-    case ({padv_wrbk_i,padv_dcod_i})
-      // when write-back only
-      2'b10: begin
-        //  # relative operand A1
-        dcod_wrb2dec_d1a1_fwd_r <= exe2dec_d1a1_fwd;
-        dcod_wrb2dec_d2a1_fwd_r <= exe2dec_d2a1_fwd;
-        //  # relative operand B1
-        dcod_wrb2dec_d1b1_fwd_r <= exe2dec_d1b1_fwd;
-        dcod_wrb2dec_d2b1_fwd_r <= exe2dec_d2b1_fwd;
-        //  # relative operand A2
-        dcod_wrb2dec_d1a2_fwd_r <= exe2dec_d1a2_fwd;
-        dcod_wrb2dec_d2a2_fwd_r <= exe2dec_d2a2_fwd;
-        //  # relative operand B2
-        dcod_wrb2dec_d1b2_fwd_r <= exe2dec_d1b2_fwd;
-        dcod_wrb2dec_d2b2_fwd_r <= exe2dec_d2b2_fwd;
-      end
-      // when write-back is overlapping advance decode
-      2'b11: begin
-        //  # relative operand A1
-        dcod_wrb2dec_d1a1_fwd_r <= dcd2fth_d1a1_free & exe2fth_d1a1_fwd;
-        dcod_wrb2dec_d2a1_fwd_r <= dcd2fth_d2a1_free & exe2fth_d2a1_fwd;
-        //  # relative operand B1
-        dcod_wrb2dec_d1b1_fwd_r <= dcd2fth_d1b1_free & exe2fth_d1b1_fwd;
-        dcod_wrb2dec_d2b1_fwd_r <= dcd2fth_d2b1_free & exe2fth_d2b1_fwd;
-        //  # relative operand A2
-        dcod_wrb2dec_d1a2_fwd_r <= dcd2fth_d1a2_free & exe2fth_d1a2_fwd;
-        dcod_wrb2dec_d2a2_fwd_r <= dcd2fth_d2a2_free & exe2fth_d2a2_fwd;
-        //  # relative operand B2
-        dcod_wrb2dec_d1b2_fwd_r <= dcd2fth_d1b2_free & exe2fth_d1b2_fwd;
-        dcod_wrb2dec_d2b2_fwd_r <= dcd2fth_d2b2_free & exe2fth_d2b2_fwd;
-      end
-      // 1-clock length
-      default: begin
-        //  # relative operand A1
-        dcod_wrb2dec_d1a1_fwd_r <= 1'b0;
-        dcod_wrb2dec_d2a1_fwd_r <= 1'b0;
-        //  # relative operand B1
-        dcod_wrb2dec_d1b1_fwd_r <= 1'b0;
-        dcod_wrb2dec_d2b1_fwd_r <= 1'b0;
-        //  # relative operand A2
-        dcod_wrb2dec_d1a2_fwd_r <= 1'b0;
-        dcod_wrb2dec_d2a2_fwd_r <= 1'b0;
-        //  # relative operand B2
-        dcod_wrb2dec_d1b2_fwd_r <= 1'b0;
-        dcod_wrb2dec_d2b2_fwd_r <= 1'b0;
-      end
-    endcase
-  end // @clock
 
 
   //   An execute module is ready and granted access to Write-Back
@@ -1312,7 +1188,7 @@ module mor1kx_oman_marocchino
   // to reolve hazards in rezervation stations
   always @(posedge cpu_clk) begin
     if (padv_wrbk_i)
-      wrbk_extadr_o <= exec_extadr;
+      wrbk_extadr_o <= ocbo[OCBTC_EXTADR_MSB:OCBTC_EXTADR_LSB];
     else
       wrbk_extadr_o <= {DEST_EXTADR_WIDTH{1'b0}};
   end // @clock
