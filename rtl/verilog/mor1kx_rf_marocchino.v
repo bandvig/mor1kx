@@ -518,30 +518,34 @@ module mor1kx_rf_marocchino
   end // at cpu clock
 
   // D1A1 and D2A1 forwarding conditions
+  //  # WriteBack-to-Fetch
+  wire wrb2fth_d1a1_fwd = wrbk_rfd1_we_i & (wrbk_rfd1_adr_i == fetch_rfa1_adr_i);
+  wire wrb2fth_d2a1_fwd = wrbk_rfd2_we_i & (wrbk_rfd2_adr_i == fetch_rfa1_adr_i);
+  //  # WriteBack-to-Decode
   wire wrb2dec_d1a1_fwd = wrbk_rfd1_we_i & (wrbk_rfd1_adr_i == dcod_rfa1_adr);
   wire wrb2dec_d2a1_fwd = wrbk_rfd2_we_i & (wrbk_rfd2_adr_i == dcod_rfa1_adr);
   // Registering RFA1-output
   reg [RF_DW-1:0] dcod_rfa1_r;
   // ---
-  /*
   always @(posedge cpu_clk) begin
-    if (padv_dcod_i)
-      dcod_rfa1_r <= gpr0_rdata_bus[fetch_rfa1_adr_i];
-    else if (wrb2dec_d1a1_fwd)
-      dcod_rfa1_r <= wrbk_result1_i;
-    else if (wrb2dec_d2a1_fwd)
-      dcod_rfa1_r <= wrbk_result2_i;
+    if (padv_dcod_i) begin
+      dcod_rfa1_r <= wrb2fth_d1a1_fwd ? wrbk_result1_i :
+                     (wrb2fth_d2a1_fwd ? wrbk_result2_i :
+                                          gpr0_rdata_bus[fetch_rfa1_adr_i]);
+    end
+    else begin
+      dcod_rfa1_r <= wrb2dec_d1a1_fwd ? wrbk_result1_i :
+                     (wrb2dec_d2a1_fwd ? wrbk_result2_i :
+                                          dcod_rfa1_r);
+    end
   end // at cpu clock
-  */
-  always @(*) dcod_rfa1_r = gpr0_rdata_bus[dcod_rfa1_adr];
   // Forwarding mux for RFA1-output  
-  always @(dcod_op_jal_i           or pc_decode_i    or
+  always @(dcod_op_jal_i    or pc_decode_i    or
            wrb2dec_d1a1_fwd or wrbk_result1_i or
            wrb2dec_d2a1_fwd or wrbk_result2_i or
            dcod_rfa1_r) begin
     // synthesis parallel_case
-    casez ({dcod_op_jal_i,
-            wrb2dec_d1a1_fwd, wrb2dec_d2a1_fwd})
+    casez ({dcod_op_jal_i, wrb2dec_d1a1_fwd, wrb2dec_d2a1_fwd})
       3'b1??:  dcod_rfa1_o = pc_decode_i;
       3'b01?:  dcod_rfa1_o = wrbk_result1_i;
       3'b001:  dcod_rfa1_o = wrbk_result2_i;
@@ -550,30 +554,35 @@ module mor1kx_rf_marocchino
   end
 
   // D1B1 and D2B1 forwarding conditions
+  //  # WriteBack-to-Fetch
+  wire wrb2fth_d1b1_fwd = wrbk_rfd1_we_i & (wrbk_rfd1_adr_i == fetch_rfb1_adr_i);
+  wire wrb2fth_d2b1_fwd = wrbk_rfd2_we_i & (wrbk_rfd2_adr_i == fetch_rfb1_adr_i);
+  //  # WriteBack-to-Decode
   wire wrb2dec_d1b1_fwd = wrbk_rfd1_we_i & (wrbk_rfd1_adr_i == dcod_rfb1_adr);
   wire wrb2dec_d2b1_fwd = wrbk_rfd2_we_i & (wrbk_rfd2_adr_i == dcod_rfb1_adr);
   // Registering RFB1-output
   reg [RF_DW-1:0] dcod_rfb1_r;
   // ---
-  /*
   always @(posedge cpu_clk) begin
-    if (padv_dcod_i)
-      dcod_rfb1_r <= gpr0_rdata_bus[fetch_rfb1_adr_i];
-    else if (wrb2dec_d1b1_fwd)
-      dcod_rfb1_r <= wrbk_result1_i;
-    else if (wrb2dec_d2b1_fwd)
-      dcod_rfb1_r <= wrbk_result2_i;
+    if (padv_dcod_i) begin
+      dcod_rfb1_r <= wrb2fth_d1b1_fwd ? wrbk_result1_i :
+                     (wrb2fth_d2b1_fwd ? wrbk_result2_i :
+                                          gpr0_rdata_bus[fetch_rfb1_adr_i]);
+    end
+    else begin
+      dcod_rfb1_r <= wrb2dec_d1b1_fwd ? wrbk_result1_i :
+                     (wrb2dec_d2b1_fwd ? wrbk_result2_i :
+                                          dcod_rfb1_r);
+    end
   end // at cpu clock
-  */
-  always @(*) dcod_rfb1_r = gpr0_rdata_bus[dcod_rfb1_adr];
   // Forwarding mux RFB1-output
-  always @(dcod_op_jal_i           or
-           dcod_immediate_sel_i    or dcod_immediate_i   or
-           wrb2dec_d1b1_fwd or wrbk_result1_i     or
-           wrb2dec_d2b1_fwd or wrbk_result2_i     or
+  always @(dcod_op_jal_i        or
+           dcod_immediate_sel_i or dcod_immediate_i or
+           wrb2dec_d1b1_fwd     or wrbk_result1_i   or
+           wrb2dec_d2b1_fwd     or wrbk_result2_i   or
            dcod_rfb1_r) begin
     // synthesis parallel_case
-    casez ({dcod_op_jal_i,           dcod_immediate_sel_i,
+    casez ({dcod_op_jal_i,    dcod_immediate_sel_i,
             wrb2dec_d1b1_fwd, wrb2dec_d2b1_fwd})
       4'b1???: dcod_rfb1_o = 4'd8; // (FEATURE_DELAY_SLOT == "ENABLED")
       4'b01??: dcod_rfb1_o = dcod_immediate_i;
@@ -584,22 +593,27 @@ module mor1kx_rf_marocchino
   end
 
   // D1A2 and D2A2 forwarding conditions
+  //  # WriteBack-to-Fetch
+  wire wrb2fth_d1a2_fwd = wrbk_rfd1_we_i & (wrbk_rfd1_adr_i == fetch_rfa2_adr_i);
+  wire wrb2fth_d2a2_fwd = wrbk_rfd2_we_i & (wrbk_rfd2_adr_i == fetch_rfa2_adr_i);
+  //  # WriteBack-to-Decode
   wire wrb2dec_d1a2_fwd = wrbk_rfd1_we_i & (wrbk_rfd1_adr_i == dcod_rfa2_adr);
   wire wrb2dec_d2a2_fwd = wrbk_rfd2_we_i & (wrbk_rfd2_adr_i == dcod_rfa2_adr);
   // Registering RFA2-output
   reg [RF_DW-1:0] dcod_rfa2_r;
   // ---
-  /*
   always @(posedge cpu_clk) begin
-    if (padv_dcod_i)
-      dcod_rfa2_r <= gpr0_rdata_bus[fetch_rfa2_adr_i];
-    else if (wrb2dec_d1a2_fwd)
-      dcod_rfa2_r <= wrbk_result1_i;
-    else if (wrb2dec_d2a2_fwd)
-      dcod_rfa2_r <= wrbk_result2_i;
+    if (padv_dcod_i) begin
+      dcod_rfa2_r <= wrb2fth_d1a2_fwd ? wrbk_result1_i :
+                     (wrb2fth_d2a2_fwd ? wrbk_result2_i :
+                                          gpr0_rdata_bus[fetch_rfa2_adr_i]);
+    end
+    else begin
+      dcod_rfa2_r <= wrb2dec_d1a2_fwd ? wrbk_result1_i :
+                     (wrb2dec_d2a2_fwd ? wrbk_result2_i :
+                                          dcod_rfa2_r);
+    end
   end // at cpu clock
-  */
-  always @(*) dcod_rfa2_r = gpr0_rdata_bus[dcod_rfa2_adr];
   // Muxing and forwarding RFA2-output
   always @(wrb2dec_d1a2_fwd or wrbk_result1_i or
            wrb2dec_d2a2_fwd or wrbk_result2_i or
@@ -613,22 +627,27 @@ module mor1kx_rf_marocchino
   end
 
   // D1B2 and D2B2 forwarding conditions
+  //  # WriteBack-to-Fetch
+  wire wrb2fth_d1b2_fwd = wrbk_rfd1_we_i & (wrbk_rfd1_adr_i == fetch_rfb2_adr_i);
+  wire wrb2fth_d2b2_fwd = wrbk_rfd2_we_i & (wrbk_rfd2_adr_i == fetch_rfb2_adr_i);
+  //  # WriteBack-to-Decode
   wire wrb2dec_d1b2_fwd = wrbk_rfd1_we_i & (wrbk_rfd1_adr_i == dcod_rfb2_adr);
   wire wrb2dec_d2b2_fwd = wrbk_rfd2_we_i & (wrbk_rfd2_adr_i == dcod_rfb2_adr);
   // Registering RFB2-output
   reg [RF_DW-1:0] dcod_rfb2_r;
   // ---
-  /*
   always @(posedge cpu_clk) begin
-    if (padv_dcod_i)
-      dcod_rfb2_r <= gpr0_rdata_bus[fetch_rfb2_adr_i];
-    else if (wrb2dec_d1b2_fwd)
-      dcod_rfb2_r <= wrbk_result1_i;
-    else if (wrb2dec_d2b2_fwd)
-      dcod_rfb2_r <= wrbk_result2_i;
+    if (padv_dcod_i) begin
+      dcod_rfb2_r <= wrb2fth_d1b2_fwd ? wrbk_result1_i :
+                     (wrb2dec_d2b2_fwd ? wrbk_result2_i :
+                                          gpr0_rdata_bus[fetch_rfb2_adr_i]);
+    end
+    else begin
+      dcod_rfb2_r <= wrb2dec_d1b2_fwd ? wrbk_result1_i :
+                     (wrb2dec_d2b2_fwd ? wrbk_result2_i :
+                                          dcod_rfb2_r);
+    end
   end // at cpu clock
-  */
-  always @(*) dcod_rfb2_r = gpr0_rdata_bus[dcod_rfb2_adr];
   // Muxing and forwarding RFB2-output
   always @(wrb2dec_d1b2_fwd or wrbk_result1_i or
            wrb2dec_d2b2_fwd or wrbk_result2_i or
