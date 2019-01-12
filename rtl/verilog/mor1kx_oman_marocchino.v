@@ -41,6 +41,7 @@ module rat_cell
 
   // pipeline control
   input                                 padv_exec_i,
+  input                                 padv_wrbk_i,
   input                                 pipeline_flush_i,
 
   // input allocation information
@@ -54,12 +55,11 @@ module rat_cell
   input         [DEST_EXTADR_WIDTH-1:0] dcod_extadr_i,
 
   // input to clear allocation bits
-  input         [DEST_EXTADR_WIDTH-1:0] wrbk_extadr_i,
+  input         [DEST_EXTADR_WIDTH-1:0] exec_extadr_i,
 
   // output allocation information
   output reg                            rat_rd1_alloc_o,      // allocated by D1
   output reg                            rat_rd2_alloc_o,      // allocated by D2
-  output reg                            rat_alloc_at_wrbk_o,  // keep allocation at current Write-Back (comb.)
   output reg    [DEST_EXTADR_WIDTH-1:0] rat_extadr_o          // allocation ID
 );
 
@@ -71,12 +71,10 @@ module rat_cell
   wire set_rdx_alloc = (set_rd1_alloc | set_rd2_alloc);
 
   // condition to keep allocation flags at write-back
-  always @(wrbk_extadr_i or rat_extadr_o) begin
-    rat_alloc_at_wrbk_o = (wrbk_extadr_i != rat_extadr_o);
-  end
+  wire rat_alloc_at_wrbk     = (rat_extadr_o != exec_extadr_i);
   // next values of allocation flags at write-back
-  wire rat_rd1_alloc_at_wrbk = rat_rd1_alloc_o & rat_alloc_at_wrbk_o;
-  wire rat_rd2_alloc_at_wrbk = rat_rd2_alloc_o & rat_alloc_at_wrbk_o;
+  wire rat_rd1_alloc_at_wrbk = rat_rd1_alloc_o & rat_alloc_at_wrbk;
+  wire rat_rd2_alloc_at_wrbk = rat_rd2_alloc_o & rat_alloc_at_wrbk;
 
   // allocation flags
   always @(posedge cpu_clk) begin
@@ -84,14 +82,28 @@ module rat_cell
       rat_rd1_alloc_o <= 1'b0;
       rat_rd2_alloc_o <= 1'b0;
     end
-    else if (padv_exec_i) begin
-      rat_rd1_alloc_o <= set_rdx_alloc ? set_rd1_alloc : rat_rd1_alloc_at_wrbk;
-      rat_rd2_alloc_o <= set_rdx_alloc ? set_rd2_alloc : rat_rd2_alloc_at_wrbk;
-    end
     else begin
-      rat_rd1_alloc_o <= rat_rd1_alloc_at_wrbk;
-      rat_rd2_alloc_o <= rat_rd2_alloc_at_wrbk;
-    end
+      case ({padv_wrbk_i, padv_exec_i})
+        // keep state
+        2'b00: begin
+        end
+        // advance EXECUTE only
+        2'b01: begin
+          rat_rd1_alloc_o <= set_rdx_alloc ? set_rd1_alloc : rat_rd1_alloc_o;
+          rat_rd2_alloc_o <= set_rdx_alloc ? set_rd2_alloc : rat_rd2_alloc_o;
+        end
+        // advance WriteBack only
+        2'b10: begin
+          rat_rd1_alloc_o <= rat_rd1_alloc_at_wrbk;
+          rat_rd2_alloc_o <= rat_rd2_alloc_at_wrbk;
+        end
+        // advance EXECUTE and WriteBack simultaneously
+        2'b11: begin
+          rat_rd1_alloc_o <= set_rdx_alloc ? set_rd1_alloc : rat_rd1_alloc_at_wrbk;
+          rat_rd2_alloc_o <= set_rdx_alloc ? set_rd2_alloc : rat_rd2_alloc_at_wrbk;
+        end
+      endcase
+    end // regular update
   end // at clock
 
   // extention bits
@@ -546,18 +558,19 @@ module mor1kx_oman_marocchino
   //  (b) only 1-clock instructions request FLAG/CARRY,
   //      however any case they granted with Write-Back accees after completion FLAG/CARRY update
 
+  // Extention bits visible at EXECUTE output
+  wire [(DEST_EXTADR_WIDTH-1):0] exec_extadr = ocbo[OCBTC_EXTADR_MSB:OCBTC_EXTADR_LSB];
+
   // RAT outputs
   wire          [(NUM_GPRS-1):0] rat_rd1_alloc; // allocated by D1
   wire          [(NUM_GPRS-1):0] rat_rd2_alloc; // allocated by D2
-  wire          [(NUM_GPRS-1):0] rat_alloc_at_wrbk; // keep allocation at current Write-Back (comb.)
   wire [(DEST_EXTADR_WIDTH-1):0] rat_extadr [(NUM_GPRS-1):0]; // allocation ID
 
   // Special ccase for GPR[0]
-  assign rat_rd1_alloc[0]     = 1'b0;
-  assign rat_rd2_alloc[0]     = 1'b0;
-  assign rat_alloc_at_wrbk[0] = 1'b0;
-  assign rat_extadr[0]        = {DEST_EXTADR_WIDTH{1'b0}};
-  
+  assign rat_rd1_alloc[0] = 1'b0;
+  assign rat_rd2_alloc[0] = 1'b0;
+  assign rat_extadr[0]    = {DEST_EXTADR_WIDTH{1'b0}};
+
   // instances for RAT cells
   generate
   genvar ic;
@@ -575,6 +588,7 @@ module mor1kx_oman_marocchino
       .cpu_clk                (cpu_clk), // RAT-CELL
       // pipeline control
       .padv_exec_i            (padv_exec_i), // RAT-CELL
+      .padv_wrbk_i            (padv_wrbk_i), // RAT-CELL
       .pipeline_flush_i       (pipeline_flush_i), // RAT-CELL
       // input allocation information
       //  # allocated as D1
@@ -586,11 +600,10 @@ module mor1kx_oman_marocchino
       //  # allocation id
       .dcod_extadr_i          (dcod_extadr_r), // RAT-CELL
       // input to clear allocation bits
-      .wrbk_extadr_i          (wrbk_extadr_o), // RAT-CELL
+      .exec_extadr_i          (exec_extadr), // RAT-CELL
       // output allocation information
       .rat_rd1_alloc_o        (rat_rd1_alloc[ic]), // RAT-CELL
       .rat_rd2_alloc_o        (rat_rd2_alloc[ic]), // RAT-CELL
-      .rat_alloc_at_wrbk_o    (rat_alloc_at_wrbk[ic]), // RAT-CELL
       .rat_extadr_o           (rat_extadr[ic]) // RAT-CELL
     );
   end
@@ -602,24 +615,20 @@ module mor1kx_oman_marocchino
   //----------------------------------//
 
   //  # relative operand A1
-  wire   alloc_dxa1_at_wrbk    = rat_alloc_at_wrbk[dcod_rfa1_adr];
-  assign omn2dec_hazard_d1a1_o = rat_rd1_alloc[dcod_rfa1_adr] & alloc_dxa1_at_wrbk & dcod_rfa1_req;
-  assign omn2dec_hazard_d2a1_o = rat_rd2_alloc[dcod_rfa1_adr] & alloc_dxa1_at_wrbk & dcod_rfa1_req;
+  assign omn2dec_hazard_d1a1_o = rat_rd1_alloc[dcod_rfa1_adr] & dcod_rfa1_req;
+  assign omn2dec_hazard_d2a1_o = rat_rd2_alloc[dcod_rfa1_adr] & dcod_rfa1_req;
   assign omn2dec_extadr_dxa1_o = rat_extadr[dcod_rfa1_adr];
   //  # relative operand B1
-  wire   alloc_dxb1_at_wrbk    = rat_alloc_at_wrbk[dcod_rfb1_adr];
-  assign omn2dec_hazard_d1b1_o = rat_rd1_alloc[dcod_rfb1_adr] & alloc_dxb1_at_wrbk & dcod_rfb1_req;
-  assign omn2dec_hazard_d2b1_o = rat_rd2_alloc[dcod_rfb1_adr] & alloc_dxb1_at_wrbk & dcod_rfb1_req;
+  assign omn2dec_hazard_d1b1_o = rat_rd1_alloc[dcod_rfb1_adr] & dcod_rfb1_req;
+  assign omn2dec_hazard_d2b1_o = rat_rd2_alloc[dcod_rfb1_adr] & dcod_rfb1_req;
   assign omn2dec_extadr_dxb1_o = rat_extadr[dcod_rfb1_adr];
   //  # relative operand A2
-  wire   alloc_dxa2_at_wrbk    = rat_alloc_at_wrbk[dcod_rfa2_adr];
-  assign omn2dec_hazard_d1a2_o = rat_rd1_alloc[dcod_rfa2_adr] & alloc_dxa2_at_wrbk & dcod_rfa2_req;
-  assign omn2dec_hazard_d2a2_o = rat_rd2_alloc[dcod_rfa2_adr] & alloc_dxa2_at_wrbk & dcod_rfa2_req;
+  assign omn2dec_hazard_d1a2_o = rat_rd1_alloc[dcod_rfa2_adr] & dcod_rfa2_req;
+  assign omn2dec_hazard_d2a2_o = rat_rd2_alloc[dcod_rfa2_adr] & dcod_rfa2_req;
   assign omn2dec_extadr_dxa2_o = rat_extadr[dcod_rfa2_adr];
   //  # relative operand B2
-  wire   alloc_dxb2_at_wrbk    = rat_alloc_at_wrbk[dcod_rfb2_adr];
-  assign omn2dec_hazard_d1b2_o = rat_rd1_alloc[dcod_rfb2_adr] & alloc_dxb2_at_wrbk & dcod_rfb2_req;
-  assign omn2dec_hazard_d2b2_o = rat_rd2_alloc[dcod_rfb2_adr] & alloc_dxb2_at_wrbk & dcod_rfb2_req;
+  assign omn2dec_hazard_d1b2_o = rat_rd1_alloc[dcod_rfb2_adr] & dcod_rfb2_req;
+  assign omn2dec_hazard_d2b2_o = rat_rd2_alloc[dcod_rfb2_adr] & dcod_rfb2_req;
   assign omn2dec_extadr_dxb2_o = rat_extadr[dcod_rfb2_adr];
 
 
@@ -1172,7 +1181,7 @@ module mor1kx_oman_marocchino
       wrbk_rfd2_adr_o <= exec_rfd2_adr;
     end
   end // @clock
-  
+
 
 
   // Write-Back delay slot
@@ -1188,7 +1197,7 @@ module mor1kx_oman_marocchino
   // to reolve hazards in rezervation stations
   always @(posedge cpu_clk) begin
     if (padv_wrbk_i)
-      wrbk_extadr_o <= ocbo[OCBTC_EXTADR_MSB:OCBTC_EXTADR_LSB];
+      wrbk_extadr_o <= exec_extadr;
     else
       wrbk_extadr_o <= {DEST_EXTADR_WIDTH{1'b0}};
   end // @clock
