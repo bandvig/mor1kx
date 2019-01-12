@@ -167,13 +167,6 @@ module mor1kx_cpu_marocchino
   wire [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfd2_adr;
 
 
-  // for RAT
-  wire                            ratin_rfa1_req;
-  wire                            ratin_rfb1_req;
-  wire                            ratin_rfa2_req;
-  wire                            ratin_rfb2_req;
-
-
   wire                            dcod_empty;
 
 
@@ -243,18 +236,26 @@ module mor1kx_cpu_marocchino
 
   // OMAN-to-DECODE hazards
   //  # relative operand A1
+  wire                            dcod_rfa1_req;
+  wire [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfa1_adr;
   wire                            omn2dec_hazard_d1a1;
   wire                            omn2dec_hazard_d2a1;
   wire    [DEST_EXTADR_WIDTH-1:0] omn2dec_extadr_dxa1;
   //  # relative operand B1
+  wire                            dcod_rfb1_req;
+  wire [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfb1_adr;
   wire                            omn2dec_hazard_d1b1;
   wire                            omn2dec_hazard_d2b1;
   wire    [DEST_EXTADR_WIDTH-1:0] omn2dec_extadr_dxb1;
   //  # relative operand A2
+  wire                            dcod_rfa2_req;
+  wire [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfa2_adr;
   wire                            omn2dec_hazard_d1a2;
   wire                            omn2dec_hazard_d2a2;
   wire    [DEST_EXTADR_WIDTH-1:0] omn2dec_extadr_dxa2;
   //  # relative operand B2
+  wire                            dcod_rfb2_req;
+  wire [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfb2_adr;
   wire                            omn2dec_hazard_d1b2;
   wire                            omn2dec_hazard_d2b2;
   wire    [DEST_EXTADR_WIDTH-1:0] omn2dec_extadr_dxb2;
@@ -715,6 +716,10 @@ module mor1kx_cpu_marocchino
     // from DECODE
     .dcod_immediate_i                 (dcod_immediate), // RF
     .dcod_immediate_sel_i             (dcod_immediate_sel), // RF
+    .dcod_rfa1_adr_i                  (dcod_rfa1_adr), // RF
+    .dcod_rfb1_adr_i                  (dcod_rfb1_adr), // RF
+    .dcod_rfa2_adr_i                  (dcod_rfa2_adr), // RF
+    .dcod_rfb2_adr_i                  (dcod_rfb2_adr), // RF
     // from Write-Back
     .wrbk_rfd1_we1h_i                 (wrbk_rfd1_we1h), // RF
     .wrbk_rfd1_we_i                   (wrbk_rfd1_we), // RF
@@ -766,17 +771,30 @@ module mor1kx_cpu_marocchino
     .fetch_delay_slot_i               (fetch_delay_slot), // DECODE
     //  # instruction word itsef
     .fetch_insn_i                     (fetch_insn), // DECODE
+    //  # operands addresses
+    .fetch_rfa1_adr_i                 (fetch_rfa1_adr), // DECODE
+    .fetch_rfb1_adr_i                 (fetch_rfb1_adr), // DECODE
+    .fetch_rfa2_adr_i                 (fetch_rfa2_adr), // DECODE
+    .fetch_rfb2_adr_i                 (fetch_rfb2_adr), // DECODE
     //  # destiny addresses
     .fetch_rfd1_adr_i                 (fetch_rfd1_adr), // DECODE
     .fetch_rfd2_adr_i                 (fetch_rfd2_adr), // DECODE
-    // for RAT
-    .ratin_rfa1_req_o                 (ratin_rfa1_req), // DECODE
-    .ratin_rfb1_req_o                 (ratin_rfb1_req), // DECODE
-    .ratin_rfa2_req_o                 (ratin_rfa2_req), // DECODE
-    .ratin_rfb2_req_o                 (ratin_rfb2_req), // DECODE
     // latched instruction word and it's attributes
     .dcod_empty_o                     (dcod_empty), // DECODE
     .dcod_delay_slot_o                (dcod_delay_slot), // DECODE
+    // OMAN-to-DECODE hazards
+    //  # relative operand A1
+    .dcod_rfa1_req_o                  (dcod_rfa1_req), // DECODE
+    .dcod_rfa1_adr_o                  (dcod_rfa1_adr), // DECODE
+    //  # relative operand B1
+    .dcod_rfb1_req_o                  (dcod_rfb1_req), // DECODE
+    .dcod_rfb1_adr_o                  (dcod_rfb1_adr), // DECODE
+    //  # relative operand A2
+    .dcod_rfa2_req_o                  (dcod_rfa2_req), // DECODE
+    .dcod_rfa2_adr_o                  (dcod_rfa2_adr), // DECODE
+    //  # relative operand B2
+    .dcod_rfb2_req_o                  (dcod_rfb2_req), // DECODE
+    .dcod_rfb2_adr_o                  (dcod_rfb2_adr), // DECODE
     // destiny D1
     .dcod_rfd1_adr_o                  (dcod_rfd1_adr), // DECODE
     .dcod_rfd1_we_o                   (dcod_rfd1_we), // DECODE
@@ -900,19 +918,8 @@ module mor1kx_cpu_marocchino
     .fetch_valid_i              (fetch_valid), // OMAN
     .fetch_delay_slot_i         (fetch_delay_slot), // OMAN
 
-    // for RAT
-    // operand A1
-    .ratin_rfa1_req_i           (ratin_rfa1_req), // OMAN
-    .fetch_rfa1_adr_i           (fetch_rfa1_adr), // OMAN
-    // operand B1
-    .ratin_rfb1_req_i           (ratin_rfb1_req), // OMAN
+    // for l.jr/l.jalr processing
     .fetch_rfb1_adr_i           (fetch_rfb1_adr), // OMAN
-    // operand A2 (for FPU64)
-    .ratin_rfa2_req_i           (ratin_rfa2_req), // OMAN
-    .fetch_rfa2_adr_i           (fetch_rfa2_adr), // OMAN
-    // operand B2 (for FPU64)
-    .ratin_rfb2_req_i           (ratin_rfb2_req), // OMAN
-    .fetch_rfb2_adr_i           (fetch_rfb2_adr), // OMAN
 
     // DECODE non-latched flags to indicate next required unit
     // (The information is stored in order control buffer)
@@ -963,18 +970,26 @@ module mor1kx_cpu_marocchino
 
     // OMAN-to-DECODE hazards
     //  # relative operand A1
+    .dcod_rfa1_req_i            (dcod_rfa1_req), // OMAN
+    .dcod_rfa1_adr_i            (dcod_rfa1_adr), // OMAN
     .omn2dec_hazard_d1a1_o      (omn2dec_hazard_d1a1), // OMAN
     .omn2dec_hazard_d2a1_o      (omn2dec_hazard_d2a1), // OMAN
     .omn2dec_extadr_dxa1_o      (omn2dec_extadr_dxa1), // OMAN
     //  # relative operand B1
+    .dcod_rfb1_req_i            (dcod_rfb1_req), // OMAN
+    .dcod_rfb1_adr_i            (dcod_rfb1_adr), // OMAN
     .omn2dec_hazard_d1b1_o      (omn2dec_hazard_d1b1), // OMAN
     .omn2dec_hazard_d2b1_o      (omn2dec_hazard_d2b1), // OMAN
     .omn2dec_extadr_dxb1_o      (omn2dec_extadr_dxb1), // OMAN
     //  # relative operand A2
+    .dcod_rfa2_req_i            (dcod_rfa2_req), // OMAN
+    .dcod_rfa2_adr_i            (dcod_rfa2_adr), // OMAN
     .omn2dec_hazard_d1a2_o      (omn2dec_hazard_d1a2), // OMAN
     .omn2dec_hazard_d2a2_o      (omn2dec_hazard_d2a2), // OMAN
     .omn2dec_extadr_dxa2_o      (omn2dec_extadr_dxa2), // OMAN
     //  # relative operand B2
+    .dcod_rfb2_req_i            (dcod_rfb2_req), // OMAN
+    .dcod_rfb2_adr_i            (dcod_rfb2_adr), // OMAN
     .omn2dec_hazard_d1b2_o      (omn2dec_hazard_d1b2), // OMAN
     .omn2dec_hazard_d2b2_o      (omn2dec_hazard_d2b2), // OMAN
     .omn2dec_extadr_dxb2_o      (omn2dec_extadr_dxb2), // OMAN

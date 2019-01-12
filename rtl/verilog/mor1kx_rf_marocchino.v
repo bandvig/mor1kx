@@ -109,6 +109,10 @@ module mor1kx_rf_marocchino
   // from DECODE
   input      [OPTION_OPERAND_WIDTH-1:0] dcod_immediate_i,
   input                                 dcod_immediate_sel_i,
+  input      [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfa1_adr_i,
+  input      [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfb1_adr_i,
+  input      [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfa2_adr_i,
+  input      [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfb2_adr_i,
 
   // from Write-Back
   input                  [NUM_GPRS-1:0] wrbk_rfd1_we1h_i,
@@ -501,29 +505,13 @@ module mor1kx_rf_marocchino
   // DECODE stage (dcod_*) //
   //-----------------------//
 
-  // requested operands addresses in DECODE
-  // MAROCCHINO_TODO: redundant copies of OMANs
-  reg  [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfa1_adr;
-  reg  [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfb1_adr;
-  reg  [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfa2_adr;
-  reg  [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfb2_adr;
-  // ---
-  always @(posedge cpu_clk) begin
-    if (padv_dcod_i) begin
-      dcod_rfa1_adr <= fetch_rfa1_adr_i;
-      dcod_rfb1_adr <= fetch_rfb1_adr_i;
-      dcod_rfa2_adr <= fetch_rfa2_adr_i;
-      dcod_rfb2_adr <= fetch_rfb2_adr_i;
-    end
-  end // at cpu clock
-
   // D1A1 and D2A1 forwarding conditions
   //  # WriteBack-to-Fetch
   wire wrb2fth_d1a1_fwd = wrbk_rfd1_we_i & (wrbk_rfd1_adr_i == fetch_rfa1_adr_i);
   wire wrb2fth_d2a1_fwd = wrbk_rfd2_we_i & (wrbk_rfd2_adr_i == fetch_rfa1_adr_i);
   //  # WriteBack-to-Decode
-  wire wrb2dec_d1a1_fwd = wrbk_rfd1_we_i & (wrbk_rfd1_adr_i == dcod_rfa1_adr);
-  wire wrb2dec_d2a1_fwd = wrbk_rfd2_we_i & (wrbk_rfd2_adr_i == dcod_rfa1_adr);
+  wire wrb2dec_d1a1_fwd = wrbk_rfd1_we_i & (wrbk_rfd1_adr_i == dcod_rfa1_adr_i);
+  wire wrb2dec_d2a1_fwd = wrbk_rfd2_we_i & (wrbk_rfd2_adr_i == dcod_rfa1_adr_i);
   // Registering RFA1-output
   reg [RF_DW-1:0] dcod_rfa1_r;
   // ---
@@ -558,8 +546,8 @@ module mor1kx_rf_marocchino
   wire wrb2fth_d1b1_fwd = wrbk_rfd1_we_i & (wrbk_rfd1_adr_i == fetch_rfb1_adr_i);
   wire wrb2fth_d2b1_fwd = wrbk_rfd2_we_i & (wrbk_rfd2_adr_i == fetch_rfb1_adr_i);
   //  # WriteBack-to-Decode
-  wire wrb2dec_d1b1_fwd = wrbk_rfd1_we_i & (wrbk_rfd1_adr_i == dcod_rfb1_adr);
-  wire wrb2dec_d2b1_fwd = wrbk_rfd2_we_i & (wrbk_rfd2_adr_i == dcod_rfb1_adr);
+  wire wrb2dec_d1b1_fwd = wrbk_rfd1_we_i & (wrbk_rfd1_adr_i == dcod_rfb1_adr_i);
+  wire wrb2dec_d2b1_fwd = wrbk_rfd2_we_i & (wrbk_rfd2_adr_i == dcod_rfb1_adr_i);
   // Registering RFB1-output
   reg [RF_DW-1:0] dcod_rfb1_r;
   // ---
@@ -597,8 +585,8 @@ module mor1kx_rf_marocchino
   wire wrb2fth_d1a2_fwd = wrbk_rfd1_we_i & (wrbk_rfd1_adr_i == fetch_rfa2_adr_i);
   wire wrb2fth_d2a2_fwd = wrbk_rfd2_we_i & (wrbk_rfd2_adr_i == fetch_rfa2_adr_i);
   //  # WriteBack-to-Decode
-  wire wrb2dec_d1a2_fwd = wrbk_rfd1_we_i & (wrbk_rfd1_adr_i == dcod_rfa2_adr);
-  wire wrb2dec_d2a2_fwd = wrbk_rfd2_we_i & (wrbk_rfd2_adr_i == dcod_rfa2_adr);
+  wire wrb2dec_d1a2_fwd = wrbk_rfd1_we_i & (wrbk_rfd1_adr_i == dcod_rfa2_adr_i);
+  wire wrb2dec_d2a2_fwd = wrbk_rfd2_we_i & (wrbk_rfd2_adr_i == dcod_rfa2_adr_i);
   // Registering RFA2-output
   reg [RF_DW-1:0] dcod_rfa2_r;
   // ---
@@ -631,8 +619,8 @@ module mor1kx_rf_marocchino
   wire wrb2fth_d1b2_fwd = wrbk_rfd1_we_i & (wrbk_rfd1_adr_i == fetch_rfb2_adr_i);
   wire wrb2fth_d2b2_fwd = wrbk_rfd2_we_i & (wrbk_rfd2_adr_i == fetch_rfb2_adr_i);
   //  # WriteBack-to-Decode
-  wire wrb2dec_d1b2_fwd = wrbk_rfd1_we_i & (wrbk_rfd1_adr_i == dcod_rfb2_adr);
-  wire wrb2dec_d2b2_fwd = wrbk_rfd2_we_i & (wrbk_rfd2_adr_i == dcod_rfb2_adr);
+  wire wrb2dec_d1b2_fwd = wrbk_rfd1_we_i & (wrbk_rfd1_adr_i == dcod_rfb2_adr_i);
+  wire wrb2dec_d2b2_fwd = wrbk_rfd2_we_i & (wrbk_rfd2_adr_i == dcod_rfb2_adr_i);
   // Registering RFB2-output
   reg [RF_DW-1:0] dcod_rfb2_r;
   // ---

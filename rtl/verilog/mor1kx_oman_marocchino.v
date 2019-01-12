@@ -144,19 +144,8 @@ module mor1kx_oman_marocchino
   input                                 fetch_valid_i,
   input                                 fetch_delay_slot_i,
 
-  // for RAT
-  // operand A1
-  input                                 ratin_rfa1_req_i,
-  input      [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfa1_adr_i,
-  // operand B1
-  input                                 ratin_rfb1_req_i,
+  // for l.jr/l.jalr processing
   input      [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfb1_adr_i,
-  // operand A2 (for FPU64)
-  input                                 ratin_rfa2_req_i,
-  input      [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfa2_adr_i,
-  // operand B2 (for FPU64)
-  input                                 ratin_rfb2_req_i,
-  input      [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfb2_adr_i,
 
   // DECODE flags to indicate next required unit
   // (The information is stored in order control buffer)
@@ -207,18 +196,26 @@ module mor1kx_oman_marocchino
 
   // OMAN-to-DECODE hazards
   //  # relative operand A1
+  input                                 dcod_rfa1_req_i,
+  input      [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfa1_adr_i,
   output                                omn2dec_hazard_d1a1_o,
   output                                omn2dec_hazard_d2a1_o,
   output        [DEST_EXTADR_WIDTH-1:0] omn2dec_extadr_dxa1_o,
   //  # relative operand B1
+  input                                 dcod_rfb1_req_i,
+  input      [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfb1_adr_i,
   output                                omn2dec_hazard_d1b1_o,
   output                                omn2dec_hazard_d2b1_o,
   output        [DEST_EXTADR_WIDTH-1:0] omn2dec_extadr_dxb1_o,
   //  # relative operand A2
+  input                                 dcod_rfa2_req_i,
+  input      [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfa2_adr_i,
   output                                omn2dec_hazard_d1a2_o,
   output                                omn2dec_hazard_d2a2_o,
   output        [DEST_EXTADR_WIDTH-1:0] omn2dec_extadr_dxa2_o,
   //  # relative operand B2
+  input                                 dcod_rfb2_req_i,
+  input      [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfb2_adr_i,
   output                                omn2dec_hazard_d1b2_o,
   output                                omn2dec_hazard_d2b2_o,
   output        [DEST_EXTADR_WIDTH-1:0] omn2dec_extadr_dxb2_o,
@@ -516,43 +513,6 @@ module mor1kx_oman_marocchino
   // Analysis of data hazards //
   //--------------------------//
 
-  // requested operands flags in DECODE
-  reg  dcod_rfa1_req;
-  reg  dcod_rfb1_req;
-  reg  dcod_rfa2_req;
-  reg  dcod_rfb2_req;
-  // ---
-  always @(posedge cpu_clk) begin
-    if (padv_dcod_i) begin
-      dcod_rfa1_req <= ratin_rfa1_req_i;
-      dcod_rfb1_req <= ratin_rfb1_req_i;
-      dcod_rfa2_req <= ratin_rfa2_req_i;
-      dcod_rfb2_req <= ratin_rfb2_req_i;
-    end
-    else if (padv_exec_i) begin
-      dcod_rfa1_req <= 1'b0;
-      dcod_rfb1_req <= 1'b0;
-      dcod_rfa2_req <= 1'b0;
-      dcod_rfb2_req <= 1'b0;
-    end
-  end // at cpu clock
-
-  // requested operands addresses in DECODE
-  reg  [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfa1_adr;
-  reg  [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfb1_adr;
-  reg  [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfa2_adr;
-  reg  [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfb2_adr;
-  // ---
-  always @(posedge cpu_clk) begin
-    if (padv_dcod_i) begin
-      dcod_rfa1_adr <= fetch_rfa1_adr_i;
-      dcod_rfb1_adr <= fetch_rfb1_adr_i;
-      dcod_rfa2_adr <= fetch_rfa2_adr_i;
-      dcod_rfb2_adr <= fetch_rfb2_adr_i;
-    end
-  end // at cpu clock
-
-
   // We needn't Write-Back-to-DECODE hazards for FLAG and CARRY:
   //  (a) we process FLAG for l.bf/.bnf in separate way
   //  (b) only 1-clock instructions request FLAG/CARRY,
@@ -566,7 +526,7 @@ module mor1kx_oman_marocchino
   wire          [(NUM_GPRS-1):0] rat_rd2_alloc; // allocated by D2
   wire [(DEST_EXTADR_WIDTH-1):0] rat_extadr [(NUM_GPRS-1):0]; // allocation ID
 
-  // Special ccase for GPR[0]
+  // Special case for GPR[0]
   assign rat_rd1_alloc[0] = 1'b0;
   assign rat_rd2_alloc[0] = 1'b0;
   assign rat_extadr[0]    = {DEST_EXTADR_WIDTH{1'b0}};
@@ -615,21 +575,21 @@ module mor1kx_oman_marocchino
   //----------------------------------//
 
   //  # relative operand A1
-  assign omn2dec_hazard_d1a1_o = rat_rd1_alloc[dcod_rfa1_adr] & dcod_rfa1_req;
-  assign omn2dec_hazard_d2a1_o = rat_rd2_alloc[dcod_rfa1_adr] & dcod_rfa1_req;
-  assign omn2dec_extadr_dxa1_o = rat_extadr[dcod_rfa1_adr];
+  assign omn2dec_hazard_d1a1_o = rat_rd1_alloc[dcod_rfa1_adr_i] & dcod_rfa1_req_i;
+  assign omn2dec_hazard_d2a1_o = rat_rd2_alloc[dcod_rfa1_adr_i] & dcod_rfa1_req_i;
+  assign omn2dec_extadr_dxa1_o = rat_extadr[dcod_rfa1_adr_i];
   //  # relative operand B1
-  assign omn2dec_hazard_d1b1_o = rat_rd1_alloc[dcod_rfb1_adr] & dcod_rfb1_req;
-  assign omn2dec_hazard_d2b1_o = rat_rd2_alloc[dcod_rfb1_adr] & dcod_rfb1_req;
-  assign omn2dec_extadr_dxb1_o = rat_extadr[dcod_rfb1_adr];
+  assign omn2dec_hazard_d1b1_o = rat_rd1_alloc[dcod_rfb1_adr_i] & dcod_rfb1_req_i;
+  assign omn2dec_hazard_d2b1_o = rat_rd2_alloc[dcod_rfb1_adr_i] & dcod_rfb1_req_i;
+  assign omn2dec_extadr_dxb1_o = rat_extadr[dcod_rfb1_adr_i];
   //  # relative operand A2
-  assign omn2dec_hazard_d1a2_o = rat_rd1_alloc[dcod_rfa2_adr] & dcod_rfa2_req;
-  assign omn2dec_hazard_d2a2_o = rat_rd2_alloc[dcod_rfa2_adr] & dcod_rfa2_req;
-  assign omn2dec_extadr_dxa2_o = rat_extadr[dcod_rfa2_adr];
+  assign omn2dec_hazard_d1a2_o = rat_rd1_alloc[dcod_rfa2_adr_i] & dcod_rfa2_req_i;
+  assign omn2dec_hazard_d2a2_o = rat_rd2_alloc[dcod_rfa2_adr_i] & dcod_rfa2_req_i;
+  assign omn2dec_extadr_dxa2_o = rat_extadr[dcod_rfa2_adr_i];
   //  # relative operand B2
-  assign omn2dec_hazard_d1b2_o = rat_rd1_alloc[dcod_rfb2_adr] & dcod_rfb2_req;
-  assign omn2dec_hazard_d2b2_o = rat_rd2_alloc[dcod_rfb2_adr] & dcod_rfb2_req;
-  assign omn2dec_extadr_dxb2_o = rat_extadr[dcod_rfb2_adr];
+  assign omn2dec_hazard_d1b2_o = rat_rd1_alloc[dcod_rfb2_adr_i] & dcod_rfb2_req_i;
+  assign omn2dec_hazard_d2b2_o = rat_rd2_alloc[dcod_rfb2_adr_i] & dcod_rfb2_req_i;
+  assign omn2dec_extadr_dxb2_o = rat_extadr[dcod_rfb2_adr_i];
 
 
   //   An execute module is ready and granted access to Write-Back
@@ -665,11 +625,13 @@ module mor1kx_oman_marocchino
 
   // --- various pendings till rB/flag computationcompletion ---
   wire                            jr_dcd2fth_hazard_d1b1_raw; // used only inside J/B FSM
+  wire    [DEST_EXTADR_WIDTH-1:0] jr_hazard_ext_raw;
   reg     [DEST_EXTADR_WIDTH-1:0] jb_hazard_ext_p;
   reg  [OPTION_OPERAND_WIDTH-1:0] jr_target_p;
   reg                             jr_gathering_target_p;
   // ---
   assign jr_dcd2fth_hazard_d1b1_raw = (dcod_rfd1_adr_i == fetch_rfb1_adr_i) & dcod_rfd1_we_i;
+  assign jr_hazard_ext_raw = rat_extadr[fetch_rfb1_adr_i];
 
   localparam [3:0] JR_FSM_CATCHING_JR = 4'b0001, // on IFETCH output
                    JR_FSM_GET_B1      = 4'b0010, // get rB for l.jr/ljalr if no hazard
@@ -698,7 +660,7 @@ module mor1kx_oman_marocchino
               jr_gathering_target_p <= 1'b1;
               if (jr_dcd2fth_hazard_d1b1_raw |
                   (rat_rd1_alloc[fetch_rfb1_adr_i] &
-                   (wrbk_extadr_o != rat_extadr[fetch_rfb1_adr_i])))
+                   (wrbk_extadr_o != jr_hazard_ext_raw)))
                 jr_fsm_state_r <= JR_FSM_WAITING_B1;
               else
                 jr_fsm_state_r <= JR_FSM_GET_B1;
@@ -882,7 +844,7 @@ module mor1kx_oman_marocchino
   always @(posedge cpu_clk) begin
     if (padv_dcod_i) begin
       if (jr_fsm_catching_jr & fetch_op_jr_i)
-        jb_hazard_ext_p <= jr_dcd2fth_hazard_d1b1_raw ? dcod_extadr_r : rat_extadr[fetch_rfb1_adr_i];
+        jb_hazard_ext_p <= jr_dcd2fth_hazard_d1b1_raw ? dcod_extadr_r : jr_hazard_ext_raw;
       else if (bc_fsm_catching_bc & fetch_op_bc)
         jb_hazard_ext_p <= flag_alloc_ext_m;
     end

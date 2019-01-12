@@ -58,19 +58,32 @@ module mor1kx_decode_marocchino
   input                                 fetch_delay_slot_i,
   //  # instruction word itsef
   input          [`OR1K_INSN_WIDTH-1:0] fetch_insn_i,
+  //  # operands addresses
+  input      [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfa1_adr_i,
+  input      [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfb1_adr_i,
+  input      [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfa2_adr_i,
+  input      [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfb2_adr_i,
   //  # destiny addresses
   input      [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfd1_adr_i,
   input      [OPTION_RF_ADDR_WIDTH-1:0] fetch_rfd2_adr_i,
 
-  // for RAT
-  output                                ratin_rfa1_req_o,
-  output                                ratin_rfb1_req_o,
-  output                                ratin_rfa2_req_o,
-  output                                ratin_rfb2_req_o,
-
   // latched instruction word and it's attributes
   output reg                            dcod_empty_o,
   output reg                            dcod_delay_slot_o,
+
+  // OMAN-to-DECODE hazards
+  //  # relative operand A1
+  output reg                            dcod_rfa1_req_o,
+  output reg [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfa1_adr_o,
+  //  # relative operand B1
+  output reg                            dcod_rfb1_req_o,
+  output reg [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfb1_adr_o,
+  //  # relative operand A2
+  output reg                            dcod_rfa2_req_o,
+  output reg [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfa2_adr_o,
+  //  # relative operand B2
+  output reg                            dcod_rfb2_req_o,
+  output reg [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfb2_adr_o,
 
   // destiny D1
   output reg [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfd1_adr_o, // address of Write-Back
@@ -750,16 +763,6 @@ module mor1kx_decode_marocchino
   localparam [(OPTION_RF_ADDR_WIDTH-1):0]  RST_RFD2_ADR =  1;
 
 
-  //---------//
-  // for RAT //
-  //---------//
-
-  assign ratin_rfa1_req_o = attr_rfa1_req;
-  assign ratin_rfb1_req_o = attr_rfb1_req;
-  assign ratin_rfa2_req_o = attr_rfa2_req;
-  assign ratin_rfb2_req_o = attr_rfb2_req;
-
-
   //--------------------------//
   // IFETCH -> DECODE latches //
   //--------------------------//
@@ -900,5 +903,31 @@ module mor1kx_decode_marocchino
       pc_decode_o               <= pc_fetch_i;
     end
   end // @cpu-clk
+
+  // requested operands flags in DECODE
+  always @(posedge cpu_clk) begin
+    if (padv_dcod_i) begin
+      dcod_rfa1_req_o <= attr_rfa1_req;
+      dcod_rfb1_req_o <= attr_rfb1_req;
+      dcod_rfa2_req_o <= attr_rfa2_req;
+      dcod_rfb2_req_o <= attr_rfb2_req;
+    end
+    else if (padv_exec_i) begin
+      dcod_rfa1_req_o <= 1'b0;
+      dcod_rfb1_req_o <= 1'b0;
+      dcod_rfa2_req_o <= 1'b0;
+      dcod_rfb2_req_o <= 1'b0;
+    end
+  end // at cpu clock
+
+  // requested operands addresses in DECODE
+  always @(posedge cpu_clk) begin
+    if (padv_dcod_i) begin
+      dcod_rfa1_adr_o <= fetch_rfa1_adr_i;
+      dcod_rfb1_adr_o <= fetch_rfb1_adr_i;
+      dcod_rfa2_adr_o <= fetch_rfa2_adr_i;
+      dcod_rfb2_adr_o <= fetch_rfb2_adr_i;
+    end
+  end // at cpu clock
 
 endmodule // mor1kx_decode_marocchino
