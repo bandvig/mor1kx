@@ -596,7 +596,7 @@ module mor1kx_oreg_buff_marocchino
   wire [DATA_WIDTH-1:0] ram_dout;
 
   // instance RAM as FIFO
-  mor1kx_dpram_en_w1st_sclk
+  mor1kx_dpram_en_w1st
   #(
     .ADDR_WIDTH     (RAM_AW),
     .DATA_WIDTH     (DATA_WIDTH),
@@ -604,15 +604,15 @@ module mor1kx_oreg_buff_marocchino
   )
   u_oreg_buff_ram
   (
-    // common clock
-    .clk    (cpu_clk),
     // port "a": Read/Write
+    .clk_a  (cpu_clk),
     .en_a   (rwp_en_m),
     .we_a   (rwp_we_m),
     .addr_a (rah_addr_r),
     .din_a  (data_i),
     .dout_a (ram_dout),
     // port "b": Write
+    .clk_b  (cpu_clk),
     .en_b   (wop_en_m),
     .we_b   (1'b1),
     .addr_b (wop_addr_r),
@@ -846,7 +846,7 @@ module mor1kx_ff_oreg_buff_marocchino
   wire [DATA_WIDTH-1:0] ram_dout;
 
   // instance RAM as FIFO
-  mor1kx_dpram_en_w1st_sclk
+  mor1kx_dpram_en_w1st
   #(
     .ADDR_WIDTH     (RAM_AW),
     .DATA_WIDTH     (DATA_WIDTH),
@@ -854,15 +854,15 @@ module mor1kx_ff_oreg_buff_marocchino
   )
   u_ff_oreg_buff_ram
   (
-    // common clock
-    .clk    (cpu_clk),
     // port "a": Read/Write
+    .clk_a  (cpu_clk),
     .en_a   (rwp_en_m),
     .we_a   (rwp_we_m),
     .addr_a (rah_addr_r),
     .din_a  (data_i),
     .dout_a (ram_dout),
     // port "b": Write
+    .clk_b  (cpu_clk),
     .en_b   (wop_en_m),
     .we_b   (1'b1),
     .addr_b (wop_addr_r),
@@ -1236,7 +1236,7 @@ module mor1kx_ocbuff_miss_marocchino
 
 
   // instance RAM as FIFO
-  mor1kx_dpram_en_w1st_sclk
+  mor1kx_dpram_en_w1st
   #(
     .ADDR_WIDTH     (RAM_AW),
     .DATA_WIDTH     (DATA_WIDTH),
@@ -1244,15 +1244,15 @@ module mor1kx_ocbuff_miss_marocchino
   )
   u_ocb_ram
   (
-    // common clock
-    .clk    (cpu_clk),
     // port "a": Read/Write
+    .clk_a  (cpu_clk),
     .en_a   (rwp_en),
     .we_a   (rwp_we),
     .addr_a (rwp_addr),
     .din_a  (ocbi_i),
     .dout_a (ram_dout),
     // port "b": Write
+    .clk_b  (cpu_clk),
     .en_b   (wp_en),
     .we_b   (1'b1),
     .addr_b (wp_addr),

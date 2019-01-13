@@ -533,7 +533,7 @@ module mor1kx_immu_marocchino
   generate
   for (i = 0; i < OPTION_IMMU_WAYS; i=i+1) begin : itlb
     // ITLB match registers
-    mor1kx_dpram_en_w1st_sclk
+    mor1kx_dpram_en_w1st
     #(
       .ADDR_WIDTH     (OPTION_IMMU_SET_WIDTH),
       .DATA_WIDTH     (OPTION_OPERAND_WIDTH),
@@ -541,15 +541,15 @@ module mor1kx_immu_marocchino
     )
     itlb_match_regs
     (
-      // common clock
-      .clk    (cpu_clk),
       // port "a": 8KB pages
+      .clk_a  (cpu_clk),
       .en_a   (ram_re | itlb_match_we[i]),
       .we_a   (itlb_match_we[i]),
       .addr_a (itlb_match_addr),
       .din_a  (itlb_match_din),
       .dout_a (itlb_match_dout[i]),
       // port "b": Huge pages
+      .clk_b  (cpu_clk),
       .en_b   (ram_re | itlb_match_huge_we),
       .we_b   (itlb_match_huge_we),
       .addr_b (itlb_match_huge_addr),
@@ -558,7 +558,7 @@ module mor1kx_immu_marocchino
     );
 
     // ITLB translate registers
-    mor1kx_dpram_en_w1st_sclk
+    mor1kx_dpram_en_w1st
     #(
       .ADDR_WIDTH     (OPTION_IMMU_SET_WIDTH),
       .DATA_WIDTH     (OPTION_OPERAND_WIDTH),
@@ -566,15 +566,15 @@ module mor1kx_immu_marocchino
     )
     itlb_trans_regs
     (
-      // common clock
-      .clk    (cpu_clk),
       // port "a": 8KB pages
+      .clk_a  (cpu_clk),
       .en_a   (ram_re | itlb_trans_we[i]),
       .we_a   (itlb_trans_we[i]),
       .addr_a (itlb_trans_addr),
       .din_a  (itlb_trans_din),
       .dout_a (itlb_trans_dout[i]),
       // port "b": Huge pages
+      .clk_b  (cpu_clk),
       .en_b   (ram_re | itlb_trans_huge_we),
       .we_b   (itlb_trans_huge_we),
       .addr_b (itlb_trans_huge_addr),

@@ -720,7 +720,7 @@ module mor1kx_fetch_marocchino
   wire [1:0] s2t_bc_cnt_value;
 
   // Saturation counters RAM
-  mor1kx_dpram_en_w1st_sclk
+  mor1kx_dpram_en_w1st
   #(
     .ADDR_WIDTH     (GSHARE_BITS_NUM),
     .DATA_WIDTH     (2),
@@ -728,15 +728,15 @@ module mor1kx_fetch_marocchino
   )
   u_bc_cnt_ram
   (
-    // common clock
-    .clk    (cpu_clk),
     // port "a"
+    .clk_a  (cpu_clk),
     .en_a   (bc_cnt_rwp_en),
     .we_a   (bc_cnt_rwp_we),
     .addr_a (bc_cnt_radr),
     .din_a  (bc_cnt_wdat_i),
     .dout_a (s2t_bc_cnt_value),
     // port "b"
+    .clk_b  (cpu_clk),
     .en_b   (bc_cnt_wp_en),
     .we_b   (1'b1),
     .addr_b (bc_cnt_wadr_i),

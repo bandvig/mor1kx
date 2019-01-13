@@ -377,7 +377,7 @@ module mor1kx_icache_marocchino
     assign way_wp_we[i] = ibus_ack_i & lru_way_refill_r[i] & way_wp_diff_addr;
 
     // WAY-RAM instances
-    mor1kx_dpram_en_w1st_sclk
+    mor1kx_dpram_en_w1st
     #(
       .ADDR_WIDTH     (WAY_WIDTH-2), // ICACHE_WAY_RAM
       .DATA_WIDTH     (OPTION_OPERAND_WIDTH), // ICACHE_WAY_RAM
@@ -385,15 +385,15 @@ module mor1kx_icache_marocchino
     )
     ic_way_ram
     (
-      // common clock
-      .clk            (cpu_clk), // ICACHE_WAY_RAM
       // port "a"
+      .clk_a          (cpu_clk), // ICACHE_WAY_RAM
       .en_a           (way_rwp_en[i]), // ICACHE_WAY_RAM
       .we_a           (way_rwp_we[i]), // ICACHE_WAY_RAM
       .addr_a         (way_rindex), // ICACHE_WAY_RAM
       .din_a          (ibus_dat_i), // ICACHE_WAY_RAM
       .dout_a         (way_dout[i]), // ICACHE_WAY_RAM
       // port "b"
+      .clk_b          (cpu_clk), // ICACHE_WAY_RAM
       .en_b           (way_wp_we[i]), // ICACHE_WAY_RAM
       .we_b           (1'b1), // ICACHE_WAY_RAM
       .addr_b         (way_windex), // ICACHE_WAY_RAM
@@ -579,7 +579,7 @@ module mor1kx_icache_marocchino
   // TAG-RAM instance //
   //------------------//
 
-  mor1kx_dpram_en_w1st_sclk
+  mor1kx_dpram_en_w1st
   #(
     .ADDR_WIDTH     (OPTION_ICACHE_SET_WIDTH), // ICACHE_TAG_RAM
     .DATA_WIDTH     (TAGMEM_WIDTH), // ICACHE_TAG_RAM
@@ -587,15 +587,15 @@ module mor1kx_icache_marocchino
   )
   ic_tag_ram
   (
-    // common clock
-    .clk    (cpu_clk), // ICACHE_TAG_RAM
     // port "a": Read / Write (for RW-conflict case)
+    .clk_a  (cpu_clk), // ICACHE_TAG_RAM
     .en_a   (tag_rwp_en), // ICACHE_TAG_RAM
     .we_a   (tag_rwp_we), // ICACHE_TAG_RAM
     .addr_a (tag_rindex), // ICACHE_TAG_RAM
     .din_a  (tag_din), // ICACHE_TAG_RAM
     .dout_a (tag_dout), // ICACHE_TAG_RAM
     // port "b": Write if no RW-conflict
+    .clk_b  (cpu_clk), // ICACHE_TAG_RAM
     .en_b   (tag_wp_en), // ICACHE_TAG_RAM
     .we_b   (1'b1), // ICACHE_TAG_RAM
     .addr_b (tag_windex), // ICACHE_TAG_RAM

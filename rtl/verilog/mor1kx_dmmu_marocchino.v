@@ -538,7 +538,7 @@ module mor1kx_dmmu_marocchino
   generate
   for (i = 0; i < OPTION_DMMU_WAYS; i=i+1) begin : dtlb
      // DTLB match registers
-    mor1kx_dpram_en_w1st_sclk
+    mor1kx_dpram_en_w1st
     #(
       .ADDR_WIDTH     (OPTION_DMMU_SET_WIDTH),
       .DATA_WIDTH     (OPTION_OPERAND_WIDTH),
@@ -546,15 +546,15 @@ module mor1kx_dmmu_marocchino
     )
     dtlb_match_regs
     (
-      // common clock
-      .clk    (cpu_clk),
       // port "a": 8KB pages
+      .clk_a  (cpu_clk),
       .en_a   (ram_re | dtlb_match_we[i]),
       .we_a   (dtlb_match_we[i]),
       .addr_a (dtlb_match_addr),
       .din_a  (dtlb_match_din),
       .dout_a (dtlb_match_dout[i]),
       // port "b": Huge pages
+      .clk_b  (cpu_clk),
       .en_b   (ram_re | dtlb_match_huge_we),
       .we_b   (dtlb_match_huge_we),
       .addr_b (dtlb_match_huge_addr),
@@ -562,7 +562,7 @@ module mor1kx_dmmu_marocchino
       .dout_b (dtlb_match_huge_dout[i])
     );
 
-    mor1kx_dpram_en_w1st_sclk
+    mor1kx_dpram_en_w1st
     #(
       .ADDR_WIDTH     (OPTION_DMMU_SET_WIDTH),
       .DATA_WIDTH     (OPTION_OPERAND_WIDTH),
@@ -570,15 +570,15 @@ module mor1kx_dmmu_marocchino
     )
     dtlb_trans_regs
     (
-      // common clock
-      .clk    (cpu_clk),
       // port "a": 8KB pages
+      .clk_a  (cpu_clk),
       .en_a   (ram_re | dtlb_trans_we[i]),
       .we_a   (dtlb_trans_we[i]),
       .addr_a (dtlb_trans_addr),
       .din_a  (dtlb_trans_din),
       .dout_a (dtlb_trans_dout[i]),
       // port "b": Huge pages
+      .clk_b  (cpu_clk),
       .en_b   (ram_re | dtlb_trans_huge_we),
       .we_b   (dtlb_trans_huge_we),
       .addr_b (dtlb_trans_huge_addr),
