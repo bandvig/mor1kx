@@ -33,6 +33,8 @@ module mor1kx_fetch_marocchino
 #(
   parameter OPTION_OPERAND_WIDTH        = 32,
   parameter OPTION_RF_ADDR_WIDTH        =  5,
+  // temporary:
+  parameter OPTION_ORFPX64A32_ABI       = "GCC5", // "GCC9" / "GCC5"
   // branch predictor parameters
   parameter GSHARE_BITS_NUM             = 10,
   // cache configuration
@@ -804,16 +806,16 @@ module mor1kx_fetch_marocchino
   // IFETCH output multiplexors //
   //----------------------------//
 
-  assign after_ds_target_o         =   fetch_full_r  ? after_ds_target_p         : s2o_after_ds_target;
-  assign bc_cnt_value_o            =   fetch_full_r  ? bc_cnt_value_p            : s2o_bc_cnt_value;
-  assign bc_cnt_radr_o             =   fetch_full_r  ? bc_cnt_radr_p             : s2o_bc_cnt_radr;
+  assign after_ds_target_o         =   fetch_full_r  ? after_ds_target_p : s2o_after_ds_target;
+  assign bc_cnt_value_o            =   fetch_full_r  ? bc_cnt_value_p    : s2o_bc_cnt_value;
+  assign bc_cnt_radr_o             =   fetch_full_r  ? bc_cnt_radr_p     : s2o_bc_cnt_radr;
   assign fetch_valid_o             =   fetch_full_r  | s3t_imem_or_except;
-  assign fetch_insn_o              =   fetch_full_r  ? fetch_insn_p              : s3t_fetch_insn;
+  assign fetch_insn_o              =   fetch_full_r  ? fetch_insn_p      : s3t_fetch_insn;
   assign fetch_except_ibus_err_o   = (~fetch_full_r) & s2o_ibus_err;
   assign fetch_except_itlb_miss_o  = (~fetch_full_r) & s2o_tlb_miss;
   assign fetch_except_ipagefault_o = (~fetch_full_r) & s2o_pagefault;
   assign fetch_an_except_o         = (~fetch_full_r) & s2o_fetch_an_except;
-  assign pc_fetch_o                =   fetch_full_r  ? pc_fetch_p                : s2o_virt_addr;
+  assign pc_fetch_o                =   fetch_full_r  ? pc_fetch_p        : s2o_virt_addr;
 
 
   //------------------------//
@@ -823,11 +825,21 @@ module mor1kx_fetch_marocchino
   // operand addresses
   assign fetch_rfa1_adr_o = fetch_insn_o[`OR1K_RA_SELECT];
   assign fetch_rfb1_adr_o = fetch_insn_o[`OR1K_RB_SELECT];
-  assign fetch_rfa2_adr_o = fetch_insn_o[`OR1K_RA_SELECT] + 1'b1;
-  assign fetch_rfb2_adr_o = fetch_insn_o[`OR1K_RB_SELECT] + 1'b1;
   // destinaton addresses
   assign fetch_rfd1_adr_o = fetch_insn_o[`OR1K_RD_SELECT];
-  assign fetch_rfd2_adr_o = fetch_insn_o[`OR1K_RD_SELECT] + 1'b1;
+  // temporary:
+  generate
+  if (OPTION_ORFPX64A32_ABI == "GCC9") begin : fpx64a32_abi_gcc9
+    assign fetch_rfa2_adr_o = fetch_insn_o[`OR1K_RA_SELECT] + 2'd2; // ORFPX64A32 ABI GCC9
+    assign fetch_rfb2_adr_o = fetch_insn_o[`OR1K_RB_SELECT] + 2'd2; // ORFPX64A32 ABI GCC9
+    assign fetch_rfd2_adr_o = fetch_insn_o[`OR1K_RD_SELECT] + 2'd2; // ORFPX64A32 ABI GCC9
+  end
+  else begin : fpx64a32_abi_gcc5
+    assign fetch_rfa2_adr_o = fetch_insn_o[`OR1K_RA_SELECT] + 1'b1; // ORFPX64A32 ABI GCC5
+    assign fetch_rfb2_adr_o = fetch_insn_o[`OR1K_RB_SELECT] + 1'b1; // ORFPX64A32 ABI GCC5
+    assign fetch_rfd2_adr_o = fetch_insn_o[`OR1K_RD_SELECT] + 1'b1; // ORFPX64A32 ABI GCC5
+  end
+  endgenerate
 
   // Jump/Branch processing
   wire [`OR1K_OPCODE_WIDTH-1:0] opc_insn = fetch_insn_o[`OR1K_OPCODE_SELECT];

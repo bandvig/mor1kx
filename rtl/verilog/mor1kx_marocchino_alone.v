@@ -32,6 +32,9 @@ module mor1kx_marocchino_alone
 #(
   parameter OPTION_OPERAND_WIDTH        = 32,
 
+  // temporary:
+  parameter OPTION_ORFPX64A32_ABI       = "GCC5", // "GCC9" / "GCC5"
+
   // data cache configuration
   parameter OPTION_DCACHE_BLOCK_WIDTH   =  5,
   parameter OPTION_DCACHE_SET_WIDTH     =  9,
@@ -298,6 +301,8 @@ module mor1kx_marocchino_alone
   mor1kx_cpu_marocchino
   #(
     .OPTION_OPERAND_WIDTH             (OPTION_OPERAND_WIDTH), // CPU
+    // temporary:
+    .OPTION_ORFPX64A32_ABI            (OPTION_ORFPX64A32_ABI), // CPU
     // data cache
     .OPTION_DCACHE_BLOCK_WIDTH        (OPTION_DCACHE_BLOCK_WIDTH), // CPU
     .OPTION_DCACHE_SET_WIDTH          (OPTION_DCACHE_SET_WIDTH), // CPU

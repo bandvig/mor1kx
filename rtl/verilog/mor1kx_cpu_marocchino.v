@@ -25,6 +25,8 @@
 module mor1kx_cpu_marocchino
 #(
   parameter OPTION_OPERAND_WIDTH = 32,
+  // temporary:
+  parameter OPTION_ORFPX64A32_ABI       = "GCC5", // "GCC9" / "GCC5"
   // data cache
   parameter OPTION_DCACHE_BLOCK_WIDTH   = 5,
   parameter OPTION_DCACHE_SET_WIDTH     = 9,
@@ -570,6 +572,8 @@ module mor1kx_cpu_marocchino
   #(
     .OPTION_OPERAND_WIDTH             (OPTION_OPERAND_WIDTH), // FETCH
     .OPTION_RF_ADDR_WIDTH             (OPTION_RF_ADDR_WIDTH), // FETCH
+    // temporary:
+    .OPTION_ORFPX64A32_ABI            (OPTION_ORFPX64A32_ABI), // FETCH
     // branch predictor parameters
     .GSHARE_BITS_NUM                  (GSHARE_BITS_NUM), // FETCH
     // ICACHE configuration
