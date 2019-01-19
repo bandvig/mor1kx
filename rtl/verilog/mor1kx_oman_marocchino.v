@@ -166,7 +166,7 @@ module mor1kx_oman_marocchino
   input                                 dcod_rfd1_we_i,         // instruction generates Write-Back to D1
   input                                 dcod_flag_we_i,         // any instruction which affects comparison flag
   input                                 dcod_delay_slot_i,      // instruction is in delay slot
-  input      [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfd2_adr_i,        // WB2 address for FPU64
+  input      [OPTION_RF_ADDR_WIDTH-1:0] dcod_rfd2_adr_i,        // Write-Back address for FPU64
   input                                 dcod_rfd2_we_i,         // instruction generates Write-Back to D2
   //  part #2: information required for create enable for
   //           for external (timer/ethernet/uart/etc) interrupts
@@ -326,19 +326,19 @@ module mor1kx_oman_marocchino
   //  Instruction is in delay slot
   localparam  OCBTA_DELAY_SLOT_POS     = OCBTA_OP_RFE_POS        + 1;
   //  Instruction generates Write-Back to D1
-  localparam  OCBTA_RFD1_WB_POS        = OCBTA_DELAY_SLOT_POS    + 1;
-  localparam  OCBTA_RFD1_ADR_LSB       = OCBTA_RFD1_WB_POS       + 1;
-  localparam  OCBTA_RFD1_ADR_MSB       = OCBTA_RFD1_WB_POS       + OPTION_RF_ADDR_WIDTH;
+  localparam  OCBTA_RFD1_WRBK_POS      = OCBTA_DELAY_SLOT_POS    + 1;
+  localparam  OCBTA_RFD1_ADR_LSB       = OCBTA_RFD1_WRBK_POS     + 1;
+  localparam  OCBTA_RFD1_ADR_MSB       = OCBTA_RFD1_WRBK_POS     + OPTION_RF_ADDR_WIDTH;
   //  Instruction generates Write-Back to D2
-  localparam  OCBTA_RFD2_WB_POS        = OCBTA_RFD1_ADR_MSB      + 1;
-  localparam  OCBTA_RFD2_ADR_LSB       = OCBTA_RFD2_WB_POS       + 1;
-  localparam  OCBTA_RFD2_ADR_MSB       = OCBTA_RFD2_WB_POS       + OPTION_RF_ADDR_WIDTH;
+  localparam  OCBTA_RFD2_WRBK_POS      = OCBTA_RFD1_ADR_MSB      + 1;
+  localparam  OCBTA_RFD2_ADR_LSB       = OCBTA_RFD2_WRBK_POS     + 1;
+  localparam  OCBTA_RFD2_ADR_MSB       = OCBTA_RFD2_WRBK_POS     + OPTION_RF_ADDR_WIDTH;
   //  Program counter
   localparam  OCBTA_PC_LSB             = OCBTA_RFD2_ADR_MSB      + 1;
   localparam  OCBTA_PC_MSB             = OCBTA_RFD2_ADR_MSB      + OPTION_OPERAND_WIDTH;
   // --- pipeline [C]ontrol flags ---
-  localparam  OCBTC_OP_PUSH_WB_POS     = OCBTA_PC_MSB             + 1;
-  localparam  OCBTC_JUMP_OR_BRANCH_POS = OCBTC_OP_PUSH_WB_POS     + 1;
+  localparam  OCBTC_OP_PUSH_WRBK_POS   = OCBTA_PC_MSB             + 1;
+  localparam  OCBTC_JUMP_OR_BRANCH_POS = OCBTC_OP_PUSH_WRBK_POS   + 1;
   localparam  OCBTC_OP_1CLK_POS        = OCBTC_JUMP_OR_BRANCH_POS + 1;
   localparam  OCBTC_OP_DIV_POS         = OCBTC_OP_1CLK_POS        + 1;
   localparam  OCBTC_OP_MUL_POS         = OCBTC_OP_DIV_POS         + 1;
@@ -616,7 +616,7 @@ module mor1kx_oman_marocchino
     (fpxx_arith_valid_i       &  ocbo[OCBTC_OP_FPXX_ARITH_POS])  | // EXEC VALID
     (fpxx_cmp_valid_i         &  ocbo[OCBTC_OP_FPXX_CMP_POS])    | // EXEC VALID
     (lsu_valid_i              &  ocbo[OCBTC_OP_LS_POS])          | // EXEC VALID
-                                 ocbo[OCBTC_OP_PUSH_WB_POS];       // EXEC VALID
+                                 ocbo[OCBTC_OP_PUSH_WRBK_POS];     // EXEC VALID
 
 
   //-----------------------------//
@@ -1111,8 +1111,8 @@ module mor1kx_oman_marocchino
   wire [OPTION_OPERAND_WIDTH-1:0] pc_exec = ocbo[OCBTA_PC_MSB:OCBTA_PC_LSB];
 
   // instuction requests write-back
-  wire exec_rfd1_we = ocbo[OCBTA_RFD1_WB_POS];
-  wire exec_rfd2_we = ocbo[OCBTA_RFD2_WB_POS];
+  wire exec_rfd1_we = ocbo[OCBTA_RFD1_WRBK_POS];
+  wire exec_rfd2_we = ocbo[OCBTA_RFD2_WRBK_POS];
 
   // destiny addresses
   wire [OPTION_RF_ADDR_WIDTH-1:0] exec_rfd1_adr = ocbo[OCBTA_RFD1_ADR_MSB:OCBTA_RFD1_ADR_LSB];

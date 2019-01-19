@@ -101,7 +101,7 @@ module mor1kx_ctrl_marocchino
   input      [OPTION_OPERAND_WIDTH-1:0] dcod_rfb1_i,  // data for MTSPR
   input                                 dcod_op_mtspr_i,
   input                                 dcod_op_mXspr_i, // (l.mfspr | l.mtspr)
-  //  ## result to WB_MUX
+  //  ## result to WRBK_MUX
   output reg [OPTION_OPERAND_WIDTH-1:0] wrbk_mfspr_result_o,
 
   // Support IBUS error handling in CTRL

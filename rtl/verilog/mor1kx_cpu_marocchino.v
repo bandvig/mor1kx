@@ -2028,8 +2028,8 @@ module mor1kx_cpu_marocchino
     .dcod_rfb1_i                      (dcod_rfb1), // CTRL: data for MTSPR
     .dcod_op_mtspr_i                  (dcod_op_mtspr), // CTRL
     .dcod_op_mXspr_i                  (dcod_op_mXspr), // CTRL
-    //  ## result to WB_MUX
-    .wrbk_mfspr_result_o              (wrbk_mfspr_result), // CTRL: for WB_MUX
+    //  ## result to WRBK_MUX
+    .wrbk_mfspr_result_o              (wrbk_mfspr_result), // CTRL: for WRBK_MUX
 
     // Support IBUS error handling in CTRL
     .wrbk_jump_or_branch_i            (wrbk_jump_or_branch), // CTRL
