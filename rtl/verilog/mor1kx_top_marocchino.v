@@ -1,6 +1,6 @@
 ////////////////////////////////////////////////////////////////////////
 //                                                                    //
-//  mor1kx_marocchino_alone                                           //
+//  mor1kx_top_marocchino                                             //
 //                                                                    //
 //  Description: Top level for stand alone mor1kx with                //
 //               MAROCCHINO pipeline.                                 //
@@ -16,7 +16,7 @@
 //                      Stefan Kristiansson                           //
 //                      stefan.kristiansson@saunalahti.fi             //
 //                                                                    //
-//   Copyright (C) 2015-2018 Andrey Bacherov                          //
+//   Copyright (C) 2015-2019 Andrey Bacherov                          //
 //                           avbacherov@opencores.org                 //
 //                                                                    //
 //      This Source Code Form is subject to the terms of the          //
@@ -28,7 +28,7 @@
 
 `include "mor1kx-defines.v"
 
-module mor1kx_marocchino_alone
+module mor1kx_top_marocchino
 #(
   parameter OPTION_OPERAND_WIDTH        = 32,
 
@@ -405,4 +405,4 @@ module mor1kx_marocchino_alone
     .snoop_en_i               (dbus2cpu_snoop_en) // CPU
   ); // pipe instance
 
-endmodule // mor1kx_marocchino_alone
+endmodule // mor1kx_top_marocchino
