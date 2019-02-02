@@ -438,8 +438,8 @@ module mor1kx_exec_1clk_marocchino
   input                                 exec_op_shift_i,
   input                           [3:0] exec_opc_shift_i,
   // ffl1
-  input                                 exec_op_ffl1_i,
-  input                                 exec_opc_ffl1_i,
+  input                                 exec_op_fl1_i,
+  input                                 exec_op_ff1_i,
   // movhi, cmov
   input                                 exec_op_movhi_i,
   input                                 exec_op_cmov_i,
@@ -521,17 +521,16 @@ module mor1kx_exec_1clk_marocchino
   wire adder_u_ovf = adder_carryout;
 
 
-  //------//
-  // FFL1 //
-  //------//
-  reg  [5:0] fl1_r;
-  reg  [5:0] ff1_r;
+  //-----//
+  // FL1 //
+  //-----//
+  wire [EXEDW-1:0] fl1_a1 = {EXEDW{exec_op_fl1_i}} & exec_1clk_a1_m;
+  reg        [5:0] fl1_r;
+  wire [EXEDW-1:0] fl1_result = {{(EXEDW-6){1'b0}}, fl1_r};
   // ---
-  wire [EXEDW-1:0] ffl1_result = {{(EXEDW-6){1'b0}}, (exec_opc_ffl1_i ? fl1_r : ff1_r)};
-  // ---
-  always @(exec_1clk_a1_m) begin
+  always @(fl1_a1) begin
     // synthesis parallel_case
-    casez  (exec_1clk_a1_m)
+    casez  (fl1_a1)
       32'b1???????????????????????????????: fl1_r = 6'd32;
       32'b01??????????????????????????????: fl1_r = 6'd31;
       32'b001?????????????????????????????: fl1_r = 6'd30;
@@ -566,8 +565,19 @@ module mor1kx_exec_1clk_marocchino
       32'b00000000000000000000000000000001: fl1_r = 6'd1;
       32'b00000000000000000000000000000000: fl1_r = 6'd0;
     endcase
+  end
+
+
+  //-----//
+  // FF1 //
+  //-----//
+  wire [EXEDW-1:0] ff1_a1 = {EXEDW{exec_op_ff1_i}} & exec_1clk_a1_m;
+  reg        [5:0] ff1_r;
+  wire [EXEDW-1:0] ff1_result = {{(EXEDW-6){1'b0}}, ff1_r};
+  // ---
+  always @(ff1_a1) begin
     // synthesis parallel_case
-    casez  (exec_1clk_a1_m)
+    casez  (ff1_a1)
       32'b10000000000000000000000000000000: ff1_r = 6'd32;
       32'b?1000000000000000000000000000000: ff1_r = 6'd31;
       32'b??100000000000000000000000000000: ff1_r = 6'd30;
@@ -691,16 +701,23 @@ module mor1kx_exec_1clk_marocchino
   end
 
 
+  //---------//
+  // l.movhi //
+  //---------//
+  wire [EXEDW-1:0] movhi_result = {EXEDW{exec_op_movhi_i}} & exec_1clk_b1_i;
+
+
   //------------------------------------------------------------------//
   // Muxing and registering 1-clk results and integer comparison flag //
   //------------------------------------------------------------------//
   wire [EXEDW-1:0] u_1clk_result_mux = shift_result |
-                                       ({EXEDW{exec_op_ffl1_i}}  & ffl1_result    ) |
+                                       fl1_result   |
+                                       ff1_result   |
                                        ({EXEDW{exec_op_add_i}}   & adder_result   ) |
                                        logic_result |
                                        cmov_result  |
                                        extsz_result |
-                                       ({EXEDW{exec_op_movhi_i}} & exec_1clk_b1_m );
+                                       movhi_result;
 
   //-------------------------------------//
   // update carry flag by 1clk-operation //
