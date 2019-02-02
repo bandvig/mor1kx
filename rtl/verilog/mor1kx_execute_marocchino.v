@@ -524,7 +524,6 @@ module mor1kx_exec_1clk_marocchino
   //------//
   // FFL1 //
   //------//
-  // l.fl1
   reg  [5:0] fl1_r;
   reg  [5:0] ff1_r;
   // ---
@@ -609,7 +608,6 @@ module mor1kx_exec_1clk_marocchino
   //----------------//
   // Barrel shifter //
   //----------------//
-
   // Bit-reverse on left shift, perform right shift,
   // bit-reverse result on left shift.
 
@@ -623,13 +621,22 @@ module mor1kx_exec_1clk_marocchino
   wire   [EXEDW-1:0] shift_msw;
   wire [EXEDW*2-1:0] shift_wide;
 
+  wire   [EXEDW-1:0] exec_op_shift;
+  wire   [EXEDW-1:0] shift_a1;
+  wire         [4:0] shift_b1;
+
   wire   [EXEDW-1:0] shift_result;
 
-  assign shift_lsw =  op_sll ? reverse(exec_1clk_a1_m) : exec_1clk_a1_m;
-  assign shift_msw =  op_sra ? {EXEDW{exec_1clk_a1_m[EXEDW-1]}} :
-                     (op_ror ? exec_1clk_a1_m : {EXEDW{1'b0}});
+  assign exec_op_shift = {EXEDW{exec_op_shift_i}};
 
-  assign shift_wide   = {shift_msw, shift_lsw} >> exec_1clk_b1_m[4:0];
+  assign shift_a1 = exec_op_shift & exec_1clk_a1_m;
+  assign shift_b1 = exec_op_shift[4:0] & exec_1clk_b1_m[4:0];
+
+  assign shift_lsw =  op_sll ? reverse(shift_a1) : shift_a1;
+  assign shift_msw =  op_sra ? {EXEDW{shift_a1[EXEDW-1]}} :
+                     (op_ror ? shift_a1 : {EXEDW{1'b0}});
+
+  assign shift_wide   = {shift_msw, shift_lsw} >> shift_b1;
   assign shift_right  = shift_wide[EXEDW-1:0];
   assign shift_result = op_sll ? reverse(shift_right) : shift_right;
 
@@ -637,28 +644,33 @@ module mor1kx_exec_1clk_marocchino
   //------------------//
   // Conditional move //
   //------------------//
+  wire [EXEDW-1:0] exec_op_cmov = {EXEDW{exec_op_cmov_i}};
+  wire [EXEDW-1:0] cmov_a1      = exec_op_cmov & exec_1clk_a1_m;
+  wire [EXEDW-1:0] cmov_b1      = exec_op_cmov & exec_1clk_b1_m;
   wire [EXEDW-1:0] cmov_result;
-  assign cmov_result = flag_i ? exec_1clk_a1_m : exec_1clk_b1_m;
+  // ---
+  assign cmov_result = flag_i ? cmov_a1 : cmov_b1;
 
 
   //----------------------------------------//
   // Sign/Zero exentions for 8- and 16-bits //
   //----------------------------------------//
-  reg [EXEDW-1:0] extsz_result;
+  wire [EXEDW-1:0] extsz_a1 = {EXEDW{exec_op_extsz_i}} & exec_1clk_a1_m;
+  reg  [EXEDW-1:0] extsz_result;
   // ---
-  always @(exec_opc_extsz_i or exec_1clk_a1_m) begin
+  always @(exec_opc_extsz_i or extsz_a1) begin
     // synthesis parallel_case
     case (exec_opc_extsz_i)
       {1'b0,`OR1K_ALU_OPC_SECONDARY_EXTBH_EXTBS}:
-        extsz_result = {{(EXEDW-8){exec_1clk_a1_m[7]}}, exec_1clk_a1_m[7:0]};
+        extsz_result = {{(EXEDW-8){extsz_a1[7]}}, extsz_a1[7:0]};
       {1'b0,`OR1K_ALU_OPC_SECONDARY_EXTBH_EXTBZ}:
-        extsz_result = {{(EXEDW-8){1'b0}}, exec_1clk_a1_m[7:0]};
+        extsz_result = {{(EXEDW-8){1'b0}}, extsz_a1[7:0]};
       {1'b0,`OR1K_ALU_OPC_SECONDARY_EXTBH_EXTHS}:
-        extsz_result = {{(EXEDW-16){exec_1clk_a1_m[15]}}, exec_1clk_a1_m[15:0]};
+        extsz_result = {{(EXEDW-16){extsz_a1[15]}}, extsz_a1[15:0]};
       {1'b0,`OR1K_ALU_OPC_SECONDARY_EXTBH_EXTHZ}:
-        extsz_result = {{(EXEDW-16){1'b0}}, exec_1clk_a1_m[15:0]};
+        extsz_result = {{(EXEDW-16){1'b0}}, extsz_a1[15:0]};
       default:
-        extsz_result = exec_1clk_a1_m;
+        extsz_result = extsz_a1;
     endcase
   end
 
@@ -666,13 +678,15 @@ module mor1kx_exec_1clk_marocchino
   //--------------------//
   // Logical operations //
   //--------------------//
-  // Logic result
+  wire [EXEDW-1:0] exec_op_logic = {EXEDW{exec_op_logic_i}};
+  wire [EXEDW-1:0] logic_a1      = exec_op_logic & exec_1clk_a1_m;
+  wire [EXEDW-1:0] logic_b1      = exec_op_logic & exec_1clk_b1_m;
   reg  [EXEDW-1:0] logic_result;
   // Extract the result, bit-for-bit, from the look-up-table
   integer i;
-  always @(exec_lut_logic_i or exec_1clk_a1_m or exec_1clk_b1_m) begin
+  always @(exec_lut_logic_i or logic_a1 or logic_b1) begin
     for (i = 0; i < EXEDW; i=i+1) begin
-      logic_result[i] = exec_lut_logic_i[{exec_1clk_a1_m[i], exec_1clk_b1_m[i]}];
+      logic_result[i] = exec_lut_logic_i[{logic_a1[i], logic_b1[i]}];
     end
   end
 
@@ -680,12 +694,12 @@ module mor1kx_exec_1clk_marocchino
   //------------------------------------------------------------------//
   // Muxing and registering 1-clk results and integer comparison flag //
   //------------------------------------------------------------------//
-  wire [EXEDW-1:0] u_1clk_result_mux = ({EXEDW{exec_op_shift_i}} & shift_result   ) |
+  wire [EXEDW-1:0] u_1clk_result_mux = shift_result |
                                        ({EXEDW{exec_op_ffl1_i}}  & ffl1_result    ) |
                                        ({EXEDW{exec_op_add_i}}   & adder_result   ) |
-                                       ({EXEDW{exec_op_logic_i}} & logic_result   ) |
-                                       ({EXEDW{exec_op_cmov_i}}  & cmov_result    ) |
-                                       ({EXEDW{exec_op_extsz_i}} & extsz_result   ) |
+                                       logic_result |
+                                       cmov_result  |
+                                       extsz_result |
                                        ({EXEDW{exec_op_movhi_i}} & exec_1clk_b1_m );
 
   //-------------------------------------//
