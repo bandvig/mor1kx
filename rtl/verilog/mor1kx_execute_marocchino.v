@@ -503,22 +503,25 @@ module mor1kx_exec_1clk_marocchino
   //------------------//
   // outputs
   wire             adder_carryout;
-  wire [EXEDW-1:0] adder_result;
+  wire [EXEDW-1:0] adder_d1;     // used internally also for integer comparison computation
+  wire [EXEDW-1:0] adder_result; // for output mux
   // inputs
   wire [EXEDW-1:0] b_mux = {EXEDW{exec_adder_do_sub_i}} ^ exec_1clk_b1_m; // inverse for l.sub
   wire carry_in = exec_adder_do_sub_i | (exec_adder_do_carry_i & carry_i);
   // Adder
-  assign {adder_carryout, adder_result} =
+  assign {adder_carryout, adder_d1} =
            exec_1clk_a1_m + b_mux + {{(EXEDW-1){1'b0}},carry_in};
   // result sign
-  wire adder_result_sign = adder_result[EXEDW-1];
+  wire adder_d1_sign = adder_d1[EXEDW-1];
   // signed overflow detection
   // Input signs are same and result sign is different to input signs
   wire adder_s_ovf =
          (exec_1clk_a1_m[EXEDW-1] == b_mux[EXEDW-1]) &
-         (exec_1clk_a1_m[EXEDW-1] ^ adder_result[EXEDW-1]);
+         (exec_1clk_a1_m[EXEDW-1] ^ adder_d1_sign);
   // unsigned overflow detection
   wire adder_u_ovf = adder_carryout;
+  // for output mux
+  assign adder_result = {EXEDW{exec_op_add_i}} & adder_d1;
 
 
   //-----//
@@ -713,7 +716,7 @@ module mor1kx_exec_1clk_marocchino
   wire [EXEDW-1:0] u_1clk_result_mux = shift_result |
                                        fl1_result   |
                                        ff1_result   |
-                                       ({EXEDW{exec_op_add_i}}   & adder_result   ) |
+                                       adder_result |
                                        logic_result |
                                        cmov_result  |
                                        extsz_result |
@@ -735,9 +738,9 @@ module mor1kx_exec_1clk_marocchino
   //--------------------------//
   // Integer comparison logic //
   //--------------------------//
-  wire a_eq_b  = (adder_result == {EXEDW{1'b0}}); // Equal compare
-  wire a_lts_b = (adder_result_sign ^ adder_s_ovf); // Signed compare (sign != ovf)
-  wire a_ltu_b = ~adder_carryout; // Unsigned compare
+  wire a_eq_b  = (adder_d1 == {EXEDW{1'b0}}); // A1 == B1
+  wire a_lts_b = (adder_d1_sign ^ adder_s_ovf); // For signed compare (sign != ovf)
+  wire a_ltu_b = (~adder_carryout); // For unsigned compare
   // comb.
   reg flag_set;
   always @(exec_opc_setflag_i or a_eq_b or a_lts_b or a_ltu_b) begin
