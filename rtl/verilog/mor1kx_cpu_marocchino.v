@@ -501,8 +501,6 @@ module mor1kx_cpu_marocchino
   wire dcod_except_illegal;
   wire dcod_except_syscall;
   wire dcod_except_trap;
-  // Enable l.trap exception
-  wire du_trap_enable;
   // Exceptions: pre-Write-Back DECODE exceptions (OMAN output)
   wire exec_except_illegal;
   wire exec_except_syscall;
@@ -975,8 +973,6 @@ module mor1kx_cpu_marocchino
     .dcod_op_mtspr_o                  (dcod_op_mtspr), // DECODE
     .dcod_op_mXspr_o                  (dcod_op_mXspr), // DECODE
     // Exception flags
-    //  ## enable l.trap exception
-    .du_trap_enable_i                 (du_trap_enable), // DECODE
     //  ## outcome exception flags
     .dcod_except_illegal_o            (dcod_except_illegal), // DECODE
     .dcod_except_syscall_o            (dcod_except_syscall), // DECODE
@@ -2142,8 +2138,6 @@ module mor1kx_cpu_marocchino
     // Stall control from debug interface
     .du_stall_i                       (du_stall_i), // CTRL
     .du_stall_o                       (du_stall_o), // CTRL
-    // Enable l.trap exception
-    .du_trap_enable_o                 (du_trap_enable), // CTRL
 
     // SPR accesses to external units (cache, mmu, etc.)
     .spr_bus_addr_o                   (spr_bus_addr_o), // CTRL
