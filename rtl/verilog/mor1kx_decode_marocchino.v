@@ -130,8 +130,8 @@ module mor1kx_decode_marocchino
   output reg                            dcod_op_shift_o,
   output reg                      [3:0] dcod_opc_shift_o, // {SLL, SRL, SRA, ROR}
   // ffl1
-  output reg                            dcod_op_fl1_o,
-  output reg                            dcod_op_ff1_o,
+  output reg                            dcod_op_ffl1_o,
+  output reg                            dcod_opc_ffl1_o,
   // movhi, cmov
   output reg                            dcod_op_movhi_o,
   output reg                            dcod_op_cmov_o,
@@ -316,9 +316,8 @@ module mor1kx_decode_marocchino
 
 
   // --- ffl1 ---
-  wire op_ffl1 = op_alu  & (opc_alu  == `OR1K_ALU_OPC_FFL1);
-  wire op_fl1  = op_ffl1 &   fetch_insn_i[8];
-  wire op_ff1  = op_ffl1 & (~fetch_insn_i[8]);
+  wire op_ffl1  = op_alu & (opc_alu  == `OR1K_ALU_OPC_FFL1);
+  wire opc_ffl1 = fetch_insn_i[8];
 
 
   // --- movhi / cmov ---
@@ -856,8 +855,8 @@ module mor1kx_decode_marocchino
                                     (opc_shift == `OR1K_ALU_OPC_SECONDARY_SHRT_SRA),
                                     (opc_shift == `OR1K_ALU_OPC_SECONDARY_SHRT_ROR)};
       // ffl
-      dcod_op_fl1_o             <= op_fl1;
-      dcod_op_ff1_o             <= op_ff1;
+      dcod_op_ffl1_o            <= op_ffl1;
+      dcod_opc_ffl1_o           <= opc_ffl1;
       // movhi, cmov
       dcod_op_movhi_o           <= op_movhi;
       dcod_op_cmov_o            <= op_cmov;

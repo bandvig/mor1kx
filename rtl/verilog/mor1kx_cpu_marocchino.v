@@ -351,8 +351,8 @@ module mor1kx_cpu_marocchino
   wire                            dcod_op_shift;
   wire                      [3:0] dcod_opc_shift; // {SLL, SRL, SRA, ROR}
 
-  wire                            dcod_op_fl1;
-  wire                            dcod_op_ff1;
+  wire                            dcod_op_ffl1;
+  wire                            dcod_opc_ffl1;
 
   wire                            dcod_op_movhi;
   wire                            dcod_op_cmov;
@@ -564,8 +564,13 @@ module mor1kx_cpu_marocchino
   reg  wrbk_an_except_r;
 
   // Bench monitoring
+ `ifndef SYNTHESIS
+  // synthesis translate_off
+  localparam MONITOR_INSN_MEM_WIDTH = `OR1K_INSN_WIDTH + OPTION_OPERAND_WIDTH;
+  localparam MONITOR_NUM_EXTADR     = (1 << DEST_EXTADR_WIDTH);
+
   wire     [`OR1K_INSN_WIDTH-1:0] monitor_execute_insn/* verilator public */;
-  wire                            monitor_execute_advance/* verilator public */;
+  reg                             monitor_execute_advance/* verilator public */;
   wire                            monitor_flag_set/* verilator public */;
   wire                            monitor_flag_clear/* verilator public */;
   wire                            monitor_flag_sr/* verilator public */;
@@ -578,6 +583,11 @@ module mor1kx_cpu_marocchino
   wire [OPTION_OPERAND_WIDTH-1:0] monitor_spr_eear/* verilator public */;
   wire [OPTION_OPERAND_WIDTH-1:0] monitor_spr_esr/* verilator public */;
   wire                            monitor_branch_mispredict/* verilator public */;
+
+  // Register array to store what is in the OCB.
+  reg  [MONITOR_INSN_MEM_WIDTH-1:0] monitor_insn_mem [0:MONITOR_NUM_EXTADR-1];
+  // synthesis translate_on
+ `endif // !synth
 
   //----------------------------//
   // Instruction FETCH instance //
@@ -764,14 +774,27 @@ module mor1kx_cpu_marocchino
 
  `ifndef SYNTHESIS
   // synthesis translate_off
-  /* Debug signals required for the debug monitor */
+  // Debug signals required for the debug monitor
+
+  // The write back signal retires an instruction from the execution stage.
+  // We want to report the insn executed inline with the next stage,
+  // register write back, so delay by 1 clock.
+  always @(posedge cpu_clk) begin
+    monitor_execute_advance <= padv_wrbk;
+  end
+
+  // Store the executing PC and INSN for extracting later.
+  always @(posedge cpu_clk) begin
+   if (padv_exec)
+     monitor_insn_mem[dcod_extadr] <= { u_fetch.pc_fetch_p, u_fetch.fetch_insn_p };
+  end
+
   assign monitor_flag = monitor_flag_set ? 1 :
                         monitor_flag_clear ? 0 :
                         monitor_flag_sr;
 
   assign monitor_clk               = cpu_clk;
-  assign monitor_execute_insn      = u_fetch.fetch_insn_o;
-  assign monitor_execute_advance   = u_oman.exec_valid_o;
+  assign monitor_execute_insn      = monitor_insn_mem[wrbk_extadr][`OR1K_INSN_WIDTH-1:0];
   assign monitor_flag_set          = u_ctrl.wrbk_1clk_flag_set_i;
   assign monitor_flag_clear        = u_ctrl.wrbk_1clk_flag_clear_i;
   assign monitor_flag_sr           = u_ctrl.ctrl_flag_sr_o;
@@ -779,7 +802,7 @@ module mor1kx_cpu_marocchino
                                       // Use the locally calculated flag value
                                       monitor_flag,
                                       u_ctrl.spr_sr[`OR1K_SPR_SR_F-1:0]};
-  assign monitor_execute_pc        = u_ctrl.spr_ppc;
+  assign monitor_execute_pc        = monitor_insn_mem[wrbk_extadr][MONITOR_INSN_MEM_WIDTH-1:MONITOR_INSN_MEM_WIDTH-OPTION_OPERAND_WIDTH];
   assign monitor_rf_result_in      = wrbk_result1;
   assign monitor_spr_esr           = {16'd0,u_ctrl.spr_esr};
   assign monitor_spr_epcr          = u_ctrl.spr_epcr;
@@ -818,7 +841,6 @@ module mor1kx_cpu_marocchino
   endtask
   // synthesis translate_on
  `endif
-
 
   //--------//
   // DECODE //
@@ -911,8 +933,8 @@ module mor1kx_cpu_marocchino
     .dcod_op_shift_o                  (dcod_op_shift), // DECODE
     .dcod_opc_shift_o                 (dcod_opc_shift), // DECODE
     // ffl1
-    .dcod_op_fl1_o                    (dcod_op_fl1), // DECODE
-    .dcod_op_ff1_o                    (dcod_op_ff1), // DECODE
+    .dcod_op_ffl1_o                   (dcod_op_ffl1), // DECODE
+    .dcod_opc_ffl1_o                  (dcod_opc_ffl1), // DECODE
     // movhi, cmov
     .dcod_op_movhi_o                  (dcod_op_movhi), // DECODE
     .dcod_op_cmov_o                   (dcod_op_cmov), // DECODE
@@ -1166,8 +1188,7 @@ module mor1kx_cpu_marocchino
   //--------------------//
 
   // instructions per 1-clock sub-unit
-  wire                           exec_op_fl1;
-  wire                           exec_op_ff1;
+  wire                           exec_op_ffl1;
   wire                           exec_op_add;
   wire                           exec_op_shift;
   wire                           exec_op_movhi;
@@ -1176,18 +1197,19 @@ module mor1kx_cpu_marocchino
   wire                           exec_op_logic;
   wire                           exec_op_setflag;
   // all of earlier components:
-  localparam ONE_CLK_OP_WIDTH = 9;
+  localparam ONE_CLK_OP_WIDTH = 8;
 
   //  # attributes
   wire                            exec_flag_carry_req;
   wire                            exec_adder_do_sub;
   wire                            exec_adder_do_carry;
+  wire                            exec_opc_ffl1;
   wire                      [3:0] exec_opc_shift; // {SLL, SRL, SRA, ROR}
   wire                      [3:0] exec_opc_extsz;
   wire                      [3:0] exec_lut_logic;
   wire [`OR1K_COMP_OPC_WIDTH-1:0] exec_opc_setflag;
   // attributes include all of earlier components:
-  localparam ONE_CLK_OPC_WIDTH = 15 + `OR1K_COMP_OPC_WIDTH;
+  localparam ONE_CLK_OPC_WIDTH = 16 + `OR1K_COMP_OPC_WIDTH;
 
   // flags for in-1clk-unit forwarding multiplexors
   wire                            exec_1clk_ff_d1a1;
@@ -1239,22 +1261,20 @@ module mor1kx_cpu_marocchino
     .wrbk_result1_i             (wrbk_result1), // 1CLK_RSVRS
     .wrbk_result2_i             (wrbk_result2), // 1CLK_RSVRS
     // command and its additional attributes
-    .dcod_op_i                  ({dcod_op_fl1, dcod_op_ff1, dcod_op_add, // 1CLK_RSVRS
-                                  dcod_op_shift, dcod_op_movhi, dcod_op_cmov, // 1CLK_RSVRS
-                                  dcod_op_extsz, dcod_op_logic, dcod_op_setflag}), // 1CLK_RSVRS
+    .dcod_op_i                  ({dcod_op_ffl1, dcod_op_add, dcod_op_shift, dcod_op_movhi, // 1CLK_RSVRS
+                                  dcod_op_cmov, dcod_op_extsz, dcod_op_logic, dcod_op_setflag}), // 1CLK_RSVRS
     .dcod_opc_i                 ({dcod_flag_carry_req, // 1CLK_RSVRS
                                   dcod_adder_do_sub, dcod_adder_do_carry, // 1CLK_RSVRS
-                                  dcod_opc_shift, dcod_opc_extsz, // 1CLK_RSVRS
+                                  dcod_opc_ffl1, dcod_opc_shift, dcod_opc_extsz, // 1CLK_RSVRS
                                   dcod_lut_logic, dcod_opc_setflag}), // 1CLK_RSVRS
     // outputs
     //   command and its additional attributes
     .exec_op_any_o              (exec_op_1clk), // 1CLK_RSVRS
-    .exec_op_o                  ({exec_op_fl1, exec_op_ff1, exec_op_add, // 1CLK_RSVRS
-                                  exec_op_shift, exec_op_movhi, exec_op_cmov, // 1CLK_RSVRS
-                                  exec_op_extsz, exec_op_logic, exec_op_setflag}), // 1CLK_RSVRS
+    .exec_op_o                  ({exec_op_ffl1, exec_op_add, exec_op_shift, exec_op_movhi, // 1CLK_RSVRS
+                                  exec_op_cmov, exec_op_extsz, exec_op_logic, exec_op_setflag}), // 1CLK_RSVRS
     .exec_opc_o                 ({exec_flag_carry_req, // 1CLK_RSVRS
                                   exec_adder_do_sub, exec_adder_do_carry, // 1CLK_RSVRS
-                                  exec_opc_shift, exec_opc_extsz, // 1CLK_RSVRS
+                                  exec_opc_ffl1, exec_opc_shift, exec_opc_extsz, // 1CLK_RSVRS
                                   exec_lut_logic, exec_opc_setflag}), // 1CLK_RSVRS
     //   flags for in-1clk-unit forwarding multiplexors
     .exec_1clk_ff_d1a1_o        (exec_1clk_ff_d1a1), // 1CLK_RSVRS
@@ -1308,8 +1328,8 @@ module mor1kx_cpu_marocchino
     .exec_op_shift_i                  (exec_op_shift), // 1CLK_EXEC
     .exec_opc_shift_i                 (exec_opc_shift), // 1CLK_EXEC
     // ffl1
-    .exec_op_fl1_i                    (exec_op_fl1), // 1CLK_EXEC
-    .exec_op_ff1_i                    (exec_op_ff1), // 1CLK_EXEC
+    .exec_op_ffl1_i                   (exec_op_ffl1), // 1CLK_EXEC
+    .exec_opc_ffl1_i                  (exec_opc_ffl1), // 1CLK_EXEC
     // movhi, cmov
     .exec_op_movhi_i                  (exec_op_movhi), // 1CLK_EXEC
     .exec_op_cmov_i                   (exec_op_cmov), // 1CLK_EXEC
