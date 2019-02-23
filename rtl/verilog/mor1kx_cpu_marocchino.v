@@ -270,11 +270,10 @@ module mor1kx_cpu_marocchino
 
 
   // Write-Back-controls for RF
-  wire             [NUM_GPRS-1:0] wrbk_rfd1_we1h;
   wire                            wrbk_rfd1_we;
   wire [OPTION_RF_ADDR_WIDTH-1:0] wrbk_rfd1_adr;
   // for FPU64:
-  wire             [NUM_GPRS-1:0] wrbk_rfd2_we1h;
+  wire                            wrbk_rfdx_we;
   wire                            wrbk_rfd2_we;
   wire [OPTION_RF_ADDR_WIDTH-1:0] wrbk_rfd2_adr;
 
@@ -584,6 +583,7 @@ module mor1kx_cpu_marocchino
 
   // Register array to store what is in the OCB.
   reg  [MONITOR_INSN_MEM_WIDTH-1:0] monitor_insn_mem [0:MONITOR_NUM_EXTADR-1];
+  reg       [DEST_EXTADR_WIDTH-1:0] monitor_extadr;
   // synthesis translate_on
  `endif // !synth
 
@@ -745,21 +745,21 @@ module mor1kx_cpu_marocchino
     .dcod_immediate_sel_i             (dcod_immediate_sel), // RF
     .dcod_rfa1_adr_i                  (dcod_rfa1_adr), // RF
     .dcod_rfb1_adr_i                  (dcod_rfb1_adr), // RF
+    // # for FPU64
     .dcod_rfa2_adr_i                  (dcod_rfa2_adr), // RF
     .dcod_rfb2_adr_i                  (dcod_rfb2_adr), // RF
     // from Write-Back
-    .wrbk_rfd1_we1h_i                 (wrbk_rfd1_we1h), // RF
     .wrbk_rfd1_we_i                   (wrbk_rfd1_we), // RF
     .wrbk_rfd1_adr_i                  (wrbk_rfd1_adr), // RF
     .wrbk_result1_i                   (wrbk_result1), // RF
-    // for FPU64
-    .wrbk_rfd2_we1h_i                 (wrbk_rfd2_we1h), // RF
+    // # for FPU64
     .wrbk_rfd2_we_i                   (wrbk_rfd2_we), // RF
     .wrbk_rfd2_adr_i                  (wrbk_rfd2_adr), // RF
     .wrbk_result2_i                   (wrbk_result2), // RF
     // Operands
     .dcod_rfa1_o                      (dcod_rfa1), // RF
     .dcod_rfb1_o                      (dcod_rfb1), // RF
+    // # for FPU64
     .dcod_rfa2_o                      (dcod_rfa2), // RF
     .dcod_rfb2_o                      (dcod_rfb2), // RF
     // we use adder for l.jl/l.jalr to compute return address: (pc+8)
@@ -787,12 +787,17 @@ module mor1kx_cpu_marocchino
      monitor_insn_mem[dcod_extadr] <= { u_fetch.pc_fetch_p, u_fetch.fetch_insn_p };
   end
 
+  always @(posedge cpu_clk) begin
+   if (padv_wrbk)
+     monitor_extadr <= u_oman.exec_extadr;
+  end
+
   assign monitor_flag = monitor_flag_set ? 1 :
                         monitor_flag_clear ? 0 :
                         monitor_flag_sr;
 
   assign monitor_clk               = cpu_clk;
-  assign monitor_execute_insn      = monitor_insn_mem[wrbk_extadr][`OR1K_INSN_WIDTH-1:0];
+  assign monitor_execute_insn      = monitor_insn_mem[monitor_extadr][`OR1K_INSN_WIDTH-1:0];
   assign monitor_flag_set          = u_ctrl.wrbk_1clk_flag_set_i;
   assign monitor_flag_clear        = u_ctrl.wrbk_1clk_flag_clear_i;
   assign monitor_flag_sr           = u_ctrl.ctrl_flag_sr_o;
@@ -800,7 +805,7 @@ module mor1kx_cpu_marocchino
                                       // Use the locally calculated flag value
                                       monitor_flag,
                                       u_ctrl.spr_sr[`OR1K_SPR_SR_F-1:0]};
-  assign monitor_execute_pc        = monitor_insn_mem[wrbk_extadr][MONITOR_INSN_MEM_WIDTH-1:MONITOR_INSN_MEM_WIDTH-OPTION_OPERAND_WIDTH];
+  assign monitor_execute_pc        = monitor_insn_mem[monitor_extadr][MONITOR_INSN_MEM_WIDTH-1:MONITOR_INSN_MEM_WIDTH-OPTION_OPERAND_WIDTH];
   assign monitor_rf_result_in      = wrbk_result1;
   assign monitor_spr_esr           = {16'd0,u_ctrl.spr_esr};
   assign monitor_spr_epcr          = u_ctrl.spr_epcr;
@@ -821,7 +826,7 @@ module mor1kx_cpu_marocchino
     else if ((wrbk_rfd2_adr == gpr_num[4:0]) & wrbk_rfd2_we)
       get_gpr = wrbk_result2;
     else
-      get_gpr = u_rf.gpr0_rdata_bus[gpr_num];
+      get_gpr = u_rf.u_ram_a1.mem[gpr_num];
     end
   endfunction // get_gpr
 
@@ -1163,10 +1168,9 @@ module mor1kx_cpu_marocchino
 
     // Write-Back outputs
     //  ## special Write-Back-controls for RF
-    .wrbk_rfd1_we1h_o           (wrbk_rfd1_we1h), // OMAN
     .wrbk_rfd1_we_o             (wrbk_rfd1_we), // OMAN
     .wrbk_rfd1_adr_o            (wrbk_rfd1_adr), // OMAN
-    .wrbk_rfd2_we1h_o           (wrbk_rfd2_we1h), // OMAN
+    .wrbk_rfdx_we_o             (wrbk_rfdx_we), // OMAN
     .wrbk_rfd2_we_o             (wrbk_rfd2_we), // OMAN
     .wrbk_rfd2_adr_o            (wrbk_rfd2_adr), // OMAN
     //  ## instruction related information
@@ -2093,6 +2097,7 @@ module mor1kx_cpu_marocchino
     .dcod_free_i                      (dcod_free), // CTRL
     .ocb_full_i                       (ocb_full), // CTRL
     .ocb_empty_i                      (ocb_empty), // CTRL
+    .wrbk_rfdx_we_i                   (wrbk_rfdx_we), // CTRL
     .dcod_op_1clk_i                   (dcod_op_1clk), // CTRL
     .op_1clk_free_i                   (op_1clk_free), // CTRL
     .padv_1clk_rsrvs_o                (padv_1clk_rsrvs), // CTRL
